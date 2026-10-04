@@ -23,6 +23,8 @@ deny list, mirror these entries there as mechanical enforcement:
   history" below
 - `git reflog expire`
 - `git gc` with `--prune`
+- a direct change to a `state:`, `shaping:` or `review:` label, in the
+  spellings listed under "Changing a piece's state by hand" below
 
 The following restrictions do not reduce to one reliable command pattern and
 still apply:
@@ -147,6 +149,81 @@ These spellings are not refused, and the rule above still forbids them:
 - `/bin/rm -r build`, with `rm` called by its full path
 - `sh -c 'rm -r build'`, with the delete inside another shell
 - `git -C . gc --prune=now`, with an option between `git` and `gc`
+
+## Changing a piece's state by hand
+
+A piece's state lives in its `state:`, `shaping:` and `review:` labels, and
+only the gate script, `.agents/tools/gate.py`, changes them. It checks that
+the move is allowed before it writes. The Claude Code settings the kit
+installs run a hook, `.agents/hooks/state-guard.sh`, before each command and
+each GitHub tool call, and carry deny rules that read the command as written.
+Both refuse a direct change to one of those labels, and the hook names the
+gate command to run instead. Run that command. If the gate refuses the move
+too, tell the person what it said and stop that move. Never reach the same
+change another way: another spelling, a script, the GitHub API, or a GitHub
+tool in place of `gh`.
+
+These spellings are refused by the hook and by the deny rules:
+
+- `gh issue edit 12 --add-label state:ready`,
+  `gh issue edit 12 --add-label shaping:spec` and
+  `gh issue edit 12 --add-label review:person`
+- `gh issue edit 12 --remove-label state:building`,
+  `gh issue edit 12 --remove-label shaping:raw` and
+  `gh issue edit 12 --remove-label review:auto`
+- `gh issue edit 12 --add-label state:ready,type:bug`, with the state label
+  first in the list
+- `gh issue create --title "Login" --label state:shaping`,
+  `gh issue create --title "Login" --label shaping:raw` and
+  `gh issue create --title "Login" --label review:person`
+- `gh label create state:done`, `gh label create shaping:later` and
+  `gh label create review:team`
+- `gh label edit state:ready --color 000000`,
+  `gh label edit shaping:spec --color 000000` and
+  `gh label edit review:auto --color 000000`
+- `gh label delete state:ready`, `gh label delete shaping:raw` and
+  `gh label delete review:person`
+- `gh api repos/o/r/issues/12/labels -f "labels[]=state:ready"` and
+  `gh api -X DELETE repos/o/r/issues/12/labels/state:ready`
+
+The hook refuses these spellings, and the deny rules miss them:
+
+- `gh issue edit 12 --add-label "state:ready"` and
+  `gh issue edit 12 --add-label 'state:ready'`, with quotes
+- `gh issue edit 12 --add-label type:bug,state:ready` and
+  `gh issue edit 12 --add-label "type:bug, state:ready"`, with the state label
+  later in the list
+- `gh issue edit 12 --add-label=state:ready`, with an equals sign
+- `gh issue edit --add-label state:ready 12`, with the number last
+- `gh issue create --title "Login" -l state:shaping`, with the short option
+- `gh label delete "state:ready"`, with quotes
+- `/opt/homebrew/bin/gh issue edit 12 --add-label state:ready`, with `gh`
+  called by its full path
+- `sh -c 'gh issue edit 12 --add-label state:ready'`, inside another shell
+- a GitHub tool call, such as `mcp__github__add_issue_labels`, whose labels
+  include a `state:`, `shaping:` or `review:` label
+
+Neither refuses these spellings, and the rule above still forbids them:
+
+- `gh issue edit 12 --add-label "$LABEL"`, with the label in a variable
+- `sh scripts/relabel.sh 12`, a call from another script that changes the
+  label
+- `gh api graphql`, with the label named by its id inside a query
+- a change made in a browser on GitHub, which nothing here can see. The next
+  `gate.py report` names it and leaves it as it is
+
+The deny rule on `gh api` refuses every call on an issue's labels path, reads
+included, such as `gh api repos/o/r/issues/12/labels`. No skill reads labels
+that way: `gh issue view 12 --json labels` reads them. Adding or removing any
+other label still runs, such as `gh issue edit 12 --add-label type:bug`, and
+so do `gh issue list --label state:ready`, `gh label list` and every
+`gate.py` command.
+
+The settings run the hook only when it is present and runnable, so a missing
+copy never blocks every command. `gate.py report` names a hook the settings
+expect and the project lacks, and `/maintain` puts it back. Another coding
+agent runs neither the hook nor the deny rules. There this written rule and
+`gate.py report` are what remain.
 
 ## A merge that goes live
 

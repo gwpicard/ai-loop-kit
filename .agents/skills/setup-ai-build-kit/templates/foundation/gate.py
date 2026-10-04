@@ -8,7 +8,10 @@ the old ones off in one call, and refuses when the condition fails. A refusal
 says what failed and the next thing to do, as a command.
 
 A person can still change a label on GitHub. The person outranks the gate, so
-`report` names what it finds and never puts it back.
+`report` names what it finds and never puts it back. It also names the state
+guard hook, .agents/hooks/state-guard.sh, when the Claude Code settings run it
+and the project has no runnable copy, since nothing then stops a direct label
+write.
 
 Commands:
   gate.py labels
@@ -832,12 +835,38 @@ def findings_for(item: dict[str, Any]) -> list[str]:
     return found
 
 
+HOOK = ".agents/hooks/state-guard.sh"
+
+
+def missing_hook() -> str | None:
+    """A finding when the Claude Code settings run the state guard and it is not there.
+
+    The settings run the hook only when it is present and runnable, so a missing
+    copy never blocks a command. Nothing then stops a direct label write, and
+    this is where somebody hears about it.
+    """
+    root = main_folder()
+    try:
+        with open(os.path.join(root, ".claude", "settings.json"), encoding="utf-8") as handle:
+            wired = "state-guard.sh" in handle.read()
+    except OSError:
+        return None
+    hook = os.path.join(root, *HOOK.split("/"))
+    if not wired or (os.path.isfile(hook) and os.access(hook, os.X_OK)):
+        return None
+    return (f"the state guard hook {HOOK} is missing or not runnable, so nothing stops a "
+            "direct label write; next: run /maintain, which puts it back")
+
+
 def command_report(arguments: list[str], options: dict[str, str]) -> None:
     listed = gh_json(["api", "repos/{owner}/{repo}/issues?state=open&per_page=100",
                       "--paginate"])
     pieces = [i for i in listed if isinstance(i, dict) and not i.get("pull_request")
               and is_open(i)]
     lines = []
+    hook_finding = missing_hook()
+    if hook_finding:
+        lines.append(hook_finding)
     for item in sorted(pieces, key=lambda i: int(i["number"])):
         found = findings_for(item)
         if found:
@@ -846,7 +875,7 @@ def command_report(arguments: list[str], options: dict[str, str]) -> None:
         say("report: every open piece has one state and the sub-label it needs "
             f"({len(pieces)} open)")
         return
-    say(f"report: {len(lines)} piece(s) need attention; nothing was changed")
+    say(f"report: {len(lines)} finding(s) need attention; nothing was changed")
     for line in lines:
         say(line)
 

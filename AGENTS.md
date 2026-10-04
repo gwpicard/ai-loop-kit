@@ -72,7 +72,8 @@ repository.
   builder stay in this repository only.
 - `.claude/settings.json` here is the maintainer's own. A project's copy comes
   from `.agents/skills/setup-ai-build-kit/templates/foundation/claude-settings.json`, which
-  carries the session-start wiring this repository must never have.
+  carries the session-start wiring and the state guard this repository must
+  never have.
 
 Never edit the released starter repository directly. A numbered release
 generates it from this source.
@@ -278,6 +279,22 @@ attribution line, not the word.
   beside the labels, and the cases that are not the normal one: no network,
   an account that cannot create labels, two sessions moving one piece, two
   states, and bad input.
+- `.agents/tests/state-guard.sh` guards what stops the agent going round the
+  gate. A founded project's Claude Code settings run a hook before each
+  command and each GitHub tool call, and carry deny rules. Both refuse a direct
+  change to a `state:`, `shaping:` or `review:` label. The check feeds the hook
+  every spelling `blocked-commands.md` lists, as Claude Code's hook input, and
+  reads the exit code and a message naming the gate command to use instead. A
+  command that runs the gate and also writes a state label by hand is refused,
+  since letting through anything that names the gate would let that through
+  too. The gate's own commands, other labels and reads still run. A missing or
+  unrunnable hook never blocks a command, and `gate.py report` names it. The
+  deny rules go through the shared matcher against the same lists, and each is
+  taken out in turn. Each rule ends in a doubled star, because a rule ending in
+  `:*` is Claude Code's older prefix form and would never match `state:ready`.
+  This repository's own issues keep today's labels, so its own settings carry
+  neither the hook nor the rules, and the check plants each in a copy to prove
+  the validator notices.
 - `.agents/tests/fake-host.sh` checks the replay harness's stand-ins for a
   host's tools, which scenario 54 launches through on the Vercel recipe. The
   stand-in host keeps a list of deployments beside the project and builds each
@@ -413,7 +430,8 @@ attribution line, not the word.
   a founded project or a helper path that is a link. The gate script travels
   the same way, so every route ends with a runnable copy identical to the
   template, and the step adds it, replaces an older copy, changes nothing the
-  second time and refuses a link. On the same six layouts
+  second time and refuses a link. The state guard hook does the same, and a
+  folder or a link in its place is refused with nothing placed. On the same six layouts
   it opens every pointer the founded AGENTS.md, the masterplan and the skills
   name to a file inside a skill. A pointer names the skill and the path inside
   it, never a fixed project folder, because a project installed for Claude Code

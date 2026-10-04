@@ -26,6 +26,11 @@ TARGET=.agents/tools/plan-refresh.sh
 # project without it has no way to move a piece at all.
 GATE_TARGET=.agents/tools/gate.py
 GATE_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/gate.py"
+# The state guard hook travels the same way. It is what stops the agent moving
+# a piece by hand, and the settings run it only when it is there, so a route
+# that left it out would fail without a word.
+HOOK_TARGET=.agents/hooks/state-guard.sh
+HOOK_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/state-guard.sh"
 
 FAIL=0
 fail() {
@@ -123,6 +128,7 @@ founds_with_helper() {
     return
   fi
   holds_the_gate "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/gate.py"
+  holds_the_hook "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/state-guard.sh"
   prints_the_plan "$project" "$route" "$TARGET"
 }
 
@@ -139,6 +145,24 @@ holds_the_gate() {
     pass "$route: a runnable $GATE_TARGET identical to the template is in place"
   else
     fail "$route: no runnable $GATE_TARGET identical to the template"
+  fi
+}
+
+# A runnable state guard hook at the project's path, identical to the template
+# the installed skill carries and to the one in this repository. It has to
+# answer a command that touches no label by letting it through.
+holds_the_hook() {
+  project=$1
+  route=$2
+  installed=$3
+  hook="$project/$HOOK_TARGET"
+  if [ -f "$hook" ] && [ ! -L "$hook" ] && [ -x "$hook" ] && \
+     cmp -s "$hook" "$installed" && cmp -s "$hook" "$HOOK_TEMPLATE" && \
+     printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh issue list"}}' | \
+       (cd "$project" && "./$HOOK_TARGET" >/dev/null 2>&1); then
+    pass "$route: a runnable $HOOK_TARGET identical to the template is in place"
+  else
+    fail "$route: no runnable $HOOK_TARGET identical to the template"
   fi
 }
 
@@ -287,7 +311,7 @@ INSTALLED_HELPER="$CLAUDE_ONLY/.claude/skills/setup-ai-build-kit/templates/found
 # A project founded before this release: founded, with no helper and no gate.
 OLD="$SCRATCH/old"
 cp -R "$CLAUDE_ONLY" "$OLD"
-rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/plan.local.md"
+rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/plan.local.md"
 PLACE_OLD="$OLD/.claude/skills/setup-ai-build-kit/scripts/place-plan-helper.sh"
 printf '%s\n' "# Masterplan" > "$OLD/masterplan.md"
 
@@ -304,10 +328,13 @@ esac
 prints_the_plan "$OLD" "after the backfill" "$TARGET"
 holds_the_gate "$OLD" "a project founded before the gate, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/gate.py"
+holds_the_hook "$OLD" "a project founded before the hook, after the backfill" \
+  "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/state-guard.sh"
 
 # Run again, it changes nothing and says so. /maintain runs it on every visit.
 before=$(cksum < "$OLD/$TARGET")
 gate_before=$(cksum < "$OLD/$GATE_TARGET" 2>/dev/null || echo missing)
+hook_before=$(cksum < "$OLD/$HOOK_TARGET" 2>/dev/null || echo missing)
 said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on its second run"
 case "$said" in
   *"already current"*) pass "a second run changes nothing and says the copy is current" ;;
@@ -321,6 +348,13 @@ if [ "$(cksum < "$OLD/$GATE_TARGET" 2>/dev/null || echo missing)" = "$gate_befor
 else
   fail "a second run changed the gate script or did not say it was current: $said"
 fi
+if [ "$(cksum < "$OLD/$HOOK_TARGET" 2>/dev/null || echo missing)" = "$hook_before" ] && \
+   [ "$hook_before" != missing ] && \
+   [ "$(printf '%s\n' "$said" | grep -c "already current")" -ge 3 ]; then
+  pass "a second run leaves the state guard hook as it was and says it is current"
+else
+  fail "a second run changed the state guard hook or did not say it was current: $said"
+fi
 
 # An older gate script is replaced, as the helper is.
 printf '%s\n' "# an older gate" >> "$OLD/$GATE_TARGET"
@@ -328,6 +362,14 @@ said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on an old
 cmp -s "$OLD/$GATE_TARGET" "$GATE_TEMPLATE" && \
   pass "an older gate script is replaced with the template" || \
   fail "an older gate script was not replaced: $said"
+
+# An older hook is replaced too, and made runnable.
+printf '%s\n' "# an older hook" >> "$OLD/$HOOK_TARGET"
+chmod 644 "$OLD/$HOOK_TARGET"
+said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on an older hook"
+cmp -s "$OLD/$HOOK_TARGET" "$HOOK_TEMPLATE" && [ -x "$OLD/$HOOK_TARGET" ] && \
+  pass "an older state guard hook is replaced with the template and runnable" || \
+  fail "an older state guard hook was not replaced: $said"
 
 # A project founded from a whole copy of an earlier release holds an older copy.
 printf '%s\n' "# an older helper" >> "$OLD/$TARGET"
@@ -385,6 +427,43 @@ fi
 [ "$(cat "$SCRATCH/elsewhere-gate")" = "somebody else's gate" ] && \
   pass "a gate script path that is a link is refused, and what it points at is untouched" || \
   fail "the backfill changed a gate script outside the project"
+
+# The hook's place holding a link or a folder is refused, as the helper's and
+# the gate's are, and nothing else is placed on that run.
+LINKED_HOOK="$SCRATCH/linked-hook"
+cp -R "$OLD" "$LINKED_HOOK"
+rm -f "$LINKED_HOOK/$HOOK_TARGET" "$LINKED_HOOK/$TARGET"
+printf '%s\n' "somebody else's hook" > "$SCRATCH/elsewhere-hook"
+ln -s "$SCRATCH/elsewhere-hook" "$LINKED_HOOK/$HOOK_TARGET"
+if (cd "$LINKED_HOOK" && sh "$PLACE_OLD" >/dev/null 2>&1); then
+  fail "the backfill wrote the state guard hook through a link"
+fi
+[ "$(cat "$SCRATCH/elsewhere-hook")" = "somebody else's hook" ] && [ ! -e "$LINKED_HOOK/$TARGET" ] && \
+  pass "a hook path that is a link is refused, what it points at is untouched, and nothing else is placed" || \
+  fail "the backfill changed a hook outside the project, or placed the helper beside a refused hook"
+
+FOLDER_HOOK="$SCRATCH/folder-hook"
+cp -R "$OLD" "$FOLDER_HOOK"
+rm -f "$FOLDER_HOOK/$HOOK_TARGET"
+mkdir "$FOLDER_HOOK/$HOOK_TARGET"
+if (cd "$FOLDER_HOOK" && sh "$PLACE_OLD" >/dev/null 2>&1); then
+  fail "the backfill accepted a folder in the state guard hook's place"
+fi
+[ -d "$FOLDER_HOOK/$HOOK_TARGET" ] && \
+  pass "a folder in the hook's place is refused and left as it was" || \
+  fail "the backfill changed a folder in the hook's place"
+
+LINKED_HOOKS="$SCRATCH/linked-hooks-folder"
+cp -R "$OLD" "$LINKED_HOOKS"
+mkdir "$SCRATCH/elsewhere-hooks"
+rm -rf "$LINKED_HOOKS/.agents/hooks"
+ln -s "$SCRATCH/elsewhere-hooks" "$LINKED_HOOKS/.agents/hooks"
+if (cd "$LINKED_HOOKS" && sh "$PLACE_OLD" >/dev/null 2>&1); then
+  fail "the backfill wrote through a hooks folder that is a link"
+fi
+[ -z "$(ls -A "$SCRATCH/elsewhere-hooks")" ] && \
+  pass "a hooks folder that is a link is refused, and nothing is written outside the project" || \
+  fail "the backfill wrote into a hooks folder outside the project"
 
 echo "== Every skill names a path a project has =="
 
