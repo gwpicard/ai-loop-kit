@@ -206,8 +206,9 @@ section() {
 under() {
   section "$1" | grep -q "$2"
 }
+# A piece's own line, not a mention of it as another piece's blocker.
 once() {
-  [ "$(grep -c "$1" "$OUT")" -eq 1 ]
+  [ "$(grep -cE "^ +#[0-9]+ +$1" "$OUT")" -eq 1 ]
 }
 
 echo "== The printout reads as a board =="
@@ -326,7 +327,12 @@ under "To build" "Coupon codes" \
 # The gate's own report, run on the same issues, names the same pieces with the
 # same words, because the printout takes the findings from it rather than
 # working them out again.
-PATH="$WORK/bin:$PATH" python3 "$GATE" report > "$WORK/report.txt" 2>&1 || true
+# GitHub always says whether an issue is open, and the gate reads that field,
+# so the report gets the same issues with it filled in.
+python3 -c 'import json,sys; items=json.load(open(sys.argv[1]))
+for i in items: i.setdefault("state", "open")
+json.dump(items, open(sys.argv[2], "w"))' "$FIXTURE" "$WORK/issues-with-state.json"
+FIXTURE="$WORK/issues-with-state.json" python3 "$GATE" report > "$WORK/report.txt" 2>&1 || true
 matched=yes
 while IFS= read -r line; do
   case "$line" in

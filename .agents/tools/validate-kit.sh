@@ -886,13 +886,13 @@ if [ -f "$whatnowfile" ]; then
     pass "what-now voices a failing check, an open finding, an unfinished setup step, and a recap"
 fi
 
-# The command split: shape prepares work and marks a piece `ready`; implement
+# The command split: shape prepares work and moves a piece to `state:ready`; implement
 # builds only ready pieces and refuses to shape, sending an unready piece back to
 # shape rather than guessing past its open question.
 implementfile="$SKILLS/implement/SKILL.md"
 if [ -f "$implementfile" ] && [ -f "$shapefile" ] && [ -f "$pieces" ]; then
   split_ok=1
-  grep -qF '`ready`, when the piece is shaped' "$pieces" || \
+  grep -qF '`state:ready`, shaped and checked' "$pieces" || \
     { fail "$pieces: does not define the ready label"; split_ok=0; }
   grep -qF "it does not shape" "$implementfile" || \
     { fail "$implementfile: does not say it builds rather than shapes"; split_ok=0; }

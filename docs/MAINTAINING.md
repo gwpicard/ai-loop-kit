@@ -48,8 +48,9 @@ one of `area:skills`, `area:tests`, `area:release`, or `area:docs`. Its type is
 one of the existing `bug`, `enhancement`, `feature`, `documentation`, or `chore`.
 Two labels carry readiness, and they never sit on one issue together:
 `needs-answers` means a question only a person can answer is open, and `ready`
-means a person judged the piece shaped. `ready` is the same word the kit uses
-for the same state in a project it founds. `status:blocked` is added only when
+means a person judged the piece shaped. A project the kit founds uses
+`state:ready` for that state instead. This repository's own issues keep `ready`
+until the release that moves them. `status:blocked` is added only when
 it says something. Colour is one hue per family, so the list stays scannable.
 There is no priority label: what to pick up next is set by the maintainer's
 cadence, not recorded on the issues.

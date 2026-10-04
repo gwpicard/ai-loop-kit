@@ -55,14 +55,14 @@ cat >"$SCRATCH/issues.json" <<'JSON'
 [
   {"number": 1, "title": "Card checkout", "html_url": "http://x/1",
    "body": "## Done when\nA card is charged.", "assignees": [],
-   "labels": [{"name": "ready"}]},
+   "labels": [{"name": "state:ready"}]},
   {"number": 2, "title": "Weekly payouts", "html_url": "http://x/2",
    "body": "## Done when\nSellers are paid.", "assignees": [],
-   "labels": [{"name": "ready"}],
+   "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 3, "title": "make the calendar nicer", "html_url": "http://x/3",
    "body": "half a sentence", "assignees": [],
-   "labels": [{"name": "shaping"}, {"name": "needs-clarification"}]}
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:clarify"}]}
 ]
 JSON
 cat >"$SCRATCH/bin/gh" <<'SH'
@@ -105,6 +105,13 @@ prints_the_plan() {
     pass "$route: the printout runs, and a held-up piece is kept out of To build"
   else
     fail "$route: the printout does not keep the held-up piece out of To build"
+  fi
+  # The printout asks the gate script beside it for Needs attention, so every
+  # route has to carry the two side by side.
+  if grep -q "gate script .* is missing" "$out"; then
+    fail "$route: the printout found no gate script beside it"
+  else
+    pass "$route: the printout found the gate script beside it"
   fi
 }
 
