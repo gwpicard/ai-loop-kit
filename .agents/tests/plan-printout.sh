@@ -15,6 +15,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 REFRESH="$ROOT/skills/setup-ai-build-kit/templates/foundation/plan-refresh.sh"
+GATE="$ROOT/skills/setup-ai-build-kit/templates/foundation/gate.py"
 
 FAIL=0
 fail() {
@@ -28,16 +29,17 @@ pass() {
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
-# One issue per case the printout has to tell apart. The states come first,
+# One issue per case the printout has to tell apart. The columns come first,
 # then the mistakes it has to name, then what it must leave out.
 #
-# Duplicate bookings carries both `broken` and `building`, because a repair
-# somebody has already started is the case where two groups could each claim
-# the same piece. Weekly payouts carries `blocked`, the label an older project
-# still has before anything moves it, which has to read as parked. Card checkout
-# carries no state at all, which counts as an idea. Email reminders and Old
-# export are closed, and the endpoint asks only for open issues, so a stand-in
-# that returns them anyway proves the printout checks for itself.
+# Every piece the gate script's report would name prints under Needs attention:
+# Card checkout and dark mode maybe carry no state, Weekly payouts, Share a
+# booking link and Coupon codes carry labels from AI Build Kit's model, Gift
+# cards carries two states, Stock alerts a state with no sub-label, Room photos
+# a sub-label beside the wrong state, Price list two review labels, and Guest
+# accounts is a parent carrying a state. Email reminders and Old export are
+# closed, and the endpoint asks only for open issues, so a stand-in that returns
+# them anyway proves the printout checks for itself.
 cat >"$WORK/issues.json" <<'JSON'
 [
   {"number": 1, "title": "Card checkout", "html_url": "http://x/1",
@@ -46,22 +48,23 @@ cat >"$WORK/issues.json" <<'JSON'
   {"number": 2, "title": "Rename the header", "html_url": "http://x/2",
    "body": "## Done when\nIt reads Bookings.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready",
    "assignees": [{"login": "ana"}],
-   "labels": [{"name": "visual"}, {"name": "building"}]},
+   "labels": [{"name": "visual"}, {"name": "state:building"}, {"name": "type:feature"}]},
   {"number": 3, "title": "Weekly payouts", "html_url": "http://x/3",
    "body": "## Done when\nSellers are paid.", "assignees": [],
    "labels": [{"name": "finance"}, {"name": "blocked"}]},
   {"number": 4, "title": "make the calendar nicer", "html_url": "http://x/4",
-   "body": "half a sentence", "assignees": [],
-   "labels": [{"name": "shaping"}, {"name": "needs-clarification"}]},
+   "body": "half a sentence\n\n## Open question\nWhich days matter most?", "assignees": [],
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:clarify"}]},
   {"number": 5, "title": "how should the dashboard look", "html_url": "http://x/5",
    "body": "no idea yet", "assignees": [],
-   "labels": [{"name": "shaping"}, {"name": "needs-prototype"}]},
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:prototype"}]},
   {"number": 6, "title": "what does the VAT API return", "html_url": "http://x/6",
    "body": "need to check", "assignees": [],
-   "labels": [{"name": "shaping"}, {"name": "needs-research"}]},
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:research"}]},
   {"number": 7, "title": "Duplicate bookings", "html_url": "http://x/7",
-   "body": "## Done when\nOne booking per click.", "assignees": [{"login": "sam"}],
-   "labels": [{"name": "how it works"}, {"name": "broken"}, {"name": "building"}]},
+   "body": "## Done when\nOne booking per click.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready",
+   "assignees": [{"login": "sam"}],
+   "labels": [{"name": "how it works"}, {"name": "type:bug"}, {"name": "state:building"}]},
   {"number": 8, "title": "A pull request, not a piece", "html_url": "http://x/8",
    "body": "## Done when\nnever", "assignees": [], "labels": [],
    "pull_request": {"url": "http://x/8"}},
@@ -71,34 +74,36 @@ cat >"$WORK/issues.json" <<'JSON'
    "sub_issues_summary": {"total": 2, "completed": 1, "percent_completed": 50}},
   {"number": 10, "title": "Guest list export", "html_url": "http://x/10",
    "body": "## Done when\nThe list downloads.", "assignees": [],
-   "labels": [{"name": "how it works"}, {"name": "ready"}]},
+   "labels": [{"name": "how it works"}, {"name": "state:ready"}]},
   {"number": 11, "title": "Deposits", "html_url": "http://x/11",
    "body": "## Done when\nA deposit is held.", "assignees": [],
-   "labels": [{"name": "finance"}, {"name": "ready"}],
+   "labels": [{"name": "finance"}, {"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 12, "title": "Refund button", "html_url": "http://x/12",
    "body": "## Done when\nA refund is sent.", "assignees": [],
-   "labels": [{"name": "finance"}, {"name": "ready"}],
+   "labels": [{"name": "finance"}, {"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 13, "title": "Invoice download", "html_url": "http://x/13",
    "body": "## Done when\nAn invoice downloads.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready",
-   "assignees": [], "labels": [{"name": "finance"}, {"name": "to check"}],
+   "assignees": [],
+   "labels": [{"name": "finance"}, {"name": "state:in-review"}, {"name": "review:person"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 14, "title": "Loyalty points", "html_url": "http://x/14",
-   "body": "## Done when\nPoints add up.\n\nParked after three failed attempts.",
-   "assignees": [], "labels": [{"name": "finance"}, {"name": "parked"}]},
+   "body": "## Done when\nPoints add up.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready",
+   "assignees": [],
+   "labels": [{"name": "finance"}, {"name": "state:in-review"}, {"name": "review:auto"}]},
   {"number": 15, "title": "Gift cards", "html_url": "http://x/15",
    "body": "## Done when\nA card is redeemed.", "assignees": [],
-   "labels": [{"name": "finance"}, {"name": "ready"}, {"name": "building"}]},
+   "labels": [{"name": "finance"}, {"name": "state:ready"}, {"name": "state:building"}]},
   {"number": 16, "title": "Stock alerts", "html_url": "http://x/16",
    "body": "check the supplier feed", "assignees": [],
-   "labels": [{"name": "needs-research"}]},
+   "labels": [{"name": "state:shaping"}]},
   {"number": 17, "title": "tidy the footer", "html_url": "http://x/17",
    "body": "it looks off", "assignees": [],
-   "labels": [{"name": "visual"}, {"name": "ready"}]},
+   "labels": [{"name": "visual"}, {"name": "state:ready"}]},
   {"number": 18, "title": "Email reminders", "html_url": "http://x/18",
    "body": "Left out: nobody reads email here.", "assignees": [], "state": "closed",
-   "labels": [{"name": "parked"}]},
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:raw"}]},
   {"number": 19, "title": "Old export", "html_url": "http://x/19",
    "body": "## Done when\nIt exported.", "assignees": [], "state": "closed",
    "labels": [{"name": "ready"}]},
@@ -109,35 +114,51 @@ cat >"$WORK/issues.json" <<'JSON'
    "labels": [{"name": "idea"}]},
   {"number": 22, "title": "Late fees", "html_url": "http://x/22",
    "body": "charge a fee when a booking is paid late", "assignees": [],
-   "labels": [{"name": "finance"}, {"name": "building"}]},
+   "labels": [{"name": "finance"}, {"name": "state:building"}]},
   {"number": 23, "title": "Waiting list", "html_url": "http://x/23",
    "body": "let guests queue for a full night", "assignees": [],
-   "labels": [{"name": "to check"}]},
+   "labels": [{"name": "state:in-review"}, {"name": "review:person"}]},
   {"number": 24, "title": "Table plan", "html_url": "http://x/24",
    "body": "## Done when\nTables can be dragged.", "assignees": [],
-   "labels": [{"name": "building"}]},
+   "labels": [{"name": "state:building"}]},
   {"number": 25, "title": "Opening hours", "html_url": "http://x/25",
    "body": "## Done when\nHours show.\n\n## Readiness check\nlooked fine", "assignees": [],
-   "labels": [{"name": "to check"}]},
+   "labels": [{"name": "state:in-review"}, {"name": "review:person"}]},
   {"number": 26, "title": "Allergy notes", "html_url": "http://x/26",
    "body": "## Done when\nA note is kept.\n\n## readiness\n2026-09-30, checked by a session that did not shape it: Ready",
-   "assignees": [], "labels": [{"name": "building"}]},
+   "assignees": [], "labels": [{"name": "state:building"}]},
   {"number": 27, "title": "Guest accounts", "html_url": "http://x/27",
    "body": "## So that\nGuests can sign in.", "assignees": [],
-   "labels": [{"name": "building"}],
+   "labels": [{"name": "state:building"}],
    "sub_issues_summary": {"total": 3, "completed": 0, "percent_completed": 0}},
   {"number": 28, "title": "Lost receipts", "html_url": "http://x/28",
    "body": "receipts stopped sending", "assignees": [],
-   "labels": [{"name": "broken"}, {"name": "building"}]},
+   "labels": [{"name": "type:bug"}, {"name": "state:shaping"}, {"name": "shaping:raw"}]},
   {"number": 29, "title": "Room photos", "html_url": "http://x/29",
    "body": "add photos of each room", "assignees": [],
-   "labels": [{"name": "building"}, {"name": "needs-research"}]}
+   "labels": [{"name": "state:building"}, {"name": "shaping:research"}]},
+  {"number": 30, "title": "Seat colours", "html_url": "http://x/30",
+   "body": "## Done when\nSeats are coloured.", "assignees": [],
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:spec"}]},
+  {"number": 31, "title": "Menu wording", "html_url": "http://x/31",
+   "body": "## Done when\nThe menu reads well.", "assignees": [],
+   "labels": [{"name": "state:shaping"}, {"name": "shaping:check"}]},
+  {"number": 32, "title": "Price list", "html_url": "http://x/32",
+   "body": "## Done when\nPrices show.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready",
+   "assignees": [],
+   "labels": [{"name": "state:in-review"}, {"name": "review:auto"}, {"name": "review:person"}]},
+  {"number": 33, "title": "Coupon codes", "html_url": "http://x/33",
+   "body": "## Done when\nA code takes money off.", "assignees": [],
+   "labels": [{"name": "state:ready"}, {"name": "needs-research"}]}
 ]
 JSON
 
+# Every call is written to a log, so the check can prove the printout reads and
+# never writes: no label, no issue edit, nothing moved off an old label.
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/gh" <<'SH'
 #!/usr/bin/env sh
+printf '%s\n' "$*" >> "${GH_CALLS:-/dev/null}"
 # GH_DOWN stands in for a machine that cannot reach GitHub: every call fails.
 [ -z "${GH_DOWN:-}" ] || exit 1
 case "$1 $2" in
@@ -162,7 +183,8 @@ SH
 chmod +x "$WORK/bin/gh"
 
 FIXTURE="$WORK/issues.json"
-export FIXTURE
+GH_CALLS="$WORK/calls.log"
+export FIXTURE GH_CALLS
 PATH="$WORK/bin:$PATH"
 export PATH
 
@@ -184,145 +206,181 @@ section() {
 under() {
   section "$1" | grep -q "$2"
 }
+# A piece's own line, not a mention of it as another piece's blocker.
+once() {
+  [ "$(grep -cE "^ +#[0-9]+ +$1" "$OUT")" -eq 1 ]
+}
 
 echo "== The printout reads as a board =="
 
-# The headings in the order they print. Needs attention and Broken come first
-# because somebody opening the file wants to know what is wrong before what is
-# next. Then the states, in the order a piece moves through them, with ready
-# split into the pieces free to start and the ones held up by another. The
-# groups of free pieces that can be built together follow the pieces they
-# group. Parents last, because a parent has no state of its own.
+# The headings in the order they print. Needs attention comes first, because
+# somebody opening the file wants to know what is wrong before what is next.
+# Then a column for each shaping sub-state, in the order a piece moves through
+# them, then ready, split into the pieces free to start and the ones held up by
+# another, with the groups of free pieces after the pieces they group. Then
+# building, and review split by who it waits for. Parents last, because a parent
+# has no state of its own. There is no column for a repair: a bug is marked
+# wherever it sits.
 headings=$(awk 'NR > 3 && /^[^ ]/ && !/^Plan / && !/^Last refreshed/ && !/entr(y|ies) (is|are) still/' "$OUT" | tr '\n' '|')
-expected="Needs attention|Broken|Idea|Shaping|To build|Go together|Held up|Building|To check|Parked|Made of parts|"
+expected="Needs attention|Shaping: raw|Shaping: research|Shaping: clarify|Shaping: prototype|Shaping: spec|Shaping: check|To build|Go together|Held up|Building|In review, waiting for you|In review, automatic|Made of parts|"
 [ "$headings" = "$expected" ] \
   && pass "the groups print in board order" \
   || fail "the groups print as '$headings', expected '$expected'"
 
-under "Broken" "Duplicate bookings" \
-  && pass "the repair is listed under Broken" \
-  || fail "Duplicate bookings is not under Broken"
-
-# It carries `building` too. It stays under Broken and says somebody is on it,
-# rather than appearing twice or vanishing into Building.
-section "Broken" | grep "Duplicate bookings" | grep -q "being fixed" \
-  && pass "a repair somebody has started says so" \
-  || fail "Duplicate bookings does not say it is being fixed"
-[ "$(grep -c "Duplicate bookings" "$OUT")" -eq 1 ] \
-  && pass "a repair prints once" \
-  || fail "Duplicate bookings prints more than once"
-
-under "Idea" "Card checkout" \
-  && pass "an open piece with no state label counts as an idea" \
-  || fail "Card checkout carries no state but is not under Idea"
-under "Idea" "dark mode maybe" && under "Idea" "Share a booking link" \
-  && pass "an unlabelled note and a piece labelled idea are both ideas" \
-  || fail "an idea is missing from Idea"
-
-under "Shaping" "make the calendar nicer" && under "Shaping" "how should the dashboard look" \
-  && under "Shaping" "what does the VAT API return" \
-  && pass "a piece being shaped is under Shaping, beside its reason" \
-  || fail "a shaping piece is not under Shaping"
+under "Shaping: raw" "Lost receipts" && under "Shaping: research" "what does the VAT API return" \
+  && under "Shaping: clarify" "make the calendar nicer" \
+  && under "Shaping: prototype" "how should the dashboard look" \
+  && under "Shaping: spec" "Seat colours" && under "Shaping: check" "Menu wording" \
+  && pass "a piece being shaped is under the column of its sub-state" \
+  || fail "a shaping piece is not under its sub-state's column"
 
 under "Building" "Rename the header" \
-  && pass "an ordinary piece under way is under Building" \
-  || fail "Rename the header is not under Building"
+  && section "Building" | grep "Rename the header" | grep -q "(ana)" \
+  && pass "a piece under way is under Building, with who has it" \
+  || fail "Rename the header is not under Building with its assignee"
 
-under "To check" "Invoice download" \
-  && pass "a piece whose pull request waits for the person is under To check" \
-  || fail "Invoice download is not under To check"
+under "In review, waiting for you" "Invoice download" \
+  && pass "a piece whose review waits for the person is under In review, waiting for you" \
+  || fail "Invoice download is not under In review, waiting for you"
+under "In review, automatic" "Loyalty points" \
+  && pass "a piece waiting on the automatic review is under In review, automatic" \
+  || fail "Loyalty points is not under In review, automatic"
 
-section "To check" | grep "Invoice download" | grep -q "needs Card checkout" \
-  && pass "a piece to check that another piece holds up names it" \
+section "In review, waiting for you" | grep "Invoice download" | grep -q "needs Card checkout" \
+  && pass "a piece in review that another piece holds up names it" \
   || fail "Invoice download does not name Card checkout as its blocker"
-
-under "Parked" "Loyalty points" \
-  && pass "an open parked piece is under Parked" \
-  || fail "Loyalty points is not under Parked"
-
-# An older project still carries `blocked` until something moves it. Before
-# that it still groups, and the retired label reads as the state that replaced
-# it.
-under "Parked" "Weekly payouts" \
-  && pass "an older project's blocked label prints as parked" \
-  || fail "Weekly payouts carries blocked but is not under Parked"
 
 grep -q "A pull request, not a piece" "$OUT" \
   && fail "a pull request was printed as a piece" \
   || pass "pull requests stay out of the list"
 
+echo "== A bug is marked wherever it sits =="
+
+section "Building" | grep "Duplicate bookings" | grep -q "(bug)" \
+  && section "Shaping: raw" | grep "Lost receipts" | grep -q "(bug)" \
+  && pass "a type:bug piece carries a bug mark in whichever column it sits" \
+  || fail "a type:bug piece is not marked as a bug in its column"
+once "Duplicate bookings" && once "Lost receipts" \
+  && pass "a bug prints once, in its own column" \
+  || fail "a bug prints more than once"
+grep -v "Duplicate bookings" "$OUT" | grep -v "Lost receipts" | grep -q "(bug)" \
+  && fail "a piece that is not a bug carries the bug mark" \
+  || pass "only a bug carries the bug mark"
+
 echo "== What the printout leaves out =="
 
-# A closed issue is done. The idea deliberately left out keeps `parked` on a
-# closed issue, and a closed issue left carrying another state is ignored too.
 grep -q "Email reminders" "$OUT" \
-  && fail "a closed parked idea was printed" \
-  || pass "a closed parked idea is left alone and never printed"
+  && fail "a closed issue still carrying a state was printed" \
+  || pass "a closed issue still carrying a state is never printed"
 grep -q "Old export" "$OUT" \
-  && fail "a closed issue still labelled ready was printed" \
-  || pass "a closed issue carrying another state is ignored"
+  && fail "a closed issue carrying an old label was printed" \
+  || pass "a closed issue carrying an old label is ignored"
 
-echo "== What needs attention =="
+echo "== What needs attention is what the gate's report would print =="
 
-# Two states at once is a mistake to name, never a piece in both columns.
-section "Needs attention" | grep "Gift cards" | grep "ready" | grep -q "building" \
-  && pass "a piece with two states is named under Needs attention with both labels" \
-  || fail "Gift cards does not name its two states under Needs attention"
-[ "$(grep -c "Gift cards" "$OUT")" -eq 1 ] \
-  && pass "a piece with two states prints once" \
-  || fail "Gift cards prints more than once"
-
-section "Needs attention" | grep "Stock alerts" | grep "needs-research" | grep -q "shaping" \
-  && pass "a needs- label without shaping is named under Needs attention" \
-  || fail "Stock alerts does not name its needs- label without shaping"
-[ "$(grep -c "Stock alerts" "$OUT")" -eq 1 ] \
-  && pass "a needs- label without shaping prints once" \
-  || fail "Stock alerts prints more than once"
-
-# Shape decides. A piece labelled ready with no Done when is still an idea, and
-# the label is named as the thing to look at.
-under "Idea" "tidy the footer" \
-  && pass "a ready piece with no Done when prints under Idea" \
-  || fail "tidy the footer is not under Idea"
-section "Needs attention" | grep "tidy the footer" | grep -q "Done when" \
-  && pass "and it is named under Needs attention" \
-  || fail "tidy the footer is not named under Needs attention"
-under "To build" "tidy the footer" \
-  && fail "a ready piece with no Done when was offered as buildable" \
-  || pass "a ready piece with no Done when is not offered as buildable"
-
-for piece in "Card checkout" "Rename the header" "Loyalty points" "Invoice download"; do
-  if under "Needs attention" "$piece"; then
-    fail "$piece has one state but was named under Needs attention"
-  fi
+# Each piece the report names prints once, under Needs attention, and in no
+# column, because a piece whose labels are out of order has no column to trust.
+for piece in "Card checkout" "dark mode maybe" "Gift cards" "Stock alerts" \
+    "Room photos" "Price list" "Guest accounts" "Weekly payouts" \
+    "Share a booking link" "Coupon codes"; do
+  under "Needs attention" "$piece" && once "$piece" \
+    || fail "$piece is not named once, under Needs attention"
 done
-pass "a piece with one state is not named under Needs attention"
+pass "a piece the report names prints once, under Needs attention"
 
-echo "== A piece built or checked without its earlier steps =="
-
-# A piece can reach building or to check without ever being shaped, or without
-# the readiness check. It looks exactly like one that went the proper way, so
-# the printout names what is missing under Needs attention. It still stays in
-# its own column, because it really is being built or checked.
 note_for() {
   section "Needs attention" | grep "$1" | grep -qF "$2"
 }
+# An issue opened by hand with no labels is named as having no state, which is
+# what tells /shape to take it in.
+note_for "dark mode maybe" "no state" && note_for "Card checkout" "no state" \
+  && pass "an issue opened by hand with no labels is named as having no state" \
+  || fail "an issue with no labels is not named as having no state"
+note_for "Gift cards" "state:ready" && note_for "Gift cards" "state:building" \
+  && pass "a piece with two states is named with both" \
+  || fail "Gift cards does not name its two states"
+note_for "Stock alerts" "no shaping sub-label" \
+  && pass "a shaping piece with no sub-label is named" \
+  || fail "Stock alerts is not named for its missing sub-label"
+note_for "Room photos" "shaping:research beside state:building" \
+  && pass "a sub-label beside the wrong state is named" \
+  || fail "Room photos is not named for its sub-label beside building"
+note_for "Price list" "two review labels" \
+  && pass "two review labels on one piece are named" \
+  || fail "Price list is not named for its two review labels"
+note_for "Guest accounts" "parent" \
+  && ! under "Made of parts" "Guest accounts" \
+  && pass "a parent carrying a state is named, and not printed as a container too" \
+  || fail "Guest accounts is not named as a parent carrying a state"
+
+# A label from AI Build Kit's model is named as one the kit does not use, and
+# nothing moves it.
+note_for "Weekly payouts" "blocked, a label from AI Build Kit's model" \
+  && note_for "Share a booking link" "idea, a label from AI Build Kit's model" \
+  && note_for "Coupon codes" "needs-research, a label from AI Build Kit's model" \
+  && pass "a label from AI Build Kit's model is named as one the kit does not use" \
+  || fail "an old label is not named as one the kit does not use"
+under "To build" "Coupon codes" \
+  && fail "a ready piece carrying an old label was offered as buildable" \
+  || pass "a ready piece carrying an old label is not offered as buildable"
+
+# The gate's own report, run on the same issues, names the same pieces with the
+# same words, because the printout takes the findings from it rather than
+# working them out again.
+# GitHub always says whether an issue is open, and the gate reads that field,
+# so the report gets the same issues with it filled in.
+python3 -c 'import json,sys; items=json.load(open(sys.argv[1]))
+for i in items: i.setdefault("state", "open")
+json.dump(items, open(sys.argv[2], "w"))' "$FIXTURE" "$WORK/issues-with-state.json"
+FIXTURE="$WORK/issues-with-state.json" python3 "$GATE" report > "$WORK/report.txt" 2>&1 || true
+matched=yes
+while IFS= read -r line; do
+  case "$line" in
+    "#"*)
+      title=$(printf '%s' "$line" | sed -E 's/^#[0-9]+ //; s/: .*//')
+      found=$(printf '%s' "$line" | sed -E 's/^#[0-9]+ [^:]*: //')
+      note_for "$title" "$found" || { matched=no; fail "the printout does not carry the report's line for $title: $found"; }
+      ;;
+  esac
+done < "$WORK/report.txt"
+[ "$(grep -c '^#' "$WORK/report.txt")" -ge 10 ] || { matched=no; fail "the gate's report named too few pieces: $(cat "$WORK/report.txt")"; }
+[ "$matched" = no ] || pass "every finding of the gate's report is under Needs attention, word for word"
+
+# The printout reads. It never writes a label or edits an issue.
+grep -qE '^(issue edit|issue create|label )' "$GH_CALLS" \
+  && fail "the printout wrote to GitHub: $(grep -E '^(issue|label)' "$GH_CALLS" | head -3)" \
+  || pass "the printout moved nothing on GitHub"
+
+for piece in "Rename the header" "Loyalty points" "Invoice download" "Seat colours"; do
+  if under "Needs attention" "$piece"; then
+    fail "$piece has one state and its sub-label but was named under Needs attention"
+  fi
+done
+pass "a piece in order is not named under Needs attention"
+
+echo "== A piece built or checked without its earlier steps =="
+
+# A person can put a later state on a piece by hand, so a piece can carry it
+# without ever being shaped, or without the readiness check. It looks exactly
+# like one that went the proper way, so the printout names what is missing under
+# Needs attention. A piece being built or reviewed still stays in its own
+# column, because it really is being built or reviewed.
 note_for "Late fees" "(building with no Done when, so never shaped)" \
   && under "Building" "Late fees" \
   && pass "a building piece with no Done when is named and stays under Building" \
   || fail "Late fees is not named as never shaped, or left Building"
-note_for "Waiting list" "(to check with no Done when, so never shaped)" \
-  && under "To check" "Waiting list" \
-  && pass "a piece to check with no Done when is named and stays under To check" \
-  || fail "Waiting list is not named as never shaped, or left To check"
+note_for "Waiting list" "(in review with no Done when, so never shaped)" \
+  && under "In review, waiting for you" "Waiting list" \
+  && pass "a piece in review with no Done when is named and stays in its column" \
+  || fail "Waiting list is not named as never shaped, or left In review"
 note_for "Table plan" "(building with no Readiness check)" \
   && under "Building" "Table plan" \
   && pass "a building piece with a Done when and no Readiness is named for it" \
   || fail "Table plan is not named as having no Readiness check"
 
 # A heading with extra words is not the Readiness section.
-note_for "Opening hours" "(to check with no Readiness check)" \
-  && under "To check" "Opening hours" \
+note_for "Opening hours" "(in review with no Readiness check)" \
+  && under "In review, waiting for you" "Opening hours" \
   && pass "a Readiness heading with extra words does not count as the section" \
   || fail "Opening hours has only a Readiness check heading but is not named"
 
@@ -330,78 +388,31 @@ note_for "Opening hours" "(to check with no Readiness check)" \
 section "Needs attention" | grep "Late fees" | grep -q "Readiness" \
   && fail "Late fees has no Done when and also got the Readiness note" \
   || pass "a piece missing both shows only the Done when note"
-section "Needs attention" | grep "Waiting list" | grep -q "Readiness" \
-  && fail "Waiting list has no Done when and also got the Readiness note" \
-  || pass "a piece to check missing both shows only the Done when note"
 
-# Each prints once under Needs attention and once in its column, and nowhere
-# else.
 twice=yes
 for piece in "Late fees" "Waiting list" "Table plan" "Opening hours"; do
   [ "$(grep -c "$piece" "$OUT")" -eq 2 ] || { twice=no; fail "$piece does not print exactly twice"; }
 done
 [ "$twice" = no ] || pass "each prints under Needs attention and in its own column, once each"
 
-# A Readiness heading in another case is still the section. A parent and a
-# repair are not flagged, whatever they carry.
+# A ready piece nobody sized is named, and never offered to build.
+note_for "tidy the footer" "(ready with no Done when, so never shaped)" \
+  && once "tidy the footer" \
+  && pass "a ready piece with no Done when is named, and prints only there" \
+  || fail "tidy the footer is not named as never shaped, or prints elsewhere"
+under "To build" "tidy the footer" \
+  && fail "a ready piece with no Done when was offered as buildable" \
+  || pass "a ready piece with no Done when is not offered as buildable"
+
 under "Needs attention" "Allergy notes" \
   && fail "Allergy notes has a lower-case Readiness section but was named" \
   || pass "a Readiness heading in another case counts"
-under "Needs attention" "Guest accounts" \
-  && fail "a parent labelled building was named under Needs attention" \
-  || pass "a parent is never named for a missing Done when or Readiness"
-under "Needs attention" "Lost receipts" || under "Needs attention" "Duplicate bookings" \
-  && fail "a broken piece was named for a missing Done when or Readiness" \
-  || pass "a broken piece is never named for a missing Done when or Readiness"
-# A piece whose labels contradict each other prints once, under Needs
-# attention, even when it also skipped a step. Only the two new notes let a
-# piece stay in its column too.
-section "Needs attention" | grep "Room photos" | grep -q "without shaping" \
-  && [ "$(grep -c "Room photos" "$OUT")" -eq 1 ] \
-  && pass "a needs- label without shaping still prints once, whatever else is missing" \
-  || fail "Room photos is not named for its needs- label, or prints more than once"
-[ "$(grep -c "Lost receipts" "$OUT")" -eq 1 ] \
-  && pass "a broken piece being fixed prints once, under Broken" \
-  || fail "Lost receipts prints more than once"
-
-echo "== What the printout says about a waiting piece =="
-
-# The label says why a piece is waiting. Printing the label name would push a
-# GitHub word at somebody who never opens GitHub, so it is written out.
-section "Shaping" | grep "make the calendar nicer" | grep -q "needs a few questions" \
-  && pass "needs-clarification reads as a few questions" \
-  || fail "make the calendar nicer does not say it needs questions"
-
-section "Shaping" | grep "how should the dashboard look" | grep -q "needs a throwaway build to decide" \
-  && pass "needs-prototype reads as a throwaway build" \
-  || fail "the dashboard does not say it needs a prototype"
-
-section "Shaping" | grep "what does the VAT API return" | grep -q "needs a fact from outside the project" \
-  && pass "needs-research reads as a fact from outside" \
-  || fail "the VAT question does not say it needs research"
-
-# The reason replaces the generic marker rather than printing beside it.
-grep "make the calendar nicer" "$OUT" | grep -q "still a note" \
-  && fail "a shaping piece prints both the reason and the generic note marker" \
-  || pass "a stated reason replaces the generic note marker"
-
-# A piece written down with no Done when is still a note, because shape decides.
-section "Idea" | grep "dark mode maybe" | grep -q "still a note" \
-  && pass "an unsized idea says it is still a note" \
-  || fail "dark mode maybe does not say it is still a note"
-grep "Card checkout" "$OUT" | grep -q "still a note" \
-  && fail "Card checkout is a sized piece but was marked a note" \
-  || pass "a sized piece is not marked a note"
 
 echo "== What the printout says about a piece ready to build =="
 
 section "To build" | grep "Guest list export" | grep -q "(ready)" \
   && pass "a shaped piece waiting to be built says it is ready" \
   || fail "Guest list export does not say it is ready"
-
-under "To build" "Card checkout" \
-  && fail "Card checkout carries no ready label but was offered as buildable" \
-  || pass "an unlabelled piece is not offered as buildable"
 
 echo "== What the printout says about a held-up piece =="
 
@@ -439,19 +450,19 @@ section "Made of parts" | grep "Booking flow" | grep -q "1 of 2 parts done" \
   && pass "the parent is under Made of parts and shows how many parts are done" \
   || fail "Booking flow is not under Made of parts with its part count"
 
-[ "$(grep -c 'Booking flow' "$OUT")" -eq 1 ] \
+once "Booking flow" \
   && pass "the parent appears once, only as a container" \
   || fail "Booking flow appears somewhere other than its own group"
 
-# A parent carries no Done when of its own, because its parts do. It is not a note.
-grep "Booking flow" "$OUT" | grep -q "still a note" \
-  && fail "Booking flow is a parent but was marked a note" \
-  || pass "a parent without its own Done when is not marked a note"
+under "Needs attention" "Booking flow" \
+  && fail "a parent with no state was named for having none" \
+  || pass "a parent with no state is never named for having none"
 
-echo "== An older project, before anything moves its labels =="
+echo "== A project still on AI Build Kit's labels =="
 
-# Only the labels an older project had: ready, building, blocked and a needs-
-# label with no shaping beside it. It still groups, with blocked read as parked.
+# Only the labels an older project had. Nothing moves its issues onto the new
+# labels, so each one is named under Needs attention, none is offered to build,
+# and nothing is written to GitHub.
 cat >"$WORK/older.json" <<'JSON'
 [
   {"number": 1, "title": "Card checkout", "html_url": "http://x/1",
@@ -465,40 +476,49 @@ cat >"$WORK/older.json" <<'JSON'
    "labels": [{"name": "blocked"}]},
   {"number": 4, "title": "make the calendar nicer", "html_url": "http://x/4",
    "body": "half a sentence", "assignees": [],
-   "labels": [{"name": "needs-clarification"}]},
-  {"number": 5, "title": "Deposits", "html_url": "http://x/5",
-   "body": "## Done when\nA deposit is held.", "assignees": [],
-   "labels": [{"name": "ready"}, {"name": "blocked"}]}
+   "labels": [{"name": "shaping"}, {"name": "needs-clarification"}]}
 ]
 JSON
 mkdir -p "$WORK/older"
-(cd "$WORK/older" && FIXTURE="$WORK/older.json" "$REFRESH" >/dev/null 2>&1) \
+: > "$WORK/older-calls.log"
+(cd "$WORK/older" && FIXTURE="$WORK/older.json" GH_CALLS="$WORK/older-calls.log" \
+  "$REFRESH" >/dev/null 2>&1) \
   || fail "the printout could not be written for an older project"
 OLDER="$WORK/older/plan.local.md"
 if [ -f "$OLDER" ]; then
-  section "To build" "$OLDER" | grep "Card checkout" | grep -q "(ready)" \
-    && section "Building" "$OLDER" | grep -q "Rename the header" \
-    && section "Parked" "$OLDER" | grep -q "Weekly payouts" \
-    && section "Needs attention" "$OLDER" | grep "make the calendar nicer" | grep -q "shaping" \
-    && pass "an older project groups by its old labels, with blocked shown as parked" \
-    || fail "an older project's labels are grouped wrongly"
-  # Its piece under way was built before the readiness check existed. The note
-  # names what is missing, in the same words, and does not call it a fault.
-  section "Needs attention" "$OLDER" | grep "Rename the header" \
-    | grep -qF "(building with no Readiness check)" \
-    && section "Building" "$OLDER" | grep -q "Rename the header" \
-    && pass "an older project's piece built before the readiness check says only what is missing" \
-    || fail "an older project's building piece does not get the Readiness note, or left Building"
+  named=yes
+  for piece in "Card checkout" "Rename the header" "Weekly payouts" "make the calendar nicer"; do
+    section "Needs attention" "$OLDER" | grep "$piece" | grep -q "a label from AI Build Kit's model" \
+      || { named=no; fail "$piece carries an old label but is not named under Needs attention"; }
+  done
+  [ "$named" = no ] || pass "every piece on an old label is named as carrying one the kit does not use"
+  section "To build" "$OLDER" | grep -q . \
+    && fail "a piece on an old label was offered as buildable" \
+    || pass "a piece on an old label is not offered as buildable"
+  grep -qE '^(issue edit|issue create|label )' "$WORK/older-calls.log" \
+    && fail "the printout moved an older project's issues" \
+    || pass "an older project's issues are left exactly as they are"
 else
   fail "no printout was written for an older project"
 fi
-# The old labels let `blocked` sit beside `ready`. That is how an older project
-# looks rather than two states at once, so it reads as parked and nothing more.
-if [ -f "$OLDER" ]; then
-  section "Parked" "$OLDER" | grep -q "Deposits" \
-    && ! section "Needs attention" "$OLDER" | grep -q "Deposits" \
-    && pass "an older project's blocked beside ready prints as parked, not as a mistake" \
-    || fail "an older project's blocked beside ready is not read as parked"
+
+echo "== When the gate script is not beside the printout =="
+
+# The printout takes Needs attention from the gate script beside it. A copy with
+# no gate beside it still writes the board, and says the labels were not checked
+# and how to get the gate back, rather than leaving Needs attention silently
+# empty.
+mkdir -p "$WORK/lone/tools" "$WORK/lone/project"
+cp "$REFRESH" "$WORK/lone/tools/plan-refresh.sh"
+(cd "$WORK/lone/project" && sh "$WORK/lone/tools/plan-refresh.sh" >/dev/null 2>&1) \
+  || fail "the printout could not be written with no gate script beside it"
+if [ -f "$WORK/lone/project/plan.local.md" ]; then
+  section "Needs attention" "$WORK/lone/project/plan.local.md" | grep -q "gate.py" \
+    && section "Needs attention" "$WORK/lone/project/plan.local.md" | grep -q "/maintain" \
+    && pass "with no gate script beside it, the printout says so and names /maintain" \
+    || fail "with no gate script beside it, the printout does not say the labels were not checked"
+else
+  fail "no printout was written with no gate script beside it"
 fi
 
 echo "== Which ready pieces go together =="
@@ -523,60 +543,60 @@ cat >"$WORK/groups.json" <<'JSON'
 [
   {"number": 1, "title": "Guest list export", "html_url": "http://x/1",
    "body": "## Done when\nThe list downloads.\n\nTouches: guest list, exports\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 2, "title": "Refund button", "html_url": "http://x/2",
    "body": "## Done when\nA refund is sent.\n\nTouches: Refunds\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 3, "title": "Export to spreadsheet", "html_url": "http://x/3",
    "body": "## Done when\nA sheet downloads.\n\nTouches: Exports, settings\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 4, "title": "Seat map", "html_url": "http://x/4",
    "body": "## Done when\nSeats show.", "assignees": [],
-   "labels": [{"name": "ready"}]},
+   "labels": [{"name": "state:ready"}]},
   {"number": 5, "title": "Booking reminders", "html_url": "http://x/5",
    "body": "### Done when\n\nA reminder goes out.\n\n### Touches\n\nGuest List\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 6, "title": "Deposits", "html_url": "http://x/6",
    "body": "## Done when\nA deposit is held.\n\nTouches: payments\n",
-   "assignees": [], "labels": [{"name": "ready"}],
+   "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 7, "title": "Card checkout", "html_url": "http://x/7",
    "body": "## Done when\nA card is charged.\n\nTouches: payments\n",
-   "assignees": [], "labels": [{"name": "idea"}]},
+   "assignees": [], "labels": [{"name": "state:shaping"}, {"name": "shaping:raw"}]},
   {"number": 8, "title": "Gift wrap", "html_url": "http://x/8",
    "body": "## Done when\nA gift is wrapped.\n\n### Touches\n\n_No response_\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 9, "title": "Refund receipts", "html_url": "http://x/9",
    "body": "## Done when\nA receipt is sent.\n\nTouches: refunds, settings\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 10, "title": "Deposit refunds", "html_url": "http://x/10",
    "body": "## Done when\nA deposit comes back.\n\nTouches: deposits\n",
-   "assignees": [], "labels": [{"name": "ready"}],
+   "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 11, "title": "Calendar invites", "html_url": "http://x/11",
    "body": "## Done when\nAn invite goes out.\n\nTouches: invites\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
-   "assignees": [], "labels": [{"name": "ready"}],
+   "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 12, "title": "Calendar sync", "html_url": "http://x/12",
    "body": "## Done when\nThe calendar syncs.\n\nTouches: `calendar`.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Not ready\n- BLOCKING Data: nobody said which calendar wins.\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 13, "title": "Calendar colours", "html_url": "http://x/13",
    "body": "## Done when\nDays are coloured.\n\n~~~\nTouches: menu\n~~~\n\n## Touches\nCalendar\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 14, "title": "Invite reminders", "html_url": "http://x/14",
    "body": "## Done when\nA reminder follows the invite.\n\nTouches: reminders\n",
-   "assignees": [], "labels": [{"name": "ready"}],
+   "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 15, "title": "Stock sync", "html_url": "http://x/15",
    "body": "## Done when\nStock matches.\n\nTouches: stock\n",
-   "assignees": [], "labels": [{"name": "ready"}],
+   "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 16, "title": "Supplier account", "html_url": "http://x/16",
    "body": "## Done when\nOrders reach the supplier.\n\n## Waiting on you\nOpen the supplier account and put its key in .env.\n\nTouches: suppliers\n",
-   "assignees": [], "labels": [{"name": "ready"}]},
+   "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 17, "title": "Menu photos", "html_url": "http://x/17",
    "body": "## Done when\nEach dish has a photo.\n\nWaiting on you: try it\n\nTouches: menu\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
-   "assignees": [], "labels": [{"name": "ready"}]}
+   "assignees": [], "labels": [{"name": "state:ready"}]}
 ]
 JSON
 cat >"$WORK/bin-groups-gh" <<'SH'
@@ -703,10 +723,10 @@ if [ -f "$TOGETHER" ]; then
   echo "== Which held-up pieces are in the plan =="
 
   # A held-up piece joins the plan only when every open blocker in its chain
-  # is in the plan. Deposits waits on an idea, so it waits its turn, and so does
+  # is in the plan. Deposits waits on a raw piece, so it waits its turn, and so does
   # Deposit refunds, which waits on Deposits.
   mark_on "Held up" "Deposits" "(in the plan)" \
-    && fail "Deposits waits on an idea but was put in the plan" \
+    && fail "Deposits waits on a raw piece but was put in the plan" \
     || pass "a piece whose blocker is outside the plan waits its turn"
   mark_on "Held up" "Deposit refunds" "(in the plan)" \
     && fail "Deposit refunds waits on Deposits, which is outside the plan, but was put in it" \

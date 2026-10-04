@@ -67,6 +67,11 @@ rs_guard "$FORM" "the piece form"
 
 rs_require_absent "the form no longer says most pieces leave Decided empty" \
   "$FORM" 'most pieces leave this empty'
+# The form used to put a subject label on every issue it opened. A form-opened
+# issue now carries no label at all, so it has no state until the gate's report
+# names it and /shape takes it in. A default label would also be a subject
+# chosen before anybody read the piece.
+rs_require_absent "the form applies no label by default" "$FORM" 'labels: \['
 
 # --- pieces.md: the fields and the rules that are not fields -------------
 
@@ -263,8 +268,8 @@ rs_require_load_bearing "change-triage says what a shaping piece with no reason 
   "$TRIAGE" 'the one `shaping` piece with no `needs-` label is a piece waiting for its readiness check'
 rs_require_load_bearing "founding runs the check through a session that did not shape the piece" \
   "$SETUP" 'founding runs the readiness check in the `shape` skill.s `references/readiness-check\.md` on each shaped piece through a session that did not shape it'
-rs_require_load_bearing "founding without a subagent leaves the check for before a run" \
-  "$SETUP" 'labels each shaped piece `ready` without a `## readiness` section, and the piece is checked before any run claims it'
+rs_require_load_bearing "founding without a subagent leaves the check for before a build" \
+  "$SETUP" 'each shaped piece stays in `shaping:check`, and is checked before it can be built'
 rs_require_load_bearing "the compatibility page gives the route without a subagent" \
   "$COMPAT" '/shape <number> check readiness'
 

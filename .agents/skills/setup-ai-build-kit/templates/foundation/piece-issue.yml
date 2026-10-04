@@ -1,7 +1,6 @@
 name: A piece of work
 description: One small, visible change, sized for a single sitting and small enough for a fresh session to hold whole.
 title: "<what the person will be able to do>"
-labels: ["how it works"]
 body:
   - type: markdown
     attributes:

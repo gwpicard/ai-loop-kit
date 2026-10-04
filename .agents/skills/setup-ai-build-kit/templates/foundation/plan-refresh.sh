@@ -156,15 +156,33 @@ done
 listing_file="$scratch/issues.json"
 printf '%s' "$listing" > "$listing_file"
 
-python3 - "$OUT" "$listing_file" "$blocker_map" <<'PY'
-import json, sys, subprocess
+# The gate script sits beside this file, in .agents/tools in a project and in
+# the setup skill's templates/foundation before founding copies it. Needs
+# attention is what its report would print, so the printout asks it rather than
+# working the same findings out a second time.
+gate_path="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/gate.py"
 
-out, listing_file, blocker_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+python3 - "$OUT" "$listing_file" "$blocker_map" "$gate_path" <<'PY'
+import importlib.util, json, re, subprocess, sys
+
+out, listing_file, blocker_raw, gate_path = sys.argv[1:5]
 # A closed issue is done. The listing asks for open issues only, but the check
-# is made here too, so a closed idea that stays labelled `parked` can never
-# print as work waiting to be done.
+# is made here too, so a closed issue still carrying a label can never print as
+# work waiting to be done.
 issues = [i for i in json.load(open(listing_file))
           if not i.get("pull_request") and i.get("state", "open") == "open"]
+
+# The gate's own report check, loaded from the file beside this one. Nothing is
+# written next to it: Python is told not to leave a compiled copy behind.
+gate = None
+try:
+    sys.dont_write_bytecode = True
+    spec = importlib.util.spec_from_file_location("gate", gate_path)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    gate.findings_for, gate.missing_hook
+except Exception:
+    gate = None
 
 # For each held-up piece, its open blockers as (number, title) pairs, and the
 # titles joined for the line that names them.
@@ -187,49 +205,46 @@ def labels(issue):
 
 # A piece made of parts. GitHub's sub-issue summary rides along in the list
 # payload, the way the blocked-by summary does, so a parent is known without a
-# second call. total is how many parts; completed is how many have closed.
+# second call. total is how many parts; completed is how many have closed. A
+# parent is an issue with at least one open part, as the gate counts it.
 def sub_summary(issue):
     s = issue.get("sub_issues_summary") or {}
     return s.get("total", 0), s.get("completed", 0)
 
-# An issue with no "## Done when" was typed by hand and has never been sized.
-# Shape decides rather than the label, so one that nobody has labelled yet still
-# shows up here as what it is. A parent carries no Done when of its own, because
-# its parts carry the checkable conditions, so it is never a bare note.
+def is_parent(issue):
+    total, completed = sub_summary(issue)
+    return total - completed > 0
+
+# An issue with no "## Done when" has never been sized. A parent carries no Done
+# when of its own, because its parts carry the checkable conditions.
 def still_a_note(issue):
     if sub_summary(issue)[0] > 0:
         return False
     return "## Done when" not in (issue.get("body") or "")
 
-# The six states, in the order a piece moves through them. Exactly one sits on
-# an open piece.
-STATES = ["idea", "shaping", "ready", "building", "to check", "parked"]
+SUB_STATES = ["raw", "research", "clarify", "prototype", "spec", "check"]
+REVIEWS = [("review:person", "In review, waiting for you"),
+           ("review:auto", "In review, automatic")]
 
-# `blocked` is the label an older project used before the states. It reads as
-# parked, the state that replaced it, until something moves it. The old labels
-# let it sit beside `ready` or `building`, so that pair is how an older project
-# looks rather than a mistake, and parked wins.
-def state_labels(issue):
+# The one column a piece sits in, read from its labels: a shaping sub-state,
+# ready, building, or one of the two kinds of review. None when the labels do
+# not say, which the gate's report then names.
+def column(issue):
     names = labels(issue)
-    found = [s for s in STATES if s in names]
-    if "blocked" in names:
-        found = ["parked"] + [s for s in found
-                              if s not in ("ready", "building", "parked")]
-    return found
-
-# What a piece is waiting on, when it is waiting on a question rather than on a
-# person. Written out in words, because the label names are for GitHub and this
-# file is for reading.
-QUESTIONS = [("needs-clarification", "needs a few questions"),
-             ("needs-prototype", "needs a throwaway build to decide"),
-             ("needs-research", "needs a fact from outside the project")]
-
-def waiting_on(issue):
-    names = labels(issue)
-    for label, text in QUESTIONS:
-        if label in names:
-            return text
-    return ""
+    states = [n for n in names if n.startswith("state:")]
+    subs = [n for n in names if n.startswith("shaping:")]
+    reviews = [n for n in names if n.startswith("review:")]
+    if len(states) != 1:
+        return None
+    if states[0] == "state:shaping":
+        if len(subs) == 1 and subs[0][len("shaping:"):] in SUB_STATES:
+            return "Shaping: " + subs[0][len("shaping:"):]
+        return None
+    if states[0] == "state:in-review":
+        if len(reviews) == 1:
+            return dict(REVIEWS).get(reviews[0])
+        return None
+    return {"state:ready": "ready", "state:building": "Building"}.get(states[0])
 
 import re
 
@@ -250,105 +265,104 @@ def body_lines(issue):
 def heading(line, name):
     return re.match(r"^#{2,3}\s*%s\s*$" % name, line, re.I) is not None
 
-# A piece being built or waiting for the person's check that skipped a step on
-# the way: never shaped, so it has no Done when, or never passed the readiness
-# check, so it has no Readiness section. Either way it looks exactly like a
-# piece that went the proper way, so the printout says what is missing. A
-# repair is left out, because it goes through /fix rather than shaping, and a
-# parent never reaches Needs attention at all. Where both are missing, the
-# first is the whole story. The Done when test is the one still_a_note() uses,
-# word for word, so the two never disagree about a piece. The Readiness test is
-# the heading match verdict_marks() uses, which ignores case and code blocks.
+# A piece that carries a later state without the steps before it, because a
+# person can put a label on by hand. Never shaped, so it has no Done when, or,
+# for a piece being built or reviewed, never passed the readiness check, so it
+# has no Readiness section. Either way it looks exactly like a piece that went
+# the proper way, so the printout says what is missing. A parent never gets
+# either note. Where both are missing, the first is the whole story. The Done
+# when test is the one still_a_note() uses, word for word, so the two never
+# disagree about a piece. The Readiness test is the heading match
+# verdict_marks() uses, which ignores case and code blocks.
+WORDS = {"ready": "ready", "Building": "building",
+         "In review, waiting for you": "in review", "In review, automatic": "in review"}
+
 def skipped_step(issue):
-    names = labels(issue)
-    found = state_labels(issue)
-    if "broken" in names or found not in (["building"], ["to check"]):
+    place = column(issue)
+    if place not in WORDS or is_parent(issue):
         return ""
     if still_a_note(issue):
-        return "(%s with no Done when, so never shaped)" % found[0]
-    if not any(heading(line, "readiness") for line in body_lines(issue)):
-        return "(%s with no Readiness check)" % found[0]
+        return "(%s with no Done when, so never shaped)" % WORDS[place]
+    if place != "ready" and not any(heading(line, "readiness") for line in body_lines(issue)):
+        return "(%s with no Readiness check)" % WORDS[place]
     return ""
 
-# Why a piece needs a person to look at it, or "" when it does not. Each of these
-# is a mistake in the labels, and the printout names it rather than guessing
-# which label is true.
-def attention(issue):
-    names = labels(issue)
-    if len(state_labels(issue)) > 1:
-        found = [s for s in STATES if s in names]
-        found += ["blocked"] if "blocked" in names else []
-        return "(carries two states at once: %s)" % ", ".join(found)
-    reasons = [label for label, _ in QUESTIONS if label in names]
-    if reasons and "shaping" not in names:
-        return "(carries %s without shaping)" % ", ".join(reasons)
-    if "ready" in names and still_a_note(issue):
-        return "(labelled ready with no Done when, so still an idea)"
-    return skipped_step(issue)
+# What the gate's report says about a piece, or "" when it says nothing.
+def findings(issue):
+    if gate is None:
+        return ""
+    found = gate.findings_for(issue)
+    return "(%s)" % "; ".join(found) if found else ""
 
-# The board. A repair and a parent sit outside the columns: a repair because
-# somebody opening this file wants to know what is broken before what is next,
-# and a parent because it carries no state of its own. A piece whose labels
-# contradict each other prints once, under Needs attention. Two kinds print
-# there and in their column too: a ready piece with no Done when, which is an
-# idea and also needs a look, and a piece that skipped a step on its way to
-# building or to check, which really is being built or checked.
-needs_attention, broken, parents = [], [], []
-columns = {s: [] for s in STATES}
+# The board. A piece the gate's report names prints once, under Needs
+# attention, because its labels give no column to trust. A piece that skipped a
+# step prints there and in its column too, since somebody really is building or
+# reviewing it, except a ready one, which is never offered to build. A parent
+# the report does not name prints under Made of parts.
+general = []
+if gate is None:
+    general.append("the gate script %s is missing or unreadable, so the labels were "
+                   "not checked; run /maintain, which puts it back" % gate_path)
+else:
+    hook = gate.missing_hook()
+    if hook:
+        general.append(hook)
+
+needs_attention, parents = [], []
+columns = {name: [] for name in
+           ["Shaping: " + s for s in SUB_STATES] + ["ready", "Building"]
+           + [name for _, name in REVIEWS]}
 held_up = []
 for issue in sorted(issues, key=lambda i: i["number"]):
-    names = labels(issue)
-    note = attention(issue)
-    if sub_summary(issue)[0] > 0:
+    found = findings(issue)
+    if found:
+        needs_attention.append((issue, found))
+        continue
+    if is_parent(issue):
         parents.append(issue)
         continue
+    place = column(issue)
+    if place is None:
+        # Only reached with no gate to ask, which already said so above.
+        needs_attention.append((issue, "(labels the printout cannot place)"))
+        continue
+    note = skipped_step(issue)
     if note:
         needs_attention.append((issue, note))
-        if not (len(state_labels(issue)) == 1
-                and (("ready" in names and still_a_note(issue))
-                     or note == skipped_step(issue))):
+        if place == "ready":
             continue
-    if "broken" in names:
-        broken.append(issue)
-        continue
-    found = state_labels(issue)
-    state = found[0] if found else "idea"
-    # Shape decides. A ready label on a piece nobody sized does not make it
-    # ready, so it waits among the ideas.
-    if state == "ready" and still_a_note(issue):
-        state = "idea"
-    if state == "ready" and blockers.get(issue["number"]):
+    if place == "ready" and blockers.get(issue["number"]):
         held_up.append(issue)
     else:
-        columns[state].append(issue)
+        columns[place].append(issue)
 
 lines = ["Plan (local view, refreshed from GitHub, do not edit)",
          "Last refreshed: %s" % stamp, ""]
 
-# The question label says why a piece is waiting, so it replaces the generic
-# note marker rather than printing beside it.
-#
 # `(ready)` marks only a ready piece that has been sized. The commands that read
-# this file name a piece to build only when it carries that mark.
+# this file name a piece to build only when it carries that mark. `(bug)` marks
+# a repair in whichever column it sits.
 def state_note(issue):
-    text = waiting_on(issue)
-    if text:
-        return "(%s)" % text
-    if still_a_note(issue):
-        return "(still a note)"
-    return "(ready)" if state_labels(issue) == ["ready"] else ""
+    marks = []
+    if "type:bug" in labels(issue):
+        marks.append("(bug)")
+    if column(issue) == "ready" and not still_a_note(issue):
+        marks.append("(ready)")
+    return " ".join(marks)
 
 # A piece held up by another names it, whichever column it sits in.
 def held_note(issue):
     names = blockers.get(issue["number"])
     return "(needs %s)" % names if names else ""
 
-# Under Needs attention the labels contradict each other, so the line names the
-# mistake and nothing else. A `(ready)` mark there would read as a piece to build.
-def render(heading, group, note, marked=True):
-    if not group:
+# Under Needs attention the line names what is wrong and nothing else. A
+# `(ready)` mark there would read as a piece to build.
+def render(heading, group, note, marked=True, extra=()):
+    if not group and not extra:
         return
     lines.append(heading)
+    for text in extra:
+        lines.append("  %s" % text)
     for issue in group:
         who = ", ".join(a["login"] for a in issue.get("assignees", []))
         mark = state_note(issue) if marked else ""
@@ -511,16 +525,15 @@ def render_groups(group):
 
 notes_by_number = {i["number"]: n for i, n in needs_attention}
 render("Needs attention", [i for i, _ in needs_attention],
-       lambda i: notes_by_number[i["number"]], marked=False)
-render("Broken", broken, lambda i: "(being fixed)" if "building" in labels(i) else "")
-render("Idea", columns["idea"], held_note)
-render("Shaping", columns["shaping"], held_note)
+       lambda i: notes_by_number[i["number"]], marked=False, extra=general)
+for name in SUB_STATES:
+    render("Shaping: " + name, columns["Shaping: " + name], held_note)
 render("To build", columns["ready"], to_build_note)
 render_groups(columns["ready"])
 render("Held up", held_up, held_up_note)
-render("Building", columns["building"], held_note)
-render("To check", columns["to check"], held_note)
-render("Parked", columns["parked"], held_note)
+render("Building", columns["Building"], held_note)
+for _, name in REVIEWS:
+    render(name, columns[name], held_note)
 render("Made of parts", parents,
        lambda i: "(%d of %d parts done, build the parts)" % (sub_summary(i)[1], sub_summary(i)[0]))
 

@@ -413,19 +413,48 @@ needs a GitHub repository and the GitHub command line tool signed in; where that
 is not yet in place, guide the person through it now, following
 references/manual-setup.md, because the pieces live as issues and there is no
 file-based substitute. A private repository keeps issues just as well as a
-public one, so a project that wants to stay private still uses one. Do this without narrating it: create the
-label set in references/pieces.md, the six states `idea`, `shaping`, `ready`,
-`building`, `to check` and `parked` among them,
-delete the labels GitHub made by itself, copy templates/foundation/piece-issue.yml
-to `.github/ISSUE_TEMPLATE/piece.yml`, open one issue per piece, each
-`shaping` with the matching `needs-` label where it still holds an open
-question for `/shape` to settle and `shaping` alone otherwise, and link the
-ones that genuinely block each other using GitHub's blocked-by relationship. Founding runs the readiness check in the
-`shape` skill's `references/readiness-check.md` on each shaped piece through a
-session that did not shape it, and labels a piece `ready` only when its
-`## Readiness` section names no blocking gap. Where the coding agent cannot
-start one, founding labels each shaped piece `ready` without a `## Readiness`
-section, and the piece is checked before any run claims it.
+public one, so a project that wants to stay private still uses one. Do this
+without narrating it.
+
+Before the first issue, create the label set with
+`python3 .agents/tools/gate.py labels`, which makes the 26 labels in
+references/pieces.md and names any this account could not create. Then
+delete the labels GitHub made by itself, and copy
+templates/foundation/piece-issue.yml to `.github/ISSUE_TEMPLATE/piece.yml`.
+
+Open each piece through the gate script, never with `gh issue create`. Write
+its body to a file and open it with `gate.py capture`, which gives it
+`state:shaping` and `shaping:raw`. Then give it exactly one `type:` label with
+`gh issue edit` before its first move: `type:feature`, `type:bug` for behaviour
+the masterplan promised that does not work, or `type:chore` for upkeep nobody
+would notice in the tool. Add every subject label that fits. Move it only with
+`gate.py move`, which checks each move and refuses a wrong one. The commands,
+in order:
+
+```sh
+python3 .agents/tools/gate.py labels
+gh label delete "<label>" --yes
+python3 .agents/tools/gate.py capture --title "<title>" --body-file <file>
+gh issue edit <number> --add-label "type:<feature|bug|chore>"
+gh issue edit <number> --add-label "<subject>"
+python3 .agents/tools/gate.py move <number> <target>
+```
+
+A piece that still holds an open question for `/shape` to settle carries it
+under `## Open question`, one question, and moves to `clarify`, `research` or
+`prototype`, whichever says who can answer it. A piece founding shapes fully
+moves to `spec`, then to `check` once its contract is written, and ends in
+`shaping:check`. Founding runs the readiness check in the `shape` skill's
+`references/readiness-check.md` on each shaped piece through a session that
+did not shape it. The piece moves to `state:ready` only through the gate, with
+`gate.py move <number> ready`, which needs a `## Readiness` section saying
+Ready with no blocking line. On Not ready, move it to the sub-state its first
+blocking line needs. Where the coding agent cannot start such a session, each
+shaped piece stays in `shaping:check`, and is checked before it can be built.
+When the gate refuses a move, do what its `next:` line says, and never write a
+state label by hand. Link the pieces that genuinely block each other using
+GitHub's blocked-by relationship.
+
 Then run `sh .agents/tools/plan-refresh.sh` once, so the person has their list
 before they need it. The bootstrap placed that helper in the project, whichever
 route installed the kit.
@@ -448,8 +477,9 @@ account cannot delete a label, say which stayed and carry on: a leftover label
 is untidy rather than harmful. Anything a person added themselves is left alone
 under the ordinary rule.
 
-An idea that did not make the cut becomes a closed issue labelled `parked`, with
-the reason in the body.
+An idea that did not make the cut is opened with `gate.py capture` like any
+piece, then closed as not planned with `gate.py drop <number> --reason "<why>"`,
+which keeps the reason on it.
 
 With the pieces created, load references/coverage-read.md and run the coverage
 read against the masterplan. This is the cheapest moment in the project's life
@@ -692,7 +722,8 @@ The build path is recorded, the records exist (masterplan.md, CHANGELOG.md, and
 the pieces as issues), AGENTS.md contains the capability profile and project
 commands, the masterplan has had whatever review its build path called for or a
 changelog line saying why none ran, the initial state is saved as a local
-checkpoint, the plan is made of visible pieces each carrying one state, `ready` or
-`shaping` with its open question, one check passes, and the user has received the plain-language
+checkpoint, the plan is made of visible pieces each carrying one state,
+`state:ready` or `state:shaping` with one sub-label, and one `type:` label, one
+check passes, and the user has received the plain-language
 completion report, which ends on a clean cut naming `/implement` and `/shape`
 rather than an offer to build in this session.

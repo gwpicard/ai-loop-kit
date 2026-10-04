@@ -795,19 +795,22 @@ else
   # Matched against the definition list rather than the whole file. A state
   # label is also mentioned in the prose that explains it, so a loose search
   # keeps passing after the definition itself has been renamed.
-  # The six states, then the label that sits beside a state, then the reasons
-  # that sit beside `shaping`. `blocked` retired when the states arrived.
-  for label in idea shaping ready building "to check" parked broken \
-               needs-clarification needs-prototype needs-research; do
+  # The four states, the six shaping sub-states and the three types, each a
+  # definition line. The gate script creates the same set, and gate-script.sh
+  # reads it back from a stand-in GitHub.
+  for label in state:shaping state:ready state:building state:in-review \
+               shaping:raw shaping:research shaping:clarify shaping:prototype \
+               shaping:spec shaping:check type:feature type:bug type:chore; do
     grep -qF -- "- \`$label\`," "$pieces" || \
       { fail "$pieces: the state label list does not define '$label'"; pc_ok=0; }
   done
-  # The form's default label must be one the reference knows.
-  formlabel=$(awk -F'"' '/^labels:/ { print $2; exit }' "$pieceform")
-  case "$formlabel" in
-    visual|"how it works"|data|"accounts and permissions"|finance|"external service"|"background automation") ;;
-    *) fail "$pieceform: default label '$formlabel' is not one of the seven subjects"; pc_ok=0 ;;
-  esac
+  # The form applies no label. A form-opened issue has no state until the
+  # gate's report names it and /shape takes it in through the gate, and a
+  # default subject would be chosen before anybody read the piece.
+  if grep -q '^labels:' "$pieceform"; then
+    fail "$pieceform: applies a label by default; a form-opened issue carries none"
+    pc_ok=0
+  fi
   [ "$pc_ok" -eq 1 ] && \
     pass "pieces.md and the issue form agree on the sections and the label set"
 fi
@@ -883,13 +886,13 @@ if [ -f "$whatnowfile" ]; then
     pass "what-now voices a failing check, an open finding, an unfinished setup step, and a recap"
 fi
 
-# The command split: shape prepares work and marks a piece `ready`; implement
+# The command split: shape prepares work and moves a piece to `state:ready`; implement
 # builds only ready pieces and refuses to shape, sending an unready piece back to
 # shape rather than guessing past its open question.
 implementfile="$SKILLS/implement/SKILL.md"
 if [ -f "$implementfile" ] && [ -f "$shapefile" ] && [ -f "$pieces" ]; then
   split_ok=1
-  grep -qF '`ready`, when the piece is shaped' "$pieces" || \
+  grep -qF '`state:ready`, shaped and checked' "$pieces" || \
     { fail "$pieces: does not define the ready label"; split_ok=0; }
   grep -qF "it does not shape" "$implementfile" || \
     { fail "$implementfile: does not say it builds rather than shapes"; split_ok=0; }
