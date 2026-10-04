@@ -65,10 +65,11 @@ as `references/running-longer.md` says. A label from an older project, such as
 ## When a piece waits on the person
 
 A piece carrying a `## Waiting on you` section cannot be built until that step is
-done. Such a piece sits in `shaping:clarify`, as the `setup-ai-build-kit`
-skill's `references/pieces.md` says, so it never reaches `To build`. Given it
-by number, do not attempt it, and do not pass it over in silence. Say what the step
-is, in the words the piece uses, and that building carries on once it is done.
+done. Such a piece sits in `shaping:clarify`, as the
+`setup-ai-build-kit` skill's `references/pieces.md` says, so it never reaches
+`To build`. Given it by number, do not attempt it, and do not pass it over in
+silence. Say what the step is, in the words the piece uses, and that building
+carries on once it is done.
 
 The `Waiting on you: try it` line is different: it asks for the person's own try
 once the piece is built, so build the piece, and section-builder waits for them
