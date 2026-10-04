@@ -191,4 +191,14 @@ rs_require_load_bearing "/what-now names a piece built or checked that was never
 rs_require_load_bearing "/what-now says it once, with what is missing" \
   "$WHATNOW" 'once, with what it is missing'
 
+# /what-now names a piece waiting in review for the person as theirs, and leads
+# with what the gate's report finds, since a board that says something untrue
+# makes every other line it reads wrong.
+rs_require_load_bearing "/what-now names a piece in review for the person as theirs" \
+  "$WHATNOW" 'a piece in `state:in-review` with `review:person` is the person.s own'
+rs_require_load_bearing "/what-now leads with the gate's report" \
+  "$WHATNOW" 'where `python3 \.agents/tools/gate\.py report` names anything, lead with it'
+rs_require_absent "/what-now no longer reads a broken label" "$WHATNOW" 'anything labelled `broken`'
+rs_require_absent "/what-now no longer reads a to-check column" "$WHATNOW" 'a piece under `to check`'
+
 rs_done

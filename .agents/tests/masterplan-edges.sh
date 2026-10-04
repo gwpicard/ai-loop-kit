@@ -29,8 +29,8 @@ rs_guard "$SETUP" "the founding ownership check"
 
 rs_reset
 rs_rule "planning gives the term a durable place on the piece" 'record the term in `## decided` and put the key-terms update in `## masterplan change`'
-rs_rule "parking or reshaping keeps the term until it is used or changed" 'keep that settled term on the piece when it is parked or reshaped, until it reaches the masterplan or the person explicitly changes the decision'
-rs_rule "the piece records why the term stays there" 'add this reason on the piece: "the term stays here while this is planned; the coverage read checks it even if this piece is parked\."'
+rs_rule "closing or reshaping keeps the term until it is used or changed" 'keep that settled term on the piece when it is reshaped or closed as not planned, until it reaches the masterplan or the person explicitly changes the decision'
+rs_rule "the piece records why the term stays there" 'add this reason on the piece: "the term stays here while this is planned; the coverage read checks it even if this piece is closed as not planned\."'
 rs_rule "planning still records and stops" 'planning records and stops; writing to the masterplan is a build'
 rs_rule "clarify points to the coverage read that catches missed terms" 'setup-ai-build-kit/references/coverage-read\.md catches a settled term left behind on a piece'
 rs_guard "$CLARIFY" "the settled-term rules"
@@ -50,9 +50,10 @@ rs_rule "shortening never creates a catch-all document" 'never into a new catch-
 rs_guard "$SYNC" "the masterplan length offer"
 
 rs_require_load_bearing "WORKFLOW explains the length offer" "$WORKFLOW" 'when the core masterplan grows beyond roughly two pages, /sync says so once and offers to move detail'
-rs_require_load_bearing "the parked-term rehearsal asks for the shaping decision" "$ROOT/.agents/tests/replay/cases/48.txt" 'a borrower is the person using an item'
-rs_require_load_bearing "the rehearsal parks that piece before sync" "$ROOT/.agents/tests/replay/cases/48.txt" 'park the piece we just shaped'
-rs_require_order "the rehearsal parks the term's piece before reconciliation" "$ROOT/.agents/tests/replay/cases/48.txt" 'Park the piece' '^/sync'
-rs_require_load_bearing "the rehearsal judges the missing term rather than a new feature" "$ROOT/.agents/tests/scenarios.md" 'the coverage read names the missing borrower definition even though its piece is parked'
+rs_require_load_bearing "the closed-term rehearsal asks for the shaping decision" "$ROOT/.agents/tests/replay/cases/48.txt" 'a borrower is the person using an item'
+rs_require_load_bearing "the rehearsal closes that piece as not planned before sync" "$ROOT/.agents/tests/replay/cases/48.txt" 'close the piece we just shaped as not planned'
+rs_require_order "the rehearsal closes the term's piece before reconciliation" "$ROOT/.agents/tests/replay/cases/48.txt" 'Close the piece' '^/sync'
+rs_require_load_bearing "the rehearsal judges the missing term rather than a new feature" "$ROOT/.agents/tests/scenarios.md" 'the coverage read names the missing borrower definition even though its piece was closed as not planned'
+rs_require_absent "clarify no longer names parked" "$CLARIFY" 'parked'
 
 rs_done

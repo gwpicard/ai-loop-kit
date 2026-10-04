@@ -900,7 +900,7 @@ if [ -f "$implementfile" ] && [ -f "$shapefile" ] && [ -f "$pieces" ]; then
     { fail "$implementfile: does not send an unready piece to shape instead of settling it"; split_ok=0; }
   grep -qF "Shape itself never builds" "$shapefile" || \
     { fail "$shapefile: does not say shape never builds"; split_ok=0; }
-  grep -qF 'label it `ready`' "$shapefile" || \
+  grep -qF 'move it to `state:ready`' "$shapefile" || \
     { fail "$shapefile: does not mark a shaped piece ready"; split_ok=0; }
   [ "$split_ok" -eq 1 ] && \
     pass "shape prepares and marks ready; implement builds only ready pieces and redirects the rest"

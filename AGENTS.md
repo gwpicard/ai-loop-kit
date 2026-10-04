@@ -334,62 +334,72 @@ attribution line, not the word.
   the roll-up's counts. A kit telling the person to run `gh auth login` is
   advice and not a sign, and the stand-in must never print either sentence.
 - `.agents/tests/plan-printout.sh` runs the printout against a fixed set of
-  issues and reads what it wrote: that the groups print as a board, in the
-  order Needs attention, Broken, the six states and Made of parts, which group
-  each piece lands in, whether a waiting piece says why, whether a shaped piece
-  says it is ready, and whether a held-up piece names the piece holding it
-  rather than its number. An open issue with no state is an idea. A piece with
-  two states, or a `needs-` label without `shaping`, prints once, under Needs
-  attention, and a `ready` piece with no Done when prints as an idea and is
-  named there too. A piece under `building` or `to check` that was never
-  shaped, or never passed the readiness check, looks exactly like one that
-  was, so it is named there with what it is missing and still prints in its
-  own column. Where both are missing, only the missing Done when is named. A
-  parent and a repair are never named that way, and a Readiness heading in
-  another case counts while one with extra words does not. A closed issue
-  never prints. An older project's labels still
-  group, with `blocked` read as parked, even beside `ready`. When GitHub cannot
-  be reached, the last printout is left alone and the refresh says when it was
-  written. It also holds the invariant `/queue` rests on, that a piece with an
-  open blocker never reaches the buildable group while a piece whose blocker
-  has closed does. And it holds the groups of free pieces the printout works
-  out from each piece's `Touches:` line, under `Go together`: two pieces naming
-  the same area, in any capitals and with backticks or a full stop, never share
-  a group, a line under a Touches heading counts and one in a code block does
-  not, a piece with no line goes alone and says its Touches is unknown, and a
-  held-up piece is in no group. It holds the marks read from each ready piece's
-  body, needs you, not ready, not yet checked and try it, and that a held-up
-  piece joins the plan only when every open blocker in its chain is in it. A
-  piece stacked on one a run cannot take says it waits for it, and why, down
-  the chain.
-- `.agents/tests/piece-states.sh` guards the model the printout draws: every
-  open piece carries exactly one of six states, `idea`, `shaping`, `ready`,
-  `building`, `to check` and `parked`, written in that order in `pieces.md`. A
-  closed issue is done, except an idea left out, which stays closed and
-  `parked`. An open issue with no state is an idea, a `needs-` label is the
-  reason beside `shaping` only, held up by another piece is a link rather than
-  a state, and `parked` replaces `blocked`. It fails on a copy of `pieces.md`
-  that allows two states, not only on one with the rule gone, because loosening
-  is the edit that slips through. It also holds that founding names the six
-  labels when it makes the label set, and that WORKFLOW.md explains the states
-  in one place. It holds the two notes for a piece built or checked without
-  being shaped or checked where `pieces.md` and WORKFLOW.md describe them, and
-  that `/what-now` names such a piece once, beside a failing check.
-- `.agents/tests/state-moves.sh` guards the commands that keep the board true.
-  Each move takes the old state off in the same step as it puts the new one
-  on, and the check reads every label command in `/shape`, `/implement`,
-  section-builder and `/fix` for its removal on the same line, then proves a
-  copy that drops one fails. It holds capture, a note asked for outright filed
-  as an `idea` in the person's words with nothing settled, and `/shape` moving
-  an idea to `shaping`, and to `ready` only a piece whose readiness check
-  found no blocking gap. A
-  research piece says before it starts whether its result needs the person.
-  `/implement` claims a piece as `building` before any work and starts nothing
-  it could not claim, and section-builder moves it to `to check` when its pull
-  request opens, or to `parked` at a recorded condition or after three failed
-  attempts. It also holds `/what-now` naming a piece in `to check` as the
-  person's own, and `/sync` repairing two states on a piece or a state on a
-  closed issue while never touching a closed `parked` idea.
+  issues and reads what it wrote. The groups print as a board, in the order
+  Needs attention, one column for each shaping sub-state, To build, Held up,
+  Building, In review split into waiting for you and automatic, and Made of
+  parts. It holds which column each piece lands in, that a `type:bug` piece
+  carries a bug mark in whichever column it sits, that a shaped piece says it
+  is ready, and that a held-up piece names the piece holding it rather than
+  its number. Needs attention is the gate script's report, word for word: no
+  state, two states, a sub-label beside the wrong state, two review labels, a
+  parent carrying a state and a label from AI Build Kit's model are each named
+  once and printed nowhere else, and the printout moves nothing on GitHub. A
+  piece being built or in review that was never shaped, or never passed the
+  readiness check, is named there with what it is missing and still prints in
+  its own column. Where both are missing, only the missing Done when is named.
+  A parent with no state is never named for having none, a Readiness heading in
+  another case counts while one with extra words does not, and a closed issue
+  never prints. With no gate script beside it, the printout says so and names
+  `/maintain`. When GitHub cannot be reached, the last printout is left alone
+  and the refresh says when it was written. It also holds the invariant
+  `/queue` rests on, that a piece with an open blocker never reaches the
+  buildable group while a piece whose blocker has closed does. And it holds
+  the groups of free pieces the printout works out from each piece's
+  `Touches:` line, under `Go together`: two pieces naming the same area, in
+  any capitals and with backticks or a full stop, never share a group, a line
+  under a Touches heading counts and one in a code block does not, a piece
+  with no line goes alone and says its Touches is unknown, and a held-up piece
+  is in no group. It holds the marks read from each ready piece's body, needs
+  you, not ready, not yet checked and try it, and that a held-up piece joins
+  the plan only when every open blocker in its chain is in it. A piece stacked
+  on one a run cannot take says it waits for it, and why, down the chain.
+- `.agents/tests/piece-states.sh` guards the model the printout draws. Every
+  open piece carries exactly one of four states, `state:shaping`,
+  `state:ready`, `state:building` and `state:in-review`, written in that order
+  in `pieces.md`, and a closed issue carries none. Beside `state:shaping` sits
+  exactly one of six sub-states, from `shaping:raw` to `shaping:check`, and
+  beside `state:in-review` one of two review labels. Every piece carries one
+  `type:` label, the kit owns 26 labels, and only the gate script changes a
+  state. An open issue with no state is named and taken in with `gate.py
+  capture`, a parent carries no state, held up by another piece is a link and
+  never a label, and a label from AI Build Kit's model is named and left
+  alone. It fails on a copy of `pieces.md` that allows two states or two
+  sub-labels, not only on one with the rule gone, because loosening is the
+  edit that slips through. It also holds that founding creates the labels
+  through the gate and gives each piece one type before its first move, that
+  WORKFLOW.md explains the states in one place, and the note for a piece built
+  or checked without being shaped or checked. `/what-now` names such a piece
+  once, names a piece in `state:in-review` with `review:person` as the
+  person's own, and leads with the gate's report.
+- `.agents/tests/state-moves.sh` guards that every command moves a piece
+  through the gate. It reads every `gh issue edit`, `gh issue create` and `gh
+  label` command in `.agents/skills/` and fails on one that writes a
+  `state:`, `shaping:` or `review:` label, or an old state word, leaving out
+  the refused spellings `blocked-commands.md` lists and the gate, hook and deny
+  rules themselves. It fails on any `parked` left in the skills, and proves
+  both readers on copies with one planted. It then requires a `gate.py` call
+  for each move: capture in change-triage with one `type:` label before the
+  first move, every move in `/shape`, the claim in section-builder and in a
+  run, the move to review when a pull request opens, a run's kickbacks and its
+  give-back to `state:ready`, which a copy sending it to `gate.py drop` fails,
+  `/fix`'s claim of a ready repair only, and `/sync`'s report followed by the
+  person's choice and then `gate.py tidy`. The checkpoint route closes a
+  piece on save and runs the tidy, in section-builder and in a run, and the
+  merge step tidies after a merge. A refused gate call is reported and that
+  move stops, in each command and in `blocked-commands.md`. `/fix` and
+  `/what-now` read `type:bug` rather than `broken`, `/what-now` names a piece
+  waiting in review for the person as theirs, and WORKFLOW.md's section 5
+  tells the moves.
 - `.agents/tests/piece-contract.sh` guards the piece contract and the check a
   piece passes before it turns ready. A real project's pieces were detailed and
   still missed whole categories, such as states nobody named, data rules and
@@ -406,13 +416,14 @@ attribution line, not the word.
   or a new session given the exact line to paste, which `/shape` routes
   straight to the check. `/shape` typed alone picks up a piece still waiting
   for its check, change-triage and founding make a piece ready only through
-  it, and each kind of gap gets the `needs-` label for who can close it. The
+  it, and each kind of gap sends the piece to the sub-state for who can close
+  it. The
   list's bodies are compared with a stored copy, word for word. The check
   writes a
-  `## Readiness` section, and a blocking gap keeps the piece in `shaping` with
-  the gap written on it. A Relies on line nobody could read is a blocking gap,
-  a container passes when its parts are pieces, and a piece shaped before the
-  check stays ready. It also holds that clarify asks about those cases, data
+  `## Readiness` section, and a blocking gap sends the piece back through the
+  gate with the gap written on it. A Relies on line nobody could read is a
+  blocking gap, a container passes when its parts are pieces, and a ready
+  piece that skipped the check is checked before a run claims it. It also holds that clarify asks about those cases, data
   and what leaves the tool only when the piece touches them, that WORKFLOW.md
   and PHILOSOPHY tell it, that the list stays out of the founded AGENTS.md, and
   that the replay case for it is written and listed as owed.
@@ -451,7 +462,8 @@ attribution line, not the word.
   nothing, and an older helper with no groups sent to `/maintain`.
   It also guards the blocker being named rather than numbered, a waiting
   question keeping a piece out of the plan, a sized piece never marked ready
-  being named under `Idea` with its blocker named wherever it sits, the command
+  being named under its `Shaping:` column with its blocker named wherever it
+  sits, the command
   reporting and never labelling, claiming or building, and `/what-now` keeping
   its cap of three things while offering `/queue` when asked what else can be
   worked on, because a `/what-now` that grew the whole list would undo the split
@@ -530,11 +542,11 @@ attribution line, not the word.
   none was due, that an area covered by a recorded acceptance is marked
   accepted and never done, that the save-route assertion catches a founding that saved
   no checkpoint or pushed one it should have kept local, that the
-  issue-invariants assertion catches a parked idea reopened or moved into
-  building, that the route assertion catches a piece that got the label its
-  work promised without the work: a `needs-` label taken off with nothing
-  recorded, `ready` sitting beside an open question, and a note marked ready
-  without ever being sized, and that the split assertion catches a request cut
+  issue-invariants assertion catches an idea closed as not planned reopened
+  or moved into `state:building`, that the route assertion catches a piece
+  that got the label its work promised without the work: a waiting shaping
+  sub-state taken off with nothing recorded, `state:ready` sitting beside an
+  open question, and a note moved to ready without ever being sized, and that the split assertion catches a request cut
   up the wrong way: a part wanting a different outcome from its parent, two
   pieces waiting on each other for one outcome, and a part named for a layer
   rather than a slice. It also holds the recipe record a founding leaves: that
@@ -722,18 +734,20 @@ attribution line, not the word.
 - `.agents/tests/coverage-read.sh` guards the read that compares the masterplan
   against the pieces: the rules that keep it honest, that /setup and /sync both
   still run it, and that WORKFLOW.md explains it for founding and for sync. It
-  includes permissions, data, connections and settled terms left on parked
-  pieces, and fails on a copy with any one of those rules removed.
+  includes permissions, data, connections and settled terms left on pieces
+  closed as not planned, and fails on a copy with any one of those rules
+  removed. The coverage read names no `parked` piece.
 - `.agents/tests/masterplan-edges.sh` guards where ownership facts are written,
-  the settled term a piece keeps through parking or reshaping, and the single
+  the settled term a piece keeps when it is reshaped or closed as not
+  planned, and the single
   offer to shorten an overlong masterplan, which moves detail onto pieces or
   concept files and never into a new catch-all document. It also holds the
-  parked-term rehearsal's setup and expected result.
+  rehearsal's setup and expected result for a term on a closed piece.
 - `.agents/tests/shape-research.sh` guards the two research steps that share the
-  `needs-research` label: the rules that keep an existing-work search honest
+  `shaping:research` sub-state: the rules that keep an existing-work search honest
   about maintenance, licence, cost, data, and removal, that /shape offers both
   steps and says which it ran, and that change-triage, pieces.md, and
-  WORKFLOW.md all describe the label as covering both.
+  WORKFLOW.md all describe it as covering both.
 - `.agents/tests/reach-check.sh` guards the check that asks what else a change
   reaches and which existing tests cover it. It holds the engine order, the
   direct code-reading fallback, the rule against saving an index, the one line
@@ -959,11 +973,14 @@ attribution line, not the word.
   internal, that founding reads it back for confirmation, and that a piece
   changing a connection redraws it rather than letting it go stale.
 - `.agents/tests/manual-step.sh` guards the step only the person can do: the
-  rules for a piece's `Waiting on you` section, that `parked` keeps the two
-  meanings it already has on an open piece, in `pieces.md` and where /implement
-  acts on them, that /implement neither builds such a piece nor skips it in
-  silence, and that /what-now names it as the person's own to-do without
-  ever asking for a key in a message.
+  rules for a piece's `Waiting on you` section, that such a piece sits in
+  `shaping:clarify` until the step is done so no run takes it, and that the
+  two other ways back from a build stay apart from it: a caution kicks a piece
+  back to `shaping:clarify` and three failed attempts to `shaping:spec` or
+  `shaping:research`, each with a `## Kickback` section. It holds both
+  kickbacks where /implement acts on them, that /implement neither builds such
+  a piece nor skips it in silence, and that /what-now names it as the person's
+  own to-do without ever asking for a key in a message.
 - `.agents/tests/screen-rules.sh` guards the screen rules, their two build-time
   entry points, and the limit on what their report may claim. It proves the
   refusal to call a screen accessible, compliant or good is load-bearing, since
@@ -1034,12 +1051,10 @@ attribution line, not the word.
   never found. The script's list of skills is the kit's fourteen, so a rename
   cannot slip past it. A visit asked to leave kit updates alone does not
   copy in the reminder script, still says the visit was recorded, and says the
-  reminder was left out. Last, a project founded before the piece states is
-  offered the move onto them once: a waiting piece gains `shaping`, a piece
-  with no state gains `idea`, `blocked` becomes `parked` with its reason, and
-  closed issues are left alone. It changes nothing without a yes, a second
-  visit finds nothing to move, and a no is recorded so the offer returns only
-  when a release changes the states. A project founded before AGENTS.md became
+  reminder was left out. The visit no longer offers to move a project onto
+  the six piece states, since those states are gone, and the check fails if
+  the maintain skill or WORKFLOW.md names that move again. A project founded
+  before AGENTS.md became
   an index is offered the move onto it once, with the ceiling step for its
   check in the same offer. No fact is lost, a second visit after a yes says
   nothing, and a no is recorded with the template's section headings, so the
@@ -1329,8 +1344,9 @@ attribution line, not the word.
   first, since typing it was already the choice, and it says in one line when
   that step takes a sitting. The person can say "later" at any point, or ask
   for a note in the first place. A piece deferred part-way is filed with its
-  question, their words and its `needs-` label, with nothing started, and a
-  note asked for outright is filed as an `idea` in their own words. It also holds that
+  question, their words and the sub-state that names it, with nothing started,
+  and a note asked for outright is captured through the gate as a
+  `shaping:raw` piece in their own words. It also holds that
   the old every-time offer stays gone, that change-triage recognises a request
   to file, that pieces.md says roughly what each waiting label costs to settle,
   and that /what-now calls a planning session when more pieces are waiting
@@ -1588,10 +1604,16 @@ attribution line, not the word.
   earliest claim comment wins a race and only the later run backs off, every
   way a run ends leaves each piece in a final state, a parent's pull request
   opens after its last finished part, the checkpoint route has its own steps,
-  and pre-approved merges are swept at the end, bases first. A piece whose
-  build needs software installed outside the project folder is parked with
-  that reason, never installed, and the run takes the next piece, unless the
-  same tool would stop every piece left, which ends the run. It holds
+  and pre-approved merges are swept at the end, bases first. Every move a run
+  makes goes through the gate with the run's name, so the labels and
+  `run.json` always agree, and the coordinating session alone writes
+  `state.json` while the gate alone writes each piece's status. A piece that
+  fails three attempts is kicked back to `shaping:spec` or `shaping:research`,
+  and one whose build needs software installed outside the project folder to
+  `shaping:clarify`, never installed, and the run takes the next piece, unless
+  the same tool would stop every piece left, which ends the run. A piece in
+  hand when the run ends goes back to `state:ready` with its branch kept,
+  built or not, and `parked` is no longer a state a run records. It holds
   `/what-now` and `/sync` offering to resume, section-builder's stacked start, and the validator's step 1 wording
   that matches it.
 - `.agents/tests/kit-owns-worktrees.sh` guards the worktree each piece in a

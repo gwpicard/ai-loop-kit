@@ -33,11 +33,11 @@ When one word is carrying two meanings, stop and settle it before going on:
    put the key-terms update in `## Masterplan change`, so `/implement` writes
    it when it builds the piece.
 
-   Keep that settled term on the piece when it is parked or reshaped, until it
-   reaches the masterplan or the person explicitly changes the decision. Add
-   this reason on the piece: "The term stays here
+   Keep that settled term on the piece when it is reshaped or closed as not
+   planned, until it reaches the masterplan or the person explicitly changes the
+   decision. Add this reason on the piece: "The term stays here
    while this is planned; the coverage read checks it even if this piece is
-   parked."
+   closed as not planned."
 
    Planning records and stops; writing to the masterplan is a build.
 
@@ -90,11 +90,11 @@ than guessing.
 
 When your guesses keep being right, and: the main flow is clear, failure and
 permissions are clear, the fit check's questions can be answered, and every
-remaining unknown is explicitly parked, researched, or prototyped rather than
+remaining unknown is explicitly set aside, researched, or prototyped rather than
 quietly assumed. Write what was agreed into the masterplan (founding) or into
 the request (feature), and read the key decisions back as one short list for
 a yes.
 
 ## Done when
 
-The person has confirmed your summary, and every open question either has an answer or is parked in writing.
+The person has confirmed your summary, and every open question either has an answer or is set aside in writing.

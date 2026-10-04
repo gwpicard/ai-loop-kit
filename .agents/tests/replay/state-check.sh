@@ -1165,12 +1165,12 @@ esac
 # The fake-GitHub stand-in records every issue transition to a state file. This
 # does not assert a per-scenario goal state, which would need a goal annotation
 # the contract does not carry yet. It asserts the invariants that hold across
-# every fixture scenario: a parked idea stays parked, and no piece the fixture
-# started with quietly disappears.
+# every fixture scenario: an idea closed as not planned stays closed and in no
+# state, and no piece the fixture started with quietly disappears.
 #
 # The route assertion sits beside them and holds just as widely. A session can
-# take a needs- label off and put ready on without running the step the label
-# promised, and nothing about the list looks wrong afterwards: the labels still
+# take a waiting sub-state off and put state:ready on without running the step
+# the sub-state promised, and nothing about the list looks wrong afterwards: the labels still
 # read correctly, so the next person to open the piece trusts a shaping that
 # never happened and /implement builds on it. What makes it catchable is that
 # each step leaves a record, so a label that came off with nothing written down
@@ -1226,21 +1226,28 @@ if base and end and end.get("repo") == base.get("repo"):
             problems.append("issue #%s from the baseline is gone" % number_)
             continue
         labels = here.get("labels", [])
-        if "parked" in issue.get("labels", []):
+        left_out = (issue.get("state") == "closed"
+                    and issue.get("state_reason") == "not_planned")
+        if left_out:
+            states = [x for x in labels
+                      if x.startswith(("state:", "shaping:", "review:"))]
             if here.get("state") != "closed":
-                problems.append("parked idea #%s was reopened" % number_)
-            elif "parked" not in labels:
-                problems.append("parked idea #%s lost its parked label" % number_)
-            elif "building" in labels:
-                problems.append("parked idea #%s was moved to building" % number_)
+                problems.append("idea #%s closed as not planned was reopened" % number_)
+            elif "state:building" in labels:
+                problems.append("idea #%s closed as not planned was moved to building"
+                                % number_)
+            elif states:
+                problems.append("idea #%s closed as not planned carries %s"
+                                % (number_, ", ".join(states)))
     if problems:
         verdict, note = "miss", "; ".join(problems)
     else:
-        verdict, note = "hit", "parked ideas stayed parked and no baseline issue disappeared"
+        verdict, note = "hit", ("ideas closed as not planned stayed closed and in no "
+                                "state, and no baseline issue disappeared")
 verdicts["issue-invariants"] = {"verdict": verdict, "note": note}
 
-# The route: did a piece get the work its label promised?
-WAITING = ("needs-clarification", "needs-prototype", "needs-research")
+# The route: did a piece get the work its sub-state promised?
+WAITING = ("shaping:clarify", "shaping:prototype", "shaping:research")
 route_verdict, route_note = "unobservable", "no fixture GitHub state to read"
 if base and end and end.get("repo") == base.get("repo"):
     base_by_number = {i.get("number"): i for i in base.get("issues", [])}
@@ -1251,30 +1258,32 @@ if base and end and end.get("repo") == base.get("repo"):
         body = issue.get("body") or ""
         waiting_now = [x for x in labels if x in WAITING]
 
-        # A piece never carries ready and a needs- label at once. Settling the
-        # question is what moves it from one to the other.
-        if "ready" in labels and waiting_now:
+        # A piece never carries state:ready and a waiting sub-state at once.
+        # Settling the question is what moves it from one to the other.
+        if "state:ready" in labels and waiting_now:
             broken.append(
-                "#%s carries ready and %s together" % (number_, ", ".join(waiting_now)))
+                "#%s carries state:ready and %s together" % (number_, ", ".join(waiting_now)))
 
         # A ready piece is one somebody could build, which means it was sized.
-        if "ready" in labels and "## Done when" not in body:
+        if "state:ready" in labels and "## Done when" not in body:
             broken.append("#%s is ready with no Done when, so it was never sized" % number_)
 
-        # A label that came off has to have left the record its step makes.
+        # A sub-state that came off has to have left the record its step makes:
+        # Decided for clarify and prototype, Research for research.
         was = base_by_number.get(number_)
         if was:
             waiting_before = [x for x in was.get("labels", []) if x in WAITING]
-            if waiting_before and not waiting_now and "## Decided" not in body:
+            if (waiting_before and not waiting_now
+                    and "## Decided" not in body and "## Research" not in body):
                 broken.append(
-                    "#%s lost %s with nothing recorded under Decided"
+                    "#%s lost %s with nothing recorded under Decided or Research"
                     % (number_, ", ".join(waiting_before)))
     if broken:
         route_verdict, route_note = "miss", "; ".join(broken)
     else:
         route_verdict, route_note = "hit", (
-            "no piece is ready with an open question, and every label that came "
-            "off left what settled it")
+            "no piece is ready with an open question, and every sub-state that "
+            "came off left what settled it")
 verdicts["route"] = {"verdict": route_verdict, "note": route_note}
 
 # The split: sub-issues for parts of one outcome, blocked-by for outcomes that

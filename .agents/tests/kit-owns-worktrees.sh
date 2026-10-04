@@ -128,15 +128,15 @@ rs_rule "and never deletes a branch" 'it deletes no branch'
 rs_rule "leftovers go to /maintain" \
   'is listed by `/maintain`, which removes each on a yes'
 rs_rule "a run clears the worktrees of pieces it let go" \
-  'remove the worktree this run opened for each piece it parked, sent back to shaping or skipped'
+  'remove the worktree this run opened for each piece it kicked back, gave back or skipped'
 rs_rule "a piece in to check keeps its worktree" \
   'keeps its worktree until its pull request closes'
 rs_rule "a run's start clears closed worktrees" \
   'on claude code, clear away the worktrees whose pull requests have closed'
 rs_rule "a resumed piece reuses its worktree" \
   'open its worktree again with `worktree\.sh open --resume`, which reuses the one already there'
-rs_rule "uncommitted work left by a dead session is kept and the piece parked" \
-  'where that worktree holds an uncommitted change, the script keeps it as it is: park the piece with that reason'
+rs_rule "uncommitted work left by a dead session is kept and the piece kicked back" \
+  'where that worktree holds an uncommitted change, the script keeps it as it is: kick the piece back'
 
 # Outside a run.
 rs_rule "a single /implement stays in the main folder unless asked" \
@@ -184,9 +184,9 @@ rs_require_load_bearing "/sync clears worktrees whose pull request closed" "$SYN
 rs_require_load_bearing "/sync passes on a kept worktree" "$SYNC" \
   'a worktree holding unsaved work is kept and named'
 rs_require_load_bearing "the monthly visit runs the leftover step" "$MAINTAIN" \
-  '19\. run "removing leftover worktrees" below'
+  '18\. run "removing leftover worktrees" below'
 rs_require_order "the leftover step comes before recording the visit" "$MAINTAIN" \
-  '^19\. Run "Removing leftover worktrees"' '^22\. Record the visit'
+  '^18\. Run "Removing leftover worktrees"' '^21\. Record the visit'
 rs_require_load_bearing "/maintain lists leftovers" "$MAINTAIN" \
   'worktree\.sh leftovers'
 rs_require_load_bearing "/maintain removes each on a yes" "$MAINTAIN" \

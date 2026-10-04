@@ -158,9 +158,11 @@ If the tool needs confidential files to work from, say so during the interview. 
 
 Typed alone, /implement takes the next ready piece from the plan. It agrees with you in one sentence what the piece should do, writes the checks that piece needs and shows they fail, builds until they pass, then walks through the tool itself with sample data before saving the piece for you to check. If you would rather try a piece yourself before it is saved, you can ask for that, as the Evidence section says. A piece that is not ready yet, still waiting on a question, goes to /shape first; /implement builds, it does not shape.
 
-Each command moves a piece to its next state and takes the old one off in the same step, so a piece never shows in two columns. /shape moves an idea to shaping, and a shaped piece to ready. /implement claims a ready piece as building before it changes anything, and moves it to to check when its pull request opens. From there the piece is yours to try and merge, and /what-now names it as yours.
+Every command moves a piece through the gate script and takes the old state off in the same step, so a piece never shows in two columns. The gate checks the move is allowed first, and when the gate refuses a move, the command tells you why and stops that move.
 
-A piece that stops at a recorded condition, or fails three attempts, is parked with the reason written on it. If GitHub cannot be reached, /implement says so and does not start a piece it could not claim, and /fix does not start a repair it could not claim either. /sync puts right a piece carrying two states, or a closed issue still carrying one, and tells you what it changed. It never touches an idea you closed as parked.
+/shape takes a new piece in as `shaping:raw` and moves it through the shaping sub-states to `state:ready`. /implement claims a ready piece as `state:building` before it changes anything, and moves it to `state:in-review` with `review:person` when its pull request opens. From there the piece is yours to try and merge, and /what-now names it as yours. Once it merges, the kit takes its state labels off the closed piece.
+
+A piece that fails three attempts, or stops at a sensitive area before your acceptance is on the record, goes back to shaping with a `## Kickback` section saying why, and /shape picks it up from there. An idea you leave out is closed as not planned. If GitHub cannot be reached, /implement says so and does not start a piece it could not claim, and /fix does not start a repair it could not claim either. /sync runs the gate's report, names any piece carrying two states, or none, and asks you which it should be.
 
 Before saving, the kit checks what else the change touches and runs the tests
 that already cover those parts first. If it reaches another part of the tool,
@@ -222,7 +224,7 @@ without a separate /sync visit.
 
 A question a conversation can't settle gets a disposable prototype, a source check, or a search for something that already does the job. Two of those need you there; the research does not, so you can tell /shape you're leaving and it settles what it can alone, then tells you which pieces are waiting on you. Type /shape with a piece's number to settle that one rather than the next in line.
 
-Typing /shape is the choice to shape, so it starts on a question straight away. Before an interview or a prototype it says in one line that this takes a sitting, and you can say "later" at any point: the piece is filed with its question and your words, to come back to. If all you want is to note an idea, say so, for example "note this for later" or "just file this idea", or type /shape later with it, and it is filed with nothing started, as an idea in your own words. Nothing filed can be built until the question is answered, and /what-now tells you when enough pieces are waiting that the session is better spent planning than building.
+Typing /shape is the choice to shape, so it starts on a question straight away. Before an interview or a prototype it says in one line that this takes a sitting, and you can say "later" at any point: the piece is filed with its question and your words, to come back to. If all you want is to note an idea, say so, for example "note this for later" or "just file this idea", or type /shape later with it, and it is filed with nothing started, as a raw piece in your own words. Nothing filed can be built until the question is answered, and /what-now tells you when enough pieces are waiting that the session is better spent planning than building.
 
 Show a mock of what you want and it settles the question instead, with no throwaway built. A prototype comes back as one of two things: a single file you open and click through yourself, or three genuinely different versions to move between and pick from. If setup recorded a design tool, the agent may use its canvas before a real page exists or when you want to draw a redesign. The real page still wins wherever one exists, and without a recorded tool the ordinary coded throwaway stays the default.
 
@@ -320,7 +322,7 @@ test to protect promised behaviour, never just to raise the count.
 
 ## 7. Saving work
 
-Every piece saves through one of three routes. The checkpoint route commits, and that commit may stay local, so private, disposable exploration can be saved without pushing. The pull-request route pushes and opens a pull request, for shared, live, behavioural, data, access, integration, service, or operational changes. The flagged route does the same, and also attaches the condition the touched area requires; a piece that stops there, marked parked and the condition on record, counts as finished until that condition is met or you carry on after the risk notice and your acceptance is recorded. When you are there and carry on at the notice, the piece is built and saved like any other. Only the `Closes` line closes a piece: a pull request carries one for each piece it finishes, and names any other piece by its number and title with no closing word such as "fixes" before the number, because GitHub closes a piece on that word even in a sentence saying it does not.
+Every piece saves through one of three routes. The checkpoint route commits, and that commit may stay local, so private, disposable exploration can be saved without pushing. The pull-request route pushes and opens a pull request, for shared, live, behavioural, data, access, integration, service, or operational changes. The flagged route does the same, and also attaches the condition the touched area requires; a piece that stops there, back in shaping with the condition on record, counts as finished until that condition is met or you carry on after the risk notice and your acceptance is recorded. When you are there and carry on at the notice, the piece is built and saved like any other. Only the `Closes` line closes a piece: a pull request carries one for each piece it finishes, and names any other piece by its number and title with no closing word such as "fixes" before the number, because GitHub closes a piece on that word even in a sentence saying it does not.
 
 On either route, the first time anything pushes your project's code online, the agent asks you first, naming the repository and whether it is public or private. It asks once for each project: once the code is on GitHub, it does not ask again. If you say no, or nobody is there to answer, the piece is still built and checked, and it waits on its own branch on your computer until you say yes. If the repository already holds something that is not your project, or still points at the kit's own repository, nothing is pushed and the agent asks you what to do.
 
@@ -479,11 +481,11 @@ In Claude Code, when the plan has a group of pieces that can go together, the ru
 
 Each copy links to your `.env` rather than copying it, and installs its own dependencies. A file your build needs that git ignores and that holds no secret, such as a licensed font, is linked into each copy too, once founding has asked you which ones. Your confidential folder never is. Its dev server runs on a free port the run records, and the hand-over names that port. The server stops once the pull request opens, and the run's report says how to start it again. The kit clears a copy away once its pull request has merged or closed and nothing in it is unsaved, at the next run or the next /sync. A copy holding unsaved work is kept and named.
 
-If the run meets a choice nobody made, a hard one, about stored data, syncing or what leaves the tool, sends that piece back to shaping with the question on it. A hard choice the run can already see in a piece sends it back the same way before any branch is cut, and the plan names it as going back, so it does not come back to every run. An easy one takes the option simplest to undo and is flagged in the pull request. A piece that fails three attempts is parked with a note on what it revealed. Either way the run moves on.
+If the run meets a choice nobody made, a hard one, about stored data, syncing or what leaves the tool, sends that piece back to shaping with the question on it. A hard choice the run can already see in a piece sends it back the same way before any branch is cut, and the plan names it as going back, so it does not come back to every run. An easy one takes the option simplest to undo and is flagged in the pull request. A piece that fails three attempts goes back to shaping with a note on what it revealed. Either way the run moves on.
 
 The run keeps a state file in your project, which git ignores, and a live progress page where your coding agent can publish one. If a session dies, a new session picks the run up from its state file, and /what-now and /sync both offer to resume it.
 
-When nothing is left that the run can take, it stops at once with one report: each piece, its pull request and where it stands, the choices flagged for you, what was parked and why, and the order to merge in. You answer with the pull requests to merge. If the run disappointed you, improve the documents rather than the code. Sharpen the done lines, add the missing rule to the masterplan, and run it again.
+When nothing is left that the run can take, it stops at once with one report: each piece, its pull request and where it stands, the choices flagged for you, what went back to shaping and why, and the order to merge in. You answer with the pull requests to merge. If the run disappointed you, improve the documents rather than the code. Sharpen the done lines, add the missing rule to the masterplan, and run it again.
 
 Some harnesses provide goal or long-run modes, such as Claude Code's `/goal`: "keep going until this condition holds". Same run, same rules: take the condition from a done line, a named sensitive area stops the piece that touches it, never the run, and each piece still lands through the save route the build path requires.
 
@@ -508,10 +510,10 @@ line. That is a reason to check the page, not a claim that it is wrong.
 
 The coverage read includes permissions, data and outside connections here too.
 It also compares settled terms on every piece with the masterplan, even if a
-piece was parked or reshaped. A missing or different meaning joins the same
+piece was closed as not planned or reshaped. A missing or different meaning joins the same
 list of gaps, with one offer to put the records right. Planning leaves the
-term on its piece until it is carried across, so parking the work cannot lose
-what you agreed.
+term on its piece until it is carried across, so leaving the work out cannot
+lose what you agreed.
 
 When the core masterplan grows beyond roughly two pages, /sync says so once
 and offers to move detail about individual pieces onto those pieces. It leaves
@@ -527,7 +529,7 @@ described step still happens that way, and it says so. When every name still
 points at something real, you hear nothing about it.
 
 /sync names open pieces untouched for 30 days in one short list and asks once
-whether each is still wanted, should be parked, or is done. It changes nothing
+whether each is still wanted, should be closed as not planned, or is done. It changes nothing
 on that list without your yes. You can leave them as they are and carry on.
 
 /maintain is the service visit: monthly and light for AI Build Kit updates,
@@ -626,8 +628,6 @@ which the list of old branches picks up at the next visit.
 If you use another tool that makes worktrees of its own, the kit never touches a worktree another tool made. A run started inside one keeps its record and its copies in your main project folder, and says so.
 
 A project founded before the kit could link ignored build files gets one question: which ignored files a build needs. A no is recorded, and the question comes back only when a new ignored file appears.
-
-A project founded before the six states gets one offer to move onto them. Pieces waiting on a question gain shaping, open pieces with no state gain idea, and a piece labelled blocked becomes parked with its reason. Ideas you closed as parked stay as they are. Nothing changes without your yes, and a no is recorded, so the offer comes back only when a release changes the states again.
 
 In Claude Code, the settings founding gave your project refuse a direct push
 to `main`, a recursive delete and clearing Git's recovery history. When a

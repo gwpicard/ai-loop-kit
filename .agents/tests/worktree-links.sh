@@ -123,7 +123,7 @@ rs_require_load_bearing "the header names the declined line" "$RECORD" \
 # /maintain: the offer to a project founded before the links.
 rs_reset
 rs_rule "the monthly visit runs the offer" \
-  '20\. run "linking ignored build files into run worktrees" below'
+  '19\. run "linking ignored build files into run worktrees" below'
 rs_rule "a project with the line hears nothing" \
   'where `\.ai-build-kit-maintenance` already has a `worktree-links` line, say nothing'
 rs_rule "the offer lists the candidates with the script" \
@@ -146,7 +146,7 @@ rs_rule "the leftover list leaves other tools' worktrees alone" \
   'it leaves alone every worktree another tool made'
 rs_guard "$MAINTAIN" "the maintain skill"
 rs_require_order "the offer comes before recording the visit" "$MAINTAIN" \
-  '^20\. Run "Linking ignored build files' '^22\. Record the visit'
+  '^19\. Run "Linking ignored build files' '^21\. Record the visit'
 
 # WORKFLOW.md tells it.
 rs_require_load_bearing "WORKFLOW says ignored build files are linked" "$WORKFLOW" \

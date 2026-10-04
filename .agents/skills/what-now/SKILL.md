@@ -54,7 +54,13 @@ describe the state instead: "nothing is blocked and nothing is half done, three
 things are waiting". A count reads as progress towards a finish line, and a live
 project's list never empties.
 
-Anything labelled `broken` comes first, before the counts. A thing that used to
+Run the gate's report first. Where `python3 .agents/tools/gate.py report` names anything, lead with it,
+before anything else: a piece with no state, two states, a sub-label beside the
+wrong state, or a label the kit does not use. A board that says something
+untrue makes every other line read from it wrong. Say each in the piece's own
+words, and point at `/sync`, which asks the person how to put it right.
+
+An open piece labelled `type:bug` comes next, before the counts. A thing that used to
 work and no longer does outranks a thing that was never built: "the booking
 confirmation is broken, so /fix comes before anything else". Name what is broken
 rather than saying a piece is labelled.
@@ -73,7 +79,8 @@ looks like for it". Name it before it is merged rather than after.
 
 Say how many entries are still notes rather than pieces, when any are, in the
 words a person would use: "two things on the list are still just notes, so I
-will ask you about them before building them". The printout marks them. Knowing
+will ask you about them before building them". The printout counts them in its
+last line. Knowing
 that before a build session is worth more than meeting it during one.
 
 Where a waiting piece says why it is waiting, pass the reason on rather than the
@@ -90,8 +97,9 @@ building, and give the reason in the counts themselves: one piece ready and four
 nobody can build yet. Where the ready pieces outnumber the waiting ones, say
 nothing about it and let the usual advice stand.
 
-A piece under `To check` is the person's own: it is built, and its pull request
-is waiting for them to try it or merge it. Name it apart from the agent's work,
+A piece in `state:in-review` with `review:person` is the person's own: it is built, and its pull request
+is waiting for them to try it or merge it. The printout lists it under "In
+review, waiting for you". Name it apart from the agent's work,
 in the piece's own words: "the overdue list is built and waiting for you to try
 it and merge it". Nothing moves it on except the person, so a piece left there
 unnamed waits for good.

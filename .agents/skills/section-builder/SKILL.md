@@ -51,8 +51,8 @@ Choose the save route before changing anything:
    to keep it. If they do not carry on, build only up to the recorded
    condition. In an unattended run nobody is there to carry on, so never
    write an acceptance on the person's behalf: stop at the condition.
-   Stopping there, safely prepared and correctly recorded as parked, is one
-   of section-builder's two successful outcomes; see step 8.
+   Stopping there, safely prepared and kicked back to shaping with the caution
+   named, is one of section-builder's two successful outcomes; see step 8.
 
 Pull-request and flagged routes work on a short-lived branch cut from the
 up-to-date `main`, or from the branch a piece in a run stacks on. The checkpoint route may commit on the current branch once
@@ -116,14 +116,16 @@ one-line note, and the next piece that pushes asks again. In an unattended
 run nobody is there to say yes, so never upload on the person's behalf: keep
 the work local and note it on the piece.
 
-Claim the piece before changing anything. Label the piece `building` and assign
-it to whoever is building it, in one step,
-`gh issue edit <number> --add-label building --remove-label ready --add-assignee <login>`,
-creating the label first if the project lacks it. Whatever state it carried comes off in that step, such as `parked` for a piece
-whose condition is now met. That is what stops two people starting the same
+Claim the piece before changing anything. Label the piece `building` and assign it to whoever is building it
+through the gate, which writes `state:building` and the assignee in one call, `python3 .agents/tools/gate.py move <number> building --assignee <login>`,
+adding `--run <run name>` in a run. That is what stops two people starting the same
 piece, and it costs one call. Where GitHub cannot be reached, the claim fails:
 say so, and do not start the piece. A piece already claimed carries on if
 GitHub drops out later, as the route note above says.
+
+Every move this skill makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
+Never write the label another way, as the `setup-ai-build-kit` skill's
+`references/blocked-commands.md` says.
 
 ## 2. Agree the visible result
 
@@ -221,8 +223,9 @@ Where installing the project's dependencies, running the checks or running the
 project's own commands first shows a tool missing from this computer, or too
 old, stop that step. Name the tool, where it would go and how to undo it, and
 wait for a yes, as the `change-triage` skill says under "Work on this computer
-outside the project". In a run with nobody watching, park the piece instead, as
-the `implement` skill's `references/running-longer.md` says. Write any version
+outside the project". In a run with nobody watching, kick the piece back to `shaping:clarify` instead,
+with a `## Kickback` section naming the tool, where it would go and how to undo
+it, as the `implement` skill's `references/running-longer.md` says. Write any version
 the project needs into AGENTS.md's stack section as a requirement.
 
 ## 5. Build one vertical slice
@@ -232,10 +235,13 @@ reasonable change. Run focused checks as you go. Avoid speculative
 abstraction; prefer managed services and the project's existing conventions.
 Stop and say so if the change is expanding past what was agreed.
 
-A piece whose build fails three attempts stops there: move it from `building`
-to `parked` in one step, `gh issue edit <number> --add-label parked --remove-label building`,
-with one line on what kept failing, and route it as `/fix`'s escalation says.
-Never let a fourth attempt run on the same guess.
+A piece whose build fails three attempts stops there. Write a `## Kickback`
+section on it with one line on what kept failing, and move it back to shaping
+through the gate:
+to `shaping:spec`, `python3 .agents/tools/gate.py move <number> spec`, when an attempt showed a check that cannot be met as written,
+and to `shaping:research`, `python3 .agents/tools/gate.py move <number> research`, otherwise.
+`/shape` picks it up from there. Never let a fourth attempt run on the same
+guess.
 
 A build may reach a service the tool uses, for example to read its keys or set
 it up. Use only what a tool offers through its own commands, and the keys the
@@ -465,8 +471,8 @@ The record changes in step 9 are part of this save, not a later /sync task.
 
 Checkpoint route: update the records, commit, and state the saved checkpoint.
 There is no pull request to wait on, and the walk-through in step 6, or the
-person's own try where they asked for one, stood in for their check, so close
-the issue and take `building` off it in the same step. This is the one route
+person's own try where they asked for one, stood in for their check, so close the issue on save, `gh issue close <number> --reason completed`, and then run `python3 .agents/tools/gate.py tidy`,
+which takes its state labels off. This is the one route
 where a piece closes when it is saved rather than when a pull request merges,
 and it never passes through `to check`. Where the walk-through could not see
 what somebody would see, the person's try in step 6 comes before this save.
@@ -493,9 +499,10 @@ names the other that way.
 
 Once it is open, write the piece's changelog file, as step 9 describes, and
 push it.
-When the pull request opens, move the piece from `building` to `to check` in the same
-step, `gh issue edit <number> --add-label "to check" --remove-label building`,
-since it now waits for the person to try it or merge it. Wait for the check as
+When the pull request opens, move the piece to `to check`, which is `state:in-review` with `review:person`, through the gate: `python3 .agents/tools/gate.py move <number> in-review`,
+with `--run <run name>` when the piece is part of a run. The gate checks that an open pull request
+says `Closes #<number>`, and the piece now waits for the person to try it or
+merge it. Wait for the check as
 `references/merge.md` says under "Waiting for the check", and never present the
 pull request as ready until the check is green; if it goes red,
 say so plainly, pull the failing output yourself, fix through the normal
@@ -513,14 +520,14 @@ pull-request route for everything up to the condition, then:
 
 - record the exact condition that must be met, and say that /ship prepares a
   handover for the area on request;
-- move the piece from `building` to `parked` in one step, with the condition
-  written on it, `gh issue edit <number> --add-label parked --remove-label building`;
+- write a `## Kickback` section naming the caution and the condition, and move the piece back to `shaping:clarify` through the gate, `python3 .agents/tools/gate.py move <number> clarify`.
+  It stays in shaping until the person carries on after the risk notice and the acceptance is recorded;
 - name what other work may still continue;
 - state plainly that the flagged capability is not ready or live, with no
   softer wording that could be read otherwise.
 
 A piece that ends here, with all five done, is safely prepared and correctly
-parked. Report it as a completed pass, and leave it alone until the
+kicked back. Report it as a completed pass, and leave it alone until the
 condition is met or the person carries on after the notice and the acceptance
 is recorded.
 
@@ -554,8 +561,9 @@ what the tool now reaches, so the person can say whether it should. A
 correctly completed build does not need /sync afterward.
 
 Once the pull request merges it closes the issue, so there is no
-status to set by hand. After that merge, take `to check` off the closed issue,
-since a closed issue is done and carries no state, and refresh
+status to set by hand. After that merge, the merge step runs `gate.py tidy`, as
+`references/merge.md` says, which takes the state labels off the closed issue,
+since a closed issue is done and carries no state. Then refresh
 the printout with `sh .agents/tools/plan-refresh.sh` so the person's list matches
 what just happened.
 
@@ -617,6 +625,7 @@ One of two outcomes, both complete passes:
   the person tried it where they asked to,
   required review is satisfied, the records match reality, and the selected save
   route is complete.
-- Safely parked: the piece stopped at its recorded condition, moved from
-  `building` to `parked`, with the caution recorded on it, work that can go on
-  identified, and no claim that the flagged capability is ready or live.
+- Safely kicked back: the piece stopped at its recorded condition, moved through
+  the gate back to `shaping:clarify`, with the caution recorded in its
+  `## Kickback` section, work that can go on identified, and no claim that the
+  flagged capability is ready or live.

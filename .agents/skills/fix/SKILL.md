@@ -13,10 +13,10 @@ explained.
 
 When `/fix` arrives with no bug described, look for the repair already on the
 board before asking the person to describe one. Refresh the printout with
-`sh .agents/tools/plan-refresh.sh` and read its Broken group, the same open issues
-labelled `broken` that `/what-now` surfaces first. Where the project has no copy
+`sh .agents/tools/plan-refresh.sh` and read the pieces it marks `(bug)`, the open issues labelled `type:bug`
+that `/what-now` surfaces first. Where the project has no copy
 of the helper, the `setup-ai-build-kit` skill's `references/pieces.md` says what
-to run instead. If none is labelled `broken`,
+to run instead. If no open piece carries `type:bug`,
 ask for the symptom, as step 1 sets out. If exactly one is, name it and use it as
 the report. If more than one is, list them and ask which to take.
 
@@ -28,16 +28,18 @@ can misfile work by picking the wrong command; catching that is this step's
 whole job.
 
 Only once the repair is confirmed as promised behaviour, and where it has an
-issue, claim it before step 1, the way section-builder's step 1 claims a piece:
-add `building` and take off whatever state it carried, in one step,
-`gh issue edit <number> --add-label building --remove-label <its state>`,
-creating the label first if the project lacks it. Where the issue carries no
-state label, add `building` alone. Where GitHub cannot be reached, say so and do
+issue, claim it the way section-builder's step 1 claims a piece. Claim it before step 1 only when the repair is in `state:ready`: `python3 .agents/tools/gate.py move <number> building --assignee @me`.
+A repair in `state:shaping` is not claimed. Nor is an issue with no state, which `/fix` first takes in with `python3 .agents/tools/gate.py capture <number>` and `gh issue edit <number> --add-label type:bug`.
+For either, say in one line that the repair is shaped first, and hand it to `/shape`.
+Where GitHub cannot be reached, say so and do
 not start on it, since a repair nobody could claim may be claimed by somebody
-else. Where a claim was made and the request then turns out to belong to
-`/shape`, move it back to the state it had in one step, so nothing is left in
-`building` that nobody is building. The save then moves it on as
-section-builder's step 8 says.
+else. A repair `/fix` claimed that turns out to belong to `/shape` goes back with a `## Kickback` section saying why, `python3 .agents/tools/gate.py move <number> clarify`,
+so nothing is left in `state:building` that nobody is building. A repair with no issue is built without a claim.
+The save then moves a claimed repair on as section-builder's step 8 says.
+
+Every move this command makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
+Never write the label another way, as the `setup-ai-build-kit` skill's
+`references/blocked-commands.md` says.
 
 ## 1. Define the symptom
 
@@ -143,9 +145,10 @@ The repair's pull request merges only as the `section-builder` skill's
 `references/merge.md` says, like any other. The report says which temporary
 items were removed and that the evidence still passed.
 
-Where the repair had an issue, take the `broken` label off once the symptom is
-gone. A repair that stays labelled broken keeps reporting a fault that no longer
-exists, which is worse than never labelling it.
+Where the repair had an issue, its pull request's `Closes` line closes it once
+the symptom is gone and the pull request merges, and the merge step's
+`gate.py tidy` takes its state labels off. Its `type:bug` label stays, since it
+says what kind of work it was, and a closed issue never reaches the board.
 
 ## Escalation
 
@@ -219,11 +222,13 @@ none of them is a reason the fault is now understood. Asking for one more go
 after hearing the notice is the person carrying on, which is theirs to choose:
 record the acceptance as below, then make the attempt.
 
-Where the person does not carry on, move the repair's piece from `building` to
-`parked` in one step,
-`gh issue edit <number> --add-label parked --remove-label building`, with one
-line on what the three attempts revealed and the route you chose. `broken` stays
-on it, because the fault is still there.
+Where the person does not carry on, write a `## Kickback` section on the
+repair's piece with one line on what the three attempts revealed and the route
+you chose, and move it back to shaping through the gate: to `shaping:spec`,
+`python3 .agents/tools/gate.py move <number> spec`, when an attempt showed a
+check that cannot be met as written, and to `shaping:research`,
+`python3 .agents/tools/gate.py move <number> research`, otherwise. Its
+`type:bug` label stays on it, because the fault is still there.
 
 ### Before the next attempt
 

@@ -7,9 +7,11 @@
 # so a project that missed it kept the file for good. Pointers in AGENTS.md and
 # the masterplan that name a skill's file by a folder a Claude-Code-only or
 # plugin install does not have. And the reminder script, which a visit copied
-# in even after the person asked for no kit updates. And the labels on the
-# project's issues, which a project founded before the piece states still
-# carries in the old form.
+# in even after the person asked for no kit updates.
+#
+# The visit used to offer a fourth move, onto the six piece states. Those
+# states are gone, and no visit moves a project onto a model that no longer
+# exists, so the check now holds that the offer stays gone.
 #
 # The pointer rewrite runs a shipped script, so its half of this check runs it:
 # an old project is offered the rewrite and a current one gets nothing, and a
@@ -57,41 +59,6 @@ rs_rule "the request is read, not matched" 'read what they asked, not a fixed ph
 rs_rule "a skipped hook is said in one sentence" 'i left out the script that reminds a session when a visit is due, since you asked for no kit updates'
 rs_rule "the visit is still said to be recorded" 'where you skipped the script, say instead: "i have recorded today.s visit\.'
 
-# The move onto the piece states. An update refreshes skills and never the
-# issues, so a project founded before the states keeps labels no board can be
-# drawn from until a visit moves them. The offer is made once, applied only on
-# a yes, and a second visit finds nothing to move, so it says nothing.
-rs_rule "the monthly step runs the move" 'run "moving the pieces onto the states" below'
-rs_rule "a project already on the states hears nothing" \
-  'the project is already on the states: say nothing'
-rs_rule "a second visit after a yes changes nothing" \
-  'that is also what a second visit finds after a yes, so it changes nothing'
-rs_rule "an earlier no to the same states stands" \
-  'where it lists the same six states pieces\.md lists today, the earlier no stands'
-rs_rule "a waiting piece gains shaping" \
-  'an open piece with a `needs-` label and no `shaping` gains `shaping`'
-rs_rule "a piece with no state gains idea" 'an open piece with no state label gains `idea`'
-rs_rule "the check also looks at the pieces, not only the labels" \
-  'no open piece carries a `needs-` label without `shaping`, the project is already on the states'
-rs_rule "because the labels alone do not settle it" 'the labels alone do not settle it'
-rs_rule "a piece made of parts gains no state" \
-  'except a piece made of parts, which carries no state of its own'
-rs_rule "blocked used as a dependency hint loses the label and stays buildable" \
-  'a `blocked` piece with a blocked-by link and no written reason was using the old label as a hint'
-rs_rule "that piece keeps or gains ready" 'so it loses `blocked` and keeps `ready`, or gains it'
-rs_rule "any other blocked becomes parked with its reason" \
-  'any other `blocked` piece becomes `parked`, losing `blocked` and any `ready` or `building` beside it, with its reason kept'
-rs_rule "a missing reason is written as not recorded" \
-  'labelled blocked before the piece states; reason not recorded'
-rs_rule "closed issues, a parked idea above all, are left alone" \
-  'closed issues are left alone, and a closed `parked` idea above all'
-rs_rule "the offer says what it reaches" 'say how many pieces each change reaches'
-rs_rule "nothing changes without a yes" 'on a yes, create the missing labels with `gh label create`'
-rs_rule "a no is recorded with the states offered" \
-  'states-declined\|<yyyy-mm-dd>\|idea,shaping,ready,building,to check,parked'
-rs_rule "the offer returns only when the states change" \
-  'offers again only when a release changes the states'
-
 # The move onto the index. An update refreshes skills and never the project's
 # AGENTS.md or its copied check, so a project founded before the index keeps a
 # long file and a check with no ceiling. The move is offered once, comes with
@@ -119,7 +86,10 @@ rs_guard "$MAINTAIN" "the maintain skill"
 
 rs_require_load_bearing "WORKFLOW says plan.md is offered until moved" "$WORKFLOW" 'any visit that finds an older `plan\.md` list offers to move it into your project.s issues, and keeps offering until it is moved'
 rs_require_load_bearing "WORKFLOW says the pointers are rewritten on a yes" "$WORKFLOW" 'offers to name the skill instead, changing only those lines, and only on your yes'
-rs_require_load_bearing "WORKFLOW says an older project gets one offer to move onto the states" "$WORKFLOW" 'gets one offer to move onto them'
+rs_require_absent "the maintain skill names no move onto the six states" "$MAINTAIN" 'moving the pieces onto the states'
+rs_require_absent "and records no no to them" "$MAINTAIN" 'states-declined'
+rs_require_absent "and names no six states" "$MAINTAIN" 'the six states'
+rs_require_absent "WORKFLOW offers no move onto the six states" "$WORKFLOW" 'a project founded before the six states'
 rs_require_load_bearing "WORKFLOW says an older project gets one offer to move onto the index" "$WORKFLOW" 'offers once to move it onto the index'
 rs_require_load_bearing "WORKFLOW says the reminder is skipped after a no" "$WORKFLOW" 'if you ask a visit to leave kit updates alone, it does not add that reminder either, and says so'
 

@@ -487,6 +487,9 @@ bad=$(grep -rn "plan-refresh\.sh" "$ROOT/.agents/skills" \
 grep -q "place-plan-helper\.sh" "$ROOT/.agents/skills/maintain/SKILL.md" && \
   pass "/maintain runs the backfill" || \
   fail "/maintain does not run the backfill"
+grep -qF 'the gate script, `.agents/tools/gate.py`, and the state guard hook, `.agents/hooks/state-guard.sh`' "$ROOT/.agents/skills/maintain/SKILL.md" && \
+  pass "/maintain says the step also places the gate script and the state guard hook" || \
+  fail "/maintain does not say the step also places the gate script and the state guard hook"
 
 [ "$FAIL" -eq 0 ] || exit 1
 echo "plan-helper-routes.sh: all checks passed"

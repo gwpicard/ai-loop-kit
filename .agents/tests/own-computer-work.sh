@@ -19,7 +19,7 @@
 # founded blocked-commands.md carries that as a standing restriction, since the
 # founded AGENTS.md says it always applies and the template sits at its line
 # budget. section-builder points to it where a build finds a tool missing, a
-# run parks such a piece (the-runner.sh holds that), and WORKFLOW.md tells it.
+# run kicks such a piece back (the-runner.sh holds that), and WORKFLOW.md tells it.
 
 set -eu
 
@@ -104,8 +104,8 @@ rs_rule "and waits for a yes naming it" \
   'name the tool, where it would go and how to undo it, and wait for a yes'
 rs_rule "pointing to change-triage" \
   'as the `change-triage` skill says under "work on this computer outside the project"'
-rs_rule "a run parks the piece instead" \
-  'in a run with nobody watching, park the piece instead'
+rs_rule "a run kicks the piece back instead" \
+  'in a run with nobody watching, kick the piece back to `shaping:clarify` instead'
 rs_guard "$BUILDER" "the section-builder skill"
 
 rs_require_order "the pointer sits in step 4, where the commands first run" "$BUILDER" \

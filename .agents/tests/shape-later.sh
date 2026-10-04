@@ -41,18 +41,18 @@ rs_rule "the person can say later mid-step" 'can say "later" at any point in a s
 rs_rule "what the step agreed goes onto the filed piece" 'anything the step has already agreed written onto it'
 rs_rule "filing can be asked for outright" 'note this for later'
 rs_rule "a note starts no step" 'file it without starting any step'
-# The one rule the piece states changed. A note asked for outright used to be
-# routed and, when it was clear, written as a ready piece. Now it is captured as
-# an idea in the person's words with nothing settled, because the person asked
-# to write it down, not to have it shaped.
-rs_rule "a note asked for outright is filed as an idea" \
-  'as an issue labelled `idea`, in their own words, with nothing settled'
+# A note asked for outright used to be routed and, when it was clear, written
+# as a ready piece. Now it is captured through the gate as a raw piece in the
+# person's words with nothing settled, because the person asked to write it
+# down, not to have it shaped.
+rs_rule "a note asked for outright is captured raw" \
+  'through the gate as a piece in `shaping:raw`, in their own words, with nothing settled'
 rs_rule "filing is not a new command" 'it is not a separate command'
 rs_rule "the filed piece keeps the person's own words" "the person's own words"
 rs_rule "it carries the question in plain language" 'the question it still waits on in plain language'
 rs_rule "a fresh session can pick it up" 'a fresh session picks it up with nothing lost'
 rs_rule "the session stops rather than starting the step" 'do not begin the step'
-rs_rule "a filed piece has its needs- label and no ready label" 'carries its .needs-. label and no .ready. label'
+rs_rule "a filed piece has the sub-state of its question and no ready label" 'carries the sub-state that names its question and no `state:ready` label'
 rs_rule "deferring never opens a route into /implement" 'never lets the piece be built with the question still open'
 rs_guard "$SHAPE" "the /shape skill"
 
@@ -100,6 +100,7 @@ rs_require "WORKFLOW.md says you can say later mid-step" \
   "$WORKFLOW" 'you can say "later" at any point'
 rs_require "WORKFLOW.md says a note starts nothing" \
   "$WORKFLOW" 'it is filed with nothing started'
+rs_require_absent "/shape no longer files an idea label" "$SHAPE" 'labelled `idea`'
 rs_require "and says a filed piece still cannot be built" \
   "$WORKFLOW" 'nothing filed can be built until the question is answered'
 
