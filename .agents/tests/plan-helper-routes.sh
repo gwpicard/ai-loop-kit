@@ -21,6 +21,11 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 BUILDER="$ROOT/.agents/tools/build-release.sh"
 TARGET=.agents/tools/plan-refresh.sh
+# The gate script travels the same way as the printout helper, and every route
+# has to end with a runnable copy identical to the one the skill carries. A
+# project without it has no way to move a piece at all.
+GATE_TARGET=.agents/tools/gate.py
+GATE_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/gate.py"
 
 FAIL=0
 fail() {
@@ -117,7 +122,24 @@ founds_with_helper() {
     fail "$route: founding left no helper at $TARGET"
     return
   fi
+  holds_the_gate "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/gate.py"
   prints_the_plan "$project" "$route" "$TARGET"
+}
+
+# A runnable gate script at the project's path, identical to the template the
+# installed skill carries and to the one in this repository.
+holds_the_gate() {
+  project=$1
+  route=$2
+  installed=$3
+  gate="$project/$GATE_TARGET"
+  if [ -f "$gate" ] && [ ! -L "$gate" ] && [ -x "$gate" ] && \
+     cmp -s "$gate" "$installed" && cmp -s "$gate" "$GATE_TEMPLATE" && \
+     (cd "$project" && "./$GATE_TARGET" --help >/dev/null 2>&1); then
+    pass "$route: a runnable $GATE_TARGET identical to the template is in place"
+  else
+    fail "$route: no runnable $GATE_TARGET identical to the template"
+  fi
 }
 
 echo "== Founding places the helper, on every route =="
@@ -262,10 +284,10 @@ echo "== /maintain adds the helper to a project founded before it shipped =="
 PLACE="$CLAUDE_ONLY/.claude/skills/setup-ai-build-kit/scripts/place-plan-helper.sh"
 INSTALLED_HELPER="$CLAUDE_ONLY/.claude/skills/setup-ai-build-kit/templates/foundation/plan-refresh.sh"
 
-# A project founded before this release: founded, with no helper.
+# A project founded before this release: founded, with no helper and no gate.
 OLD="$SCRATCH/old"
 cp -R "$CLAUDE_ONLY" "$OLD"
-rm -f "$OLD/$TARGET" "$OLD/plan.local.md"
+rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/plan.local.md"
 PLACE_OLD="$OLD/.claude/skills/setup-ai-build-kit/scripts/place-plan-helper.sh"
 printf '%s\n' "# Masterplan" > "$OLD/masterplan.md"
 
@@ -280,15 +302,32 @@ case "$said" in
   *) fail "the backfill did not say it added the helper: $said" ;;
 esac
 prints_the_plan "$OLD" "after the backfill" "$TARGET"
+holds_the_gate "$OLD" "a project founded before the gate, after the backfill" \
+  "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/gate.py"
 
 # Run again, it changes nothing and says so. /maintain runs it on every visit.
 before=$(cksum < "$OLD/$TARGET")
+gate_before=$(cksum < "$OLD/$GATE_TARGET" 2>/dev/null || echo missing)
 said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on its second run"
 case "$said" in
   *"already current"*) pass "a second run changes nothing and says the copy is current" ;;
   *) fail "a second run did not say the copy was current: $said" ;;
 esac
 [ "$(cksum < "$OLD/$TARGET")" = "$before" ] || fail "a second run changed the helper"
+if [ "$(cksum < "$OLD/$GATE_TARGET" 2>/dev/null || echo missing)" = "$gate_before" ] && \
+   [ "$gate_before" != missing ] && \
+   [ "$(printf '%s\n' "$said" | grep -c "already current")" -ge 2 ]; then
+  pass "a second run leaves the gate script as it was and says it is current"
+else
+  fail "a second run changed the gate script or did not say it was current: $said"
+fi
+
+# An older gate script is replaced, as the helper is.
+printf '%s\n' "# an older gate" >> "$OLD/$GATE_TARGET"
+said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on an older gate script"
+cmp -s "$OLD/$GATE_TARGET" "$GATE_TEMPLATE" && \
+  pass "an older gate script is replaced with the template" || \
+  fail "an older gate script was not replaced: $said"
 
 # A project founded from a whole copy of an earlier release holds an older copy.
 printf '%s\n' "# an older helper" >> "$OLD/$TARGET"
@@ -334,6 +373,18 @@ fi
 [ "$(cat "$SCRATCH/elsewhere")" = "somebody else's file" ] && \
   pass "a helper path that is a link is refused, and what it points at is untouched" || \
   fail "the backfill changed a file outside the project"
+
+LINKED_GATE="$SCRATCH/linked-gate"
+cp -R "$OLD" "$LINKED_GATE"
+rm -f "$LINKED_GATE/$GATE_TARGET"
+printf '%s\n' "somebody else's gate" > "$SCRATCH/elsewhere-gate"
+ln -s "$SCRATCH/elsewhere-gate" "$LINKED_GATE/$GATE_TARGET"
+if (cd "$LINKED_GATE" && sh "$PLACE_OLD" >/dev/null 2>&1); then
+  fail "the backfill wrote the gate script through a link"
+fi
+[ "$(cat "$SCRATCH/elsewhere-gate")" = "somebody else's gate" ] && \
+  pass "a gate script path that is a link is refused, and what it points at is untouched" || \
+  fail "the backfill changed a gate script outside the project"
 
 echo "== Every skill names a path a project has =="
 

@@ -496,6 +496,113 @@ def api_refs(argv, state, repo, rest, kind="refs"):
     unsupported(argv, "unmodelled git refs call")
 
 
+# The labels GitHub puts on a new repository, which founding deletes.
+DEFAULT_LABELS = [
+    ("bug", "d73a4a"), ("documentation", "0075ca"), ("duplicate", "cfd3d7"),
+    ("enhancement", "a2eeef"), ("good first issue", "7057ff"),
+    ("help wanted", "008672"), ("invalid", "e4e669"), ("question", "d876e3"),
+    ("wontfix", "ffffff"),
+]
+
+
+def repo_labels(state):
+    """The repository's labels. A state file that never named any starts with
+    the nine a new repository has."""
+    if "labels" not in state:
+        state["labels"] = [{"name": n, "color": c, "description": ""}
+                           for n, c in DEFAULT_LABELS]
+    return state["labels"]
+
+
+def fault(state, name):
+    """A failure a scenario asked for, kept in the state file under faults."""
+    return state.get("faults", {}).get(name)
+
+
+def label_command(argv, state):
+    """gh label list, create, edit and delete, as the real CLI answers them.
+
+    A creation can be refused with faults.refuse_label_create, set to true for
+    every label or to a list of names, the way an account without write access
+    is refused.
+    """
+    sub = argv[1] if len(argv) > 1 else ""
+    labels = repo_labels(state)
+    named = argv[2] if len(argv) > 2 and not argv[2].startswith("-") else None
+    existing = next((l for l in labels if named and l["name"].lower() == named.lower()), None)
+
+    if sub == "list":
+        names = [n for n in (flag(argv, "--json") or "").split(",") if n]
+        if names:
+            unknown = [n for n in names if n not in ("name", "color", "description")]
+            if unknown:
+                unsupported(argv, "unmodelled label fields: %s" % ",".join(unknown))
+            print(json.dumps([{n: l[n] for n in names} for l in labels]))
+        else:
+            for label in labels:
+                print("%s\t%s\t#%s" % (label["name"], label["description"], label["color"]))
+        return
+
+    if sub == "create" and named:
+        refused = fault(state, "refuse_label_create")
+        if refused is True or (isinstance(refused, list) and named in refused):
+            sys.stderr.write("HTTP 403: Resource not accessible by integration "
+                             "(https://api.github.com/repos/%s/labels)\n" % state["repo"])
+            sys.exit(1)
+        color = (flag(argv, "--color") or flag(argv, "-c") or "ededed").lstrip("#")
+        description = flag(argv, "--description") or flag(argv, "-d") or ""
+        if existing and "--force" not in argv and "-f" not in argv:
+            sys.stderr.write("label with name \"%s\" already exists; use `--force` "
+                             "to update its color and description\n" % named)
+            sys.exit(1)
+        if existing:
+            existing.update({"color": color, "description": description})
+        else:
+            labels.append({"name": named, "color": color, "description": description})
+        save(state)
+        return
+
+    if sub in ("edit", "delete") and named:
+        if existing is None:
+            sys.stderr.write("label \"%s\" not found\n" % named)
+            sys.exit(1)
+        if sub == "delete":
+            labels.remove(existing)
+        else:
+            for option, key in (("--color", "color"), ("--description", "description"),
+                                ("--name", "name")):
+                value = flag(argv, option)
+                if value is not None:
+                    existing[key] = value.lstrip("#") if key == "color" else value
+        save(state)
+        return
+
+    unsupported(argv, "unmodelled label subcommand")
+
+
+def read_issue_for_answer(state, issue):
+    """Count a read of one issue, and apply a change a scenario set to land
+    between two reads.
+
+    faults.race is {"number": n, "on_read": k, "add": [...], "remove": [...]}:
+    on the k-th read of issue n the labels change before the answer is given,
+    as when a second session moves the same piece in between.
+    """
+    race = fault(state, "race")
+    if not race or int(race.get("number", 0)) != issue["number"]:
+        return
+    race["reads"] = race.get("reads", 0) + 1
+    if race["reads"] >= int(race.get("on_read", 2)):
+        for name in race.get("add", []):
+            if name not in issue["labels"]:
+                issue["labels"].append(name)
+        for name in race.get("remove", []):
+            if name in issue["labels"]:
+                issue["labels"].remove(name)
+        del state["faults"]["race"]
+    save(state)
+
+
 def main():
     argv = sys.argv[1:]
     if not argv:
@@ -503,6 +610,13 @@ def main():
     note("CALL\t%s" % " ".join(argv))
     state = load()
     command = argv[0]
+
+    # A scenario can take GitHub away. Every call then fails the way the real
+    # CLI fails with no network, so a script is seen to change nothing.
+    if fault(state, "offline") and command not in ("--version", "version"):
+        sys.stderr.write("error connecting to api.github.com\n"
+                         "check your internet connection or https://githubstatus.com\n")
+        sys.exit(1)
 
     if command in ("--version", "version"):
         print("gh version 2.0.0 (rehearsal stand-in)")
@@ -586,9 +700,13 @@ def main():
         return
 
     if command == "label":
-        # Labels are not modelled. An issue carries whatever names it is given,
-        # so creating one first changes nothing and pretending otherwise would
-        # only invite a test that proves the stand-in rather than the kit.
+        # The repository's labels are modelled because the gate script creates
+        # the kit's label set and has to be seen creating each one once, and
+        # saying which it could not create. An issue still carries whatever
+        # names it is given, as before: the stand-in does not refuse a label
+        # the repository lacks, so a scenario never fails over a label nobody
+        # created first.
+        label_command(argv, state)
         return
 
     if command == "api":
@@ -721,6 +839,18 @@ def main():
             answer.update(changes)
             print(json.dumps(answer))
             return
+        single = re.fullmatch(r"/?repos/[^/]+/[^/]+/issues/(\d+)", path)
+        if single and not posting:
+            # One issue, as the gate script reads it before and just before a
+            # move. A missing issue answers 404, as on GitHub.
+            issue = find(state, single.group(1))
+            if issue is None:
+                sys.stderr.write('{"message":"Not Found","status":"404"}\n'
+                                 "gh: Not Found (HTTP 404)\n")
+                sys.exit(1)
+            read_issue_for_answer(state, issue)
+            print(json.dumps(issue_public(state, issue)))
+            return
         if re.search(r"repos/[^/]+/[^/]+/issues($|\?)", path):
             want = "open" if "state=open" in path else None
             print(json.dumps([issue_public(state, i) for i in state["issues"]
@@ -764,10 +894,18 @@ def main():
             if issue is None:
                 unsupported(argv, "no such issue")
             if sub == "close":
+                # The reason is kept, so a piece dropped as not planned can be
+                # told from one completed. A --comment lands as a comment.
                 issue["state"] = "closed"
+                reason = (flag(argv, "--reason") or flag(argv, "-r") or "completed")
+                issue["state_reason"] = reason.replace(" ", "_")
+                closing = flag(argv, "--comment") or flag(argv, "-c")
+                if closing is not None:
+                    add_comment(state, issue, closing)
             elif sub == "reopen":
                 issue["state"] = "open"
             elif sub == "view":
+                read_issue_for_answer(state, issue)
                 # The comments come with the view, so a run can read back the
                 # claim it just made, as `--json comments` does on GitHub.
                 shown = issue_public(state, issue)
@@ -784,6 +922,12 @@ def main():
                 save(state)
                 return
             else:
+                # An account without write access is refused a label change.
+                if fault(state, "refuse_label_write") and (
+                        "--add-label" in argv or "--remove-label" in argv):
+                    sys.stderr.write("HTTP 403: Resource not accessible by integration "
+                                     "(https://api.github.com/graphql)\n")
+                    sys.exit(1)
                 for value in flags_all(argv, "--add-label"):
                     for name in value.split(","):
                         if name not in issue["labels"]:
@@ -812,6 +956,10 @@ def main():
             if issue is None:
                 unsupported(argv, "no such issue")
             comments = issue.setdefault("comments", [])
+            if fault(state, "refuse_comment"):
+                sys.stderr.write("HTTP 403: Resource not accessible by integration "
+                                 "(https://api.github.com/graphql)\n")
+                sys.exit(1)
             if "--delete-last" in argv:
                 # A run that lost a claim race deletes its own claim comment.
                 # The stand-in has one author, so the last comment is its own.
