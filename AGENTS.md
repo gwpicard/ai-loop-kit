@@ -1754,8 +1754,21 @@ attribution line, not the word.
   each refusal on a copy of the page.
 - `.agents/tests/loop-first-ground.sh` guards the ground the loop-first
   redesign stands on, in `docs/PHILOSOPHY.md` and the documents that repeat it.
-  The kit is for technical builders who direct agents, who know Git, branches
-  and pull requests and never have to read code. Records are written for agents
+  It holds the principle first: the work is shaping the work, and looping is
+  the consequence. The kit is a loop kit with four loop modules, and a loop
+  that needs a person sends the piece back to be shaped again. It holds the
+  two zones, shaping, where the person and the system make every decision, and
+  implementing, where the system works alone and review never stops the loop.
+  It holds guides and sensors, the two kinds every gate is, and the rule that
+  a script holds what the agent would otherwise have to remember. It holds two
+  worked examples, "Loop modules, added", which answers all five questions,
+  and "Things the loop kit leaves out, rejected", which names each of its
+  eight exclusions. The README and WORKFLOW.md each state the principle in one
+  sentence, WORKFLOW.md after its audience line and before the command table.
+  `docs/SOURCES.md` credits the loop words and the guide and sensor split with
+  no link into `docs/design/`, which does not ship, and a copy carrying such a
+  link is caught. The kit is for technical builders who direct agents, who
+  know Git, branches and pull requests and never have to read code. Records are written for agents
   first under a short plain header, while a public document such as the README
   stays written for people. The worktree and loop worked examples are added,
   and they and the two-layer piece example each answer all five questions, with the answer for when it goes wrong

@@ -14,6 +14,28 @@ The steps that close that gap are the ones the README opens with. This kit is
 those steps, packaged so that nobody has to read the code they produce to
 follow them.
 
+## The principle
+
+The work is shaping the work. Looping is the consequence.
+
+A person's time goes into deciding what to build and how it will be judged.
+Once a piece is shaped well enough that nobody needs to be asked anything, the
+build is no longer a craft the person takes part in: it is a loop that runs
+until the bar is met. The kit is a loop kit. It gives the person a place to
+shape, and a set of loop modules (fix, build, goal and gauntlet) that each turn
+one kind of shaped piece into a merged change.
+
+So the quality of a project rests on the quality of its shaping. When a loop
+needs a person, that is a gap in the shaping, and the piece goes back to be
+shaped again rather than being finished by hand.
+
+The work happens in two zones. In shaping, the person and the system make every
+decision together: the system finds facts, builds throwaway prototypes and
+writes the spec, and the person makes the choices. In implementing, the system
+works alone. It builds, checks, reviews and integrates, and the person takes
+part only through review. Review never stops the loop, which moves on to the
+next piece while a review waits.
+
 ## Who it is for
 
 The kit is for technical builders who direct agents. They build with an AI
@@ -101,7 +123,11 @@ Trust becomes mechanism wherever it can. A claim that can be checked
 automatically gets checked automatically, and the result shows up as something
 visible. Instructions ask. Machinery guarantees, and it guarantees exactly what
 it checks and nothing beyond that, which is why the kit says what a check
-covers rather than letting a green tick stand for everything.
+covers rather than letting a green tick stand for everything. A rule the agent
+would otherwise have to remember is held by a script wherever a script can hold
+it. A gate is either a guide, which makes up for something models cannot yet do
+and is tested by removing it, or a sensor, which guards against the builder's
+incentives and stays whatever the model.
 
 And the kit is honest about its own limits. A fit check at the start, and again
 whenever a project changes character, decides how much care applies and names
@@ -367,6 +393,38 @@ When a piece goes wrong three times, it is parked with the reason and the run
 moves on, and the person takes that piece to /fix or /shape. They never need to
 write down the rules of a run themselves, which is what the real project did
 four times before the kit held them.
+
+Loop modules, added. Each piece is built by the loop that suits its bar: a fix
+for something broken, a build for checks that pass or fail, a goal for a
+measured number with a target, and a gauntlet for a comparison with an example
+the person approved. It fits under /shape, which chooses the module, and
+/implement, which runs it. The person sees the module named on the piece. The
+sentence is "the kind of bar decides how the piece is built".
+
+When a loop goes wrong, the piece comes back to /shape with what happened
+written on it, and the person types /shape with its number. They never need to
+learn how a loop decides when to stop.
+
+Things the loop kit leaves out, rejected. Each fails one of the questions above
+or has a reason of its own. A permanent model judge is out because every gate
+names what it catches and can be tested by taking it away, and a judge kept for
+good never is. Agent hierarchies fail question 1, because each named role is
+a new thing to know, and runs and gates already do that work. Specs that code is
+regenerated from fail question 4: a repair made to the code is lost at the next
+regeneration, so the person has nothing to type but the spec again.
+
+The same ceremony for every piece fails because a rule with no activation
+boundary costs a one-line repair what it costs a feature. A coverage or mutation
+score as a gate is a number the builder can game, by adding tests to raise the
+count. Debate between agents does no better than a vote, and models favour their
+own output.
+
+A stored code graph or index stays out until a pilot measures it, since strong
+models find code well without one and a stored index goes stale. Prescribed
+test-first steps inside a loop are out because only the evidence is judged: a
+check that fails before the code and passes after it is that evidence, and the
+steps between belong to the builder. Telling a builder to follow test-first
+steps made its regressions worse in the TDAD study.
 
 A wiki, rejected. Each file under `docs/` owns one concept and sits beside the
 source it describes. A wiki would carry the record away from the work it must

@@ -6,7 +6,8 @@
 
 A compact, reliable way to build software with an AI coding agent: the
 discipline of a real process, without the ceremony, and without having to read
-the code.
+the code. You shape the work; the kit builds it in loops and checks it against a
+bar fixed before the build.
 
 None of the nine commands asks you to open a file of code. You say what should
 happen, decide what merges and what goes live, and make the product and risk

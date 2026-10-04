@@ -11,6 +11,9 @@ The kit is for technical builders who direct agents. It takes Git, branches and
 pull requests as familiar and uses those words without explaining them. It never
 asks you to read the code.
 
+You shape the work; the kit builds it in loops and checks it against a bar fixed
+before the build.
+
 ## 1. Commands
 
 Command names say when to use them.
