@@ -122,9 +122,9 @@ Recipe: nextjs-supabase-on-vercel.md
 
 - Install `npm ci` (Node 22). Run `npm run dev`, then open
   http://localhost:3000.
-- Test `npm test` (Vitest). Type check `npm run typecheck` (runs `next typegen`
-  first). Lint `npm run lint` (Next.js starter rules). Run all three before
-  hand-over; `project-check` runs the same.
+Test command: npm test
+- Vitest runs the tests. Type check `npm run typecheck` (runs `next typegen`
+  first), lint `npm run lint` (Next.js rules); all three run before hand-over.
 - Sign-in, the database and the team list use hosted Supabase (managed
   email-link sign-in). Never hand-build sign-in.
 - Next.js keeps its own agent rules in the block at the end of this file; read
@@ -171,7 +171,10 @@ This block is written and re-added by `next dev`. Committing it with your work k
 
 <!-- END:nextjs-agent-rules -->
 NEXTJS
+  # The test command sits on one line of its own, the one the ready-gate lint
+  # and later scripts read.
   if ! grep -qF 'Recipe: nextjs-supabase-on-vercel.md' "$founded" || \
+     ! grep -qx 'Test command: npm test' "$founded" || \
      ! grep -qF -- '- Hooks: yes.' "$founded" || \
      ! grep -qF "A sign-up list for the team's weekly football" "$founded" || \
      grep -qF '(Filled in by the setup-ai-build-kit skill:' "$founded"; then

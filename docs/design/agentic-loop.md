@@ -710,3 +710,8 @@ budgets, the number of clean runs before automatic merge is offered, the number
 of merged runs between drift reads, the length limit for each type's contract,
 the memory reserve and the memory each builder needs, the pressure thresholds,
 and the timeouts for a stuck builder.
+
+Settled so far: a piece's contract may hold 80 lines for a chore, 120 for a bug
+and 250 for a feature, counted without its Readiness, Kickback and Original
+report sections. The ready-gate lint holds these limits, and the real runs
+measure them.

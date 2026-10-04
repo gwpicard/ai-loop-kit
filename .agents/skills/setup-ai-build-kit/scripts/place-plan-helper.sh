@@ -1,14 +1,15 @@
 #!/usr/bin/env sh
-# place-plan-helper.sh: put the plan printout helper, the gate script and the
-# state guard hook into a founded project.
+# place-plan-helper.sh: put the plan printout helper, the gate script, the
+# ready-gate lint the gate calls and the state guard hook into a founded
+# project.
 #
-# Founding copies all three in. A project founded before one of them shipped
+# Founding copies all four in. A project founded before one of them shipped
 # inside this skill has no copy, or holds the older copy a whole copy of the
 # kit carried, and an update only ever refreshes skills. So /maintain runs this
 # on every visit, and this is how they reach such a project.
 #
 # It is safe to run again. A copy that already matches is left alone. A copy
-# that differs is replaced, because all three are the kit's machinery rather than
+# that differs is replaced, because all four are the kit's machinery rather than
 # the project's own work, and /maintain runs this only after its clean
 # checkpoint, so the older copy stays in the project's saved history.
 #
@@ -24,10 +25,11 @@ FOUNDATION="$SKILL_ROOT/templates/foundation"
 # and what it is called when this says what it did.
 PLACED='plan-refresh.sh|.agents/tools/plan-refresh.sh|plan helper
 gate.py|.agents/tools/gate.py|gate script
+ready-lint.py|.agents/tools/ready-lint.py|ready-gate lint
 state-guard.sh|.agents/hooks/state-guard.sh|state guard hook'
 
 fail() {
-  echo "AI Build Kit could not place the plan helper, gate script and state guard hook: $1" >&2
+  echo "AI Build Kit could not place the plan helper, gate script, ready-gate lint and state guard hook: $1" >&2
   exit 1
 }
 

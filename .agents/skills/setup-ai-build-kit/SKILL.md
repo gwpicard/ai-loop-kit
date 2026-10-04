@@ -588,7 +588,11 @@ launch, and the person takes it there.
 Choose routine technical parts quietly. Record run and check commands and any
 non-standard conventions under AGENTS.md's stack section, keeping its content
 rule and line ceiling. Name the install command among them, since a run
-installs each worktree's dependencies with it. Leave dependency lists in the
+installs each worktree's dependencies with it. Write the project's test command
+on one line of its own in the stack section, `Test command: <command>`, or
+`Test command: none for <language>` where the project has no code and no test
+runner yet. The ready-gate lint and later scripts read the first such line and
+no other text. Leave dependency lists in the
 code. In the conversation,
 describe what the setup lets the person do. Name
 a product or service only when it creates a choice, cost, account, access step,

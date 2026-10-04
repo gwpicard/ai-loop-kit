@@ -235,6 +235,10 @@ shaping conversation. Three rules keep it usable that way:
 - Interfaces rather than file paths or line numbers. The piece names a route,
   a command, a screen or a record. A path belongs only in `## Relies on` and in
   the lines that name a check or a test, because those name the evidence.
+  `Under the hood` is the one further place, and only for a test file. The
+  test guard in the `section-builder` skill's `scripts/test-guard.sh` lets an
+  existing test change only when `Under the hood` names it by its whole path.
+  A line number there is still refused, and so is any other path.
 - Each acceptance criterion checkable on its own. Every Works line names its
   own check, and no line passes only because another one does.
 

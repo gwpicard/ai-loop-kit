@@ -155,7 +155,7 @@ Launch checks live in the recipe, shaped as the `ship` skill's
 `references/recipe-format.md` says. The project check runs the commands below.
 
 (Filled in by the setup-ai-build-kit skill: `Recipe: <file name>.md` or
-`Recipe: none`, then install, run, test, type check and lint commands, or
-`none for <language>`, and conventions that differ from the default,
-including `Design tool: <name>` or `Design tool: none recorded`. Leave
-dependency lists in the code.)
+`Recipe: none`, `Test command: <command>` or `Test command: none for
+<language>`, then install, run, test, type check and lint commands, or
+`none for <language>`, conventions that differ from the default, and
+`Design tool: <name>` or `none recorded`. Leave dependency lists in code.)

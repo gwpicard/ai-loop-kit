@@ -147,6 +147,7 @@ session-start.sh|.agents/hooks/session-start.sh
 check-sensitive-areas.sh|.agents/hooks/check-sensitive-areas.sh
 plan-refresh.sh|.agents/tools/plan-refresh.sh
 gate.py|.agents/tools/gate.py
+ready-lint.py|.agents/tools/ready-lint.py
 state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
 gitignore|.gitignore
@@ -227,6 +228,7 @@ session-start.sh|.agents/hooks/session-start.sh
 check-sensitive-areas.sh|.agents/hooks/check-sensitive-areas.sh
 plan-refresh.sh|.agents/tools/plan-refresh.sh
 gate.py|.agents/tools/gate.py
+ready-lint.py|.agents/tools/ready-lint.py
 state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
 gitignore|.gitignore

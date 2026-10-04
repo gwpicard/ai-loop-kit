@@ -15,6 +15,11 @@
 # normal one: GitHub out of reach, an account that cannot create labels, two
 # sessions moving one piece, a piece a person gave two states, and bad input.
 #
+# The move to state:ready also asks the ready-gate lint beside the gate. The
+# lint is rehearsed on its own in ready-lint-rehearsal.sh, so most moves here
+# run a copy of the gate with a stand-in lint beside it, whose answer each case
+# sets, and one runs the real gate beside the real lint.
+#
 # Nothing here reaches the network. The stand-in keeps its state in a file in
 # a throwaway folder.
 
@@ -37,6 +42,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -54,6 +60,44 @@ ENV = dict(os.environ)
 ENV["PATH"] = FAKE + os.pathsep + ENV["PATH"]
 ENV["FAKE_GH_STATE"] = STATE
 ENV["FAKE_GH_LOG"] = LOG
+
+# The gate runs from a copy with a stand-in lint beside it. The stand-in prints
+# what the case wrote into its answer file, exits with its code, and notes each
+# call, so a case can see whether the gate asked it at all.
+TOOLS = os.path.join(WORK, "tools")
+os.makedirs(TOOLS)
+RUN_GATE = os.path.join(TOOLS, "gate.py")
+shutil.copy(GATE, RUN_GATE)
+STUB = os.path.join(TOOLS, "ready-lint.py")
+LINT_ANSWER = os.path.join(WORK, "lint-answer.json")
+LINT_CALLS = os.path.join(WORK, "lint-calls")
+with open(STUB, "w") as handle:
+    handle.write("import json, os, sys\n"
+                 "with open(os.environ['LINT_ANSWER']) as handle:\n"
+                 "    answer = json.load(handle)\n"
+                 "with open(os.environ['LINT_CALLS'], 'a') as handle:\n"
+                 "    handle.write(' '.join(sys.argv[1:]) + '\\n')\n"
+                 "sys.stdout.write(answer['out'])\n"
+                 "sys.exit(answer['code'])\n")
+ENV["LINT_ANSWER"] = LINT_ANSWER
+ENV["LINT_CALLS"] = LINT_CALLS
+
+
+def lint_says(code, out):
+    with open(LINT_ANSWER, "w") as handle:
+        json.dump({"code": code, "out": out}, handle)
+    if os.path.exists(LINT_CALLS):
+        os.remove(LINT_CALLS)
+
+
+def lint_calls():
+    if not os.path.exists(LINT_CALLS):
+        return []
+    with open(LINT_CALLS) as handle:
+        return [line.strip() for line in handle if line.strip()]
+
+
+lint_says(0, "Ready-gate lint: no gaps on Piece 10.\n")
 
 failures = []
 
@@ -118,8 +162,8 @@ def calls():
                 if line.startswith("CALL\t")]
 
 
-def gate(*args, stdin=None):
-    done = subprocess.run([sys.executable, GATE, *args], cwd=PROJECT, env=ENV,
+def gate(*args, stdin=None, script=None):
+    done = subprocess.run([sys.executable, script or RUN_GATE, *args], cwd=PROJECT, env=ENV,
                           capture_output=True, text=True, input=stdin)
     return done.returncode, done.stdout, done.stderr
 
@@ -234,8 +278,9 @@ def case(origin, target):
         return ([issue(n, family(origin) + typed, QUESTION)],
                 [issue(n, family(origin) + typed, "")], move, move, {})
     if origin == "shaping:check" and target == "state:ready":
-        return ([issue(n, family(origin) + typed, READY)],
-                [issue(n, family(origin) + typed, READY_WITH_BLOCKING)], move, move, {})
+        return ([issue(n, family(origin) + typed + ["loop:build"], READY)],
+                [issue(n, family(origin) + typed + ["loop:build"], READY_WITH_BLOCKING)],
+                move, move, {})
     if origin == "shaping:check":
         return ([issue(n, family(origin) + typed, NOT_READY)],
                 [issue(n, family(origin) + typed, READY)], move, move, {})
@@ -447,6 +492,69 @@ expect(code == 0 and len(lines(out)) == 1 and "comment" in out and "not" in out 
        labels_of(18) == ["state:building", "type:feature"],
        "a comment that cannot be posted leaves the move standing and says so in its one line",
        repr(out + err))
+
+# --- the ready gate ------------------------------------------------------------
+
+# A move to ready needs a Readiness section saying Ready, a loop: label, and the
+# ready-gate lint passing. The lint is asked last, since it runs checks.
+READY_PIECE = ["state:shaping", "shaping:check", "type:feature", "loop:build"]
+fresh([issue(10, READY_PIECE, READY)])
+lint_says(0, "Ready-gate lint: no gaps on Piece 10.\n")
+result = gate("move", "10", "ready")
+expect(passed_one_line(result, "ready with the lint passing") and labels_of(10) ==
+       ["loop:build", "state:ready", "type:feature"] and lint_calls() == ["10"],
+       "a move to ready asks the lint once, about that piece, and moves on its pass",
+       str(lint_calls()))
+
+fresh([issue(10, ["state:shaping", "shaping:check", "type:feature"], READY)])
+lint_says(0, "Ready-gate lint: no gaps on Piece 10.\n")
+code, out, err = gate("move", "10", "ready")
+expect(refused_with_next((code, out, err), "ready with no loop label") and "loop:" in out + err
+       and labels_of(10) == ["shaping:check", "state:shaping", "type:feature"],
+       "a piece with no loop: label is refused at the ready gate", repr(out + err))
+
+GAPS = ("Ready-gate lint: 2 gap(s) on Piece 10:\n"
+        "- the piece has no ## Reach section; next: write it in /shape\n"
+        "- tests/test_refund.py passes on today's code; next: rewrite the check in /shape\n")
+fresh([issue(10, READY_PIECE, READY)])
+lint_says(1, GAPS)
+code, out, err = gate("move", "10", "ready")
+expect(refused_with_next((code, out, err), "ready with lint gaps") and
+       "has no ## Reach section" in out + err and "passes on today's code" in out + err and
+       labels_of(10) == ["loop:build", "shaping:check", "state:shaping", "type:feature"],
+       "the lint's gaps refuse the move, and the refusal prints them", repr(out + err))
+
+fresh([issue(10, READY_PIECE, READY)])
+lint_says(2, "Ready-gate lint: GitHub did not answer, so nothing was checked.\n")
+code, out, err = gate("move", "10", "ready")
+expect(code != 0 and "GitHub did not answer" in out + err and
+       labels_of(10) == ["loop:build", "shaping:check", "state:shaping", "type:feature"],
+       "a lint that could not run counts as a refusal", repr(out + err))
+
+os.rename(STUB, STUB + ".away")
+fresh([issue(10, READY_PIECE, READY)])
+code, out, err = gate("move", "10", "ready")
+os.rename(STUB + ".away", STUB)
+expect(refused_with_next((code, out, err), "ready with no lint beside the gate") and
+       "ready-lint.py" in out + err and
+       labels_of(10) == ["loop:build", "shaping:check", "state:shaping", "type:feature"],
+       "with no lint beside the gate, the move to ready is refused and names it", repr(out + err))
+
+fresh([issue(10, READY_PIECE, READY_WITH_BLOCKING)])
+lint_says(0, "Ready-gate lint: no gaps on Piece 10.\n")
+gate("move", "10", "ready")
+expect(not lint_calls(), "a Readiness section that is not Ready is refused before the lint runs")
+
+# The real gate beside the real lint: an older piece carrying Touches: and no
+# Loop or Reach is refused, and the lint's own gap reaches the person.
+TOUCHES = ("## So that\nA refund.\n\n## Done when\n### Works\n- A refund. Check: a test\n\n"
+           "Touches: refunds\n\n" + READY)
+fresh([issue(10, READY_PIECE, TOUCHES)])
+code, out, err = gate("move", "10", "ready", script=GATE)
+expect(refused_with_next((code, out, err), "the real lint on a Touches piece") and
+       "## Loop" in out + err and
+       labels_of(10) == ["loop:build", "shaping:check", "state:shaping", "type:feature"],
+       "the real lint beside the real gate refuses a piece with no ## Loop", repr(out + err))
 
 # --- capture -----------------------------------------------------------------
 

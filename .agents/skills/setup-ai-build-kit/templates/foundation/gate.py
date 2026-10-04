@@ -26,6 +26,10 @@ Commands:
 A target is a sub-state (raw, research, clarify, prototype, spec, check) or a
 state (shaping, ready, building, in-review), with or without its prefix.
 
+A move from shaping:check to state:ready also needs one loop: label and the
+ready-gate lint beside this script, .agents/tools/ready-lint.py, to pass. The
+refusal prints the lint's gaps as it gave them.
+
 It talks to GitHub through the GitHub command-line tool already signed in on
 this computer, and writes a run's piece status into
 .agents/runs/<name>/run.json in the project's main folder.
@@ -515,6 +519,13 @@ def check_condition(condition: str, number: int, origin: str, target: str,
                     else f"{verdict} with {blocking} BLOCKING line(s)")
             refuse(f"#{number}'s ## Readiness section says {says}",
                 "run the readiness check and write its ## Readiness section, then run: " + move)
+        loops = [n for n in names if n.startswith("loop:")]
+        if len(loops) != 1:
+            carried = " and ".join(loops) if loops else "no loop: label"
+            refuse(f"#{number} carries {carried}; a ready piece carries exactly one loop: "
+                   "label, naming its loop module",
+                   f"set the loop: label in /shape {number}, then run: {move}")
+        run_lint(number, move)
     if condition == "readiness says not ready":
         verdict, blocking = readiness(body)
         if verdict != "Not ready" or not blocking:
@@ -597,6 +608,36 @@ def check_condition(condition: str, number: int, origin: str, target: str,
         else:
             refuse("a piece goes back to ready only with --run <name> or --withdrawn-by <number>",
                    f"gate.py move {number} ready --run <name>")
+
+
+LINT = "ready-lint.py"
+
+
+def run_lint(number: int, move: str) -> None:
+    """The ready-gate lint beside this script, which must pass before ready.
+
+    Its gaps are passed through as they are. A lint that could not run, because
+    GitHub or its checkout failed, refuses the move too, since nothing was
+    checked.
+    """
+    lint = os.path.join(os.path.dirname(os.path.abspath(__file__)), LINT)
+    if not os.path.isfile(lint):
+        refuse(f"the ready-gate lint is missing beside the gate, at .agents/tools/{LINT}, so "
+               f"#{number} cannot be checked",
+               f"run /maintain, which puts it back, then run: {move}")
+    try:
+        done = subprocess.run([sys.executable, lint, str(number)], capture_output=True,
+                              text=True, check=False)
+    except OSError as error:
+        refuse(f"the ready-gate lint could not be started ({error})", move)
+    said = "\n".join(line for line in (done.stdout + done.stderr).splitlines() if line.strip())
+    if done.returncode == 0:
+        return
+    if done.returncode == 2:
+        refuse(f"the ready-gate lint could not check #{number}: {said}",
+               f"run the same move again once GitHub and the checkout can be reached: {move}")
+    refuse(f"the ready-gate lint found gaps on #{number}:\n{said}",
+           f"close the gaps in /shape {number}, then run: {move}")
 
 
 def number_from(text: str) -> int:

@@ -128,6 +128,7 @@ own, these are the moves it makes:
   with the same command.
 - Research whose result needs the person moves to `shaping:clarify` once what it
   found is written under `## Research`.
+- Before a written contract moves on, the ready-gate lint runs on it, as "The readiness check" below says.
 - Once its contract is written, the piece moves to `shaping:check`, `python3 .agents/tools/gate.py move <number> check`, and the readiness check runs.
   On Ready the piece moves to `state:ready`, `python3 .agents/tools/gate.py move <number> ready`.
   On Not ready it moves to the sub-state its first BLOCKING line needs: `spec`,
@@ -142,6 +143,19 @@ Never write the label another way, as the `setup-ai-build-kit` skill's
 piece as it is.
 
 ## The readiness check
+
+Before the piece moves to `shaping:check`, run the ready-gate lint,
+`python3 .agents/tools/ready-lint.py <number>`, so the checker never reads a
+piece the lint would refuse. It checks what a machine can: every section is
+there, the bar fits the loop module, each acceptance check fails on today's
+code on its assertion, and the reach is whole. Say the lint's result in one
+line, such as "The ready-gate lint found two gaps: the reach names no test for
+billing, and the check for refunds passes today." Close each gap on the piece
+and run the lint again. A gap only the person can close is written as the one
+question under `## Open question`, and the piece moves to `shaping:clarify`.
+Where the lint says GitHub or its checkout could not be reached, say so and
+leave the piece where it is. The move to `state:ready` runs the lint again, so
+a piece changed after it passed is caught there.
 
 Before a piece moves to `state:ready`, a session that did not shape it checks it
 against the fixed list in the `shape` skill's `references/readiness-check.md`.

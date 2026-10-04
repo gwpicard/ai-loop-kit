@@ -28,6 +28,9 @@ INSTRUCTIONS="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/AGENT
 # there must never turn the project's own check red. Each founded project below
 # carries it where founding places it.
 GATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/gate.py"
+# The ready-gate lint sits beside the gate script in every founded project, and
+# the same rule holds for it.
+READY_LINT="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -35,6 +38,7 @@ fail() {
 }
 
 [ -f "$GATE" ] || fail "the setup skill carries no gate script at templates/foundation/gate.py"
+[ -f "$READY_LINT" ] || fail "the setup skill carries no ready-gate lint at templates/foundation/ready-lint.py"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -69,6 +73,7 @@ cp "$SENSITIVE" "$PROJECT/.agents/hooks/check-sensitive-areas.sh"
 cp "$INSTRUCTIONS" "$PROJECT/AGENTS.md"
 mkdir -p "$PROJECT/.agents/tools"
 cp "$GATE" "$PROJECT/.agents/tools/gate.py"
+cp "$READY_LINT" "$PROJECT/.agents/tools/ready-lint.py"
 
 # The edit founding makes: the placeholder step goes, and install, type check,
 # lint and test go in its place, each as its own named step.
@@ -134,7 +139,7 @@ started=$(date +%s)
 first=$(run_check)
 finished=$(date +%s)
 [ -z "$first" ] || { cat "$WORK/last-output" >&2; fail "the new project's check was red on day one, at $first"; }
-echo "  ok: the founded project's check is green on day one ($((finished - started))s), with the gate script in place"
+echo "  ok: the founded project's check is green on day one ($((finished - started))s), with the gate script and the ready-gate lint in place"
 
 # Green with the gate script proves nothing unless the check reads it. The
 # linter does: an unused import added to the placed copy turns Lint red.
@@ -146,12 +151,23 @@ grep -q 'gate.py' "$WORK/last-output" || fail "the lint failure did not name gat
 mv "$WORK/gate.kept" "$PROJECT/.agents/tools/gate.py"
 echo "  ok: the linter reads the placed gate script, so its green counts"
 
+cp "$PROJECT/.agents/tools/ready-lint.py" "$WORK/lint.kept"
+printf '\nimport os\n' >> "$PROJECT/.agents/tools/ready-lint.py"
+first=$(run_check)
+[ "$first" = "Lint" ] || fail "the linter did not read the placed ready-gate lint, got '${first:-nothing}'"
+grep -q 'ready-lint.py' "$WORK/last-output" || fail "the lint failure did not name ready-lint.py"
+mv "$WORK/lint.kept" "$PROJECT/.agents/tools/ready-lint.py"
+echo "  ok: the linter reads the placed ready-gate lint, so its green counts"
+
 # mypy leaves folders whose names start with a dot out of "mypy .", so the
 # type check is also run on the gate script by name, the way a project that
 # points its type check there would.
 (cd "$PROJECT" && mypy .agents/tools/gate.py) > "$WORK/last-output" 2>&1 ||
   { cat "$WORK/last-output" >&2; fail "the type check fails when pointed at the gate script"; }
 echo "  ok: the type check passes on the gate script by name"
+(cd "$PROJECT" && mypy .agents/tools/ready-lint.py) > "$WORK/last-output" 2>&1 ||
+  { cat "$WORK/last-output" >&2; fail "the type check fails when pointed at the ready-gate lint"; }
+echo "  ok: the type check passes on the ready-gate lint by name"
 
 # A type error in code no test reaches.
 cat >> "$PROJECT/pricing.py" <<'PY'
@@ -219,6 +235,7 @@ cp "$SENSITIVE" "$PROJECT/.agents/hooks/check-sensitive-areas.sh"
 cp "$INSTRUCTIONS" "$PROJECT/AGENTS.md"
 mkdir -p "$PROJECT/.agents/tools"
 cp "$GATE" "$PROJECT/.agents/tools/gate.py"
+cp "$READY_LINT" "$PROJECT/.agents/tools/ready-lint.py"
 
 awk -v tc="$type_check" -v li="$lint" '
   /- name: Install and test/ { skipping = 1 }
@@ -301,7 +318,8 @@ first=$(run_check)
 finished=$(date +%s)
 [ -z "$first" ] || { cat "$WORK/last-output" >&2; fail "the new TypeScript project's check was red on day one, at $first"; }
 [ -f "$PROJECT/.agents/tools/gate.py" ] || fail "the TypeScript project lost its gate script"
-echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s), with the gate script in place"
+[ -f "$PROJECT/.agents/tools/ready-lint.py" ] || fail "the TypeScript project lost its ready-gate lint"
+echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s), with the gate script and the ready-gate lint in place"
 
 # A type error in code no test reaches. It is exported, so the linter has no
 # reason to object and only the type check can see it.
