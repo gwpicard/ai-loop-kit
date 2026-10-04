@@ -31,6 +31,10 @@ GATE_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/gate
 # that left it out would fail without a word.
 HOOK_TARGET=.agents/hooks/state-guard.sh
 HOOK_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/state-guard.sh"
+# The ready-gate lint travels beside the gate script, which calls it before a
+# piece turns ready. A route that left it out would refuse every ready move.
+LINT_TARGET=.agents/tools/ready-lint.py
+LINT_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
 
 FAIL=0
 fail() {
@@ -136,7 +140,25 @@ founds_with_helper() {
   fi
   holds_the_gate "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/gate.py"
   holds_the_hook "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/state-guard.sh"
+  holds_the_lint "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/ready-lint.py"
   prints_the_plan "$project" "$route" "$TARGET"
+}
+
+# A runnable ready-gate lint at the project's path, beside the gate script,
+# identical to the template the installed skill carries and to the one in this
+# repository.
+holds_the_lint() {
+  project=$1
+  route=$2
+  installed=$3
+  lint="$project/$LINT_TARGET"
+  if [ -f "$lint" ] && [ ! -L "$lint" ] && [ -x "$lint" ] && \
+     cmp -s "$lint" "$installed" && cmp -s "$lint" "$LINT_TEMPLATE" && \
+     (cd "$project" && "./$LINT_TARGET" --help >/dev/null 2>&1); then
+    pass "$route: a runnable $LINT_TARGET identical to the template is in place"
+  else
+    fail "$route: no runnable $LINT_TARGET identical to the template"
+  fi
 }
 
 # A runnable gate script at the project's path, identical to the template the
@@ -318,7 +340,7 @@ INSTALLED_HELPER="$CLAUDE_ONLY/.claude/skills/setup-ai-build-kit/templates/found
 # A project founded before this release: founded, with no helper and no gate.
 OLD="$SCRATCH/old"
 cp -R "$CLAUDE_ONLY" "$OLD"
-rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/plan.local.md"
+rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/$LINT_TARGET" "$OLD/plan.local.md"
 PLACE_OLD="$OLD/.claude/skills/setup-ai-build-kit/scripts/place-plan-helper.sh"
 printf '%s\n' "# Masterplan" > "$OLD/masterplan.md"
 
@@ -337,11 +359,14 @@ holds_the_gate "$OLD" "a project founded before the gate, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/gate.py"
 holds_the_hook "$OLD" "a project founded before the hook, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/state-guard.sh"
+holds_the_lint "$OLD" "a project founded before the lint, after the backfill" \
+  "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
 
 # Run again, it changes nothing and says so. /maintain runs it on every visit.
 before=$(cksum < "$OLD/$TARGET")
 gate_before=$(cksum < "$OLD/$GATE_TARGET" 2>/dev/null || echo missing)
 hook_before=$(cksum < "$OLD/$HOOK_TARGET" 2>/dev/null || echo missing)
+lint_before=$(cksum < "$OLD/$LINT_TARGET" 2>/dev/null || echo missing)
 said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on its second run"
 case "$said" in
   *"already current"*) pass "a second run changes nothing and says the copy is current" ;;
@@ -362,6 +387,20 @@ if [ "$(cksum < "$OLD/$HOOK_TARGET" 2>/dev/null || echo missing)" = "$hook_befor
 else
   fail "a second run changed the state guard hook or did not say it was current: $said"
 fi
+if [ "$(cksum < "$OLD/$LINT_TARGET" 2>/dev/null || echo missing)" = "$lint_before" ] && \
+   [ "$lint_before" != missing ] && \
+   [ "$(printf '%s\n' "$said" | grep -c "already current")" -ge 4 ]; then
+  pass "a second run leaves the ready-gate lint as it was and says it is current"
+else
+  fail "a second run changed the ready-gate lint or did not say it was current: $said"
+fi
+
+# An older lint is replaced, as the gate script is.
+printf '%s\n' "# an older lint" >> "$OLD/$LINT_TARGET"
+said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on an older lint"
+cmp -s "$OLD/$LINT_TARGET" "$LINT_TEMPLATE" && [ -x "$OLD/$LINT_TARGET" ] && \
+  pass "an older ready-gate lint is replaced with the template and runnable" || \
+  fail "an older ready-gate lint was not replaced: $said"
 
 # An older gate script is replaced, as the helper is.
 printf '%s\n' "# an older gate" >> "$OLD/$GATE_TARGET"

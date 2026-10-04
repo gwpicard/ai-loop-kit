@@ -366,6 +366,13 @@ rs_rule "typed alone picks up a piece waiting for its check" \
   'a piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran'
 rs_rule "Done when of /shape names the check" \
   'moved to `state:ready` only after a session that did not shape it wrote a `## readiness` section naming no blocking gap'
+# The ready-gate lint runs before the fresh checker, so the checker never reads
+# a piece a machine would refuse, and its result is one line.
+rs_rule "/shape runs the placed ready-gate lint" \
+  'run the ready-gate lint, `python3 \.agents/tools/ready-lint\.py <number>`'
+rs_rule "the lint runs before the fresh checker starts" \
+  'so the checker never reads a piece the lint would refuse'
+rs_rule "the lint's result is said in one line" 'say the lint.s result in one line'
 rs_guard "$SHAPE" "the /shape skill"
 
 rs_require_absent "the old bar is gone from /shape" "$SHAPE" 'meets the bar'
@@ -382,6 +389,15 @@ rs_require_load_bearing "founding stops each piece it shapes at spec" "$SETUP" "
 rs_require_absent "founding no longer runs the readiness check itself" \
   "$SETUP" 'founding runs the readiness check in the'
 rs_require_load_bearing "the completion report says founding stops at spec" "$REPORT" "$FOUNDING_SPEC"
+
+# The project's test command lives on one line, so the lint and later scripts
+# read it from one place. Free text cannot be read by a script.
+rs_require_load_bearing "the founded stack section asks for the Test command line" "$FOUNDED" \
+  '`test command: <command>` or `test command: none for <language>`'
+rs_require_load_bearing "founding writes the Test command line" "$SETUP" \
+  'write the project.s test command on one line of its own in the stack section, `test command: <command>`, or `test command: none for <language>`'
+rs_require_load_bearing "the lint reads the first such line and nothing else" "$SETUP" \
+  'the ready-gate lint and later scripts read the first such line and no other text'
 rs_require_load_bearing "the compatibility page gives the route without a subagent" \
   "$COMPAT" '/shape <number> check readiness'
 
