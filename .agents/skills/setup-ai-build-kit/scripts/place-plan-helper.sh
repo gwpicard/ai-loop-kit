@@ -1,14 +1,14 @@
 #!/usr/bin/env sh
-# place-plan-helper.sh: put the plan printout helper and the gate script into a
-# founded project.
+# place-plan-helper.sh: put the plan printout helper, the gate script and the
+# state guard hook into a founded project.
 #
-# Founding copies both in. A project founded before either shipped inside this
-# skill has no copy, or holds the older copy a whole copy of the kit carried,
-# and an update only ever refreshes skills. So /maintain runs this on every
-# visit, and this is how the helper and the gate reach such a project.
+# Founding copies all three in. A project founded before one of them shipped
+# inside this skill has no copy, or holds the older copy a whole copy of the
+# kit carried, and an update only ever refreshes skills. So /maintain runs this
+# on every visit, and this is how they reach such a project.
 #
 # It is safe to run again. A copy that already matches is left alone. A copy
-# that differs is replaced, because both are the kit's machinery rather than
+# that differs is replaced, because all three are the kit's machinery rather than
 # the project's own work, and /maintain runs this only after its clean
 # checkpoint, so the older copy stays in the project's saved history.
 #
@@ -23,10 +23,11 @@ FOUNDATION="$SKILL_ROOT/templates/foundation"
 # Each file this places: its name in the skill, where it goes in the project,
 # and what it is called when this says what it did.
 PLACED='plan-refresh.sh|.agents/tools/plan-refresh.sh|plan helper
-gate.py|.agents/tools/gate.py|gate script'
+gate.py|.agents/tools/gate.py|gate script
+state-guard.sh|.agents/hooks/state-guard.sh|state guard hook'
 
 fail() {
-  echo "AI Build Kit could not place the plan helper and gate script: $1" >&2
+  echo "AI Build Kit could not place the plan helper, gate script and state guard hook: $1" >&2
   exit 1
 }
 
@@ -43,7 +44,7 @@ PROJECT_ROOT=$(CDPATH= cd -- "$PROJECT_ROOT" && pwd -P)
 [ -f "$PROJECT_ROOT/masterplan.md" ] || \
   fail "this folder holds no masterplan.md, so it is not a founded project"
 
-for part in .agents .agents/tools; do
+for part in .agents .agents/tools .agents/hooks; do
   [ ! -L "$PROJECT_ROOT/$part" ] || \
     fail "project path is redirected outside the project: $part"
   [ ! -e "$PROJECT_ROOT/$part" ] || [ -d "$PROJECT_ROOT/$part" ] || \
@@ -51,7 +52,7 @@ for part in .agents .agents/tools; do
 done
 
 # Every source and destination is checked before anything is written, so a
-# refusal for one never leaves the other half placed.
+# refusal for one never leaves the others placed.
 while IFS='|' read -r source target name; do
   [ -f "$FOUNDATION/$source" ] && [ ! -L "$FOUNDATION/$source" ] || \
     fail "the installed setup-ai-build-kit skill carries no $name to copy"
@@ -63,7 +64,7 @@ done <<EOF
 $PLACED
 EOF
 
-mkdir -p "$PROJECT_ROOT/.agents/tools"
+mkdir -p "$PROJECT_ROOT/.agents/tools" "$PROJECT_ROOT/.agents/hooks"
 
 while IFS='|' read -r source target name; do
   source_file="$FOUNDATION/$source"

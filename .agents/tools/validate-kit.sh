@@ -521,8 +521,10 @@ while IFS=: read -r reffile lineno relpath; do
   # templates/foundation/session-start.sh. It deliberately does not exist in
   # this repository, because the kit's own source must never wire a project
   # session hook into itself. Its real source is asserted separately below.
+  # .agents/hooks/state-guard.sh is the same kind of project path, made from
+  # templates/foundation/state-guard.sh, and state-guard.sh holds its source.
   case "$relpath" in
-    .agents/hooks/session-start.sh) continue ;;
+    .agents/hooks/session-start.sh|.agents/hooks/state-guard.sh) continue ;;
   esac
   target="$ROOT/$relpath"
   if [ ! -e "$target" ]; then
@@ -1475,6 +1477,19 @@ done
 
 [ "$ss_ok" -eq 1 ] && pass "the check-up reminder is a project hook, wired from start's template and absent from this source"
 
+# A founded project's settings carry the state guard: a hook that refuses a
+# direct change to a state:, shaping: or review: label, and deny rules for the
+# same. This repository's own issues keep today's labels until the release, so
+# its own settings carry neither. state-guard.sh runs this block on its own,
+# on a copy with the hook or a rule planted, so keep it between its markers.
+# --- own settings carry no state guard: begin
+if grep -qE 'state-guard|(state|shaping|review):|issues/\*/labels' "$ROOT/.claude/settings.json"; then
+  fail "the maintainer source carries the state guard hook or its deny rules in its own settings"
+else
+  pass "this repository's own settings carry neither the state guard hook nor its deny rules"
+fi
+# --- own settings carry no state guard: end
+
 # ---------------------------------------------------------------------------
 echo "== Release boundary =="
 
@@ -2066,8 +2081,8 @@ fi
 # patterns (git reset --hard, git push --force/-f, git clean -f/-fd, rm -rf).
 # An exact set comparison catches a missing OR an unexplained extra entry,
 # not just a missing substring. Both this repository's own Claude settings and
-# the settings start gives a project are checked; the two files differ only in
-# the session-start wiring, which a project has and this source must not.
+# the settings start gives a project are checked. A project's also carry the
+# session-start wiring and the state guard hook, which this source must not.
 deny_jsonfiles="$ROOT/.claude/settings.json
 $ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/claude-settings.json"
 expected_deny="Bash(git reset --hard:*)
@@ -2082,6 +2097,13 @@ Bash(rm -rf:*)"
 # A founded project also refuses a recursive delete in every spelling the deny
 # list can see, and the two Git commands that clear its recovery history. The
 # maintainer's own settings are left as they are.
+# A founded project also refuses a direct change to a state:, shaping: or
+# review: label, which only the gate script makes. Each of those rules ends in
+# a doubled star. A rule ending in `:*` is Claude Code's older prefix form,
+# where the colon stands for a space, so `state:*` would never match
+# `state:ready`. The doubled star keeps the colon as written. This
+# repository's own issues keep today's labels until the release, so its own
+# settings carry none of these.
 expected_deny_project="$expected_deny
 Bash(rm -r:*)
 Bash(rm -R:*)
@@ -2098,7 +2120,26 @@ Bash(git push * +main *)
 Bash(git push *:main)
 Bash(git push *:main *)
 Bash(git push *refs/heads/main)
-Bash(git push *refs/heads/main *)"
+Bash(git push *refs/heads/main *)
+Bash(gh issue edit * --add-label state:**)
+Bash(gh issue edit * --remove-label state:**)
+Bash(gh issue create * --label state:**)
+Bash(gh label create state:**)
+Bash(gh label edit state:**)
+Bash(gh label delete state:**)
+Bash(gh issue edit * --add-label shaping:**)
+Bash(gh issue edit * --remove-label shaping:**)
+Bash(gh issue create * --label shaping:**)
+Bash(gh label create shaping:**)
+Bash(gh label edit shaping:**)
+Bash(gh label delete shaping:**)
+Bash(gh issue edit * --add-label review:**)
+Bash(gh issue edit * --remove-label review:**)
+Bash(gh issue create * --label review:**)
+Bash(gh label create review:**)
+Bash(gh label edit review:**)
+Bash(gh label delete review:**)
+Bash(gh api *issues/*/labels*)"
 deny_ok=1
 if command -v python3 >/dev/null 2>&1; then
   py_script=/tmp/validate-kit-deny.$$

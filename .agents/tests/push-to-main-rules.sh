@@ -227,10 +227,14 @@ def offered(rule):
     return body.startswith("git reflog expire") or (body.startswith("git gc") and "--prune" in body)
 
 
+# The state guard's rules on gh are left out too. They guard the labels of a
+# project founded with this kit, and a project founded before them keeps its
+# older labels, which those rules do not name.
 left_out = [r for r in rules if not offered(r)]
 for rule in left_out:
     if not any(rule.startswith(p) for p in ("Bash(git push --force", "Bash(git push -f",
-                                            "Bash(git reset", "Bash(git clean")):
+                                            "Bash(git reset", "Bash(git clean",
+                                            "Bash(gh ")):
         print("the monthly offer would leave out %s, which step 2 names no kind for" % rule)
         sys.exit(1)
 for rule in expected_delete:
