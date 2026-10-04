@@ -251,4 +251,159 @@ git -C "$PROJECT" commit -q -m "Create founding project records"
 [ -z "$(git -C "$PROJECT" status --short)" ] || \
   fail "disposable project is not clean after its founding records were saved"
 
+# Founding opens the pieces as issues. It replays here the commands the installed
+# setup skill names in its step for cutting the plan, against the replay
+# harness's stand-in GitHub, so a step dropped from the skill or a command the
+# gate would refuse fails here rather than in somebody's first project. Each
+# piece must end with one state, one sub-label where its state has them, and
+# one type label, and the gate's own report must find nothing out of order.
+python3 - "$PROJECT" "$ROOT/.agents/tests/replay/fake-github" "$SCRATCH" <<'PY' || \
+  fail "founding's commands did not leave every piece in one state with one type"
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+project, fake, scratch = sys.argv[1], sys.argv[2], sys.argv[3]
+skill = os.path.join(project, ".agents", "skills", "setup-ai-build-kit", "SKILL.md")
+state_file = os.path.join(scratch, "founding-gh.json")
+env = dict(os.environ, PATH=fake + os.pathsep + os.environ["PATH"],
+           FAKE_GH_STATE=state_file, FAKE_GH_LOG=os.path.join(scratch, "founding-gh.log"))
+problems = []
+
+
+def stop(message):
+    print("FAIL: " + message, file=sys.stderr)
+    sys.exit(1)
+
+
+# The commands in the code blocks of the step that cuts the plan.
+text = open(skill, encoding="utf-8").read()
+step = re.search(r"^## 10\. Cut the plan\n(.*?)^## ", text, re.S | re.M)
+if not step:
+    stop("the setup skill has no step headed '## 10. Cut the plan'")
+commands = [line.strip() for block in re.findall(r"```[a-z]*\n(.*?)```", step.group(1), re.S)
+            for line in block.splitlines() if line.strip()]
+
+
+def template(needle, what):
+    found = [c for c in commands if needle in c]
+    if not found:
+        stop("the setup skill's plan step names no command for %s (looked for %r)"
+             % (what, needle))
+    return found[0]
+
+
+LABELS = template("gate.py labels", "creating the labels")
+DELETE = template("gh label delete", "deleting GitHub's own labels")
+CAPTURE = template("gate.py capture --title", "opening a piece through the gate")
+TYPE = template('--add-label "type:', "the piece's one type label")
+SUBJECT = template('--add-label "<subject>"', "the piece's subject labels")
+MOVE = template("gate.py move <number>", "moving a piece through the gate")
+
+
+def run(command, **values):
+    for key, value in values.items():
+        command = command.replace("<%s>" % key, value)
+    if re.search(r"<[a-z|' -]+>", command):
+        stop("a placeholder was left unfilled in %r" % command)
+    done = subprocess.run(shlex.split(command), cwd=project, env=env,
+                          capture_output=True, text=True)
+    if done.returncode != 0:
+        stop("%r failed: %s%s" % (command, done.stdout, done.stderr))
+    return done.stdout
+
+
+def body_of(number):
+    data = json.load(open(state_file))
+    return next(i for i in data["issues"] if i["number"] == number)["body"]
+
+
+def write_body(number, body):
+    path = os.path.join(scratch, "body-%d.md" % number)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(body)
+    subprocess.run(["gh", "issue", "edit", str(number), "--body-file", path], cwd=project,
+                   env=env, check=True, capture_output=True)
+
+
+run(LABELS)
+for name in ("bug", "documentation", "duplicate", "enhancement", "good first issue",
+             "help wanted", "invalid", "question", "wontfix"):
+    run(DELETE, label=name)
+
+# Three pieces, one for each way founding leaves a piece: one still holding a
+# question for /shape, one the readiness check found ready, and one it sent back.
+SHAPED = ("## So that\nGuests can book a night.\n\n## Done when\n### Works\n"
+          "- A booking is saved. Check: a test.\n")
+pieces = [
+    ("Guests can see free nights", "## So that\nGuests see what is free.\n\n"
+     "## Open question\nShould a half-booked night show as free?\n", "feature", "visual",
+     ["clarify"]),
+    ("Guests can book a night", SHAPED, "feature", "data", ["spec", "check"]),
+    ("Double bookings stop", SHAPED.replace("book a night", "never double book"), "bug",
+     "how it works", ["spec", "check"]),
+]
+numbers = []
+for title, words, kind, subject, moves in pieces:
+    path = os.path.join(scratch, "words-%d.md" % len(numbers))
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(words)
+    said = run(CAPTURE, title=title, file=path)
+    match = re.search(r"#(\d+) captured", said)
+    if not match:
+        stop("capture did not name the issue it opened: %r" % said)
+    number = match.group(1)
+    numbers.append(int(number))
+    run(TYPE.replace("<feature|bug|chore>", kind), number=number)
+    run(SUBJECT, number=number, subject=subject)
+    for target in moves:
+        run(MOVE, number=number, target=target)
+
+# The readiness check, run by another session, writes its section and the gate
+# reads it: Ready moves the second piece to ready, and a blocking line sends the
+# third back to the sub-state that line needs.
+ready, sent_back = numbers[1], numbers[2]
+write_body(ready, body_of(ready) + "\n## Readiness\n2026-10-04, checked by a session "
+           "that did not shape it: Ready\n")
+run(MOVE, number=str(ready), target="ready")
+write_body(sent_back, body_of(sent_back) + "\n## Readiness\n2026-10-04, checked by a "
+           "session that did not shape it: Not ready\n- BLOCKING 3: no line says what "
+           "happens to an existing double booking.\n")
+run(MOVE, number=str(sent_back), target="spec")
+
+data = json.load(open(state_file))
+left = [l["name"] for l in data.get("labels", [])]
+if any(n in left for n in ("bug", "enhancement", "wontfix")):
+    problems.append("GitHub's own labels are still there: %s" % ", ".join(left))
+expected = {numbers[0]: ("state:shaping", "shaping:clarify"),
+            ready: ("state:ready", None), sent_back: ("state:shaping", "shaping:spec")}
+for item in data["issues"]:
+    names = item["labels"]
+    states = [n for n in names if n.startswith("state:")]
+    subs = [n for n in names if n.startswith("shaping:")]
+    reviews = [n for n in names if n.startswith("review:")]
+    types = [n for n in names if n.startswith("type:")]
+    want_state, want_sub = expected[item["number"]]
+    if states != [want_state]:
+        problems.append("#%d carries %s, expected %s" % (item["number"], states, want_state))
+    if subs != ([want_sub] if want_sub else []) or reviews:
+        problems.append("#%d carries sub-labels %s" % (item["number"], subs + reviews))
+    if len(types) != 1:
+        problems.append("#%d carries %d type labels" % (item["number"], len(types)))
+
+report = subprocess.run(["python3", ".agents/tools/gate.py", "report"], cwd=project, env=env,
+                        capture_output=True, text=True)
+if report.returncode != 0 or not report.stdout.startswith("report: every open piece"):
+    problems.append("the gate's report found something: %s%s" % (report.stdout, report.stderr))
+
+for problem in problems:
+    print("FAIL: " + problem, file=sys.stderr)
+sys.exit(1 if problems else 0)
+PY
+[ -z "$(git -C "$PROJECT" status --short)" ] || \
+  fail "founding's issue commands left files in the project"
+
 echo "starter-rehearsal.sh: all checks passed"
