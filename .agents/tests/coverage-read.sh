@@ -27,11 +27,12 @@ rs_rule "data and its origin are checked" 'what data it holds and where it comes
 rs_rule "outside connections are checked" 'and what it connects to'
 rs_rule "counts pieces open and closed" 'open and closed'
 rs_rule "the line said when the plan covers the page" 'has a piece that builds it\."'
-rs_rule "a promise left to a parked piece is a gap" 'parked counts as a gap'
+rs_rule "a promise left to a piece closed as not planned is a gap" 'whose only piece was closed as not planned counts as a gap'
 rs_rule "reads each piece's change to the masterplan" 'read each piece.*masterplan change.*alongside its promised result'
 rs_rule "a missing applied change is recovery rather than a new piece" 'it must not be offered as a new piece'
 rs_rule "the read compares key terms against decisions and planned changes" 'compare the masterplan.s key terms with settled terms in every piece.s `## decided` and `## masterplan change`'
-rs_rule "parked and reshaped pieces keep their terms visible" 'including parked and reshaped pieces'
+rs_rule "pieces closed as not planned and reshaped pieces keep their terms visible" 'including pieces closed as not planned and reshaped pieces'
+rs_rule "the read takes in the settled terms on closed pieces" 'read the settled terms on pieces closed as not planned too'
 rs_rule "missing and different terms are record gaps" 'name a settled term missing from the masterplan, or one whose meaning differs, as a record gap'
 rs_rule "a settled name cannot promise a future capability" 'do not turn a future capability into a present promise'
 rs_rule "a clean report also requires the terms to agree" 'when every promise has a piece and no term is missing or different'
@@ -62,6 +63,7 @@ rs_require_load_bearing "WORKFLOW names the wider founding read" \
 rs_require_load_bearing "WORKFLOW names the wider sync read" \
   "$WORKFLOW" 'the coverage read includes permissions, data and outside connections here too'
 rs_require_load_bearing "WORKFLOW explains that parking cannot hide terms" \
-  "$WORKFLOW" 'it also compares settled terms on every piece with the masterplan, even if a piece was parked or reshaped'
+  "$WORKFLOW" 'it also compares settled terms on every piece with the masterplan, even if a piece was closed as not planned or reshaped'
+rs_require_absent "the coverage read no longer names parked" "$READFILE" 'parked'
 
 rs_done

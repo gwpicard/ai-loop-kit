@@ -128,15 +128,15 @@ rs_rule "and never deletes a branch" 'it deletes no branch'
 rs_rule "leftovers go to /maintain" \
   'is listed by `/maintain`, which removes each on a yes'
 rs_rule "a run clears the worktrees of pieces it let go" \
-  'remove the worktree this run opened for each piece it parked, sent back to shaping or skipped'
+  'remove the worktree this run opened for each piece it kicked back, gave back or skipped'
 rs_rule "a piece in to check keeps its worktree" \
   'keeps its worktree until its pull request closes'
 rs_rule "a run's start clears closed worktrees" \
   'on claude code, clear away the worktrees whose pull requests have closed'
 rs_rule "a resumed piece reuses its worktree" \
   'open its worktree again with `worktree\.sh open --resume`, which reuses the one already there'
-rs_rule "uncommitted work left by a dead session is kept and the piece parked" \
-  'where that worktree holds an uncommitted change, the script keeps it as it is: park the piece with that reason'
+rs_rule "uncommitted work left by a dead session is kept and the piece kicked back" \
+  'where that worktree holds an uncommitted change, the script keeps it as it is: kick the piece back'
 
 # Outside a run.
 rs_rule "a single /implement stays in the main folder unless asked" \

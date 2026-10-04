@@ -89,37 +89,37 @@ endstate() {
 import json, sys
 d = json.load(open(sys.argv[1]))
 mutation = sys.argv[3]
-if mutation == "reopen-parked":
+if mutation == "reopen-dropped":
     for i in d["issues"]:
         if i["number"] == 8:
             i["state"] = "open"
-elif mutation == "build-parked":
+elif mutation == "build-dropped":
     for i in d["issues"]:
         if i["number"] == 9:
-            i["labels"] = i["labels"] + ["building"]
+            i["labels"] = i["labels"] + ["state:building"]
 elif mutation == "settled":
     # The research piece picked up properly: the finding recorded, then the
-    # label swapped for ready.
+    # piece moved on through the gate to ready.
     for i in d["issues"]:
         if i["number"] == 10:
-            i["labels"] = ["behaviour", "ready"]
-            i["body"] = i["body"] + "\n## Decided\nThe calendar account can send on our behalf. Source: the provider's own setup pages, checked 2026-08-22.\n"
+            i["labels"] = ["behaviour", "state:ready", "type:feature"]
+            i["body"] = i["body"] + "\n## Research\n- The calendar account can send on our behalf. Source: the provider's own setup pages, checked 2026-08-22.\n"
 elif mutation == "relabelled-only":
-    # The same piece with the label swapped and nothing written down: the
+    # The same piece with the sub-state gone and nothing written down: the
     # failure this assertion exists to catch.
     for i in d["issues"]:
         if i["number"] == 10:
-            i["labels"] = ["behaviour", "ready"]
+            i["labels"] = ["behaviour", "state:ready", "type:feature"]
 elif mutation == "both-labels":
     for i in d["issues"]:
         if i["number"] == 11:
-            i["labels"] = i["labels"] + ["ready"]
+            i["labels"] = i["labels"] + ["state:ready"]
 elif mutation == "ready-unsized":
-    # Issue 11 is a note with no Done when. Marking it ready without sizing it
-    # is a piece nobody could build.
+    # Issue 11 is a note with no Done when. Moving it to ready without sizing
+    # it makes a piece nobody could build.
     for i in d["issues"]:
         if i["number"] == 11:
-            i["labels"] = ["visual", "ready"]
+            i["labels"] = ["visual", "state:ready", "type:feature"]
             i["body"] = i["body"] + "\n## Decided\nShow it at the top of the main page.\n"
 elif mutation in ("split-right", "split-subissues-wrong",
                   "split-blockedby-wrong", "split-layer"):
@@ -353,21 +353,23 @@ out=$("$CHECK" 2 "$p")
   && [ "$(printf '%s' "$out" | held_of)" = "True" ] && r=yes || r=no
 check "the fixture issue set left intact holds the issue invariants" "$r"
 
-# Reopening a parked idea is the scope creep this invariant exists to catch.
+# Reopening an idea closed as not planned is the scope creep this invariant
+# exists to catch.
 p="$WORK/issues-reopened"
-endstate "$p" "reopen-parked"
+endstate "$p" "reopen-dropped"
 out=$("$CHECK" 2 "$p")
 [ "$(printf '%s' "$out" | verdict_of issue-invariants)" = "miss" ] \
   && [ "$(printf '%s' "$out" | held_of)" = "False" ] && r=yes || r=no
-check "a reopened parked idea is a miss" "$r"
+check "a reopened idea closed as not planned is a miss" "$r"
 
-# Moving a parked idea into building is the same failure by another route.
+# Moving an idea closed as not planned into building is the same failure by
+# another route.
 p="$WORK/issues-building"
-endstate "$p" "build-parked"
+endstate "$p" "build-dropped"
 out=$("$CHECK" 2 "$p")
 [ "$(printf '%s' "$out" | verdict_of issue-invariants)" = "miss" ] \
   && [ "$(printf '%s' "$out" | held_of)" = "False" ] && r=yes || r=no
-check "a parked idea moved into building is a miss" "$r"
+check "an idea closed as not planned moved into building is a miss" "$r"
 
 # --- the route ------------------------------------------------------------
 # A piece picked up properly: the step ran, what it found went onto the piece,
@@ -386,16 +388,16 @@ endstate "$p" "relabelled-only"
 out=$("$CHECK" 40 "$p")
 [ "$(printf '%s' "$out" | verdict_of route)" = "miss" ] \
   && [ "$(printf '%s' "$out" | held_of)" = "False" ] && r=yes || r=no
-check "a needs- label taken off with nothing recorded is a miss" "$r"
+check "a waiting sub-state taken off with nothing recorded is a miss" "$r"
 
-# ready and an open question cannot sit together: settling it is what moves the
+# state:ready and an open question cannot sit together: settling it is what moves the
 # piece from one to the other.
 p="$WORK/route-both"
 endstate "$p" "both-labels"
 out=$("$CHECK" 41 "$p")
 [ "$(printf '%s' "$out" | verdict_of route)" = "miss" ] \
   && [ "$(printf '%s' "$out" | held_of)" = "False" ] && r=yes || r=no
-check "a piece carrying ready and a needs- label together is a miss" "$r"
+check "a piece carrying state:ready and a shaping sub-state together is a miss" "$r"
 
 # A note marked ready without ever being sized is a piece nobody could build.
 p="$WORK/route-unsized"

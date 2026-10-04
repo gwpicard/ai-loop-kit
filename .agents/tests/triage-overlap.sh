@@ -2,7 +2,8 @@
 # triage-overlap.sh: guard the warning that two pieces would be built in the
 # same place.
 #
-# change-triage already reads the pieces for a duplicate and for a parked idea.
+# change-triage already reads the pieces for a duplicate and for an idea closed
+# as not planned.
 # It now also names an open piece that would be built where this request is
 # going, before it routes anything. The failure modes are quiet
 # ones: the check disappears, or it grows into a pause on every request, which
@@ -21,7 +22,9 @@ rs_exists "$TRIAGE" "$WORKFLOW"
 
 rs_rule "compares against the open pieces sharing a subject" \
   'open pieces that carry one of the same'
-rs_rule "looks at what somebody is building now" 'labelled .building.'
+rs_rule "looks at what somebody is building now" 'anything in `state:building`'
+rs_rule "an earlier idea is looked for among the issues closed as not planned" \
+  'search the issues closed as not planned too'
 rs_rule "reads titles and the outcome line" 'so that. lines'
 rs_rule "names the clash before routing" 'name it before routing'
 rs_rule "blocks nothing" 'nothing is blocked'

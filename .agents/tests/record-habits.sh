@@ -54,7 +54,7 @@ rs_reset
 rs_rule "sync checks age before changing the records" 'check for stale pieces before correcting their records'
 rs_rule "sync reads current open-piece dates on every path" 'on every build path, read the open pieces. last-updated times from github'
 rs_rule "the list includes the thirty-day boundary" 'list pieces untouched for at least 30 days once, in one short list by title'
-rs_rule "one question covers every listed piece" 'ask once: "for each of these, is it still wanted, should it be parked, or is it done\?"'
+rs_rule "one question covers every listed piece" 'ask once: "for each of these, is it still wanted, should it be closed as not planned, or is it done\?"'
 rs_rule "each change needs the person's yes" 'change nothing on that list without a yes to the proposed action for that piece'
 rs_rule "no answer leaves the piece alone and work continues" 'silence leaves it as it is, and sync carries on without asking again'
 rs_rule "age alone cannot change a piece" 'age alone never closes or relabels a piece'
@@ -63,6 +63,7 @@ rs_rule "sync rereads all masterplan support" 're-read every "rests on" clause i
 rs_rule "sync names lost support in one line" 'when its support has gone, say in one line which decision lost its ground'
 rs_rule "sync leaves the decision visible for settlement" 'keep the decision on the page and ask what should settle it'
 rs_guard "$SYNC" "the sync record checks"
+rs_require_absent "the stale-work question no longer offers parking" "$SYNC" 'should it be parked'
 
 rs_require_order "stale inspection precedes piece corrections" "$SYNC" 'Check for stale pieces' 'Correct the pieces to match reality'
 rs_require_load_bearing "WORKFLOW explains evidence rereads" "$WORKFLOW" 'when /shape uses that decision, or /sync checks the masterplan, the agent reads its support again'

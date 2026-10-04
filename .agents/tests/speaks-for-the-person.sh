@@ -53,7 +53,7 @@ rs_rule "an author that cannot be read counts as another person's" \
   'treat it as another person.s and ask'
 rs_rule "bookkeeping says nothing in the person's voice" \
   'say nothing in the person.s voice, so they need no yes'
-rs_rule "exempt: state and needs- labels" 'state labels and `needs-` labels'
+rs_rule "exempt: the gate's labels and the type label" 'the labels the gate writes, and the `type:` label a piece gets when it is taken in'
 rs_rule "exempt: the claim comment" 'the claim comment a run writes'
 rs_rule "exempt: the one conflict comment a merge leaves" \
   'the one comment naming the conflicting files when a merge from `main`'

@@ -180,24 +180,25 @@ rs_rule "unreadable code behind Relies on is a blocking gap" \
   'a relies on line whose code or data the checker cannot read is a blocking gap, never a pass'
 rs_rule "a container passes when its parts are pieces" \
   'a container with parts passes item 12 when every part is its own piece and the container.s own done when is only the joined outcome'
-rs_rule "a piece from before the check stays ready and is checked before a run claims it" \
-  'a piece shaped before this check existed has no `## readiness` section\. it stays `ready`, and a run checks it before claiming it'
+rs_rule "a ready piece that skipped the check is checked before a run claims it" \
+  'a piece that carries `state:ready` with no `## readiness` section skipped the check\. it stays where it is, the printout names it under needs attention, and a run checks it before claiming it'
 rs_rule "the section carries the date, who checked, the verdict and notes" \
   '## readiness <yyyy-mm-dd>, checked by a session that did not shape it: ready \| not ready - blocking <item>: .* - note <item>:'
 rs_rule "the section is the stored result" 'that section is the stored result every later step reads'
 rs_rule "a blocking line rules out Ready" 'a piece with a blocking line cannot carry the verdict ready'
 rs_rule "notes never hold a piece back" 'notes stay on the piece for the builder, and never hold the piece back'
-rs_rule "not ready keeps the piece in shaping with the gap on it" \
-  'not ready keeps it `shaping`, with each blocking gap written on the piece'
-rs_rule "a gap a person must settle is needs-clarification" \
-  '`needs-clarification` for a gap a person must settle, including a relies on line whose code does not exist or does not return what the piece needs'
-rs_rule "a fact from outside is needs-research" '`needs-research` for a fact from outside the project'
-rs_rule "an unseen flow is needs-prototype" '`needs-prototype` for a gap on item 13'
+rs_rule "not ready moves the piece to the sub-state its first gap needs, the gaps on it" \
+  'not ready moves it to the sub-state its first blocking line needs, with each blocking gap written on the piece'
+rs_rule "a gap a person must settle is clarify" \
+  '`shaping:clarify` for a gap a person must settle, including a relies on line whose code does not exist or does not return what the piece needs'
+rs_rule "a fact from outside is research" '`shaping:research` for a fact from outside the project'
+rs_rule "an unseen flow is prototype" '`shaping:prototype` for a gap on item 13'
+rs_rule "a gap the contract can close is spec" '`shaping:spec` for a gap the contract can close with no new answer'
 rs_rule "reading code is never a label" 'reading code is never the reason for a label'
 rs_rule "founding runs the check, or leaves pieces to be checked before a run" \
-  'founding runs this check on each piece it shapes, through a session that did not shape it, and labels a piece `ready` only on no blocking gap'
-rs_rule "founding without a subagent labels ready with no Readiness section" \
-  'founding labels its shaped pieces `ready` without a `## readiness` section, and each is checked before any run claims it'
+  'founding runs this check on each piece it shapes, through a session that did not shape it, and moves a piece to `state:ready` through the gate only on no blocking gap'
+rs_rule "founding without a subagent leaves each shaped piece in check" \
+  'where the coding agent cannot start one, each shaped piece stays in `shaping:check`, and is checked before it can be built'
 rs_guard "$READINESS" "readiness-check.md"
 
 # The list itself, byte for byte. The rules above hold each item's opening, and
@@ -227,7 +228,7 @@ fi
 
 rs_reset
 rs_rule "a session that did not shape the piece checks it before ready" \
-  'before a piece moves to `ready`, a session that did not shape it checks it against the fixed list in the `shape` skill.s `references/readiness-check\.md`'
+  'before a piece moves to `state:ready`, a session that did not shape it checks it against the fixed list in the `shape` skill.s `references/readiness-check\.md`'
 rs_rule "it starts a subagent carrying none of the conversation" \
   'start a subagent that carries none of this conversation, where the coding agent has one'
 rs_rule "a fork does not count" 'a fork of this session does not count'
@@ -238,9 +239,9 @@ rs_rule "a session typed that way runs the check itself" \
   'typed that way, in a session that did not shape the piece, run the check yourself'
 rs_rule "the section is read back and decides the move" \
   'read that section back and let it decide the move'
-rs_rule "no blocking gap moves the piece to ready" 'with no blocking gap, move the piece to `ready`'
-rs_rule "a blocking gap keeps the piece in shaping, written on it" \
-  'a blocking gap keeps the piece in `shaping`, with the gap written on it'
+rs_rule "no blocking gap moves the piece to ready through the gate" 'with no blocking gap, move the piece to `state:ready` through the gate'
+rs_rule "a blocking gap sends the piece back, written on it" \
+  'a blocking gap sends it back through the gate to the sub-state its first blocking line needs, with the gap written on it'
 rs_rule "every field is considered when shaping" \
   'consider every field, and where one does not apply, say why in one line'
 rs_rule "every noticeable choice is decided" \
@@ -251,9 +252,9 @@ rs_rule "the pasted line is routed, never triaged" \
 rs_rule "given a number with check readiness, only the check runs" \
   'given it as `/shape <number> check readiness`, run the readiness check on that piece and nothing else'
 rs_rule "typed alone picks up a piece waiting for its check" \
-  'a `shaping` piece with no `needs-` label is waiting for its readiness check'
+  'a piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran'
 rs_rule "Done when of /shape names the check" \
-  'labelled `ready` only after a session that did not shape it wrote a `## readiness` section naming no blocking gap'
+  'moved to `state:ready` only after a session that did not shape it wrote a `## readiness` section naming no blocking gap'
 rs_guard "$SHAPE" "the /shape skill"
 
 rs_require_absent "the old bar is gone from /shape" "$SHAPE" 'meets the bar'
@@ -262,10 +263,10 @@ rs_require_absent "the old bar is gone from /shape" "$SHAPE" 'meets the bar'
 
 rs_require_load_bearing "change-triage makes a clear piece ready only after the check" \
   "$TRIAGE" 'becomes a ready piece once the readiness check finds no blocking gap'
-rs_require_load_bearing "change-triage adds ready after an answered question only after the check" \
+rs_require_load_bearing "change-triage moves an answered question to ready only after the check" \
   "$TRIAGE" 'question is answered and the readiness check finds no blocking gap'
-rs_require_load_bearing "change-triage says what a shaping piece with no reason is" \
-  "$TRIAGE" 'the one `shaping` piece with no `needs-` label is a piece waiting for its readiness check'
+rs_require_load_bearing "change-triage says what a piece in check is" \
+  "$TRIAGE" 'a piece in `shaping:check` is waiting for its readiness check'
 rs_require_load_bearing "founding runs the check through a session that did not shape the piece" \
   "$SETUP" 'founding runs the readiness check in the `shape` skill.s `references/readiness-check\.md` on each shaped piece through a session that did not shape it'
 rs_require_load_bearing "founding without a subagent leaves the check for before a build" \
