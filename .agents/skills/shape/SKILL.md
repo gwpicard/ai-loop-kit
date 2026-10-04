@@ -35,11 +35,12 @@ you chose and why, in one line.
 
 Clear, piece-sized work becomes a ready piece straight away: write it into the
 shape the `setup-ai-build-kit` skill's `references/pieces.md` describes, take its subjects
-from change-triage rather than choosing them yourself, and label it `ready`
-once the readiness check below finds no blocking gap. That is a new issue,
-opened as `shaping` so the check has a piece to read, and it starts unassigned:
-a person is assigned only when `/implement` picks the piece up to build it,
-never when `/shape` creates it. Then make the build offer below.
+from change-triage rather than choosing them yourself, and move it to `state:ready`
+through the gate once the readiness check below finds no blocking gap. That is
+a new issue, taken in through the gate by change-triage so the check has a
+piece to read, and it starts unassigned: a person is assigned only when
+`/implement` picks the piece up to build it, never when `/shape` creates it.
+Then make the build offer below.
 
 Shape the piece in its two layers, as pieces.md describes. The header stays
 short and plain, so it never reads as simpler than the work is. The agent layer
@@ -96,50 +97,53 @@ anything the step has already agreed written onto it, and stop.
 Filing is also something the person can ask for outright, in words such as
 "note this for later" or "just file this idea", or by typing `/shape later` or
 `/shape idea` with the idea. That is capture, and change-triage handles it: file
-it without starting any step, as an issue labelled `idea`, in their own words,
+it without starting any step, through the gate as a piece in `shaping:raw`, in their own words,
 with nothing settled. It is not a separate command. The idea is shaped the next
 time somebody runs `/shape` on it.
 
 Filing part-way through a step writes the piece in full: the person's own words,
-the question it still waits on in plain language, and the label that names who
-can settle it. It is the same piece a session settling the question now would
+the question it still waits on in plain language, and the sub-state that names
+who can settle it. It is the same piece a session settling the question now would
 have started from, so a fresh session picks it up with nothing lost. Then stop.
 Do not begin the step, or carry on with one already started, and do not raise
 the question again in the same session.
 
-A piece filed part-way stays `shaping`: it carries its `needs-` label and no
-`ready` label, which is what keeps it out of `/implement` until its question is
-answered. Deferring the question never lets the piece be built with the question
+A piece filed part-way stays in shaping: it carries the sub-state that names its question and no `state:ready` label,
+which is what keeps it out of `/implement` until its question is answered. Deferring the question never lets the piece be built with the question
 still open.
 
 ## Moving a piece's state
 
-This command takes the old state off in the same step as it puts the new one
-on, with one command, so a piece never shows in two columns of the board. It
-follows pieces.md for an older project, creating the label first if the project
-lacks it.
+Only the gate script moves a piece. It takes the old state off in the same step as it puts the new one
+on, so a piece never shows in two columns of the board, and it refuses a move
+whose condition does not hold. Until `/shape` gives each sub-state steps of its
+own, these are the moves it makes:
 
-- Starting on an idea moves it to `shaping`, with `needs-clarification` beside
-  it until the interview finds a different reason:
-  `gh issue edit <number> --add-label shaping --add-label needs-clarification --remove-label idea`.
-- A piece reaches `ready` only when the readiness check finds no blocking gap:
-  a session that did not shape it has written a `## Readiness` section saying
-  Ready, and the piece is read back as the sections below say. Then, in one
-  step:
-  `gh issue edit <number> --add-label ready --remove-label shaping --remove-label <its needs- label>`.
-- A piece this command cannot finish stays `shaping` with the `needs-` label that
-  says why, and the question written on it. A blocking gap the check found is
-  such a question: it stays written on the piece, and the piece stays `shaping`.
-- A `parked` piece sent back for another look moves to `shaping` the same way,
-  with the reason it was parked kept on it:
-  `gh issue edit <number> --add-label shaping --add-label needs-clarification --remove-label parked`.
+- A piece with an open question moves from `shaping:raw` once the question is written under `## Open question`:
+  to `shaping:clarify` for a decision only the person makes, `python3 .agents/tools/gate.py move <number> clarify`;
+  to `shaping:research` for a fact from outside, `python3 .agents/tools/gate.py move <number> research`;
+  or to `shaping:prototype` for a flow the person has not seen, `python3 .agents/tools/gate.py move <number> prototype`.
+- A piece with no open question moves from `shaping:raw` to `shaping:spec`, `python3 .agents/tools/gate.py move <number> spec`.
+- A settled question is written under `## Decided` for clarify and prototype, or under `## Research` with a source for each claim for research, and the piece moves to `shaping:spec`
+  with the same command.
+- Research whose result needs the person moves to `shaping:clarify` once what it
+  found is written under `## Research`.
+- Once its contract is written, the piece moves to `shaping:check`, `python3 .agents/tools/gate.py move <number> check`, and the readiness check runs.
+  On Ready the piece moves to `state:ready`, `python3 .agents/tools/gate.py move <number> ready`.
+  On Not ready it moves to the sub-state its first BLOCKING line needs: `spec`,
+  `clarify`, `research` or `prototype`.
+- A piece in `state:ready` that nobody has claimed and somebody wants another
+  look at moves back with `clarify`, or with `research`, `prototype` or `spec`
+  where that is the question.
 
-Where GitHub cannot be reached, the label cannot move, so say so and leave the
+Where the gate refuses a move, tell the person its line in plain words and stop that move.
+Never write the label another way, as the `setup-ai-build-kit` skill's
+`references/blocked-commands.md` says. Where GitHub cannot be reached, the gate changes nothing, so say so and leave the
 piece as it is.
 
 ## The readiness check
 
-Before a piece moves to `ready`, a session that did not shape it checks it
+Before a piece moves to `state:ready`, a session that did not shape it checks it
 against the fixed list in the `shape` skill's `references/readiness-check.md`.
 The session that shaped a piece has the same blind spots when it judges the
 piece, so it would miss the same gaps twice. Start a subagent that carries none
@@ -149,30 +153,30 @@ number and that file. A fork of this session does not count.
 Where the coding agent cannot start a subagent, say in one line that the check
 needs a new session, and give the exact line to paste there:
 "This piece needs a check by a session that did not shape it. In a new session,
-paste: /shape <number> check readiness". Leave the piece `shaping` meanwhile.
+paste: /shape <number> check readiness". Leave the piece in `shaping:check`
+meanwhile.
 Typed that way, in a session that did not shape the piece, run the check
 yourself.
 
 The check writes a `## Readiness` section on the piece: the date, "checked by a
 session that did not shape it", Ready or Not ready, and its notes. Read that
-section back and let it decide the move. With no blocking gap, move the piece to
-`ready`. A blocking gap keeps the piece in `shaping`, with the gap written on it
-and the `needs-` label that says who can close it. Notes stay on the piece
-for the builder. Say the result in one line, such as "A session that did not
+section back and let it decide the move. With no blocking gap, move the piece to `state:ready` through the gate.
+A blocking gap sends it back through the gate to the sub-state its first BLOCKING line needs, with the gap written on it.
+Notes stay on the piece for the builder. Say the result in one line, such as "A session that did not
 shape this piece checked it: ready, with two notes for the builder." After a gap
 is closed, run the check again in a new subagent.
 
 ## When a piece is waiting on a question
 
-A piece labelled `needs-clarification`, `needs-prototype`, or `needs-research`
-has a question to settle before its code could be written. Settling that
-question is the work of this command. An issue with no `## Done when` was typed
-by hand and never sized. It is an idea, so move it to `shaping` with
-`needs-clarification`, as the section above says, and shape it.
+A piece in `shaping:clarify`, `shaping:prototype` or `shaping:research` has a
+question to settle before its code could be written. Settling that question is
+the work of this command. An open issue with no `state:` label was opened by
+hand or from the form and never taken in: take it in first, as "Typed alone,
+or given a piece" below says, and shape it.
 
-Run the step the label names, write what settled it into the piece's `## Decided`
-section, and only then take the label off, with `shaping`, and mark the piece
-`ready` once the readiness check finds no blocking gap. The record
+Run the step the sub-state names, write what settled it into the piece's
+`## Decided` section, or under `## Research` for research, and only then take the label off,
+moving the piece to `shaping:spec` through the gate. The record
 goes first because the label is the only thing saying the question was ever open:
 once it is gone, a piece settled properly and a piece nobody looked at read
 exactly alike.
@@ -186,10 +190,10 @@ then relabel.
 This is a check, not a reminder. Doing the steps in the right order is what a
 run believes it did; reading the piece back is what tells it whether it did. It
 is the one part of settling a question nobody in the conversation can see, which
-is why a piece has reached `ready` with no `## Done when` in it and nobody
+is why a piece has reached `state:ready` with no `## Done when` in it and nobody
 noticed until the files were read.
 
-- `needs-clarification` runs clarify. Write what comes out into the shape
+- `shaping:clarify` runs clarify. Write what comes out into the shape
   the `setup-ai-build-kit` skill's `references/pieces.md` describes, and keep the person's
   original words underneath, because their words are what a refinement can be
   checked against and what to return to when it reads wrong.
@@ -202,15 +206,15 @@ noticed until the files were read.
   title or scope, and show the new wording when you ask. A body that only adds
   the shaped sections above, with the original kept whole, is not a change of
   scope. Post nothing to that author until the person has said yes to the words.
-- `needs-prototype` settles the piece with something to look at. Where the
+- `shaping:prototype` settles the piece with something to look at. Where the
   person already has a mock, a sketch, or anything else that shows it, follow
   the `clarify` skill's `references/existing-artifact.md` and build toward
   that, rather than building a throwaway to rediscover a decision they have
   already made. Otherwise run the decision prototype in
   the `clarify` skill's `references/decision-prototype.md`. Either way, the
   decision goes back onto the piece in words.
-- `needs-research` runs one of two steps and records what it finds on the
-  piece. A question about one external fact, such as what a provider's API
+- `shaping:research` runs one of two steps and records what it finds under
+  `## Research` on the piece, with a source for each claim. A question about one external fact, such as what a provider's API
   supports, runs the source check in
   the `change-triage` skill's `references/source-check.md`. A question about
   whether something already exists that could do the work runs
@@ -219,33 +223,40 @@ noticed until the files were read.
   Before it starts, write one line on the piece: "Needs your decision: yes" or
   "Needs your decision: no", saying whether its result will need the person to
   choose. With no, and a result that settles every question, move the piece to
-  `ready` once the readiness check finds no blocking gap, with nobody there.
-  With no, and a result that leaves a question open, the piece stays `shaping`
-  with `needs-research` and the gap written on it. With yes, write what it
-  found, then swap `needs-research` for `needs-clarification` in one step, so
-  the piece waits for the person rather than for a guess:
-  `gh issue edit <number> --add-label needs-clarification --remove-label needs-research`.
+  `shaping:spec` and on through the readiness check, with nobody there.
+  With no, and a result that leaves a question open, the piece stays in `shaping:research` with the gap written on it.
+  With yes, write what it found, then move the piece to `shaping:clarify` in
+  one step, so it waits for the person rather than for a guess:
+  `python3 .agents/tools/gate.py move <number> clarify`.
 
 Two of those three need the person in the room. An interview needs somebody to
 interview, and a prototype exists so somebody can react to it. Research does
 not: the agent settles it alone.
 
 Never answer a person-present question yourself. With nobody there, say which
-pieces are waiting on them and leave those pieces labelled as they are. A guess
-written onto a piece and marked `ready` is worse than an open question, because
+pieces are waiting on them and leave those pieces where they are. A guess
+written onto a piece and moved to `state:ready` is worse than an open question, because
 the label that said it was open has gone and `/implement` builds on the guess.
 
-The interview may show that the real block is a different one and swap
-`needs-clarification` for `needs-prototype` or `needs-research`. Follow the new
-label rather than shaping past it. A piece whose question is settled carries the
-`ready` label and no `needs-` label; the two never sit together.
+The interview may show that the real block is a different one. Write what it
+settled under `## Decided` and the new question under `## Open question`, and
+move the piece from `shaping:clarify` to `shaping:prototype` or
+`shaping:research` through the gate. Follow the new sub-state rather than
+shaping past it. A piece whose question is settled carries `state:ready` and no
+`shaping:` label, and the gate never lets the two sit together.
 
 ## Typed alone, or given a piece
 
-Typed alone, take the lowest-numbered piece still waiting on a question, or the
-next idea, and shape it as above. A `shaping` piece with no `needs-` label is
-waiting for its readiness check: its shaping finished and the check never ran,
-so run the check on it rather than shaping it again. When nothing is waiting and every
+Typed alone, first take in any open issue that carries no `state:` label, such
+as one opened by hand or from the form: take it in with `python3 .agents/tools/gate.py capture <number>`, and never open a second issue for it.
+Then give it exactly one `type:` label before its first move, `gh issue edit <number> --add-label type:<feature|bug|chore>`,
+as change-triage says under "Taking a piece in".
+
+Then take the lowest-numbered piece still in shaping and shape it as above,
+starting with any in `shaping:raw`. A piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran,
+so run the check on it rather than shaping it again. A piece with a
+`## Kickback` section came back from a build: read what happened first, and
+settle the decision it asks for. When nothing is waiting and every
 piece is already ready, say so and point the person at `/implement` to build the
 next one. The command does not run out of things to do quietly; it says the
 plan is shaped.
@@ -257,7 +268,7 @@ nothing else. Where that
 piece is already ready, say so and make the build offer instead.
 
 Where the person says they are not staying, take the pieces the agent can settle
-alone, which is every piece labelled `needs-research`. Then name the ones that
+alone, which is every piece in `shaping:research`. Then name the ones that
 need them and why, in one short list, so they know what is waiting for their
 return. Settle none of those in their absence.
 
@@ -279,17 +290,16 @@ has grown heavy.
 
 Follow change-triage's rule: add a changelog line only when work actually lands,
 the masterplan changes, the build path changes, a risk notice is accepted, or an
-idea is parked or rejected for a durable reason. Shaping a piece is not itself a
+idea is closed as not planned or rejected for a durable reason. Shaping a piece is not itself a
 changelog entry; the piece is the record.
 
 ## Done when
 
 The request has exactly one route, the piece is written into its proper shape
-with every field considered and labelled `ready` only after a session that did
-not shape it wrote a `## Readiness` section naming no blocking gap, or `shaping`
-with the question it still waits on, or `idea` when the person only asked to
-note it, each move took the old state off in the
-same step, a routed question was
+with every field considered and moved to `state:ready` only after a session that did
+not shape it wrote a `## Readiness` section naming no blocking gap, or left in shaping
+with the question it still waits on, or in `shaping:raw` when the person only asked to
+note it, every move went through the gate, a routed question was
 started unless the person asked to file it, the person's original words are kept
 underneath a refinement, and nothing was built except
 through an accepted build offer.

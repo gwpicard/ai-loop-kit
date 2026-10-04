@@ -176,6 +176,12 @@ cannot be reached, nothing merges. Say in one line that the merge waits, that
 it can be asked for again once GitHub answers, and that the person can merge it
 on GitHub themselves.
 
+Once a merge has gone through, run `python3 .agents/tools/gate.py tidy`. The pull
+request's `Closes` line has closed the piece, and the tidy takes its state,
+sub-state and review labels off, since a closed piece carries no state. It
+clears any other closed issue still carrying them too, such as one a person
+merged on GitHub.
+
 ## When a merge goes live
 
 The masterplan's "How it stays running" section records how the tool goes live

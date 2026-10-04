@@ -190,9 +190,11 @@ for something the agent could go and do instead. It never carries the secret it
 asks for: say where the key goes, and the key itself stays out of every tracked
 file, as it always does.
 
-This is not `parked`. On an open piece that label already covers a piece stopped at a recorded condition
-and a piece parked after three failed attempts, and a third meaning would make
-all three unreadable. A piece waiting on the person keeps whatever state it had.
+A piece with a `## Waiting on you` step sits in `shaping:clarify` until the step is done, so no run takes it.
+Two other pieces come back from a build to shaping, and each says why in a
+`## Kickback` section rather than here. A piece stopped at a sensitive-area caution is kicked back to `shaping:clarify` with a `## Kickback` section naming the caution,
+and stays there until the acceptance is recorded. A piece that failed three attempts is kicked back to `shaping:spec` or `shaping:research`,
+by what the attempts showed.
 
 One line looks alike and means something else. A piece carrying a
 `Waiting on you: try it` line is built as usual. The line sits on its own rather
@@ -515,7 +517,7 @@ GitHub cannot be reached, treat it as another person's and ask.
 Some writing is the kit's bookkeeping. These say nothing in the person's voice,
 so they need no yes, on anyone's issue:
 
-- state labels and `needs-` labels;
+- the labels the gate writes, and the `type:` label a piece gets when it is taken in;
 - the claim comment a run writes;
 - the one comment naming the conflicting files when a merge from `main`
   conflicts;

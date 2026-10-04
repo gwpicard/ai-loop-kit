@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# shape-research.sh: guard the two research steps behind one label.
+# shape-research.sh: guard the two research steps behind one sub-state.
 #
-# `needs-research` covers two different questions: confirm one external fact, or
+# `shaping:research` covers two different questions: confirm one external fact, or
 # find something that already does the job. /shape picks the step
 # from the question, so the risk is a silent collapse back to one step, or an
 # existing-work search that recommends something unmaintained, costly, or with a
@@ -43,8 +43,8 @@ rs_require "/shape runs the existing-work search for a question about existing w
 rs_require_load_bearing "/shape names which step it ran, and why" \
   "$SHAPE" 'say which step you ran'
 
-rs_require "change-triage routes both steps under one label" \
-  "$TRIAGE" 'needs-research. for a source check or a search for existing work'
+rs_require "change-triage routes both steps under one sub-state" \
+  "$TRIAGE" '`research` for a source check or a search for existing work'
 rs_require "pieces.md describes the label as covering both" \
   "$PIECES" 'a fact to confirm, or existing work'
 rs_require "WORKFLOW.md tells the person in plain words" \

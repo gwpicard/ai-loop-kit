@@ -32,8 +32,8 @@ say.
 Eligibility is decided piece by piece, never earned by the project. A piece is
 eligible when all of these hold:
 
-- it carries `ready`, and nothing open holds it up that is not built earlier in
-  this run;
+- it carries `state:ready`, and nothing open holds it up that is not built
+  earlier in this run;
 - it meets the bar: a `## Done when` section, and a `## Readiness` section whose
   first line says Ready;
 - it is self-sufficient enough to build without a person present: its `Under
@@ -51,9 +51,9 @@ A ready piece with no `## Readiness` section was shaped before the check
 existed. Run the readiness check on it before claiming it, as
 the `shape` skill's `references/readiness-check.md` says, through a session
 that did not shape it. Ready lets the run take it. Not ready sends it back to shaping with
-each blocking gap written on it,
-`gh issue edit <number> --add-label shaping --add-label needs-clarification --remove-label ready`,
-using the `needs-` label the check names, and the run moves on.
+each blocking gap written on it, through the gate to the sub-state the check's
+first BLOCKING line needs, such as
+`python3 .agents/tools/gate.py move <number> research`, and the run moves on.
 
 A piece the person opted in to check, with a `Waiting on you: try it` line or a
 `check-myself|yes` line in `.ai-build-kit-maintenance`, is taken and built. It
@@ -65,11 +65,11 @@ about the shape of stored data, how records sync, or what leaves the tool, and
 it is open when the piece's `## Done when` and `## Decided` lines leave it
 open. Where the run can see one when it plans or claims a piece, send it back
 to shaping before claiming it, once the person has approved the plan. Write
-the question on the piece, then move it
-with no claim to undo: `gh issue edit <number> --add-label shaping --add-label needs-clarification --remove-label ready`.
+the question on the piece under `## Open question`, then move it
+with no claim to undo: `python3 .agents/tools/gate.py move <number> clarify`.
 Cut no branch and write no claim, since nothing was built. Mark it `shaping`
 in the state file, and the plan names it as going back, with its question. Left
-`ready` and skipped, it would come back to every run, and nothing on it would
+`state:ready` and skipped, it would come back to every run, and nothing on it would
 tell the person a question was waiting.
 
 An easy open choice seen at the plan leaves the piece eligible. It is built,
@@ -78,7 +78,7 @@ choice met while building" below says.
 
 The self-sufficiency test keeps its other job. A piece whose `Under the hood`
 notes lack what the build needs, with no open choice in it, is skipped with the
-reason and stays `ready`. Where a piece has both a hard open choice and a
+reason and stays in `state:ready`. Where a piece has both a hard open choice and a
 missing fact, the hard choice wins, and it goes back to shaping.
 
 Apart from a hard open choice, a piece that is not eligible stays where it is.
@@ -164,9 +164,9 @@ folder ignores itself and nothing tracked changes.
   `merge_preapproved`, it holds for this run alone and is kept when the run is
   resumed.
 - `pieces` lists every piece in the plan, in the order the run takes them.
-- `state` is one of `waiting` (not started), `building`, `to check`, `merged`,
-  `parked`, `shaping` (sent back with a question) or `skipped` (not eligible,
-  backed off, or not reached before the run ended). The last five are final.
+- `state` is one of `waiting` (not started), `building`, `to check`, `merged`, `shaping` (sent back with a question, or kicked back after three failed attempts or at a caution) or `skipped` (not eligible,
+  backed off, given back, or not reached before the run ended). The last four
+  are final. A piece kicked back after three failed attempts or at a caution is recorded as `shaping`.
 - `branch` is the piece's branch, and `base` is the branch it was cut from:
   `main`, or the branch of the piece it stacks on.
 - `worktree` is the piece's worktree folder, relative to the main folder, or
@@ -176,10 +176,15 @@ folder ignores itself and nothing tracked changes.
 - `pull_request` is the number of its pull request, or `null` before one opens.
 - `attempts` counts the failed attempts at its build.
 - `flags` holds each easy-to-undo choice the builder made alone, one line each.
-- `reason` says why a piece was parked, sent back, skipped, waits, or was not
+- `reason` says why a piece was kicked back, sent back, skipped, waits, or was not
   merged under pre-approval, naming the condition it failed in
   the `section-builder` skill's `references/merge.md`, such as a merge that
   would go live.
+
+`run.json`, beside it, holds each piece's `status`, written only by the gate script
+when a move names the run with `--run <run name>`. Every gate call in a run
+names the run. The gate writes the labels and `run.json` in one call, so the two agree,
+and a label write that fails leaves `run.json` as it was.
 
 Write the state file after every step that changes a piece, before the next
 step starts, so it always says where the run stands. `progress.md`, beside it,
@@ -309,13 +314,18 @@ has `main` checked out.
 ## For each piece
 
 Take the pieces in the plan's order. Where `at_once` is above 1, the steps
-below are shared out as "Building a group at the same time" says. For each one:
+below are shared out as "Building a group at the same time" says. Every move a
+piece makes goes through the gate, with `--run <run name>`. Where the gate refuses a move, tell the person its line in plain words and stop that move:
+with nobody watching, the report says it, and the run takes the next piece.
+Never write the label another way, as the `setup-ai-build-kit` skill's
+`references/blocked-commands.md` says. For each one:
 
-1. **Claim it.** Read the piece first. A piece that already carries `building`
-   is being built somewhere else: the claim refuses it, so skip it. A piece
+1. **Claim it.** Read the piece first. A piece that already carries `state:building` is being built somewhere else: the gate refuses the claim,
+   so skip it. A piece
    whose text shows a hard open choice goes back to shaping unclaimed, as
    "Which pieces a run may take" says, and the run takes the next. Otherwise
-   make section-builder's one-step claim, and add a comment naming this run,
+   make the claim through the gate, `python3 .agents/tools/gate.py move <number> building --run <run name> --assignee @me`,
+   and add a comment naming this run,
    `Claimed by run <run name>`. Then read the claim back with
    `gh issue view <number> --json labels,assignees,comments`. The earliest
    `Claimed by run` comment on the piece wins. Where it names another run, this
@@ -349,7 +359,9 @@ below are shared out as "Building a group at the same time" says. For each one:
    a second. Put every flagged choice in it under `## Flagged for
    confirmation`, one line each.
 9. **Write its changelog file**, as section-builder's step 9 says.
-10. **Move it to `to check`.** Where `merge_preapproved` is true, merge it only
+10. **Move it to `to check`.** Step 8 moved it to `state:in-review` through
+    the gate when its pull request opened, so record `to check` in the state
+    file. Where `merge_preapproved` is true, merge it only
     when the `section-builder` skill's `references/merge.md` allows; otherwise
     it waits for the person.
 11. **Update the run state** and the live page, and add the step to
@@ -357,7 +369,9 @@ below are shared out as "Building a group at the same time" says. For each one:
 
 On Explore privately, a piece on the checkpoint route has no pull request.
 Steps 8 to 10 become the checkpoint commit and closing the piece, as
-section-builder's step 8 says for that route, and its state is `merged`.
+section-builder's step 8 says for that route:
+`gh issue close <number> --reason completed` followed by `python3 .agents/tools/gate.py tidy`.
+Its state is `merged`.
 
 A Relies on line that no longer holds is an open choice of the hard kind below.
 A smoke check that fails on `main` ends the run, because every later piece
@@ -401,7 +415,7 @@ works in.
   meets a named review.
 - **One writer.** The coordinating session is the only writer of `state.json`,
   `progress.md` and the live page, so two agents never write the run state at
-  once. It moves each piece to `to check`, and only it merges, one pull request
+  once, and the gate script is the only writer of each piece's `status` in `run.json`. It moves each piece to `to check`, and only it merges, one pull request
   at a time, through the `section-builder` skill's `references/merge.md`, each
   brought up to date with `main` and checked again first. Where two pieces
   finish while a merge is under way, it merges them one after the other, each
@@ -434,7 +448,7 @@ takes in `main` at its own merge, as the `section-builder` skill's
 `references/merge.md` describes, never by a rebase, since that needs a force
 push. The same step re-aims its pull request, and the base's entry is not
 written twice. A piece whose blocker is open and not in this run is not eligible. A
-stacked piece whose base goes back to shaping, or is parked, is skipped with
+stacked piece whose base goes back to shaping is skipped with
 that reason.
 
 The parts of one parent share one branch and one pull request. The first part
@@ -444,9 +458,8 @@ once no later part of that parent is left to build in the run. A part that
 finished earlier waits in `building` with the reason `waiting for the parent's
 pull request`. The pull request closes each part it carries with its own
 `Closes #<number>` line, and each part's changelog file is written once it
-opens. Where no part finishes, nothing opens. Where the run ends before the
-pull request can open, the finished parts stay on the pushed branch, are
-parked with the reason, and the report names them as built but in no pull
+opens. Where no part finishes, nothing opens. Where the run ends before the pull request can open, the finished parts stay on the pushed branch and go back to `state:ready` through the gate,
+as "When the run ends" says, and the report names them as built but in no pull
 request.
 
 ## An open choice met while building
@@ -457,9 +470,8 @@ piece goes back before the claim, as "Which pieces a run may take" says. This
 section is for one the build uncovers.
 
 A hard choice, about the shape of stored data, how records sync, or what leaves
-the tool, stops that piece. Write the question on the piece, push the branch
-and keep it, and send it back to shaping,
-`gh issue edit <number> --add-label shaping --add-label needs-clarification --remove-label building --remove-assignee @me`.
+the tool, stops that piece. Write the question on the piece under a `## Kickback` section, push the branch and keep it, and send it back to shaping, `python3 .agents/tools/gate.py move <number> clarify --run <run name>`.
+Then take the run's assignee off, `gh issue edit <number> --remove-assignee @me`, since the gate's kickback keeps it.
 Mark it `shaping` in the state file.
 
 An easy choice, one a later change can undo without touching stored data, takes
@@ -472,17 +484,19 @@ Either way the run moves on to the next unblocked piece.
 ## When a piece fails
 
 Retry within the piece, up to three attempts, the same number fix uses. After
-the third, park it: move it from `building` to `parked` in one step,
-`gh issue edit <number> --add-label parked --remove-label building --remove-assignee @me`,
-with one line on what kept failing, push its branch, and take the next piece.
-Never let one piece consume the run. Route the parked piece further when the
-failure points somewhere specific: send it back to `/shape`, which settles a
-missing decision, chases a missing external fact, or reassesses a shape the
-team could not safely own, rather than a fourth attempt.
+the third, kick it back: write a `## Kickback` section on the piece with one
+line on what kept failing, push its branch and keep it, and move it back to
+shaping through the gate, to `shaping:spec` with `python3 .agents/tools/gate.py move <number> spec --run <run name>` when an attempt showed a check that cannot be met as written,
+and to `shaping:research` with `python3 .agents/tools/gate.py move <number> research --run <run name>` otherwise.
+Then take the run's assignee off as a piece sent back does, and take the next
+piece. Never let one piece consume the run. `/shape` picks the piece up from
+its kickback, which settles a missing decision, chases a missing external
+fact, or reassesses a shape the team could not safely own, rather than a
+fourth attempt.
 
-A piece whose build needs software installed outside the project folder is
-parked with that reason, such as a tool missing from this computer or one too
-old. The reason names the tool, where it would go and how to undo it. The run
+A piece whose build needs software installed outside the project folder is kicked back to `shaping:clarify` with a `## Kickback` section naming the tool, where it would go and how to undo it,
+such as a tool missing from this computer or one too old:
+`python3 .agents/tools/gate.py move <number> clarify --run <run name>`. The run
 never installs it, since nobody is there to say yes, and takes the next piece. Where the same missing
 tool would stop every piece left, it is a blocking failure every later piece
 relies on, and the run ends with that reason, as below.
@@ -492,7 +506,7 @@ later piece relies on: the smoke check on `main`, a GitHub that cannot be
 reached, so no piece can be claimed, or anything that would change the build
 path. A piece stops at any touch of a named sensitive area that carries no
 recorded acceptance, even one the plan did not expect: section-builder's
-flagged route parks it at the condition, and the run takes the next piece. The
+flagged route kicks it back to `shaping:clarify` at the condition, and the run takes the next piece. The
 run goes on; only that piece stops. Never guess to keep a run going.
 
 ## Resuming
@@ -508,24 +522,29 @@ Resuming is the same run, so its `merge_preapproved` stands. So does its
 `at_once`: the offer to resume names that number and says the person can lower
 it in their reply. Where the session died with several pieces built at once,
 such as on a machine that ran out of memory, the state file shows each of them
-`building` with its worktree, and each continues as below. Read `state.json`
-and `progress.md`, and take the pieces from where they stand. A piece shown as
+`building` with its worktree, and each continues as below. Read `state.json`,
+`progress.md`, `run.json` and each piece's labels, and take the pieces from
+where they stand. A session can die after a gate move and before it writes the
+state file, so where `state.json` is behind them, take where the labels and `run.json` say the piece stands,
+and write `state.json` to match. A piece shown as
 `building` continues from its last commit: on Claude Code, open its worktree
 again with `worktree.sh open --resume`, which reuses the one already there,
 and elsewhere check out its branch. Where that worktree holds an uncommitted
-change, the script keeps it as it is: park the piece with that reason, since
-the session that made the change is gone. Read what its commits already hold,
+change, the script keeps it as it is: kick the piece back to `shaping:clarify` with a `## Kickback` section naming the worktree and the change, which stays as it is,
+since the session that made the change is gone:
+`python3 .agents/tools/gate.py move <number> clarify --run <run name>`.
+Otherwise read what its commits already hold,
 run its checks, and carry on from the first step not done. Read its claim back first. Where the claim is no longer this run's, back
 off it as step 1 says.
 
-`/sync` removes a run's folder once every piece in it is merged, closed or
-parked, counting a piece the run skipped or sent back to shaping as closed to
-the run, since the run holds nothing more of it.
+`/sync` removes a run's folder once every piece in it is merged, closed, given back or kicked back,
+counting a piece the run skipped or sent back to shaping as closed to the run,
+since the run holds nothing more of it.
 
 ## When the run ends
 
 The run ends when no eligible piece is left to take. That includes the moment
-every remaining piece is held up, parked or skipped: the run ends at once with
+every remaining piece is held up, kicked back or skipped: the run ends at once with
 its report, and never waits for something to change.
 
 However it ends, whether it ran out of pieces, the smoke check failed on
@@ -534,14 +553,11 @@ every piece in a final state before the report:
 
 - every `waiting` piece becomes `skipped`, with the reason the run ended;
 - the piece in hand, or each of them where `at_once` is above 1, keeps its
-  branch. Where nothing was built on it yet, move
-  it back to `ready`,
-  `gh issue edit <number> --add-label ready --remove-label building --remove-assignee @me`,
-  delete this run's claim comment, and mark it `skipped`. Where something was
-  built, push the branch and park it with the reason, as a failed piece is
-  parked;
-- on Claude Code, remove the worktree this run opened for each piece it
-  parked, sent back to shaping or skipped, with `worktree.sh remove <path>`,
+  branch. Whether or not something was built on it, push its branch where it holds anything, keep it, and give the piece back to `state:ready` with `python3 .agents/tools/gate.py move <number> ready --run <run name>`,
+  which takes the run's assignee off. Delete this run's claim comment, and mark
+  it `skipped`. This includes the finished parts of a parent whose pull request never opened;
+- on Claude Code, remove the worktree this run opened for each piece it kicked back, gave back or skipped,
+  with `worktree.sh remove <path>`,
   only when nothing in it is unsaved, as defined above. Its branch is pushed
   first, or holds nothing new. A worktree still holding unsaved work is kept,
   and the report names it with what is unsaved. A piece in `to check` keeps
@@ -568,8 +584,7 @@ about fifty minutes. Wait for each check as the `section-builder` skill's
 
 The report, in plain words, is one list and a merge order:
 
-- what was parked and why, and what went back to shaping with its question,
-  first;
+- what was kicked back to shaping and why, with its question, first;
 - each piece with its pull request and its state, in the merge order, bases
   before the pieces stacked on them;
 - under each piece, its flagged choices, and what the walk-through could not
@@ -600,7 +615,7 @@ until a separate model judges it met. Treat it as a run wearing the tool's
 clothes, under the same rules: the condition comes from a done line or a plan
 area's done lines, read aloud; a named sensitive area without a recorded
 acceptance stops the piece that touches it, never the run; the three-attempt
-parking rule still applies per piece; the state file is kept the same way; and
+kickback rule still applies per piece; the state file is kept the same way; and
 each piece still lands through the save route the build path requires. Any
 merge follows the `section-builder` skill's `references/merge.md`, however long
 the machine ran: on a yes that names it, or on the person's pre-approval given

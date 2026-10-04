@@ -1,6 +1,6 @@
 # The readiness check
 
-A piece moves to `ready` only after a session that did not shape it has checked
+A piece moves to `state:ready` only after a session that did not shape it has checked
 it against the fixed list below. The session that shaped a piece has the same
 blind spots when it judges the piece complete, so it misses the same gaps
 twice. The list is fixed because an open "find the gaps" review always finds
@@ -15,8 +15,8 @@ shaping session carries its blind spots, so it does not count.
 
 Where the coding agent cannot start a subagent, `/shape` says in one line that
 the check needs a new session, and gives the exact line to paste there:
-`/shape <number> check readiness`. The piece stays `shaping` until that session
-has written its result.
+`/shape <number> check readiness`. The piece stays in `shaping:check` until
+that session has written its result.
 
 ## How far it goes
 
@@ -71,13 +71,12 @@ Three cases are settled here, so no checker has to decide them again:
 - A container with parts passes item 12 when every part is its own piece and
   the container's own Done when is only the joined outcome. Each part is
   checked on its own.
-- A piece shaped before this check existed has no `## Readiness` section. It
-  stays `ready`, and a run checks it before claiming it.
+- A piece that carries `state:ready` with no `## Readiness` section skipped the
+  check. It stays where it is, the printout names it under Needs attention, and
+  a run checks it before claiming it.
 - Founding runs this check on each piece it shapes, through a session that did
-  not shape it, and labels a piece `ready` only on no blocking gap. Where the
-  coding agent cannot start one, founding labels its shaped pieces `ready`
-  without a `## Readiness` section, and each is checked before any run claims
-  it, as a piece from before the check is.
+  not shape it, and moves a piece to `state:ready` through the gate only on no
+  blocking gap. Where the coding agent cannot start one, each shaped piece stays in `shaping:check`, and is checked before it can be built.
 
 ## What it writes
 
@@ -96,15 +95,15 @@ BLOCKING line cannot carry the verdict Ready. Notes stay on the piece for the
 builder, and never hold the piece back. With no gaps and no notes, the
 first line stands alone.
 
-`/shape` reads the section back and moves the piece by what it says. Ready
-moves the piece to `ready`. Not ready keeps it `shaping`, with each blocking gap
-written on the piece. The `needs-` label beside `shaping` says who can close
-the gap:
+`/shape` reads the section back and moves the piece through the gate by what
+it says. Ready moves the piece to `state:ready`. Not ready moves it to the sub-state its first BLOCKING line needs, with each blocking gap
+written on the piece. The sub-state says who can close the gap:
 
-- `needs-clarification` for a gap a person must settle, including a Relies on
+- `shaping:clarify` for a gap a person must settle, including a Relies on
   line whose code does not exist or does not return what the piece needs;
-- `needs-research` for a fact from outside the project;
-- `needs-prototype` for a gap on item 13, a flow the person has not seen.
+- `shaping:research` for a fact from outside the project;
+- `shaping:prototype` for a gap on item 13, a flow the person has not seen;
+- `shaping:spec` for a gap the contract can close with no new answer.
 
 The checker reads the project's code itself, so reading code is never the
 reason for a label. Once a gap is closed, a session that did not shape the

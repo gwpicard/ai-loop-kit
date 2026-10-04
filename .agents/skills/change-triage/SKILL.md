@@ -10,13 +10,14 @@ The user never sorts their own request; you do, and the masterplan is the refere
 
 ## Step 1: Understand the request
 
-Compare it with the masterplan, the project's pieces, parked ideas, the recent
-changelog and `changes/`, and existing behaviour where that's cheap to check. Before accepting
-it as new work, check: does this already exist under another name? Was it
-deliberately parked or rejected before?
+Compare it with the masterplan, the project's pieces, the ideas left out, the
+recent changelog and `changes/`, and existing behaviour where that's cheap to
+check. Before accepting it as new work, check: does this already exist under
+another name? Was it deliberately left out or rejected before?
 
-A parked idea is a closed issue labelled `parked`, so search closed issues too,
-not only open ones. The reason was written down to stop the same idea coming
+An idea left out is an issue closed as not planned, so search the issues closed as not planned too,
+not only open ones: `gh issue list --state closed --search 'reason:"not planned"'`.
+The reason was written down to stop the same idea coming
 back around and getting built by accident, and it only works if somebody looks. Is the report actually a
 misunderstanding or a setup problem rather than a real gap? Does it contradict
 an existing rule in the masterplan?
@@ -26,13 +27,16 @@ an existing rule in the masterplan?
 When the person asks only to note an idea, in plain words such as "note this
 for later" or "just file this idea", or types `/shape later` or `/shape idea`
 with it, do not classify or route it. They asked to write it down, not to have
-it shaped. Run Step 1's search first. Where it matches an open piece or a
-parked idea, add the person's words to that issue as a comment and say which
+it shaped. Run Step 1's search first. Where it matches an open piece or an
+idea closed as not planned, add the person's words to that issue as a comment and say which
 one, and file a new issue only if the person says theirs is different.
-Otherwise file it as an issue labelled `idea`, with the person's
-own words as the body and nothing settled: no `## Done when`, no subjects, and
-no route. Say in one line that it is filed as an idea and that `/shape` picks it
-up. Steps 2 to 4 wait until then.
+Otherwise capture it through the gate, `python3 .agents/tools/gate.py capture --title "<title>" --body-file <file>`,
+which opens it in `state:shaping` and `shaping:raw` with the person's own words as the body and nothing settled:
+no `## Done when`, no subjects, and
+no route. Give it its `type:` label as "Taking a piece in" below says, since
+that is the one thing the gate needs before a first move. Say in one line that
+it is filed in their words and that `/shape` picks it up. Steps 2 to 4 wait
+until then.
 
 ## Step 2: Classify intent
 
@@ -72,7 +76,7 @@ and `background automation`. Do not pick the closest single subject: the one
 dropped takes its evidence with it.
 
 With the subjects settled, look at the open pieces that carry one of the same
-ones, and at anything labelled `building`. Read their titles and their `## So
+ones, and at anything in `state:building`. Read their titles and their `## So
 that` lines. Where one would plainly be built in the same place as this request,
 name it before routing: which piece, and what the two have in common. Nothing is
 blocked and nothing waits. The person decides whether to carry on, hold this
@@ -113,15 +117,28 @@ particular to one piece stays on that piece. This keeps the masterplan free of
 implementation terms and keeps each concept in one home.
 
 Where the request is a piece and the route is a question rather than a ready
-piece, label the issue `shaping` with the `needs-` label that names the route:
-`needs-clarification` for clarify, `needs-prototype` for a decision prototype,
-`needs-research` for a source check or a search for existing work. Once the
-question is answered and the readiness check finds no blocking gap, `/shape`
-takes both off and adds `ready` in the same step.
-Without the label the reason a piece is waiting lives only in the session that
-found it, and the next person to open the list sees a piece that has simply
-stopped. The one `shaping` piece with no `needs-` label is a piece waiting for
-its readiness check, which `/shape` typed alone picks up and runs.
+piece, write the question under `## Open question` and move the piece through the gate to the sub-state that names the route:
+`python3 .agents/tools/gate.py move <number> clarify` for clarify, `prototype` for a decision prototype, `research` for a source check or a search for existing work.
+Once the question is answered and the readiness check finds no blocking gap,
+`/shape` moves the piece on through the gate to `state:ready`.
+Without the sub-state the reason a piece is waiting lives only in the session
+that found it, and the next person to open the list sees a piece that has
+simply stopped. A piece in `shaping:check` is waiting for its readiness check,
+which `/shape` typed alone picks up and runs.
+
+Where the gate refuses a move, tell the person its line in plain words and stop that move.
+Never write the label another way, as the `setup-ai-build-kit` skill's
+`references/blocked-commands.md` says.
+
+### Taking a piece in
+
+A request that becomes a piece is a new issue. Take it in through the gate with `python3 .agents/tools/gate.py capture --title "<title>" --body-file <file>`, never with `gh issue create`,
+so it starts in `state:shaping` and `shaping:raw`. Then
+give it exactly one `type:` label before its first move, `gh issue edit <number> --add-label type:<feature|bug|chore>`.
+A repair of behaviour the masterplan promised is `type:bug`, which is what
+points `/what-now` and `/fix` at it. Upkeep that changes nothing a person sees in the tool is `type:chore`.
+Anything else is `type:feature`. The `type:` label is not a state, so `gh`
+adds it directly.
 
 `/shape` starts the routed step straight away unless the person asked only to
 file the piece. That request is capture, above, so a note asked for outright
@@ -133,9 +150,6 @@ the `setup-ai-build-kit` skill's `references/pieces.md` describes. Do the step
 yourself where you can; write it down only where you cannot. A setup step that
 would install, replace or remove software outside the project folder is work on
 this computer, below, so the yes it needs comes before you do it.
-
-A repair takes `broken` as well as its subjects, which is what points `/what-now`
-and `/fix` at it.
 
 The request touches what data is stored, who can see or do what, or money:
 update the masterplan first and say what changed before routing further. If
@@ -233,8 +247,8 @@ stop. Anything it would need installed is work on this computer, above.
 
 Do not add a changelog line for every classification; most triage
 conversations leave no trace worth keeping. Record only when: the masterplan
-changes, the build path changes, a risk notice is accepted, an idea is parked
-or rejected for a durable reason, a sensitive area changes, or work
+changes, the build path changes, a risk notice is accepted, an idea is closed
+as not planned or rejected for a durable reason, a sensitive area changes, or work
 actually lands.
 
 ## Done when

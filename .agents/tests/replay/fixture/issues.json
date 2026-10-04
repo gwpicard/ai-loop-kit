@@ -83,7 +83,8 @@
       "state": "open",
       "labels": [
         "behaviour",
-        "building"
+        "state:building",
+        "type:feature"
       ],
       "assignees": [
         "steward"
@@ -95,24 +96,26 @@
     {
       "number": 8,
       "title": "Email reminders when a loan is due back",
-      "body": "## Parked\nThe team sits in one room and asking out loud already works.\n",
+      "body": "## Left out\nThe team sits in one room and asking out loud already works.\n",
       "state": "closed",
       "labels": [
-        "parked"
+        "type:feature"
       ],
       "assignees": [],
-      "blocked_by": []
+      "blocked_by": [],
+      "state_reason": "not_planned"
     },
     {
       "number": 9,
       "title": "A phone view",
-      "body": "## Parked\nParked until someone actually tries to book from a van.\n",
+      "body": "## Left out\nLeft out until someone actually tries to book from a van.\n",
       "state": "closed",
       "labels": [
-        "parked"
+        "type:feature"
       ],
       "assignees": [],
-      "blocked_by": []
+      "blocked_by": [],
+      "state_reason": "not_planned"
     },
     {
       "number": 10,
@@ -121,8 +124,9 @@
       "state": "open",
       "labels": [
         "behaviour",
-        "shaping",
-        "needs-research"
+        "state:shaping",
+        "shaping:research",
+        "type:feature"
       ],
       "assignees": [],
       "blocked_by": []
@@ -134,8 +138,9 @@
       "state": "open",
       "labels": [
         "visual",
-        "shaping",
-        "needs-clarification"
+        "state:shaping",
+        "shaping:clarify",
+        "type:feature"
       ],
       "assignees": [],
       "blocked_by": []
@@ -147,8 +152,9 @@
       "state": "open",
       "labels": [
         "visual",
-        "shaping",
-        "needs-prototype"
+        "state:shaping",
+        "shaping:prototype",
+        "type:feature"
       ],
       "assignees": [],
       "blocked_by": []

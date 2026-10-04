@@ -156,12 +156,12 @@ Small regular maintenance is what keeps the rare big problem from arriving. Repo
     Where length alone triggers the offer, name that alone; never invent
     removable content to fill the example. Cut nothing without the person's
     yes. A no leaves the file intact and the visit carries on. If the file is
-    short and carries none of that content, say nothing. Where step 18 will
+    short and carries none of that content, say nothing. Where step 17 will
     offer the move onto the index this visit, make that offer instead of the
     trim, since the move does the trim's work.
 
     On a project already on the index, the trim is a move, never a cut: on a
-    yes, each fact goes to its home as step 18's move sends it. Lasting
+    yes, each fact goes to its home as step 17's move sends it. Lasting
     technical design goes to its `docs/<concept>.md`, history to a file in
     `changes/`, product facts to the masterplan, and dates, issue numbers and
     code names leave AGENTS.md. That is the fix the project check's red
@@ -179,21 +179,18 @@ Small regular maintenance is what keeps the rare big problem from arriving. Repo
     rules before. Then run "Adding the confirmation box on merges that go
     live" below. It says nothing unless every merge goes live and the rules
     are missing, and nothing when the person said no to the same rules before.
-17. Run "Moving the pieces onto the states" below. It says nothing when the
-    project is already on them, or when the person said no to the same states
-    before.
-18. Run "Moving the instructions onto the index" below. It says nothing when
+17. Run "Moving the instructions onto the index" below. It says nothing when
     the project is already on the index, or when the person said no to the
     move before.
-19. Run "Removing leftover worktrees" below. It says nothing when the project
+18. Run "Removing leftover worktrees" below. It says nothing when the project
     has none.
-20. Run "Linking ignored build files into run worktrees" below. It says
+19. Run "Linking ignored build files into run worktrees" below. It says
     nothing when the project already has the links, has nothing to link, or
     said no to the same files before.
-21. Run "Recording the project's own check" below. It says nothing when no
+20. Run "Recording the project's own check" below. It says nothing when no
     placeholder sits beside CI of the project's own, or when the person said
     no before and the workflow files have not changed since.
-22. Record the visit. In `.ai-build-kit-maintenance` at the project root, put
+21. Record the visit. In `.ai-build-kit-maintenance` at the project root, put
     today's date on the `last-light-pass` line, written as YYYY-MM-DD. If that
     file is missing, create it with a `founded` line holding the date
     masterplan.md was first saved, then the two pass lines. Where the file
@@ -231,16 +228,21 @@ nothing else, so the helper would never arrive.
 
 On the clean checkpoint from step 2, and after the update where the person
 approved one, run `sh <installed setup-ai-build-kit skill>/scripts/place-plan-helper.sh`
-from the project root. It adds the helper when it is missing, replaces a copy
-that differs from the installed one, and changes nothing when the copy is
-current, so it is safe on every visit.
+from the project root. It places the helper, and beside it the gate script, `.agents/tools/gate.py`, and the state guard hook, `.agents/hooks/state-guard.sh`,
+since an update brings none of them. It adds each one when it is missing,
+replaces a copy that differs from the installed one, and changes nothing when
+the copy is current, so it is safe on every visit. It refuses a link or a
+folder where one of them belongs.
 
 Where it added the helper, say one sentence: "I have added the helper that
 prints your list of pieces, so /what-now, /queue and /implement read what is
 ready from it rather than from the issues by hand." Where it replaced one, say
 that the helper was brought up to date, and that any change made to the old
 copy by hand was replaced too and is kept in the checkpoint saved first. Where
-it made the helper runnable again, say so, since that is a change to save. Save either change with the visit's
+it made the helper runnable again, say so, since that is a change to save.
+Where it added or replaced the gate script or the hook, say so the same way:
+the gate script is the one way a piece changes state, and the hook stops a
+state label being written by hand. Save any of these changes with the visit's
 other changes and add a dated changelog line. When it changed nothing, say
 nothing. Where the harness cannot run the script and the project has no
 helper, copy the installed skill's `templates/foundation/plan-refresh.sh` to
@@ -317,58 +319,6 @@ live with nothing mechanical in the way. So the visit offers the rules, once.
    `merge-ask-declined|<YYYY-MM-DD>|<the rules offered, separated by " ; ">`.
    A later visit offers again only when the template holds a rule that line
    does not list.
-
-## Moving the pieces onto the states
-
-A project founded before the six states in the `setup-ai-build-kit` skill's
-`references/pieces.md` keeps its pieces labelled the old way: `ready`,
-`building`, a `needs-` label, `blocked`, or nothing. No board can be drawn from
-that, and an update refreshes the skills and never the issues. So the visit
-offers the move, once. It changes labels, so do it only after the clean
-checkpoint from step 2.
-
-1. Read the repository's labels with `gh label list`, and the open issues with
-   their labels. Where all six state labels exist, no open issue carries
-   `blocked`, and no open piece carries a `needs-` label without `shaping`, the
-   project is already on the states: say nothing, and this step ends. The
-   labels alone do not settle it, because a command creates a missing state
-   label the first time it needs one, so an older project soon has all six
-   while its pieces still carry the old form. That is also what a second visit
-   finds after a yes, so it changes nothing.
-2. Read the `states-declined` line in `.ai-build-kit-maintenance`, if there is
-   one. Where it lists the same six states pieces.md lists today, the earlier
-   no stands. Say nothing, and this step ends.
-3. Work out the move before saying anything. It reaches open issues only:
-   - an open piece with a `needs-` label and no `shaping` gains `shaping`;
-   - an open piece with no state label gains `idea`, except a piece made of
-     parts, which carries no state of its own;
-   - a `blocked` piece with a blocked-by link and no written reason was using
-     the old label as a hint that another piece comes first. That is a link,
-     never a state, so it loses `blocked` and keeps `ready`, or gains it where
-     it has a `## Done when` and no question, and `idea` otherwise;
-   - any other `blocked` piece becomes `parked`, losing `blocked` and any
-     `ready` or `building` beside it, with its reason kept. Where no reason is
-     written, add one line: "Labelled blocked before the piece states; reason
-     not recorded.";
-   - each of the six state labels that does not exist yet is created.
-
-   Closed issues are left alone, and a closed `parked` idea above all, since
-   that label is what keeps it out.
-4. Offer it once, in one reply. Say how many pieces each change reaches and
-   which labels it creates. Say that it changes labels, and adds nothing to a
-   piece except that one missing reason. Then wait for the answer.
-5. On a yes, create the missing labels with `gh label create`, then make each
-   change with one command that takes the old label off as it puts the new one
-   on. Refresh the printout and check that Needs attention names none of the
-   pieces moved. Save with the visit's other changes and add a dated changelog
-   line.
-6. Where the person says no, leave every label as it is. Record the no as one
-   line in `.ai-build-kit-maintenance`, replacing any earlier one:
-   `states-declined|<YYYY-MM-DD>|idea,shaping,ready,building,to check,parked`.
-   A later visit offers again only when a release changes the states, so that
-   the list in pieces.md no longer matches the line.
-
-Where GitHub cannot be reached, say that this step did not run.
 
 ## Moving the instructions onto the index
 

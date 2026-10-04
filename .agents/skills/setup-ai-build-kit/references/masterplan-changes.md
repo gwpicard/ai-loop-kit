@@ -16,8 +16,8 @@ When recovering work, read the changes on pieces whose work landed, including
 closed pieces. Compare each with the current page and apply only what is still
 missing. A later piece may have replaced or removed the same behaviour, so
 follow landing order and the current tool. Repeating /sync must not add the same
-line twice or restore something deliberately removed. An open or parked piece
-is not proof its work landed; check the saved work. If an older piece has no
+line twice or restore something deliberately removed. An open piece, or one
+closed as not planned, is not proof its work landed; check the saved work. If an older piece has no
 field, recover its change from that work rather than treating absence as
 "nothing".
 

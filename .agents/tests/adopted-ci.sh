@@ -178,7 +178,7 @@ rs_ok "every reader gives the default rule"
 # /maintain: the offer to a project founded before the record.
 rs_reset
 rs_rule "the monthly visit runs the offer" \
-  '21\. run "recording the project.s own check" below'
+  '20\. run "recording the project.s own check" below'
 rs_rule "only while checks.yml holds the placeholder" \
   'where `\.github/workflows/checks\.yml` no longer holds the kit.s placeholder `install and test` step, say nothing'
 rs_rule "a line naming checks.yml is no reason to stop" \
@@ -205,7 +205,7 @@ rs_rule "the offer returns only when the workflows change" \
   'offers again only when the workflow files change'
 rs_guard "$MAINTAIN" "the maintain skill"
 rs_require_order "the offer comes before recording the visit" "$MAINTAIN" \
-  '^21\. Run "Recording the project' '^22\. Record the visit'
+  '^20\. Run "Recording the project' '^21\. Record the visit'
 
 # The maintenance record's header names the declined line. Its lines are
 # comments, so a folded line break leaves a `# ` between words.

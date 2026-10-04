@@ -51,14 +51,15 @@ A mock usually shows more than one piece. Cut it into pieces during founding, or
 build only the piece in hand. Never build the whole mock in one go.
 
 Name what the artifact does not cover rather than inventing it: the missing
-screens, the empty states, the errors, who may do what. Those are asked or
-parked. A mock is rarely a complete description.
+screens, the empty states, the errors, who may do what. Those are asked, or
+set aside in writing on the piece. A mock is rarely a complete description.
 
 Where two artifacts disagree, or an artifact contradicts the masterplan, put the
 conflict to the person and let them choose. Never resolve it quietly. A loose
 reference, such as "make it feel like this other product", is turned into
 concrete behaviours anybody could check, and whatever cannot be turned into one
-is parked rather than promised.
+is set aside in writing rather than promised. A piece the person decides
+against is closed as not planned, and its settled terms stay on it.
 
 ## Record the decision
 

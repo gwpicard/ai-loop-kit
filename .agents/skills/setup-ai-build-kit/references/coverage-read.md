@@ -27,11 +27,13 @@ covers no promise. An unapplied change on a landed piece goes to /sync's
 reconciliation; it must not be offered as a new piece. A future change on an
 open piece does not become a present promise merely because this read saw it.
 
-A promise whose only piece is parked counts as a gap. The idea was set aside
-and the page still promises it, so one of the two has to move.
+A promise whose only piece was closed as not planned counts as a gap. The idea
+was set aside and the page still promises it, so one of the two has to move.
 
 Compare the masterplan's key terms with settled terms in every piece's
-`## Decided` and `## Masterplan change`, including parked and reshaped pieces.
+`## Decided` and `## Masterplan change`, including pieces closed as not planned and reshaped pieces.
+Read the settled terms on pieces closed as not planned too, since closing a
+piece leaves its decisions where they were written.
 Name a settled term missing from the masterplan, or one whose meaning differs,
 as a record gap rather than an unbuilt promise. Do not turn a future capability
 into a present promise just because its piece settled a name.
@@ -56,7 +58,7 @@ already covered, they are right and the read was wrong: matching is by
 description, so an occasional wrong name costs one sentence.
 
 Include missing or different terms in that same short list and single offer.
-Name the piece in plain words: "The parked reminder piece settled 'borrower'
+Name the piece in plain words: "The reminder piece you left out settled 'borrower'
 as the person using an item, but the masterplan has no definition. Shall I
 carry that definition into the masterplan?" With a yes, /sync reconciles the
 term against the current tool; during founding, carry it into the masterplan

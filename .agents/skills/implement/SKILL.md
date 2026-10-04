@@ -32,7 +32,7 @@ starting one moves its state.
 
 Take the lowest-numbered ready piece that nothing open is holding up and whose
 class the current build path allows. A ready piece is one `/shape` has finished
-shaping: it carries the `ready` label, has a `## Done when` line, and waits on no
+shaping: it carries the `state:ready` label, has a `## Done when` line, and waits on no
 open question. The issue list says which are held up, so this needs no digging.
 
 A piece with open parts is a container, not a slice to build directly. Skip it
@@ -46,26 +46,28 @@ evidence and save route from the piece and the build path. Read the piece's
 subject labels rather than reclassifying it; the classification was settled in
 `/shape` and section-builder reads it rather than re-deriving it.
 
-Claim the piece before any work: move it from `ready` to `building` and assign
-it, in one step,
-`gh issue edit <number> --add-label building --remove-label ready --add-assignee @me`,
-creating the label first if the project lacks it. section-builder's step 1 makes that move, so two sessions never start the same
+Claim the piece before any work, through the gate, which moves it from
+`state:ready` to `state:building` and assigns it in one call:
+`python3 .agents/tools/gate.py move <number> building --assignee @me`.
+section-builder's step 1 makes that move, so two sessions never start the same
 piece. Where GitHub cannot be reached the claim cannot be made, so say so and do
 not start the piece: a piece nobody could claim may be claimed by somebody else.
+Where the gate refuses a move, tell the person its line in plain words and stop that move.
+Never write the label another way, as the `setup-ai-build-kit` skill's
+`references/blocked-commands.md` says.
 
-A piece labelled `parked` is not buildable as it stands. One safely prepared and
-stopped at a recorded condition stays skipped until that condition is met, or
-until the person carries on after the risk notice and the acceptance is
-recorded; then move it from `parked` to `building` in one step,
-`gh issue edit <number> --add-label building --remove-label parked`, and build.
-One parked after repeated failure (references/running-longer.md) needs routing
-back to `/shape` first, for another look. An older project's `blocked` label
-reads as `parked` until `/maintain` moves it.
+A piece kicked back to shaping is not buildable as it stands, and it never
+carries `state:ready`, so nothing here takes it. One kicked back at a sensitive-area caution sits in `shaping:clarify` with a `## Kickback` section naming the caution, and stays there until the person carries on after the risk notice and the acceptance is recorded;
+`/shape` then moves it on. One kicked back after three failed attempts sits in `shaping:spec` or `shaping:research` for `/shape` to look at again,
+as `references/running-longer.md` says. A label from an older project, such as
+`blocked`, is named by `gate.py report` and left alone.
 
 ## When a piece waits on the person
 
 A piece carrying a `## Waiting on you` section cannot be built until that step is
-done. Do not attempt it, and do not pass it over in silence. Say what the step
+done. Such a piece sits in `shaping:clarify`, as the `setup-ai-build-kit`
+skill's `references/pieces.md` says, so it never reaches `To build`. Given it
+by number, do not attempt it, and do not pass it over in silence. Say what the step
 is, in the words the piece uses, and that building carries on once it is done.
 
 The `Waiting on you: try it` line is different: it asks for the person's own try
@@ -82,11 +84,11 @@ could have gone and done.
 
 ## When the next piece is not ready
 
-A piece that still carries `needs-clarification`, `needs-prototype`, or
-`needs-research` has a question to settle before its code is written. An issue
-with no `## Done when` was typed by hand and never sized. An open issue with no
-state label counts as an idea, however full its body, because nobody moved it to
-`ready`. None of them is ready, and building one only guesses the answer.
+A piece still in `state:shaping` has a question to settle, or a contract to
+write, before its code is written. An issue with no `## Done when` was typed by
+hand and never sized. An open issue with no state label has not been taken in yet, however full its body,
+because nobody captured it through the gate. None of them is ready, and building
+one only guesses the answer.
 
 This command does not settle the question. Settling it is planning, and planning
 is what `/shape` is for. Say in one sentence what the piece is waiting on, and
@@ -111,7 +113,7 @@ question.
 ## When the pieces contradict each other
 
 The blocked-by link is the truth, so read the link. A ready piece whose blockers
-have all closed is buildable. `parked` is not about another piece: it names a
+have all closed is buildable. A kickback is not about another piece: it names a
 stop written on the piece, so it never lifts because a blocker closed.
 
 A piece carrying two states is not built. The printout lists it under Needs
@@ -172,11 +174,11 @@ Whether the run may take a piece is decided for each piece. A piece is taken
 only when it is ready, carries a Ready readiness result, is
 self-sufficient enough to build without a person present, waits on no step of
 the person's other than their try, and lies outside every sensitive area that has no recorded
-acceptance. A piece that fails three attempts is parked, a hard open choice,
+acceptance. A piece that fails three attempts is kicked back to shaping, a hard open choice,
 seen at the plan or met while building, sends a piece back to shaping, and the
-run moves on. It ends with one report:
-each piece, its pull request and its state, the choices flagged for the person,
-what was parked and why, and the merge order.
+run moves on. Every move the run makes goes through the gate. It ends with one
+report: each piece, its pull request and its state, the choices flagged for the
+person, what went back to shaping and why, and the merge order.
 
 The run keeps its state in the main folder's `.agents/runs/`, the first
 worktree git lists, even when this session sits in another tool's worktree,
@@ -186,4 +188,4 @@ with `queue`.
 
 ## Done when
 
-The route was followed, the records are true, the piece moved from `ready` to `building` before any work and on to its next state when the pass ended, and the piece is confirmed and saved through the required route, safely parked at a recorded condition, or the user knows exactly where things stopped and why.
+The route was followed, the records are true, the piece moved through the gate from `state:ready` to `state:building` before any work and on to its next state when the pass ended, and the piece is confirmed and saved through the required route, kicked back to shaping at a recorded condition, or the user knows exactly where things stopped and why.

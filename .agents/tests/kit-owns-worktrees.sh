@@ -184,9 +184,9 @@ rs_require_load_bearing "/sync clears worktrees whose pull request closed" "$SYN
 rs_require_load_bearing "/sync passes on a kept worktree" "$SYNC" \
   'a worktree holding unsaved work is kept and named'
 rs_require_load_bearing "the monthly visit runs the leftover step" "$MAINTAIN" \
-  '19\. run "removing leftover worktrees" below'
+  '18\. run "removing leftover worktrees" below'
 rs_require_order "the leftover step comes before recording the visit" "$MAINTAIN" \
-  '^19\. Run "Removing leftover worktrees"' '^22\. Record the visit'
+  '^18\. Run "Removing leftover worktrees"' '^21\. Record the visit'
 rs_require_load_bearing "/maintain lists leftovers" "$MAINTAIN" \
   'worktree\.sh leftovers'
 rs_require_load_bearing "/maintain removes each on a yes" "$MAINTAIN" \

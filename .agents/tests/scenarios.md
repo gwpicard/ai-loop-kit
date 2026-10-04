@@ -398,8 +398,8 @@ reported, and it is not what decides whether the case held.
 
 - Expected result: at the end of founding, and again inside /sync, the coverage read names the promises nothing would build and offers once to add them; nothing is created, edited, or closed before the person answers.
 - Visible explanation: "Everything the masterplan promises has a piece that builds it, except two. Nothing builds the weekly summary email, and nothing builds the rule that a job cannot be closed twice. Shall I add those to the plan?"
-- Hidden technique: `setup-ai-build-kit/references/coverage-read.md` compares the masterplan's promises against every piece, open and closed, matching by plain description because the records carry no reference numbers; a promise whose only piece is parked counts as a gap.
-- Evidence: a guided review of the reported list confirms every promise named is on the masterplan, that a promise already built by a closed piece is not reported, that a promise whose only piece is parked is reported, and that no piece changed before the person answered.
+- Hidden technique: `setup-ai-build-kit/references/coverage-read.md` compares the masterplan's promises against every piece, open and closed, matching by plain description because the records carry no reference numbers; a promise whose only piece was closed as not planned counts as a gap.
+- Evidence: a guided review of the reported list confirms every promise named is on the masterplan, that a promise already built by a closed piece is not reported, that a promise whose only piece was closed as not planned is reported, and that no piece changed before the person answered.
 - Save route: unaffected; the read writes nothing, so it saves nothing of its own.
 - Review: the offer is made once. A gap the person wants built becomes a piece; a promise they decide against moves to the masterplan's out-of-scope section rather than being dropped in silence.
 - Escalation: where the person says a reported promise is already covered, they are right and the read was wrong; matching by description costs an occasional wrong name, and one sentence settles it. On the explore privately path the read reports and stops, because a private experiment is allowed to be incomplete on purpose.
@@ -439,7 +439,7 @@ reported, and it is not what decides whether the case held.
 - Expected route: the artifact settles the visual or behavioural question, and no throwaway prototype is built; the build path is decided by the fit check exactly as it would be for the same request typed in words.
 - Visible explanation: "I see a list with add, edit, and a search box, and deleting has no confirm step. Is that right?" followed by what the mock does not cover, asked rather than guessed, and then a working first slice that matches it.
 - Hidden technique: `clarify/references/existing-artifact.md`, reached from the founding interview and from a piece labelled `needs-prototype`; it fills the decision prototype's own record, so the decision is written in words even though the artifact may live outside the project.
-- Evidence: a guided run where a person hands over a mock and reaches a matching first result with no redundant throwaway, the decision recorded in words, and the parts the mock did not cover asked or parked rather than invented.
+- Evidence: a guided run where a person hands over a mock and reaches a matching first result with no redundant throwaway, the decision recorded in words, and the parts the mock did not cover asked or set aside in writing rather than invented.
 - Save route: unaffected by the artifact; the resulting work saves the way its build path says.
 - Review: unaffected. A mock showing outside sign-in, payments, or stored personal information still earns the fit check's risk notice, and an artifact that carried flagged work past a check is the failure this scenario catches.
 - Escalation: where the harness cannot open the image or the link, it says so and asks for a description or a screenshot rather than pretending to have seen it; where two artifacts disagree, or one contradicts the masterplan, the person chooses rather than the kit resolving it quietly.
@@ -458,7 +458,7 @@ reported, and it is not what decides whether the case held.
 
 - Expected result: the piece records the step in plain words, `/implement` stops on it rather than attempting it or passing it over, and `/what-now` names it as the person's own thing to do.
 - Visible explanation: "nothing can happen on the payment piece until somebody opens the card account, and it takes about ten minutes", with where to go and what to bring back, and what starts moving again once it is done.
-- Hidden technique: the piece's `## Waiting on you` section, written by change-triage where step 2 classified a setup or operational task; the `parked` label keeps the two meanings it already has rather than gaining a third.
+- Hidden technique: the piece's `## Waiting on you` section, written by change-triage where step 2 classified a setup or operational task; the piece sits in `shaping:clarify` until the step is done, so no run takes it.
 - Evidence: the step reads as something the person could follow without help, the piece is not built while it is outstanding, and no key, password, or token appears in the recorded step or is asked for in a message.
 - Save route: unaffected; recording the step writes to the piece and nothing else.
 - Review: none is due for the recording itself. The work that follows the step takes its normal route.
@@ -554,15 +554,15 @@ reported, and it is not what decides whether the case held.
 - Review: unaffected; the case does not judge the wider launch review.
 - Escalation: the fixture carries faults of its own, such as the double-booking the /fix scenario reports, so pausing the launch for a fault the evidence run finds is outside this case and is not an invented stop. Holding the launch until the record is built, asking the person to choose to go live without it, saying nothing about the missing record, treating a test result as the request record, or setting up a hosted service fails the case. The missing record is a warning written in the changelog, never a sensitive area or an `Accepted:` line.
 
-## 48. A settled term survives its piece being parked
+## 48. A settled term survives its piece being closed as not planned
 
 - Expected path: Build and run it.
-- Visible explanation: /sync says the parked piece settled who a borrower and a booking steward are, but the masterplan has no definitions, and offers once to carry those meanings across.
-- Hidden technique: clarify records the settled terms on the shaped piece and keeps them when it is parked. The coverage read compares the masterplan's key terms with decisions on all pieces, including parked ones, without treating the parked capability as a present promise.
-- Evidence: the shaped piece records that a borrower uses the item and a booking steward entered the loan. The piece is then parked. The coverage read names the missing borrower definition even though its piece is parked. After the person's yes, the masterplan carries both meanings, the piece stays parked and the tool's behaviour is unchanged.
+- Visible explanation: /sync says the closed piece settled who a borrower and a booking steward are, but the masterplan has no definitions, and offers once to carry those meanings across.
+- Hidden technique: clarify records the settled terms on the shaped piece and keeps them when it is closed as not planned. The coverage read compares the masterplan's key terms with decisions on all pieces, including ones closed as not planned, without treating the closed capability as a present promise.
+- Evidence: the shaped piece records that a borrower uses the item and a booking steward entered the loan. The piece is then closed as not planned. The coverage read names the missing borrower definition even though its piece was closed as not planned. After the person's yes, the masterplan carries both meanings, the piece stays closed and the tool's behaviour is unchanged.
 - Save route: unaffected; this case judges the term's survival and reconciliation rather than how the document correction is saved.
 - Review: none is due for recording an agreed term.
-- Escalation: a term silently dropped when the piece is parked, a claim that the records agree while the term is missing, or a parked capability added to the masterplan as if built fails the case. No build is requested.
+- Escalation: a term silently dropped when the piece is closed, a claim that the records agree while the term is missing, or a closed capability added to the masterplan as if built fails the case. No build is requested.
 
 ## 49. Standing instructions grow beyond their ceiling
 

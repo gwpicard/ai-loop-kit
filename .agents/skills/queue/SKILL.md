@@ -118,17 +118,16 @@ Where a piece is waiting on a question rather than on another piece, say which
 of the three it needs and leave it out of the plan. It is not ready and it is
 not blocked by work; it is waiting on somebody.
 
-A piece under `Building` or `To check` is in neither group, nor anywhere in the
-plan. The first is
-already claimed, and the second is built and waiting for the person to try it
-or merge it. Say how many are under `To check`, in one line, when any are.
+A piece under `Building` or under either `In review` column is in neither group, nor anywhere in the
+plan. The first is already claimed, and the second is built and waiting for a
+review: the person's under "In review, waiting for you". Say how many wait for
+the person, in one line, when any do.
 
-A piece that has been sized but never marked ready sits under `Idea`, not under
+A piece that has been sized but never moved to `state:ready` sits under a `Shaping:` column, not under
 `To build`, so `/implement` will not take it either. Name it with those, and say
-`/shape` is what marks it ready. It matters most when that piece is the one
-holding another up. A held-up piece's blocker may sit under `Idea` or
-`Shaping`, so name it there, because otherwise the person is told to wait for
-something they never see.
+`/shape` is what moves it to ready. It matters most when that piece is the one
+holding another up. A held-up piece's blocker may sit under a `Shaping:` column, so name it there,
+because otherwise the person is told to wait for something they never see.
 
 Where nothing is ready, say so plainly, say what would make something ready,
 usually `/shape`, and print no command. Where a run can take none of the pieces
