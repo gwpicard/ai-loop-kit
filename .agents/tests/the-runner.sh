@@ -168,7 +168,7 @@ rs_rule "a parent's pull request opens after its last finished part" 'the pull r
 rs_rule "a finished part waits for the parent's pull request" 'waits in `building` with the reason `waiting for the parent.s pull request`'
 rs_rule "the parts' changelog files follow the pull request" 'each part.s changelog file is written once it opens'
 rs_rule "no finished part, no pull request" 'where no part finishes, nothing opens'
-rs_rule "a piece sent back loses the run's assignee" 'take the run.s assignee off, `gh issue edit <number> --remove-assignee @me`, since the gate.s kickback keeps it'
+rs_rule "a piece sent back loses the run's assignee" 'take the run.s assignee off, `gh issue edit <number> --remove-assignee .me`, since the gate.s kickback keeps it'
 rs_rule "a sent-back piece's branch is pushed" 'push the branch and keep it'
 rs_rule "a piece kicked back after three attempts loses the run's assignee" 'take the run.s assignee off as a piece sent back does'
 rs_rule "a sensitive area stops the piece, not the run" 'the run goes on; only that piece stops'

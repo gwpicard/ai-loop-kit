@@ -43,12 +43,14 @@ rs_exists "$TRIAGE" "$SHAPE" "$IMPLEMENT" "$LONGER" "$BUILDER" "$MERGE" "$FIX" \
 
 # --- read mechanically ------------------------------------------------------
 
-# direct_writes <dir>: each line in the skills that writes a state label with
-# gh rather than through the gate. The lists of refused spellings in
+# direct_writes <dir>: each gh command in the skills that writes a state label
+# rather than going through the gate. Only the command itself is read, up to
+# the end of its code span, so a sentence that names a state beside a command
+# for another label is not taken for one. The lists of refused spellings in
 # blocked-commands.md, and the gate, hook and deny rules that do the refusing,
 # are where those spellings are meant to be, so they are left out.
 direct_writes() {
-  grep -rnE 'gh (issue (edit|create)|label)' "$1" \
+  grep -rnoE 'gh (issue (edit|create)|label)[^`]*' "$1" \
     | grep -v '/setup-ai-build-kit/references/blocked-commands\.md:' \
     | grep -v '/templates/foundation/gate\.py:' \
     | grep -v '/templates/foundation/state-guard\.sh:' \
@@ -178,7 +180,7 @@ rs_require_absent "/shape no longer labels an idea" "$SHAPE" 'labelled `idea`'
 rs_reset
 rs_rule "the claim comes before any work" 'claim the piece before any work'
 rs_rule "the claim goes through the gate" \
-  '`python3 \.agents/tools/gate\.py move <number> building --assignee @me`'
+  '`python3 \.agents/tools/gate\.py move <number> building --assignee .me`'
 rs_rule "a claim that cannot be made starts nothing" \
   'a piece nobody could claim may be claimed by somebody else'
 rs_rule "an issue with no state is not built, however full its body" \
@@ -218,7 +220,7 @@ rs_guard "$BUILDER" "section-builder"
 
 rs_reset
 rs_rule "a run claims through the gate, naming the run" \
-  'make the claim through the gate, `python3 \.agents/tools/gate\.py move <number> building --run <run name> --assignee @me`'
+  'make the claim through the gate, `python3 \.agents/tools/gate\.py move <number> building --run <run name> --assignee .me`'
 rs_rule "a hard choice seen at the plan goes back through the gate" \
   'then move it with no claim to undo: `python3 \.agents/tools/gate\.py move <number> clarify`'
 rs_rule "a hard choice met while building is kicked back through the gate" \
@@ -247,7 +249,7 @@ fi
 
 rs_reset
 rs_rule "/fix claims only a repair in ready, through the gate" \
-  'claim it before step 1 only when the repair is in `state:ready`: `python3 \.agents/tools/gate\.py move <number> building --assignee @me`'
+  'claim it before step 1 only when the repair is in `state:ready`: `python3 \.agents/tools/gate\.py move <number> building --assignee .me`'
 rs_rule "a repair in shaping is not claimed" 'a repair in `state:shaping` is not claimed'
 rs_rule "an issue with no state is captured with type:bug" \
   'nor is an issue with no state, which `/fix` first takes in with `python3 \.agents/tools/gate\.py capture <number>` and `gh issue edit <number> --add-label type:bug`'
