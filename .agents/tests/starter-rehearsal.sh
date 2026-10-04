@@ -316,35 +316,25 @@ def run(command, **values):
     return done.stdout
 
 
-def body_of(number):
-    data = json.load(open(state_file))
-    return next(i for i in data["issues"] if i["number"] == number)["body"]
-
-
-def write_body(number, body):
-    path = os.path.join(scratch, "body-%d.md" % number)
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(body)
-    subprocess.run(["gh", "issue", "edit", str(number), "--body-file", path], cwd=project,
-                   env=env, check=True, capture_output=True)
-
-
 run(LABELS)
 for name in ("bug", "documentation", "duplicate", "enhancement", "good first issue",
              "help wanted", "invalid", "question", "wontfix"):
     run(DELETE, label=name)
 
-# Three pieces, one for each way founding leaves a piece: one still holding a
-# question for /shape, one the readiness check found ready, and one it sent back.
+# Three pieces, each left where founding leaves one: one still holding a
+# question for /shape, and two shaped as far as `shaping:spec`. Founding takes
+# no piece further, because writing the acceptance checks pushes a branch and
+# founding uploads no code, and the move to ready asks the ready-gate lint for
+# a whole contract that only /shape writes.
 SHAPED = ("## So that\nGuests can book a night.\n\n## Done when\n### Works\n"
           "- A booking is saved. Check: a test.\n")
 pieces = [
     ("Guests can see free nights", "## So that\nGuests see what is free.\n\n"
      "## Open question\nShould a half-booked night show as free?\n", "feature", "visual",
      ["clarify"]),
-    ("Guests can book a night", SHAPED, "feature", "data", ["spec", "check"]),
+    ("Guests can book a night", SHAPED, "feature", "data", ["spec"]),
     ("Double bookings stop", SHAPED.replace("book a night", "never double book"), "bug",
-     "how it works", ["spec", "check"]),
+     "how it works", ["spec"]),
 ]
 numbers = []
 for title, words, kind, subject, moves in pieces:
@@ -362,24 +352,15 @@ for title, words, kind, subject, moves in pieces:
     for target in moves:
         run(MOVE, number=number, target=target)
 
-# The readiness check, run by another session, writes its section and the gate
-# reads it: Ready moves the second piece to ready, and a blocking line sends the
-# third back to the sub-state that line needs.
-ready, sent_back = numbers[1], numbers[2]
-write_body(ready, body_of(ready) + "\n## Readiness\n2026-10-04, checked by a session "
-           "that did not shape it: Ready\n")
-run(MOVE, number=str(ready), target="ready")
-write_body(sent_back, body_of(sent_back) + "\n## Readiness\n2026-10-04, checked by a "
-           "session that did not shape it: Not ready\n- BLOCKING 3: no line says what "
-           "happens to an existing double booking.\n")
-run(MOVE, number=str(sent_back), target="spec")
+shaped, also_shaped = numbers[1], numbers[2]
 
 data = json.load(open(state_file))
 left = [l["name"] for l in data.get("labels", [])]
 if any(n in left for n in ("bug", "enhancement", "wontfix")):
     problems.append("GitHub's own labels are still there: %s" % ", ".join(left))
 expected = {numbers[0]: ("state:shaping", "shaping:clarify"),
-            ready: ("state:ready", None), sent_back: ("state:shaping", "shaping:spec")}
+            shaped: ("state:shaping", "shaping:spec"),
+            also_shaped: ("state:shaping", "shaping:spec")}
 for item in data["issues"]:
     names = item["labels"]
     states = [n for n in names if n.startswith("state:")]

@@ -181,6 +181,9 @@ attribution line, not the word.
   and a link loop are refused by name before anything is written. A second
   copy that differs from the running one, or an empty folder, gets one note
   naming the folder, and founding carries on, since the running skill is whole.
+  Founding leaves each piece it opens in `shaping:clarify` or `shaping:spec`
+  and takes none further, since only `/shape` writes the whole contract the
+  ready gate asks for.
 - `.agents/tests/release-publication.sh` rehearses first and later publication
   against a disposable local destination.
 - `.agents/tests/pre-release-run.sh` guards the written run in
@@ -278,7 +281,13 @@ attribution line, not the word.
   piece out of order and changes nothing. It holds the run status written
   beside the labels, and the cases that are not the normal one: no network,
   an account that cannot create labels, two sessions moving one piece, two
-  states, and bad input.
+  states, and bad input. The move to `state:ready` also needs one `loop:`
+  label and the ready-gate lint beside the gate to pass, and its refusal
+  prints the lint's gaps as the lint gave them. A lint that could not run
+  refuses the move too, and so does a lint missing from beside the gate. Most
+  moves run a copy of the gate with a stand-in lint whose answer each case
+  sets, and one runs the real gate beside the real lint on a piece carrying
+  only `Touches:`.
 - `.agents/tests/state-guard.sh` guards what stops the agent going round the
   gate. A founded project's Claude Code settings run a hook before each
   command and each GitHub tool call, and carry deny rules. Both refuse a direct
@@ -441,7 +450,41 @@ attribution line, not the word.
   and PHILOSOPHY tell it, with WORKFLOW.md naming the loop module and giving
   the reach line the person reads, that the list stays out of the founded
   AGENTS.md, and
-  that the replay case for it is written and listed as owed.
+  that the replay case for it is written and listed as owed. It holds that
+  `/shape` runs the ready-gate lint before a piece moves to `shaping:check`,
+  so the checker never reads a piece the lint would refuse, and says the
+  lint's result in one line. And it holds the one line the lint reads for the
+  project's tests: the founded stack section asks for `Test command:
+  <command>` or `Test command: none for <language>`, and founding writes it.
+- `.agents/tests/ready-lint-rehearsal.sh` runs the ready-gate lint a founded
+  project receives, `ready-lint.py`, against throwaway repositories, each with
+  a bare one standing in for its remote, and the stand-in GitHub. A ready
+  piece is built with nobody there, and a lint that let a weak piece through
+  would look like one that works. So every rule runs both ways, on a piece
+  that keeps it and one that breaks it: the required sections, the bar each
+  loop module needs with its matching `loop:` label, a budget in attempts or
+  minutes and never tokens, a gauntlet reference that is a dated link, a field
+  the module does not use, the five reach lines with their tests on
+  `origin/main`, a reach commit `origin/main` holds, `Depends on` matching the
+  blocked-by links with no cycle, a sensitive area whose caution is neither
+  done nor accepted, the crew's steps, caps and reason and the refusal of two
+  writers, each refused phrase read from the lint's own list, a line number or
+  tracked file path outside `## Relies on` and the lines naming a check, a
+  numbered list of build steps, and the length limit for each type. It drives
+  pytest and Node's own runner: a check failing on its assertion passes, and
+  one failing on a missing import, one passing today and a spec branch that
+  changes source code are refused, while a spec branch cut before a later
+  commit to `main` passes. An `npm test` command is read through
+  `package.json`, and a Vitest check passes only once the install brings its
+  dependency. A runner the lint cannot read passes with a note, a project with
+  no code yet passes without running its checks, and with no `origin/main` a
+  build piece is sent to the first-upload question. A failed install, GitHub
+  out of reach and a checkout that cannot be made each exit 2 and leave
+  nothing behind, and a check past a lowered time limit is stopped and named.
+  It also holds that the lint's Test runner table is the check floor's, that
+  it counts a test file exactly as `test-guard.sh` does, that the design
+  note's Settled when built list carries the three length limits, and that
+  the lint writes nothing to GitHub or the project.
 - `.agents/tests/plan-helper-routes.sh` proves the helper that writes the
   printout reaches every project. It ships inside the setup-ai-build-kit skill,
   because the shared installer and both plugins carry skills and nothing else,
@@ -456,7 +499,9 @@ attribution line, not the word.
   a founded project or a helper path that is a link. The gate script travels
   the same way, so every route ends with a runnable copy identical to the
   template, and the step adds it, replaces an older copy, changes nothing the
-  second time and refuses a link. The state guard hook does the same, and a
+  second time and refuses a link. The ready-gate lint travels beside the gate
+  script the same way, and the step adds it, changes nothing the second time
+  and replaces an older copy. The state guard hook does the same, and a
   folder or a link in its place is refused with nothing placed. On the same six layouts
   it opens every pointer the founded AGENTS.md, the masterplan and the skills
   name to a file inside a skill. A pointer names the skill and the path inside
@@ -857,10 +902,11 @@ attribution line, not the word.
   the language the web app recipes build in, with the tools installed as that
   project's own dependencies. It does not run the Next.js starter, since a
   project the starter made keeps the starter's own lint settings. Both
-  projects carry the gate script where founding places it and stay green. In
-  the Python project an unused import added to that copy turns the linter
-  red, which proves the green counts, and the type check passes on it by name,
-  since `mypy .` leaves folders starting with a dot out.
+  projects carry the gate script and the ready-gate lint where founding places
+  them and stay green. In the Python project an unused import added to either
+  copy turns the linter red, which proves the green counts, and the type check
+  passes on each by name, since `mypy .` leaves folders starting with a dot
+  out.
 - `.agents/tests/waste-read.sh` guards the quarterly read for copied code,
   unused code and unused dependencies: that it stays off Explore privately,
   keeps the settings chosen on purpose, drops a name found anywhere else in
@@ -975,7 +1021,9 @@ attribution line, not the word.
   passes and one of 162 fails. A template of 196 lines once passed while a
   fresh founding came out at 219. It then fills the shipped template the way
   founding does, adding the measured 23 lines and the Next.js rules block, and
-  requires the result to fit the budget and stay 5 lines under 200.
+  requires the result to fit the budget and stay 5 lines under 200. The
+  stand-in's stack section carries `Test command: npm test` on a line of its
+  own, the line the ready-gate lint reads.
 - `.agents/tests/triage-overlap.sh` guards the warning that another open piece
   would be built in the same place: what change-triage compares, that it names
   the clash before the routing step rather than after it, that it blocks

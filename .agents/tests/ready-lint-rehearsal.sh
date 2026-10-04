@@ -246,9 +246,12 @@ def lines(text):
 
 
 def clean_after(project, what):
-    expect(not project.left_in_tmp and len(project.worktrees) == 1,
+    # Only the lint's own folders count. A test runner may keep a cache of its
+    # own in the same temporary folder, as Node does.
+    mine = [name for name in project.left_in_tmp if name.startswith("ready-lint-")]
+    expect(not mine and len(project.worktrees) == 1,
            "%s: no temporary folder or registered checkout is left behind" % what,
-           "left %s, worktrees %s" % (project.left_in_tmp, project.worktrees))
+           "left %s, worktrees %s" % (mine, project.worktrees))
 
 
 def passes(project, number, issues, what, extra_env=None, also=None):
@@ -642,7 +645,7 @@ READINESS = "## Readiness\n" + "".join("- NOTE %d: a note.\n" % n for n in range
 def padded(limit, over):
     base = goal()
     count = len(base.rstrip("\n").split("\n"))
-    filler = "".join("- Padding line %d.\n" % n for n in range(limit - count + over))
+    filler = "".join("- Padding row %d.\n" % n for n in range(limit - count + over))
     text = base.replace("## Must still hold\n", "## Must still hold\n" + filler, 1)
     return text + "\n" + READINESS
 

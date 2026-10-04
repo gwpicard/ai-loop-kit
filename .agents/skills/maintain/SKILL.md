@@ -229,7 +229,8 @@ nothing else, so the helper would never arrive.
 On the clean checkpoint from step 2, and after the update where the person
 approved one, run `sh <installed setup-ai-build-kit skill>/scripts/place-plan-helper.sh`
 from the project root. It places the helper, and beside it the gate script, `.agents/tools/gate.py`, and the state guard hook, `.agents/hooks/state-guard.sh`,
-since an update brings none of them. It adds each one when it is missing,
+since an update brings none of them. The ready-gate lint the gate calls,
+`.agents/tools/ready-lint.py`, is placed beside the gate script the same way. It adds each one when it is missing,
 replaces a copy that differs from the installed one, and changes nothing when
 the copy is current, so it is safe on every visit. It refuses a link or a
 folder where one of them belongs.
