@@ -30,7 +30,23 @@ trap cleanup EXIT
 
 mkdir -p "$CONFIG" "$PROJECT"
 "$BUILDER" v0.2.0 "$MARKET" >/dev/null
-CLAUDE_CONFIG_DIR="$CONFIG" claude plugin validate "$MARKET" --strict >/dev/null
+# The released kit keeps a root CLAUDE.md for a project that copies the whole
+# kit, and the plugin's source is that same root. Claude Code warns that a
+# plugin does not load a root CLAUDE.md, which is true and harmless here, since
+# the plugin carries its rules in skills. That one warning is accepted. Any
+# other warning, and any error, still fails the strict check.
+CLAUDE_CONFIG_DIR="$CONFIG" claude plugin validate "$MARKET" >/dev/null \
+  || fail "the assembled plugin does not validate"
+if ! CLAUDE_CONFIG_DIR="$CONFIG" claude plugin validate "$MARKET" --strict \
+    > "$SCRATCH/validate.txt" 2>&1; then
+  grep '❯' "$SCRATCH/validate.txt" > "$SCRATCH/warnings.txt" \
+    || fail "strict validation failed with no warning named"
+  if grep -v 'CLAUDE.md at the plugin root is not loaded as project context' \
+      "$SCRATCH/warnings.txt" >/dev/null; then
+    cat "$SCRATCH/validate.txt" >&2
+    fail "strict validation found a warning other than the root CLAUDE.md"
+  fi
+fi
 CLAUDE_CONFIG_DIR="$CONFIG" claude plugin marketplace add "$MARKET" >/dev/null
 
 (
