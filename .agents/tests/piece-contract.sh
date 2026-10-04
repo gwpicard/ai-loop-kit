@@ -102,7 +102,7 @@ rs_rule "the template carries Must still hold" '## must still hold <each rule'
 rs_rule "the template carries Relies on" '## relies on <each existing thing'
 rs_rule "the template carries the Loop section" '## loop loop module: <fix \| build \| goal \| gauntlet>'
 rs_rule "the template carries the Reach section" '## reach boundary: <area>, <area>'
-rs_rule "the template carries the Crew line" 'crew: <step> <width>, because <reason>'
+rs_rule "the template carries the Crew line" 'reach derived at: <commit> crew: <step> <width>, because <reason>'
 rs_rule "the template carries Needs from the computer" \
   '## needs from the computer heavy: <yes \| no>'
 rs_rule "the template ends on Readiness" '## readiness <written only by the readiness check>'
@@ -234,7 +234,7 @@ rs_rule "item 7, a missed number means not done" 'a missed number means not done
 rs_rule "item 8, relies on" '8\. \*\*relies on\.\*\* each existing thing used and not built here, confirmed by reading or trying it'
 rs_rule "item 9 reads the Reach fields" '9\. \*\*reach\.\*\* the `## reach` fields\.'
 rs_rule "item 9 still names open pieces changing the same thing, and the merge order" \
-  'change the same file, schema, prompt or record are named with the merge order'
+  'change the same file, schema, prompt or record, are named with the merge order'
 rs_rule "item 10, no open choice" '10\. \*\*no open choice a person would notice\.\*\*'
 rs_rule "item 10 says the lint has refused its fixed phrases" \
   'the ready-gate lint has already refused its fixed phrases'
@@ -297,7 +297,7 @@ rs_require_absent "founding no longer runs the check" \
 # this holds the bodies, since a softened clause inside an item reads as well
 # as the original and would pass every pattern. The sum is of the block from
 # "How to run it:" to "stay required.", copied from the slice that wrote it.
-LIST_SUM=b062ac77e4745eb17f6a08c02e128d2e1b7eb74eb0815e1ed3345966bd2ed2f6
+LIST_SUM=308f192a37631f8ac0d959222ee88d1c3eee8acf2f99c36a08b8b9551a1153e3
 list_sum() {
   sed -n '/^How to run it:$/,/screen-check stay required\.$/p' "$1" > "$rs_dir/list"
   if command -v sha256sum >/dev/null 2>&1; then

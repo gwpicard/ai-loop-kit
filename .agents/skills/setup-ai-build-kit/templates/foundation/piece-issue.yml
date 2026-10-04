@@ -66,12 +66,12 @@ body:
     attributes:
       label: Not in this piece
       description: >
-        The nearest things this is not, so scope does not creep in later.
-        Required when Done when leaves part of So that out: name that part and
-        the piece that follows it up.
+        The nearest things this is not, so scope does not creep in later. Where
+        Done when leaves part of So that out, name that part and the piece that
+        follows it up.
       placeholder: Cancelling. Deposits.
     validations:
-      required: false
+      required: true
 
   - type: markdown
     attributes:
@@ -137,14 +137,72 @@ body:
     validations:
       required: false
 
-  - type: input
-    id: touches
+  - type: dropdown
+    id: loop-module
     attributes:
-      label: Touches
+      label: Loop module
       description: >
-        One line that starts with "Touches:" and names the areas changed, by
-        skill, record or document name, never a file path.
-      placeholder: "Touches: bookings, availability calendar"
+        Which loop builds this piece, chosen while it is shaped. Each module
+        needs a different bar, written in the Loop field below.
+      options:
+        - fix
+        - build
+        - goal
+        - gauntlet
+    validations:
+      required: false
+
+  - type: textarea
+    id: loop
+    attributes:
+      label: Loop
+      description: >
+        The bar the loop module needs, one line for each field it names. A line
+        the module does not need is left out.
+      placeholder: "Acceptance branch: spec/12-book-a-date-range"
+    validations:
+      required: false
+
+  - type: textarea
+    id: reach
+    attributes:
+      label: Reach
+      description: >
+        Five lines: Boundary:, Reaches:, If it breaks:, Depends on: and Reach
+        derived at:. Areas are named by skill, record or document name, never
+        a file path.
+      placeholder: |
+        Boundary: bookings
+        Reaches: availability calendar, guarded by the calendar tests
+        If it breaks: freelancers cannot book, and a rollback undoes it.
+        Depends on: nothing
+        Reach derived at: 4f2a9c1
+    validations:
+      required: false
+
+  - type: input
+    id: crew
+    attributes:
+      label: Crew
+      description: >
+        Only where the crew differs from the loop module's default, as
+        "Crew: <step> <width>, because <reason>".
+      placeholder: "Crew: research 3, because two calendar services need comparing"
+    validations:
+      required: false
+
+  - type: textarea
+    id: needs-from-the-computer
+    attributes:
+      label: Needs from the computer
+      description: >
+        Heavy:, Dev server:, Browser:, Expected duration: and Cannot share:.
+      placeholder: |
+        Heavy: no
+        Dev server: yes
+        Browser: yes
+        Expected duration: 40 minutes
+        Cannot share: nothing
     validations:
       required: false
 

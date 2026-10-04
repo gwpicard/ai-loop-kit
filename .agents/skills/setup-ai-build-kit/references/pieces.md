@@ -60,7 +60,25 @@ cannot: where to go, what to do there, and what to bring back>
 ## Relies on
 <each existing thing used and not built here, confirmed>
 
-Touches: <area>, <area>
+## Loop
+Loop module: <fix | build | goal | gauntlet>
+<the bar that module needs, one line for each field it names>
+
+## Reach
+Boundary: <area>, <area>
+Reaches: <area>, guarded by <existing tests, by name> | <area>, no test covers it, guarded by <acceptance check>
+If it breaks: <who notices what, and how it is undone>
+Depends on: <#number>, <#number> | nothing
+Reach derived at: <commit>
+
+Crew: <step> <width>, because <reason>
+
+## Needs from the computer
+Heavy: <yes | no>
+Dev server: <yes | no>
+Browser: <yes | no>
+Expected duration: <minutes>
+Cannot share: <a resource, or nothing>
 
 <details><summary>Under the hood</summary>
 
@@ -81,9 +99,9 @@ The header is `So that`, `Done when`, `Masterplan change`, `Not in this piece`
 and `Waiting on you`. Everything from `## Decided` down is the agent layer.
 
 A piece opened with the GitHub form shows every field as a `###` heading, so
-Done when and "When it is not the normal case" sit side by side and Touches
-has a `### Touches` heading of its own. `/shape` rewrites it to the layout above
-when it shapes the piece.
+Done when and "When it is not the normal case" sit side by side, and the loop
+module, its bar, the reach and the crew each sit under a heading of their own.
+`/shape` rewrites it to the layout above when it shapes the piece.
 
 ## Field rules
 
@@ -116,8 +134,9 @@ This is the piece's delta, meaning its change to the present record. Writing
 it does not apply it early. The save and recovery rules live in
 [masterplan-changes.md](masterplan-changes.md).
 
-`## Not in this piece` is required when Done when does not deliver all of So
-that. It names the gap and the piece that follows it up.
+`## Not in this piece` is required on every piece. It names the nearest things
+this piece is not, so scope does not creep in later. Where Done when does not
+deliver all of So that, it also names the gap and the piece that follows it up.
 
 `## Decided`: every choice a person would notice is decided here, with its
 reason, so nothing a person would notice is left for the build to choose. A
@@ -137,9 +156,64 @@ with its number and where it is measured, and which rule wins where two apply.
 `## Relies on` names each existing thing the piece uses, confirmed to exist and
 to give the data needed, by reading or trying it.
 
-`Touches:` is one line, `Touches: <area>, <area>`, with no heading of its own.
-Each area is named by the skill, record or document name, never a file path,
-because paths go stale.
+`## Loop` holds `Loop module: fix | build | goal | gauntlet` and the bar that
+module needs, one line for each field:
+
+- For `build`: `Acceptance branch:`, the branch that holds the acceptance
+  checks, and a `Check:` on every Works line, written
+  `Check: <path of one test file on the acceptance branch>`. A project with no
+  code yet carries the branch too, cut after the person's yes to the first
+  upload.
+- For `fix`: `Acceptance branch:`; `Reproduction:`, naming one test file on
+  that branch that fails today, in the same form as `Check:`; and
+  `Must not change:`.
+- For `build` or `fix` where AGENTS.md's stack section records
+  `Test command: none for <language>`: `Test runner:`, naming the runner
+  [check-floor.md](check-floor.md) names for that language. The checks are
+  written for it.
+- For `goal`: `Metric:`, `Measured by:` (a command), `Target:`, `Budget:`,
+  `Guard checks:` and `Held-out check:`. The held-out check is written as a
+  command, then `on held-out/<number>-<short name> at <commit>`, the branch
+  and commit the spec step writes.
+- For `gauntlet`: `Reference:`, a link that can be fetched, with the person's
+  approval and its date; `Compared by:`; `Budget:`; and `Guard checks:`.
+
+A line the module does not need is left out, never written as "none", because
+the module says which lines a piece needs.
+
+`## Reach` holds five lines, and replaces the one-line `Touches:` an older
+piece may carry:
+
+- `Boundary:` names the areas the piece may change, as
+  `Boundary: <area>, <area>`, each named by the skill, record or document name,
+  never a file path, because paths go stale.
+- `Reaches:` names the areas it affects without changing them, each with the
+  existing tests that guard it by name, or "no test covers it" and the
+  acceptance check that guards it.
+- `If it breaks:` says who notices what, and how it is undone: a rollback, or
+  not reversible because of data.
+- `Depends on:` gives `#<number>` for each piece it needs, separated by commas,
+  or `nothing`. The numbers match the piece's blocked-by links.
+- `Reach derived at:` names the commit the reach was worked out on.
+
+The person reads the reach as one sentence, such as "This changes sign-in. It
+also reaches billing, which 14 checks guard. If it breaks, people cannot sign
+in, and a rollback undoes it."
+
+`Crew:` is written only where the crew differs from the loop module's default,
+as `Crew: <step> <width>, because <reason>`, with no heading of its own. The
+step is one of `research` (readers, cap 5), `prototype` (variants, cap 3),
+`fix` (reading probes, cap 3), `goal` (race entries, each in its own worktree,
+cap 3) and `gauntlet` (critics, cap 3). The width counts that step's members
+and never the builder. A `Crew:` line naming the build or readiness check step,
+naming the run, or asking for more than one builder is a crew with two
+writers, and is refused.
+
+`## Needs from the computer` holds `Heavy:`, `Dev server:`, `Browser:`,
+`Expected duration:` and `Cannot share:`. They say whether the piece runs
+something heavy, such as a container, a model download or an index build,
+whether it needs a dev server or a browser, how long it should take, and any
+resource it cannot share with another piece.
 
 `Under the hood` holds the build approach, and the existing tests this piece
 may change, with the reason.
@@ -150,6 +224,19 @@ lines.
 `## Readiness` is written by the readiness check and read by every later step.
 The check and the section are described in the `shape` skill's
 `references/readiness-check.md`.
+
+## The brief rules
+
+The contract is a brief for a builder who works alone and never sees the
+shaping conversation. Three rules keep it usable that way:
+
+- Behaviour rather than steps. The piece says what the tool does once it
+  lands, and leaves the order of the work to the builder.
+- Interfaces rather than file paths or line numbers. The piece names a route,
+  a command, a screen or a record. A path belongs only in `## Relies on` and in
+  the lines that name a check or a test, because those name the evidence.
+- Each acceptance criterion checkable on its own. Every Works line names its
+  own check, and no line passes only because another one does.
 
 ## Rules that are not fields
 
@@ -375,7 +462,7 @@ and still be held up, so `state:ready` alone does not mean startable. What
 `/queue` offers is the ready pieces the printout has already put under
 `To build`, and a piece with an open blocker is never there. That is what makes
 the group safe to take on at once: no two pieces in it are waiting on each
-other. The printout also compares their `Touches:` lines and prints the pieces
+other. The printout also compares their `Boundary:` lines and prints the pieces
 in groups, two pieces naming the same area never in one, and `/queue` reads the
 groups rather than working them out again. The pieces of one group can be built
 at the same time in any order, and each still merges one at a time, brought up
@@ -584,9 +671,10 @@ out of `To build`. A parent gets neither note. A parent with open parts carries
 no state of its own and prints under Made of parts. A `type:bug` piece carries
 a `(bug)` mark in whichever column it sits. A closed issue never prints.
 
-`Go together` puts the pieces under `To build` in groups by their `Touches:`
-lines. A held-up piece is marked `(in the plan)` when every open blocker in its
-chain is ready to build too. A ready piece carries the marks a run's verdict
+`Go together` puts the pieces under `To build` in groups by their `Boundary:`
+lines. A piece with no `Boundary:` line, such as an older piece that carries
+only `Touches:`, goes alone. A held-up piece is marked `(in the plan)` when
+every open blocker in its chain is ready to build too. A ready piece carries the marks a run's verdict
 needs, read from its body: `(needs you)` for a `## Waiting on you` step other
 than `try it`, `(not ready)` and `(not yet checked)` from its `## Readiness`
 section, `(try it)` for a `Waiting on you: try it` line, and on a held-up piece

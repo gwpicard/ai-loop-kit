@@ -354,11 +354,12 @@ attribution line, not the word.
   and the refresh says when it was written. It also holds the invariant
   `/queue` rests on, that a piece with an open blocker never reaches the
   buildable group while a piece whose blocker has closed does. And it holds
-  the groups of free pieces the printout works out from each piece's
-  `Touches:` line, under `Go together`: two pieces naming the same area, in
-  any capitals and with backticks or a full stop, never share a group, a line
-  under a Touches heading counts and one in a code block does not, a piece
-  with no line goes alone and says its Touches is unknown, and a held-up piece
+  the groups of free pieces the printout works out from the `Boundary:` line
+  of each piece's reach, under `Go together`: two pieces naming the same area,
+  in any capitals and with backticks or a full stop, never share a group, a
+  line under a form's Reach heading counts and one in a code block does not,
+  a piece with no line goes alone and says its Boundary is unknown, an older
+  piece carrying only `Touches:` goes alone the same way, and a held-up piece
   is in no group. It holds the marks read from each ready piece's body, needs
   you, not ready, not yet checked and try it, and that a held-up piece joins
   the plan only when every open blocker in its chain is in it. A piece stacked
@@ -409,8 +410,17 @@ attribution line, not the word.
   layer, with Done when kept as the heading the printout reads and split into
   Works and the cases that are not the normal one. It holds each field rule in
   `pieces.md`, the rules that are not fields, the `Decided` guidance that every
-  choice a person would notice is decided on the piece, and the one-line
-  `Touches:` format. It holds the fourteen items of the readiness list, its
+  choice a person would notice is decided on the piece, and the parts
+  contract v2 adds to the agent layer: `## Loop` with the loop module and the
+  bar each module needs, `## Reach` with its five lines in place of the
+  one-line `Touches:`, the `Crew:` line with each step's cap and the refusal
+  of a crew with two writers, and `## Needs from the computer`. It holds that
+  `## Not in this piece` is required on every piece, the three brief rules,
+  the form's new fields with the loop module as a dropdown, and the Test
+  runner table in `check-floor.md`, one row for each language. It holds the
+  fifteen items of the readiness list, item 9 reading the reach, item 10
+  leaving the fixed phrases to the ready-gate lint, and item 15 matching each
+  check to its criterion, its
   severity rule and what it cannot catch, and that `/shape` has a session that
   did not shape the piece run it: a subagent carrying none of the conversation,
   or a new session given the exact line to paste, which `/shape` routes
@@ -422,10 +432,15 @@ attribution line, not the word.
   writes a
   `## Readiness` section, and a blocking gap sends the piece back through the
   gate with the gap written on it. A Relies on line nobody could read is a
-  blocking gap, a container passes when its parts are pieces, and a ready
-  piece that skipped the check is checked before a run claims it. It also holds that clarify asks about those cases, data
+  blocking gap, and a container passes when its parts are pieces. Founding
+  takes each piece it shapes no further than `shaping:spec`, because writing
+  the acceptance checks pushes a branch and founding uploads no code, and the
+  readiness check, the setup skill, the completion report and WORKFLOW.md
+  each say so. It also holds that clarify asks about those cases, data
   and what leaves the tool only when the piece touches them, that WORKFLOW.md
-  and PHILOSOPHY tell it, that the list stays out of the founded AGENTS.md, and
+  and PHILOSOPHY tell it, with WORKFLOW.md naming the loop module and giving
+  the reach line the person reads, that the list stays out of the founded
+  AGENTS.md, and
   that the replay case for it is written and listed as owed.
 - `.agents/tests/plan-helper-routes.sh` proves the helper that writes the
   printout reaches every project. It ships inside the setup-ai-build-kit skill,
@@ -457,7 +472,7 @@ attribution line, not the word.
   stacks on what, and last the exact command that runs it, `/implement queue` or
   `/implement` with the numbers. Each verdict is held, read from the
   printout's marks and never by opening a piece, and so are a piece with no
-  Touches line going alone, a piece that waits for its base never reaching the
+  `Boundary:` line going alone, a piece that waits for its base never reaching the
   numbered command, no command when nothing is ready or a run can take
   nothing, and an older helper with no groups sent to `/maintain`.
   It also guards the blocker being named rather than numbered, a waiting
@@ -647,7 +662,8 @@ attribution line, not the word.
 - `.agents/tests/completion-report-shape.sh` guards the source of the /setup
   completion report, which is watched by hand rather than replayed: it proves
   completion-report.md still leads with what is ready, keeps technical state out
-  of the lead, ends on a clean cut pointing at /implement, and says no code was
+  of the lead, ends on a clean cut that names the pieces waiting in spec and
+  points at /shape rather than /implement, and says no code was
   uploaded rather than that nothing was, since founding puts the pieces online
   as issues. It fails on a copy with any of those rules removed.
 - `.agents/tests/setup-notes.sh` guards the working notes the founding
@@ -1840,7 +1856,8 @@ attribution line, not the word.
   know Git, branches and pull requests and never have to read code. Records are written for agents
   first under a short plain header, while a public document such as the README
   stays written for people. The worktree and loop worked examples are added,
-  and they and the two-layer piece example each answer all five questions, with the answer for when it goes wrong
+  and they and the two-layer piece example each answer all five questions,
+  the two-layer example naming the loop module and the reach line, with the answer for when it goes wrong
   naming a command the person types. Taking any one answer out is caught. The
   test-first example still rejects the universal practice and states the
   narrower rule that a machine check fails before the code. The kit may grow

@@ -46,13 +46,16 @@ Naming the reference is what makes that impossible to do by accident, because
 there is no reference to name for a checkpoint that was never taken.
 
 End with a clean cut, not an offer to build. Say plainly that setup is done and
-the work is saved, name the first ready piece and a rough, honest time, and say
-the empty project is expected rather than broken. Point at `/implement` to build
-the first piece and `/shape` to shape more, ideally in a fresh session so the
-founding conversation does not carry into the build. Do not offer to build the
-first piece in this session; founding a project and building it are separate,
-deliberate steps. On an adopted project that is not empty, drop the "this is
-normal" line and name the first outstanding piece instead.
+the work is saved, and say the empty project is expected rather than broken.
+Founding takes each piece it shapes no further than `shaping:spec`, because
+writing the acceptance checks pushes a branch and founding uploads no code. So
+name the pieces waiting in spec, with the first one and a rough, honest time,
+and point at `/shape` to take the first piece on from there, ideally in a fresh
+session so the founding conversation does not carry into it. Once a piece is
+ready, `/implement` builds it. Do not offer to build the first piece in this
+session; founding a project and building it are separate, deliberate steps. On
+an adopted project that is not empty, drop the "this is normal" line and name
+the first outstanding piece instead.
 
 Do not tell the person to push the founding checkpoint from this report.
 
@@ -92,11 +95,11 @@ This address works only on this computer while the preview is running.
 
 Setup is done and your work is saved. Your project is empty right now, which is
 how it should look at this point, not a sign anything went wrong. The plan holds
-[number] small build steps, and the first is [first step name], about
-[rough time].
+[number] small build steps, and [the number in spec] of them wait in spec for
+their acceptance checks. The first is [first step name], about [rough time].
 
-Then start a fresh chat and type `/implement` to build the first piece, or `/shape`
-to shape more first. `/what-now` tells you where things
+Then start a fresh chat and type `/shape` to take it on from there. Once a
+piece is ready, `/implement` builds it. `/what-now` tells you where things
 stand any time.
 
 Checkpoint reference: `[short reference]`

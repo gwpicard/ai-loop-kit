@@ -427,7 +427,7 @@ works in.
   new agent, wait for the ones still building to report, and leave each piece
   as "When the run ends" says.
 - **Two pieces that change one file.** Two pieces of one group can change the
-  same file although their `Touches:` lines differ. The second merge's check
+  same file although their `Boundary:` lines differ. The second merge's check
   against the latest `main` then finds the conflict, and the
   `section-builder` skill's `references/merge.md` takes it to `/fix`.
 - **The browser.** Where a walk-through cannot get the browser because another

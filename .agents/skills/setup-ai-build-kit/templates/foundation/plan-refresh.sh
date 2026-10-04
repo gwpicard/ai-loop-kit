@@ -376,28 +376,19 @@ def render(heading, group, note, marked=True, extra=()):
         lines.append("       %s" % issue["html_url"])
     lines.append("")
 
-# The areas a piece changes, from its Touches line: one bare line,
-# `Touches: <area>, <area>`, or the line under a `## Touches` or `### Touches`
-# heading, as on a piece opened with the GitHub form. Backticks and a closing
-# full stop are trimmed in any order, and names are compared without regard to
-# capitals. None means the piece has no Touches line, so nothing says what it
-# changes.
-def touches(issue):
-    under_heading = False
+# The areas a piece may change, from the `Boundary: <area>, <area>` line of
+# its Reach section, written the same way on a piece opened with the GitHub
+# form. A line inside a code block is an example and is skipped. Backticks and
+# a closing full stop are trimmed in any order, and names are compared without
+# regard to capitals. None means the piece has no Boundary line, so nothing
+# says what it changes. The one-line Touches an older piece carries is not
+# read: such a piece goes alone until /shape writes its Reach section.
+def boundary(issue):
     for line in body_lines(issue):
-        if line.lower().startswith("touches:"):
-            text = line[len("touches:"):]
-        elif heading(line, "touches"):
-            under_heading = True
-            continue
-        elif under_heading and line:
-            if line.startswith("#"):
-                return None
-            text = line
-        else:
+        if not line.lower().startswith("boundary:"):
             continue
         areas = [re.sub(r"^[\s`]+|[\s`.]+$", "", a).lower()
-                 for a in text.split(",")]
+                 for a in line[len("boundary:"):].split(",")]
         areas = [a for a in areas if a and a != "_no response_"]
         return areas or None
     return None
@@ -488,16 +479,16 @@ def held_up_note(issue):
     return " ".join(p for p in parts if p)
 
 # Which pieces free to build can go together. Two pieces share a group only
-# when no area on their Touches lines matches, so the pieces of one group
+# when no area on their Boundary lines matches, so the pieces of one group
 # can be built at the same time in any order. Two pieces that pass alone can
 # still fail together, so each still merges one at a time, brought up to date
 # with main and checked again first. Pieces are placed in number
 # order, each in the first group it clashes with nothing in. A piece with no
-# Touches line goes alone, because nothing says what it would change.
+# Boundary line goes alone, because nothing says what it would change.
 def go_together(group):
     placed = []
     for issue in group:
-        areas = touches(issue)
+        areas = boundary(issue)
         if areas is not None:
             for members in placed:
                 if members[0][1] is None:
@@ -518,8 +509,8 @@ def render_groups(group):
     for n, members in enumerate(go_together(group), 1):
         lines.append("  Group %d" % n)
         for issue, areas in members:
-            note = ("(touches %s)" % ", ".join(areas) if areas is not None
-                    else "(Touches unknown, so it goes alone)")
+            note = ("(boundary: %s)" % ", ".join(areas) if areas is not None
+                    else "(Boundary unknown, so it goes alone)")
             lines.append("    #%-4s %s   %s" % (issue["number"], issue["title"], note))
     lines.append("")
 
