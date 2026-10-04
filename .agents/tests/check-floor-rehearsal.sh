@@ -24,11 +24,17 @@ TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/checks.ym
 SENSITIVE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/check-sensitive-areas.sh"
 # Founding writes AGENTS.md from this, and the check counts its lines.
 INSTRUCTIONS="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.md"
+# Founding copies the gate script into every project, and a script the kit puts
+# there must never turn the project's own check red. Each founded project below
+# carries it where founding places it.
+GATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/gate.py"
 
 fail() {
   echo "FAIL: $1" >&2
   exit 1
 }
+
+[ -f "$GATE" ] || fail "the setup skill carries no gate script at templates/foundation/gate.py"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -61,6 +67,8 @@ fi
 
 cp "$SENSITIVE" "$PROJECT/.agents/hooks/check-sensitive-areas.sh"
 cp "$INSTRUCTIONS" "$PROJECT/AGENTS.md"
+mkdir -p "$PROJECT/.agents/tools"
+cp "$GATE" "$PROJECT/.agents/tools/gate.py"
 
 # The edit founding makes: the placeholder step goes, and install, type check,
 # lint and test go in its place, each as its own named step.
@@ -126,7 +134,24 @@ started=$(date +%s)
 first=$(run_check)
 finished=$(date +%s)
 [ -z "$first" ] || { cat "$WORK/last-output" >&2; fail "the new project's check was red on day one, at $first"; }
-echo "  ok: the founded project's check is green on day one ($((finished - started))s)"
+echo "  ok: the founded project's check is green on day one ($((finished - started))s), with the gate script in place"
+
+# Green with the gate script proves nothing unless the check reads it. The
+# linter does: an unused import added to the placed copy turns Lint red.
+cp "$PROJECT/.agents/tools/gate.py" "$WORK/gate.kept"
+printf '\nimport os\n' >> "$PROJECT/.agents/tools/gate.py"
+first=$(run_check)
+[ "$first" = "Lint" ] || fail "the linter did not read the placed gate script, got '${first:-nothing}'"
+grep -q 'gate.py' "$WORK/last-output" || fail "the lint failure did not name gate.py"
+mv "$WORK/gate.kept" "$PROJECT/.agents/tools/gate.py"
+echo "  ok: the linter reads the placed gate script, so its green counts"
+
+# mypy leaves folders whose names start with a dot out of "mypy .", so the
+# type check is also run on the gate script by name, the way a project that
+# points its type check there would.
+(cd "$PROJECT" && mypy .agents/tools/gate.py) > "$WORK/last-output" 2>&1 ||
+  { cat "$WORK/last-output" >&2; fail "the type check fails when pointed at the gate script"; }
+echo "  ok: the type check passes on the gate script by name"
 
 # A type error in code no test reaches.
 cat >> "$PROJECT/pricing.py" <<'PY'
@@ -192,6 +217,8 @@ PROJECT="$WORK/ts-project"
 mkdir -p "$PROJECT/.github/workflows" "$PROJECT/.agents/hooks" "$PROJECT/src"
 cp "$SENSITIVE" "$PROJECT/.agents/hooks/check-sensitive-areas.sh"
 cp "$INSTRUCTIONS" "$PROJECT/AGENTS.md"
+mkdir -p "$PROJECT/.agents/tools"
+cp "$GATE" "$PROJECT/.agents/tools/gate.py"
 
 awk -v tc="$type_check" -v li="$lint" '
   /- name: Install and test/ { skipping = 1 }
@@ -273,7 +300,8 @@ started=$(date +%s)
 first=$(run_check)
 finished=$(date +%s)
 [ -z "$first" ] || { cat "$WORK/last-output" >&2; fail "the new TypeScript project's check was red on day one, at $first"; }
-echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s)"
+[ -f "$PROJECT/.agents/tools/gate.py" ] || fail "the TypeScript project lost its gate script"
+echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s), with the gate script in place"
 
 # A type error in code no test reaches. It is exported, so the linter has no
 # reason to object and only the type check can see it.

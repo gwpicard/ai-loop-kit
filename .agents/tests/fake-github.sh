@@ -572,6 +572,117 @@ else
   fail "the refusal log did not record the refused command"
 fi
 
+echo "== Labels, closing reasons and the faults the gate script is tried against =="
+
+# The repository's labels are modelled, because the gate script creates the
+# kit's set and must be seen creating each one once. A new repository starts
+# with GitHub's nine, which founding deletes.
+names=$("$GH" label list --json name)
+case "$names" in
+  *'"bug"'*'"wontfix"'*) pass "a new repository lists GitHub's nine labels" ;;
+  *) fail "the label list did not start with GitHub's nine: $names" ;;
+esac
+"$GH" label create "state:ready" --color 0E8A16 --description "Ready to build" \
+  && pass "a label with a colon in its name can be created" \
+  || fail "creating state:ready was refused"
+case "$("$GH" label list --json name,color)" in
+  *'"name": "state:ready", "color": "0E8A16"'*) pass "a created label lists with its colour" ;;
+  *) fail "the created label did not list with its colour" ;;
+esac
+if "$GH" label create "state:ready" --color 0E8A16 > /dev/null 2>&1; then
+  fail "creating a label that exists was answered; GitHub refuses it without --force"
+else
+  pass "creating a label that already exists is refused, as on GitHub"
+fi
+"$GH" label delete wontfix --yes \
+  && ! "$GH" label list --json name | grep -q '"wontfix"' \
+  && pass "a label can be deleted" || fail "deleting a label did not take it off the list"
+
+# Labels on an issue still need no label to exist first, as before.
+"$GH" issue edit 1 --add-label "loop:build" > /dev/null \
+  && "$GH" issue view 1 --json labels | grep -q '"loop:build"' \
+  && pass "an issue still takes a label the repository does not list" \
+  || fail "an issue refused a label the repository does not list"
+
+# One issue read on its own, as the gate script reads a piece.
+case "$("$GH" api "repos/rehearsal/project/issues/1")" in
+  *'"number": 1'*'"sub_issues_summary"'*) pass "one issue reads on its own, with its parts summary" ;;
+  *) fail "one issue did not read on its own" ;;
+esac
+if "$GH" api "repos/rehearsal/project/issues/999" > /dev/null 2>"$WORK/missing"; then
+  fail "an issue that does not exist was answered"
+else
+  grep -q "404" "$WORK/missing" && pass "an issue that does not exist answers 404" \
+    || fail "a missing issue did not answer 404"
+fi
+
+# Closing as not planned keeps the reason and the comment.
+"$GH" issue create --title "An idea nobody wants" --body "x" > /dev/null
+"$GH" issue close 3 --reason "not planned" --comment "Nobody needs it." > /dev/null
+python3 - "$FAKE_GH_STATE" <<'CHECK' && pass "a close keeps its reason and its comment" || fail "a close lost its reason or comment"
+import json, sys
+issue = [i for i in json.load(open(sys.argv[1]))["issues"] if i["number"] == 3][0]
+bodies = [c["body"] if isinstance(c, dict) else c for c in issue.get("comments", [])]
+assert issue["state"] == "closed" and issue["state_reason"] == "not_planned"
+assert bodies == ["Nobody needs it."]
+CHECK
+case "$("$GH" issue list --state closed --label "state:ready")" in
+  '[]') pass "closed issues list by label" ;;
+  *) fail "a closed issue with no such label was listed" ;;
+esac
+
+set_fault() {
+  python3 - "$FAKE_GH_STATE" "$1" <<'FAULT'
+import json, sys
+path, given = sys.argv[1], sys.argv[2]
+state = json.load(open(path))
+state["faults"] = json.loads(given)
+json.dump(state, open(path, "w"))
+FAULT
+}
+
+set_fault '{"offline": true}'
+if "$GH" issue view 1 > /dev/null 2>"$WORK/offline"; then
+  fail "a call answered while GitHub was taken away"
+else
+  grep -q "error connecting" "$WORK/offline" && pass "with GitHub taken away every call fails as with no network" \
+    || fail "the offline failure did not say it could not connect"
+fi
+
+set_fault '{"refuse_label_write": true}'
+if "$GH" issue edit 1 --add-label "state:building" > /dev/null 2>&1; then
+  fail "a label write was answered while label writes were refused"
+else
+  pass "a label write can be refused, as for an account without write access"
+fi
+"$GH" issue edit 1 --title "Take a deposit" > /dev/null \
+  && pass "an edit with no label change still goes through" \
+  || fail "an edit with no label change was refused"
+
+set_fault '{"refuse_label_create": ["loop:goal"]}'
+if "$GH" label create "loop:goal" > /dev/null 2>&1; then
+  fail "a label creation was answered while it was refused"
+else
+  "$GH" label create "loop:fix" > /dev/null \
+    && pass "a creation can be refused by name while others go through" \
+    || fail "an unrefused label creation failed"
+fi
+
+set_fault '{"refuse_comment": true}'
+if "$GH" issue comment 1 --body "x" > /dev/null 2>&1; then
+  fail "a comment was answered while comments were refused"
+else
+  pass "a comment can be refused"
+fi
+
+# A second session moving the same piece: the change lands on the second read.
+set_fault '{"race": {"number": 1, "on_read": 2, "add": ["state:in-review"], "remove": []}}'
+"$GH" api "repos/rehearsal/project/issues/1" | grep -q '"state:in-review"' \
+  && fail "the race landed on the first read" || pass "the first read is answered as it stood"
+"$GH" api "repos/rehearsal/project/issues/1" | grep -q '"state:in-review"' \
+  && pass "the race lands on the second read" || fail "the race never landed"
+set_fault '{}'
+
 # Nothing the kit reached for during this rehearsal should have been refused.
 if grep -q "UNSUPPORTED" "$FAKE_GH_LOG"; then
   unexpected=$(grep "UNSUPPORTED" "$FAKE_GH_LOG" | grep -vc "search repos\|repo list\|nosuchfield\|visibility public\|private=false\|force=true\|-X DELETE\|someone/else\|git/ref -f" || true)
