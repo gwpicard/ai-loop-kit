@@ -15,7 +15,7 @@
 # that runs it.
 #
 # The groups of pieces that can be built together follow the same rule. The
-# printout compares each ready piece's Touches line and prints the groups, and
+# printout compares each ready piece's Boundary line and prints the groups, and
 # /queue reads them. plan-printout.sh proves two pieces naming the same area
 # never share a group.
 #
@@ -74,13 +74,13 @@ rs_rule "the stack part" '\*\*the stack\.\*\*'
 rs_rule "the command part" '\*\*the command\.\*\*'
 rs_rule "the plan takes what /implement queue would take, in blocked-by order" \
   'whose open blockers are all in the plan, all the way down its chain'
-# The groups come from the printout, which compares the Touches lines. A /queue
+# The groups come from the printout, which compares the Boundary lines. A /queue
 # that grouped the pieces itself would be a second answer to the same question,
 # and the two would drift.
 rs_rule "the groups are read as printed" 'as the printout wrote them'
 rs_rule "the groups are never worked out again" 'never group the pieces yourself'
-rs_rule "a piece with no Touches line goes alone, and says why" \
-  'its touches line is missing, so it goes alone'
+rs_rule "a piece with no Boundary line goes alone, and says why" \
+  'its `boundary:` line is missing, so it goes alone'
 rs_rule "verdict: a run can take it" \
   "a run can take it: none of the above holds, so the readiness section's first line says ready"
 rs_rule "on explore privately, only disposable work a machine can check" \
@@ -164,8 +164,10 @@ rs_require "pieces.md says ready alone does not mean startable" \
   "$PIECES" 'ready` alone does not mean startable'
 rs_require "pieces.md says what /queue actually offers" \
   "$PIECES" 'the printout has already put under `to build`'
-rs_require_load_bearing "pieces.md says the groups come from the Touches lines" \
-  "$PIECES" 'compares their `touches:` lines'
+rs_require_load_bearing "pieces.md says the groups come from the Boundary lines" \
+  "$PIECES" 'compares their `boundary:` lines'
+rs_require_absent "the /queue skill no longer reads Touches lines" \
+  "$SKILL" '`touches:`|touches line|touches is'
 
 # /what-now keeps its own job. If it ever grew the whole list, the split that
 # justified a ninth command would have been undone and both commands would be

@@ -154,8 +154,8 @@ rs_require_load_bearing "founding gives each piece exactly one type before its f
   "$SETUP" 'give it exactly one `type:` label with `gh issue edit` before its first move'
 rs_require_load_bearing "the founding commands carry the type step" \
   "$SETUP" 'gh issue edit <number> --add-label "type:<feature\|bug\|chore>"'
-rs_require_load_bearing "a piece founding shapes fully ends in check" \
-  "$SETUP" 'a piece founding shapes fully moves to `spec`, then to `check` once its contract is written, and ends in `shaping:check`'
+rs_require_load_bearing "a piece founding shapes fully stops in spec" \
+  "$SETUP" 'a piece founding shapes fully moves to `spec` and stays there'
 rs_require_load_bearing "and reaches ready only through the gate" \
   "$SETUP" 'moves to `state:ready` only through the gate'
 rs_require_absent "founding no longer names the six states" \

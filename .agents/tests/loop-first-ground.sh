@@ -221,6 +221,22 @@ check_five "the loop example" 'the loop, added'
 check_five "the two-layer piece example" 'a piece written in two layers, added'
 check_five "the loop module example" 'loop modules, added'
 
+# Contract v2 puts the loop module and the reach on every piece, so the
+# two-layer example names both among what the agent layer carries. Read inside
+# the example's own block, so a mention elsewhere in the file cannot stand in.
+if [ -z "${RS_LIST:-}" ]; then
+  block=$(example_block "$PHILOSOPHY" 'a piece written in two layers, added')
+  for marker in 'the loop module' 'the reach line'; do
+    printf '%s' "$block" | grep -qF "$marker" \
+      || rs_fail "the two-layer example does not name $marker"
+    rs_ok "the two-layer example names $marker"
+    if printf '%s' "$block" | sed "s@$marker@@g" | grep -qF "$marker"; then
+      rs_fail "removing $marker from the two-layer example was not caught"
+    fi
+    rs_ok "removing $marker from the two-layer example is caught"
+  done
+fi
+
 # --- the other documents say the same ------------------------------------
 
 rs_require_load_bearing "the README's audience line names technical builders who direct agents" \
