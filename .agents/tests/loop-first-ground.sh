@@ -8,12 +8,18 @@
 # documents, so a quiet edit that put the old ground back would leave those
 # changes resting on nothing.
 #
-# It holds the audience, the agent-first records, the worktree, loop and
-# two-layer piece worked examples with all five answers, the narrower checks-first rule, the reason
-# the kit is allowed to grow, and the Claude Code first line on the
-# compatibility page. Two old sentences must stay gone: the worktree rejection
-# and the promise that the kit shrinks as often as it grows. Each is put back
-# on a copy to prove the check notices.
+# It holds the principle the v1 design rests on: the work is shaping the
+# work, and looping is the consequence. It holds the two zones, the guides and
+# sensors that every gate is one of, and the list of what the loop kit leaves
+# out. It holds the audience, the agent-first records, the worktree, loop,
+# two-layer piece and loop module worked examples with all five answers, the
+# narrower checks-first rule, the reason the kit is allowed to grow, and the
+# Claude Code first line on the compatibility page. The README and WORKFLOW.md
+# each state the principle in one sentence, SOURCES.md credits the loop words
+# and the guide and sensor split without a link into the design notes, which
+# do not ship, and the root AGENTS.md entry names all of it. Two old sentences
+# must stay gone: the worktree rejection and the promise that the kit shrinks
+# as often as it grows. Each is put back on a copy to prove the check notices.
 
 set -eu
 
@@ -24,9 +30,61 @@ PHILOSOPHY="$ROOT/docs/PHILOSOPHY.md"
 README="$ROOT/README.md"
 WORKFLOW="$ROOT/WORKFLOW.md"
 COMPAT="$ROOT/docs/COMPATIBILITY.md"
+SOURCES="$ROOT/docs/SOURCES.md"
+AGENTS="$ROOT/AGENTS.md"
 
 rs_init "Loop-first ground checks"
-rs_exists "$PHILOSOPHY" "$README" "$WORKFLOW" "$COMPAT"
+rs_exists "$PHILOSOPHY" "$README" "$WORKFLOW" "$COMPAT" "$SOURCES" "$AGENTS"
+
+# --- the principle, the two zones, guides and sensors ---------------------
+
+rs_rule "PHILOSOPHY.md has a section for the principle" \
+  '## the principle'
+rs_rule "the first sentence of the principle" \
+  'the work is shaping the work\.'
+rs_rule "the second sentence of the principle" \
+  'looping is the consequence\.'
+rs_rule "the kit is named a loop kit" \
+  'the kit is a loop kit'
+rs_rule "the four loop modules are named" \
+  'fix, build, goal and gauntlet'
+rs_rule "a loop that needs a person sends the piece back to shaping" \
+  'goes back to be shaped again'
+rs_rule "shaping is where the person and the system make every decision" \
+  'every decision'
+rs_rule "review never stops the loop" \
+  'review never stops the loop'
+rs_rule "a rule the agent would have to remember is held by a script" \
+  'held by a script'
+rs_rule "a guide makes up for what models cannot yet do" \
+  'a guide, which makes up for something models cannot yet do'
+rs_rule "a sensor guards against the builder's incentives" \
+  'a sensor, which guards against the builder.s incentives'
+
+# --- the loop module and exclusion worked examples ------------------------
+
+rs_rule "the loop module example is added" \
+  'loop modules, added\.'
+rs_rule "the exclusion example is rejected" \
+  'things the loop kit leaves out, rejected\.'
+rs_rule "it leaves out a permanent model judge" \
+  'a permanent model judge'
+rs_rule "it leaves out agent hierarchies" \
+  'agent hierarchies'
+rs_rule "it leaves out specs that code is regenerated from" \
+  'specs that code is regenerated from'
+rs_rule "it leaves out the same ceremony for every piece" \
+  'the same ceremony for every piece'
+rs_rule "it leaves out a coverage or mutation score as a gate" \
+  'a coverage or mutation score as a gate'
+rs_rule "it leaves out debate between agents" \
+  'debate between agents'
+rs_rule "it leaves out a stored code graph or index until the pilot measures it" \
+  'a stored code graph or index'
+rs_rule "it leaves out prescribed test-first steps inside a loop" \
+  'prescribed test-first steps inside a loop'
+
+# --- the ground the earlier redesign laid ---------------------------------
 
 rs_rule "the kit is for technical builders who direct agents" \
   'the kit is for technical builders who direct agents'
@@ -55,6 +113,17 @@ rs_rule "the new growth sentence" \
 rs_rule "why this growth is accepted" \
   'replaces improvisation that already happened, with its safety built in'
 rs_guard "$PHILOSOPHY" "PHILOSOPHY.md"
+
+# The principle comes first, before who the kit is for. Read on folded text,
+# so rewrapping cannot break it.
+if [ -z "${RS_LIST:-}" ]; then
+  ph_order=$(rs_fold "$PHILOSOPHY" | awk '{
+    a = index($0, "## the principle")
+    b = index($0, "## who it is for")
+    print (a > 0 && b > 0 && a < b) ? "yes" : "no"
+  }')
+  rs_report "the principle section sits before who the kit is for" "$ph_order"
+fi
 
 # --- the two sentences that must stay gone -------------------------------
 
@@ -150,25 +219,66 @@ FIVEMARKERS
 check_five "the worktree example" 'separate worktrees for parallel pieces, added'
 check_five "the loop example" 'the loop, added'
 check_five "the two-layer piece example" 'a piece written in two layers, added'
+check_five "the loop module example" 'loop modules, added'
 
 # --- the other documents say the same ------------------------------------
 
 rs_require_load_bearing "the README's audience line names technical builders who direct agents" \
   "$README" '\| who it is for \| technical builders who direct agents'
+PRINCIPLE='you shape the work; the kit builds it in loops and checks it against a bar fixed before the build\.'
+rs_require_load_bearing "the README's opening states the principle in one sentence" \
+  "$README" "$PRINCIPLE"
 rs_require_load_bearing "WORKFLOW.md's opening names technical builders who direct agents" \
   "$WORKFLOW" 'technical builders who direct agents'
+rs_require_load_bearing "WORKFLOW.md's opening states the principle in one sentence" \
+  "$WORKFLOW" "$PRINCIPLE"
 # The order is read on folded text, so rewrapping the opening cannot break it.
+# The audience comes first, then the principle, then the command table.
 if [ -z "${RS_LIST:-}" ]; then
   wf_order=$(rs_fold "$WORKFLOW" | awk '{
     a = index($0, "technical builders who direct agents")
+    p = index($0, "you shape the work; the kit builds it in loops")
     b = index($0, "## 1. commands")
-    print (a > 0 && b > 0 && a < b) ? "yes" : "no"
+    print (a > 0 && p > 0 && b > 0 && a < p && p < b) ? "yes" : "no"
   }')
-  rs_report "and says it in its opening, before the command table" "$wf_order"
+  rs_report "and says both in its opening, audience then principle, before the command table" "$wf_order"
 fi
 rs_require_load_bearing "COMPATIBILITY says Claude Code comes first" \
   "$COMPAT" 'claude code comes first'
 rs_require_load_bearing "COMPATIBILITY names what other coding agents get" \
   "$COMPAT" 'other coding agents get the one-at-a-time core'
+
+# --- the credits ----------------------------------------------------------
+
+rs_require "SOURCES.md credits the words loop engineering" \
+  "$SOURCES" 'loop engineering'
+rs_require "SOURCES.md credits the inner loop and the outer loop" \
+  "$SOURCES" 'inner loop'
+rs_require "SOURCES.md credits Birgitta Böckeler" \
+  "$SOURCES" 'birgitta böckeler'
+rs_require "SOURCES.md credits the split into guides and sensors" \
+  "$SOURCES" 'guides and sensors'
+# The design notes do not ship, so a link into them would be dead in every
+# installed copy.
+DESIGN_LINK='design/agentic-loop'
+rs_require_absent "SOURCES.md links to no design note" "$SOURCES" "$DESIGN_LINK"
+if [ -z "${RS_LIST:-}" ]; then
+  linked="$rs_dir/sources-linked.md"
+  { cat "$SOURCES"; echo '| [The design note](design/agentic-loop-research.md) | A borrowed idea |'; } > "$linked"
+  absence_catches "a link to a design note in SOURCES.md" "$linked" "$DESIGN_LINK"
+fi
+
+# --- the maintainer's entry for this check --------------------------------
+
+rs_require "AGENTS.md names the principle" \
+  "$AGENTS" 'the work is shaping the work'
+rs_require "AGENTS.md names the two zones" \
+  "$AGENTS" 'two zones'
+rs_require "AGENTS.md names guides and sensors" \
+  "$AGENTS" 'guides and sensors'
+rs_require "AGENTS.md names the loop module example" \
+  "$AGENTS" 'loop modules, added'
+rs_require "AGENTS.md names the exclusion example" \
+  "$AGENTS" 'leaves out, rejected'
 
 rs_done
