@@ -35,6 +35,26 @@ Use the first of these that the project has:
 For any other language, the compiler the build already runs counts as the type
 check. Add a linter only where the language has one that most of its users run.
 
+## Test runner
+
+A project with no code yet has no test command, and AGENTS.md's stack section
+records `Test command: none for <language>`. Its first pieces still need
+acceptance checks, so they are written for the runner this table gives for each
+language in the type check table:
+
+| Test runner | Language |
+|---|---|
+| `pytest` | Python |
+| `vitest` | TypeScript |
+| `vitest` | JavaScript |
+| `go test` | Go |
+| `cargo test` | Rust |
+
+`Test runner:` names a runner from this table for the language of AGENTS.md's
+stack section. Any other language has none. Spec then writes no `Test runner:`
+line, so the piece is refused at the ready gate, naming the missing runner. The
+ready-gate lint keeps the same table.
+
 ## Keep it quiet
 
 A check that goes red for reasons the person cannot act on teaches them to

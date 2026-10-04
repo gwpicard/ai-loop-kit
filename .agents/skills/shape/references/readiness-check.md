@@ -54,12 +54,13 @@ How to run it:
 6. **Leaves the tool.** What goes where, including an address or query string reaching a host's logs; whether the recipient is new; which keys; outside text reaching a prompt; what a signed-out or removed person can still reach, and any change in what the gate covers; whether a notice the person already accepted still covers this, and who never sees a new one; whether the build path's personal-data line changes.
 7. **Must still hold.** Each rule the change touches, from the masterplan, from earlier pieces' Done when, and every time limit AGENTS.md records for the route or host, with its number and where it is measured (local, preview, live). A missed number means not done. Which rule wins where rules from other modes share the same prompt or screen. The code check behind any rule that lives only in a prompt or only in a person's care. A model or service swap names the correctness rule it must still meet and the set it is measured on.
 8. **Relies on.** Each existing thing used and not built here, confirmed by reading or trying it (file and line, or a sample of the data): it exists, it returns the fields needed, and its input limits. Something that will exist after a Waiting on you step counts.
-9. **Touches.** Open pieces that change the same file, schema, prompt or record, and the merge order.
-10. **No open choice a person would notice.** Refused where a person would see the difference: "decide during build", "consider", "or accept the limit", "acceptable", "TBD", "where sensible", "if needed", "optional", "may", "for now", "check on the day", an open "X or Y", "may leave X unused", and vague counts or sizes without a number ("a handful", "some", "most", "short", "fast"). Examples naming internal identifiers under the hood are fine.
+9. **Reach.** The `## Reach` fields. `Boundary:` names every area the change alters. Each area under `Reaches:` names the existing tests that guard it, or says no test covers it and names the acceptance check that guards it. `If it breaks:` says who notices what and how it is undone. Open pieces whose boundary names the same area, or that change the same file, schema, prompt or record, are named with the merge order.
+10. **No open choice a person would notice.** The ready-gate lint has already refused its fixed phrases: "decide during build", "consider", "or accept the limit", "acceptable", "TBD", "where sensible", "if needed", "for now", "check on the day", "may leave", "a handful", "a few" and "several". Refused here where a person would see the difference: "may", "optional", "some", "most", "short", "fast", an open "X or Y", and any other count or size without a number. Examples naming internal identifiers under the hood are fine.
 11. **Complete and consistent.** Lists are complete; a list of kinds matches the code's own list. Done when agrees with Decided. No pointer to a decision or section that is not on this piece.
 12. **Size.** One sitting. A container passes when every part is its own piece and its own Done when is only the joined outcome. The split is never deferred to the build, and no stub stands in for a line.
 13. **A flow the person has not seen.** A new flow or screen was tried as a mock or throwaway, or Done when includes the person's try before review.
 14. **Screen.** For each new control or message: where focus goes after the action, its accessible name, its target size, and whether a status is announced. Otherwise screen-check covers it at build time.
+15. **Each check tests its criterion.** Match each acceptance check to the criterion it claims to test, reading the check itself. A check that tests something else is a BLOCKING gap.
 
 What this list cannot catch, so Ready never reads as safe: domain and model quality, visual polish, platform quirks, gaps in test tools, a builder missing a correct piece, and gates ignored at merge. The independent review and screen-check stay required.
 
@@ -71,12 +72,9 @@ Three cases are settled here, so no checker has to decide them again:
 - A container with parts passes item 12 when every part is its own piece and
   the container's own Done when is only the joined outcome. Each part is
   checked on its own.
-- A piece that carries `state:ready` with no `## Readiness` section skipped the
-  check. It stays where it is, the printout names it under Needs attention, and
-  a run checks it before claiming it.
-- Founding runs this check on each piece it shapes, through a session that did
-  not shape it, and moves a piece to `state:ready` through the gate only on no
-  blocking gap. Where the coding agent cannot start one, each shaped piece stays in `shaping:check`, and is checked before it can be built.
+- Founding takes each piece it shapes no further than `shaping:spec`, because
+  writing the acceptance checks pushes a branch and founding uploads no code.
+  `/shape` takes each piece on from there.
 
 ## What it writes
 

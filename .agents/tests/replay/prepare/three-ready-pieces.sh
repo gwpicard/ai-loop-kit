@@ -86,7 +86,7 @@ Nothing. The calendar entry does not change.
 ## Relies on
 - `Loan` in app/bramble.py holds `ends` and `returned_on` as dates. Read on main.
 
-Touches: loans
+Boundary: loans
 
 <details><summary>Under the hood</summary>
 
@@ -132,7 +132,7 @@ Nothing.
 - `Loan.days_late(today)`, which the piece this one waits on adds.
 - `Bramble.overdue(today)` in app/bramble.py returns the late loans oldest first. Read on main.
 
-Touches: loans, overdue list
+Boundary: loans, overdue list
 
 <details><summary>Under the hood</summary>
 
@@ -174,7 +174,7 @@ Nothing. The calendar entry does not carry the note.
 ## Relies on
 - `Bramble.give_back(reference, on)` in app/bramble.py. Read on main.
 
-Touches: loans, items
+Boundary: loans, items
 
 <details><summary>Under the hood</summary>
 

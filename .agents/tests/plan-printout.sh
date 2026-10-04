@@ -524,16 +524,20 @@ fi
 echo "== Which ready pieces go together =="
 
 # /queue prints the groups and never works them out, so the printout is where a
-# clash has to be caught. Each ready piece names the areas it changes on a
-# Touches line. Two pieces that name the same area, in any mix of capitals,
-# never share a group, since building them in one run could change the same
-# thing twice. A piece whose Touches line is missing goes alone, because
-# nothing says what it changes. A piece opened with the GitHub form carries the
-# line under a Touches heading of its own, and it counts the same.
+# clash has to be caught. Each ready piece names the areas it may change on the
+# Boundary line of its Reach section. Two pieces that name the same area, in
+# any mix of capitals, never share a group, since building them in one run
+# could change the same thing twice. A piece whose Boundary line is missing
+# goes alone, because nothing says what it changes. A piece opened with the
+# GitHub form carries the line under a Reach heading of its own, and it counts
+# the same. The one-line Touches an older piece carries is no longer read, so
+# such a piece goes alone like one with no line at all.
 #
 # Guest list export and Export to spreadsheet both name exports. Booking
-# reminders names the guest list under a form heading. Seat map has no Touches
-# line and Gift wrap left the form's field empty. Refund receipts clashes with
+# reminders names the guest list under a form heading. Seat map has no Boundary
+# line and Gift wrap left the form's field empty. Old refunds carries only a
+# Touches line, which names an area another piece's Boundary names, and it
+# must still go alone. Refund receipts clashes with
 # every group before Seat map's, so it is the piece that would join Seat map if
 # a piece going alone could be joined. Deposits is ready but held up
 # by an open piece, so it is in no group to build now. Guest list export and
@@ -542,60 +546,63 @@ echo "== Which ready pieces go together =="
 cat >"$WORK/groups.json" <<'JSON'
 [
   {"number": 1, "title": "Guest list export", "html_url": "http://x/1",
-   "body": "## Done when\nThe list downloads.\n\nTouches: guest list, exports\n",
+   "body": "## Done when\nThe list downloads.\n\nBoundary: guest list, exports\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 2, "title": "Refund button", "html_url": "http://x/2",
-   "body": "## Done when\nA refund is sent.\n\nTouches: Refunds\n",
+   "body": "## Done when\nA refund is sent.\n\nBoundary: Refunds\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 3, "title": "Export to spreadsheet", "html_url": "http://x/3",
-   "body": "## Done when\nA sheet downloads.\n\nTouches: Exports, settings\n",
+   "body": "## Done when\nA sheet downloads.\n\nBoundary: Exports, settings\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 4, "title": "Seat map", "html_url": "http://x/4",
    "body": "## Done when\nSeats show.", "assignees": [],
    "labels": [{"name": "state:ready"}]},
   {"number": 5, "title": "Booking reminders", "html_url": "http://x/5",
-   "body": "### Done when\n\nA reminder goes out.\n\n### Touches\n\nGuest List\n",
+   "body": "### Done when\n\nA reminder goes out.\n\n### Reach\n\nBoundary: Guest List\nReaches: invitations, no test covers it\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 6, "title": "Deposits", "html_url": "http://x/6",
-   "body": "## Done when\nA deposit is held.\n\nTouches: payments\n",
+   "body": "## Done when\nA deposit is held.\n\nBoundary: payments\n",
    "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 7, "title": "Card checkout", "html_url": "http://x/7",
-   "body": "## Done when\nA card is charged.\n\nTouches: payments\n",
+   "body": "## Done when\nA card is charged.\n\nBoundary: payments\n",
    "assignees": [], "labels": [{"name": "state:shaping"}, {"name": "shaping:raw"}]},
   {"number": 8, "title": "Gift wrap", "html_url": "http://x/8",
-   "body": "## Done when\nA gift is wrapped.\n\n### Touches\n\n_No response_\n",
+   "body": "## Done when\nA gift is wrapped.\n\n### Reach\n\n_No response_\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 9, "title": "Refund receipts", "html_url": "http://x/9",
-   "body": "## Done when\nA receipt is sent.\n\nTouches: refunds, settings\n",
+   "body": "## Done when\nA receipt is sent.\n\nBoundary: refunds, settings\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 10, "title": "Deposit refunds", "html_url": "http://x/10",
-   "body": "## Done when\nA deposit comes back.\n\nTouches: deposits\n",
+   "body": "## Done when\nA deposit comes back.\n\nBoundary: deposits\n",
    "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 11, "title": "Calendar invites", "html_url": "http://x/11",
-   "body": "## Done when\nAn invite goes out.\n\nTouches: invites\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
+   "body": "## Done when\nAn invite goes out.\n\nBoundary: invites\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
    "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 12, "title": "Calendar sync", "html_url": "http://x/12",
-   "body": "## Done when\nThe calendar syncs.\n\nTouches: `calendar`.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Not ready\n- BLOCKING Data: nobody said which calendar wins.\n",
+   "body": "## Done when\nThe calendar syncs.\n\nBoundary: `calendar`.\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Not ready\n- BLOCKING Data: nobody said which calendar wins.\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 13, "title": "Calendar colours", "html_url": "http://x/13",
-   "body": "## Done when\nDays are coloured.\n\n~~~\nTouches: menu\n~~~\n\n## Touches\nCalendar\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
+   "body": "## Done when\nDays are coloured.\n\n~~~\nBoundary: menu\n~~~\n\n## Reach\nBoundary: Calendar\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 14, "title": "Invite reminders", "html_url": "http://x/14",
-   "body": "## Done when\nA reminder follows the invite.\n\nTouches: reminders\n",
+   "body": "## Done when\nA reminder follows the invite.\n\nBoundary: reminders\n",
    "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 15, "title": "Stock sync", "html_url": "http://x/15",
-   "body": "## Done when\nStock matches.\n\nTouches: stock\n",
+   "body": "## Done when\nStock matches.\n\nBoundary: stock\n",
    "assignees": [], "labels": [{"name": "state:ready"}],
    "issue_dependencies_summary": {"blocked_by": 1, "total": 1}},
   {"number": 16, "title": "Supplier account", "html_url": "http://x/16",
-   "body": "## Done when\nOrders reach the supplier.\n\n## Waiting on you\nOpen the supplier account and put its key in .env.\n\nTouches: suppliers\n",
+   "body": "## Done when\nOrders reach the supplier.\n\n## Waiting on you\nOpen the supplier account and put its key in .env.\n\nBoundary: suppliers\n",
    "assignees": [], "labels": [{"name": "state:ready"}]},
   {"number": 17, "title": "Menu photos", "html_url": "http://x/17",
-   "body": "## Done when\nEach dish has a photo.\n\nWaiting on you: try it\n\nTouches: menu\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
+   "body": "## Done when\nEach dish has a photo.\n\nWaiting on you: try it\n\nBoundary: menu\n\n## Readiness\n2026-09-30, checked by a session that did not shape it: Ready\n",
+   "assignees": [], "labels": [{"name": "state:ready"}]},
+  {"number": 18, "title": "Old refunds", "html_url": "http://x/18",
+   "body": "## Done when\nAn old refund is listed.\n\nTouches: refunds\n",
    "assignees": [], "labels": [{"name": "state:ready"}]}
 ]
 JSON
@@ -643,7 +650,7 @@ if [ -f "$TOGETHER" ]; then
 
   missing=""
   for piece in "Guest list export" "Refund button" "Export to spreadsheet" \
-      "Seat map" "Booking reminders" "Gift wrap" "Refund receipts"; do
+      "Seat map" "Booking reminders" "Gift wrap" "Refund receipts" "Old refunds"; do
     [ "$(grouped | grep -c "$piece")" -eq 1 ] || missing="$missing, $piece"
   done
   [ -z "$missing" ] \
@@ -657,9 +664,9 @@ if [ -f "$TOGETHER" ]; then
 
   a=$(group_of "Guest list export"); b=$(group_of "Booking reminders")
   [ -n "$a" ] && [ -n "$b" ] && [ "$a" != "$b" ] \
-    && grouped | grep "Booking reminders" | grep -q "touches guest list" \
-    && pass "a Touches line under a form heading is read and compared the same way" \
-    || fail "Booking reminders' Touches under the form heading was not read, or it shares a group with Guest list export"
+    && grouped | grep "Booking reminders" | grep -q "boundary: guest list" \
+    && pass "a Boundary line under a form heading is read and compared the same way" \
+    || fail "Booking reminders' Boundary under the form heading was not read, or it shares a group with Guest list export"
 
   a=$(group_of "Guest list export"); b=$(group_of "Refund button")
   [ -n "$a" ] && [ "$a" = "$b" ] \
@@ -667,15 +674,15 @@ if [ -f "$TOGETHER" ]; then
     || fail "Guest list export and Refund button share nothing but are not grouped together"
 
   alone=yes
-  for piece in "Seat map" "Gift wrap"; do
+  for piece in "Seat map" "Gift wrap" "Old refunds"; do
     g=$(group_of "$piece")
     [ -n "$g" ] && [ "$(grouped | awk -F '\t' -v g="$g" '$1 == g' | wc -l | tr -d ' ')" -eq 1 ] \
-      || { alone=no; fail "$piece has no Touches line but does not go alone"; }
-    grouped | grep "$piece" | grep -q "Touches unknown" \
-      || { alone=no; fail "$piece does not say its Touches is unknown"; }
+      || { alone=no; fail "$piece has no Boundary line but does not go alone"; }
+    grouped | grep "$piece" | grep -q "Boundary unknown" \
+      || { alone=no; fail "$piece does not say its Boundary is unknown"; }
   done
   [ "$alone" = no ] \
-    || pass "a piece with no Touches line goes alone and says its Touches is unknown"
+    || pass "a piece with no Boundary line, or only a Touches line, goes alone and says its Boundary is unknown"
 
   # The blocker invariant reaches the groups: a piece with an open blocker is
   # never in a group to build now.
@@ -686,13 +693,13 @@ if [ -f "$TOGETHER" ]; then
     && pass "and it still names the piece holding it up" \
     || fail "Deposits does not name Card checkout under Held up"
 
-  # Backticks and a closing full stop come off in either order, a `## Touches`
-  # heading counts like the form's, and a line inside a ~~~ block is an
+  # Backticks and a closing full stop come off in either order, a Boundary line
+  # under a `## Reach` heading counts like the form's, and a line inside a ~~~ block is an
   # example rather than the piece's own.
   a=$(group_of "Calendar sync"); b=$(group_of "Calendar colours")
   [ -n "$a" ] && [ -n "$b" ] && [ "$a" != "$b" ] \
-    && grouped | grep "Calendar sync" | grep -q "(touches calendar)" \
-    && grouped | grep "Calendar colours" | grep -q "(touches calendar)" \
+    && grouped | grep "Calendar sync" | grep -q "(boundary: calendar)" \
+    && grouped | grep "Calendar colours" | grep -q "(boundary: calendar)" \
     && pass "an area written in backticks with a full stop clashes with the bare name" \
     || fail "Calendar sync and Calendar colours both touch the calendar but are not in separate groups"
 

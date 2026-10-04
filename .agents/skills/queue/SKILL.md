@@ -23,7 +23,7 @@ The printout has already done the sorting. A piece under `To build` marked
 `(ready)` is shaped and free to start. A piece under `Held up` names the piece
 holding it up, and marks it `(in the plan)` when every open blocker in its
 chain is in the plan. `Go together` holds the pieces under `To build` in
-groups, and two pieces in one group name no area in common on their `Touches:`
+groups, and two pieces in one group name no area in common on their `Boundary:`
 lines. Each ready piece carries the marks read from its own body: `(needs you)`,
 `(not ready)`, `(not yet checked)`, `(try it)`, and on a held-up piece
 `(waits for ...)`. Nothing else needs working out, and a piece with an open
@@ -68,8 +68,8 @@ pieces that each pass alone can still fail together, so each still merges one
 at a time, brought up to date with `main` and checked again first.
 `/implement queue` builds one piece at a time by default, whatever the groups
 say. On Claude Code it asks before the run starts whether to build a group's
-pieces at the same time, and warns that this uses more memory. Say each group in one line of piece names. Where a piece's line says its Touches is
-unknown, say that its Touches line is missing, so it goes alone until `/shape`
+pieces at the same time, and warns that this uses more memory. Say each group in one line of piece names. Where a piece's line says its Boundary is
+unknown, say that its `Boundary:` line is missing, so it goes alone until `/shape`
 writes one. A piece under `Held up` is in no group, since it is not free to
 start.
 

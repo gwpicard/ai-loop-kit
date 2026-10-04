@@ -22,8 +22,13 @@ rs_rule "never lead with technical state" "never lead with"
 rs_rule "checkpoint reference stays at the end" "checkpoint reference.*(end|bottom)"
 rs_rule "end on a clean cut, not an offer to build" "clean cut"
 rs_rule "do not offer to build in this session" "not offer to build"
-rs_rule "point at /implement" "point at .?/implement"
-rs_rule "point at /shape" "/shape.? to shape more, ideally"
+# Founding takes each piece no further than spec, because writing a piece's
+# acceptance checks pushes a branch and founding uploads no code. So the report
+# names the pieces waiting there and points at /shape, never at /implement,
+# which would find nothing ready to build.
+rs_rule "name the pieces waiting in spec" "name the pieces waiting in spec"
+rs_rule "point at /shape" "point at .?/shape.? to take the first piece on from there"
+rs_rule "the template sends the person to /shape" "type .?/shape.? to take it on from there"
 rs_rule "do not tell the person to push the founding checkpoint" \
   "do not tell the person to push"
 # The report once said "Everything's set up and saved" over a project holding
@@ -57,5 +62,8 @@ rs_rule "the report says the first build asks before the code goes online" \
 rs_rule "that line is translated for the person" \
   "holds none of the project.s code yet, so the first push waits for a yes -> "
 rs_guard "$REPORT" "the shipped completion-report.md"
+
+rs_require_absent "the report no longer points at /implement for the first piece" \
+  "$REPORT" "point at .?/implement.? to build the first piece"
 
 rs_done

@@ -34,11 +34,13 @@ WORKFLOW="$ROOT/WORKFLOW.md"
 PHILOSOPHY="$ROOT/docs/PHILOSOPHY.md"
 SCENARIOS="$ROOT/.agents/tests/scenarios.md"
 CASE="$ROOT/.agents/tests/replay/cases/56.txt"
+FLOOR="$SKILLS/setup-ai-build-kit/references/check-floor.md"
+REPORT="$SKILLS/setup-ai-build-kit/references/completion-report.md"
 BASELINE="$ROOT/.agents/tests/replay/baseline.md"
 
 rs_init "Piece contract and readiness checks"
 rs_exists "$FORM" "$PIECES" "$READINESS" "$SHAPE" "$CLARIFY" "$FOUNDED" \
-  "$TRIAGE" "$SETUP" "$COMPAT" \
+  "$TRIAGE" "$SETUP" "$COMPAT" "$FLOOR" "$REPORT" \
   "$WORKFLOW" "$PHILOSOPHY" "$SCENARIOS" "$CASE" "$BASELINE"
 
 # --- the issue form: the header, then the agent layer ---------------------
@@ -53,17 +55,30 @@ rs_rule "the form asks for Data" 'id: data '
 rs_rule "the form asks what leaves the tool" 'id: leaves-the-tool'
 rs_rule "the form asks what must still hold" 'id: must-still-hold'
 rs_rule "the form asks what the piece relies on" 'id: relies-on'
-rs_rule "the form asks what the piece touches" 'id: touches'
+rs_rule "the form asks for the loop module" 'id: loop-module'
+rs_rule "the form asks for the bar in the Loop field" 'id: loop '
+rs_rule "the form asks for the reach" 'id: reach'
+rs_rule "the form asks for a crew that differs from the default" 'id: crew'
+rs_rule "the form asks what the piece needs from the computer" 'id: needs-from-the-computer'
+rs_rule "the loop module is a dropdown" 'type: dropdown id: loop-module'
+rs_rule "the dropdown offers the four modules" 'options: - fix - build - goal - gauntlet'
+rs_rule "Not in this piece is required on the form" \
+  'placeholder: cancelling\. deposits\. validations: required: true'
 rs_rule "the form keeps the build notes" 'id: under-the-hood'
 rs_rule "the form asks for the evidence" 'id: evidence'
 # The order is the contract: the header a person reads comes first, and the
 # agent layer sits below the line that says so.
 rs_rule "the header comes before the agent layer, in order" \
-  'id: so-that.*id: done-when.*id: not-the-normal-case.*id: masterplan-change.*id: not-in-this-piece.*the fields below are the agent layer.*id: decided.*id: data .*id: leaves-the-tool.*id: must-still-hold.*id: relies-on.*id: touches.*id: under-the-hood.*id: evidence'
+  'id: so-that.*id: done-when.*id: not-the-normal-case.*id: masterplan-change.*id: not-in-this-piece.*the fields below are the agent layer.*id: decided.*id: data .*id: leaves-the-tool.*id: must-still-hold.*id: relies-on.*id: loop-module.*id: loop .*id: reach.*id: crew.*id: needs-from-the-computer.*id: under-the-hood.*id: evidence'
 rs_rule "a field that does not apply says why" \
   'a field that does not apply says why in one line\.'
-rs_rule "the Touches field asks for the line format" 'one line that starts with "touches:"'
+rs_rule "the Reach field asks for the five lines" \
+  'boundary:, reaches:, if it breaks:, depends on: and reach derived at:'
 rs_guard "$FORM" "the piece form"
+
+# The one-line Touches field is gone. Reach replaced it, and a form that still
+# asked for it would give a piece a line nothing reads.
+rs_require_absent "the form no longer asks for Touches" "$FORM" 'id: touches'
 
 rs_require_absent "the form no longer says most pieces leave Decided empty" \
   "$FORM" 'most pieces leave this empty'
@@ -85,7 +100,11 @@ rs_rule "the template carries Data" '## data <each stored record'
 rs_rule "the template carries Leaves the tool" '## leaves the tool <what goes where'
 rs_rule "the template carries Must still hold" '## must still hold <each rule'
 rs_rule "the template carries Relies on" '## relies on <each existing thing'
-rs_rule "the template carries the Touches line" 'touches: <area>, <area> <details>'
+rs_rule "the template carries the Loop section" '## loop loop module: <fix \| build \| goal \| gauntlet>'
+rs_rule "the template carries the Reach section" '## reach boundary: <area>, <area>'
+rs_rule "the template carries the Crew line" 'reach derived at: <commit> crew: <step> <width>, because <reason>'
+rs_rule "the template carries Needs from the computer" \
+  '## needs from the computer heavy: <yes \| no>'
 rs_rule "the template ends on Readiness" '## readiness <written only by the readiness check>'
 rs_rule "every field is considered" \
   'every field is considered\. a field in the agent layer that does not apply says why in one line'
@@ -97,8 +116,8 @@ rs_rule "the Done when heading stays for the printout" \
 rs_rule "Works lines are rules naming their check" '`### works` holds checkable rules, each naming its check'
 rs_rule "every case that can arise has a line" \
   'each with its check, or "does not arise, because" and the reason'
-rs_rule "Not in this piece names what Done when leaves out" \
-  '`## not in this piece` is required when done when does not deliver all of so that'
+rs_rule "Not in this piece is required on every piece" \
+  '`## not in this piece` is required on every piece'
 rs_rule "the new Decided guidance" 'every choice a person would notice is decided here, with its reason'
 rs_rule "the Data field rule" \
   'who else writes it and how the writes merge, the order on first open, limits and what goes at the limit, backup and restore, and delete and undo'
@@ -108,9 +127,60 @@ rs_rule "the Must still hold field rule" \
   'with its number and where it is measured, and which rule wins where two apply'
 rs_rule "the Relies on field rule" \
   'confirmed to exist and to give the data needed, by reading or trying it'
-rs_rule "the Touches line format" '`touches:` is one line, `touches: <area>, <area>`'
-rs_rule "Touches names areas, never paths" \
-  'named by the skill, record or document name, never a file path, because paths go stale'
+# Contract v2: the loop module and its bar, the reach, the crew and what the
+# piece needs from the computer. Each field is named with its rule, because a
+# field the shaper never hears of is a field the lint will refuse every time.
+rs_rule "Loop holds the module and the bar it needs" \
+  '`## loop` holds `loop module: fix \| build \| goal \| gauntlet` and the bar that module needs'
+rs_rule "a build bar: the acceptance branch" \
+  'for `build`: `acceptance branch:`, the branch that holds the acceptance checks'
+rs_rule "a build bar: a Check on every Works line, naming one test file" \
+  'a `check:` on every works line, written `check: <path of one test file on the acceptance branch>`'
+rs_rule "a project with no code yet still carries the branch, cut after the yes" \
+  'a project with no code yet carries the branch too, cut after the person.s yes to the first upload'
+rs_rule "a fix bar: the branch, the reproduction and what must not change" \
+  'for `fix`: `acceptance branch:`; `reproduction:`, naming one test file on that branch that fails today, in the same form as `check:`; and `must not change:`'
+rs_rule "a test runner where the project records none" \
+  'for `build` or `fix` where agents\.md.s stack section records `test command: none for <language>`: `test runner:`, naming the runner'
+rs_rule "a goal bar" \
+  'for `goal`: `metric:`, `measured by:` \(a command\), `target:`, `budget:`, `guard checks:` and `held-out check:`'
+rs_rule "the held-out check's form" \
+  'a command, then `on held-out/<number>-<short name> at <commit>`, the branch and commit the spec step writes'
+rs_rule "a gauntlet bar" \
+  'for `gauntlet`: `reference:`, a link that can be fetched, with the person.s approval and its date; `compared by:`; `budget:`; and `guard checks:`'
+rs_rule "a line the module does not need is left out" \
+  'a line the module does not need is left out, never written as "none"'
+rs_rule "Reach holds five lines in place of Touches" \
+  '`## reach` holds five lines, and replaces the one-line `touches:`'
+rs_rule "Boundary: the areas the piece may change" \
+  '`boundary:` names the areas the piece may change, as `boundary: <area>, <area>`'
+rs_rule "Boundary names areas, never paths" \
+  'each named by the skill, record or document name, never a file path, because paths go stale'
+rs_rule "Reaches: each area with its tests, or no test and the acceptance check" \
+  '`reaches:` names the areas it affects without changing them, each with the existing tests that guard it by name, or "no test covers it" and the acceptance check that guards it'
+rs_rule "If it breaks: who notices and how it is undone" \
+  '`if it breaks:` says who notices what, and how it is undone'
+rs_rule "Depends on: numbers or nothing" \
+  '`depends on:` gives `#<number>` for each piece it needs, separated by commas, or `nothing`'
+rs_rule "Reach derived at: a commit" '`reach derived at:` names the commit the reach was worked out on'
+rs_rule "the reach line the person reads" \
+  '"this changes sign-in\. it also reaches billing, which 14 checks guard\. if it breaks, people cannot sign in, and a rollback undoes it\."'
+rs_rule "Crew is written only where it differs from the default" \
+  '`crew:` is written only where the crew differs from the loop module.s default, as `crew: <step> <width>, because <reason>`'
+rs_rule "the crew steps and their caps" \
+  '`research` \(readers, cap 5\), `prototype` \(variants, cap 3\), `fix` \(reading probes, cap 3\), `goal` \(race entries, each in its own worktree, cap 3\) and `gauntlet` \(critics, cap 3\)'
+rs_rule "the width never counts the builder" \
+  'the width counts that step.s members and never the builder'
+rs_rule "a crew with two writers is refused" \
+  'naming the build or readiness check step, naming the run, or asking for more than one builder is a crew with two writers, and is refused'
+rs_rule "Needs from the computer holds its five lines" \
+  '`## needs from the computer` holds `heavy:`, `dev server:`, `browser:`, `expected duration:` and `cannot share:`'
+# The brief rules hold the contract to what a builder can use alone.
+rs_rule "brief rule: behaviour rather than steps" 'behaviour rather than steps\.'
+rs_rule "brief rule: interfaces rather than file paths or line numbers" \
+  'interfaces rather than file paths or line numbers\.'
+rs_rule "brief rule: each acceptance criterion checkable on its own" \
+  'each acceptance criterion checkable on its own\.'
 rs_rule "the Under the hood field rule" \
   'holds the build approach, and the existing tests this piece may change, with the reason'
 rs_rule "the Evidence field rule" \
@@ -134,8 +204,14 @@ rs_guard "$PIECES" "pieces.md"
 
 rs_require_absent "pieces.md no longer says most pieces leave Decided out" \
   "$PIECES" 'which is most of them'
+rs_require_absent "pieces.md no longer carries the one-line Touches" \
+  "$PIECES" 'touches: <area>'
 
 # --- the readiness list ----------------------------------------------------
+
+# Founding takes a piece no further than spec, and says so in the readiness
+# check, the setup skill and the completion report.
+FOUNDING_SPEC='founding takes each piece it shapes no further than `shaping:spec`, because writing the acceptance checks pushes a branch and founding uploads no code'
 
 rs_reset
 rs_rule "each item is answered pass, gap or does not apply" \
@@ -156,12 +232,22 @@ rs_rule "item 6, leaves the tool" '6\. \*\*leaves the tool\.\*\* what goes where
 rs_rule "item 7, must still hold" '7\. \*\*must still hold\.\*\* each rule the change touches'
 rs_rule "item 7, a missed number means not done" 'a missed number means not done'
 rs_rule "item 8, relies on" '8\. \*\*relies on\.\*\* each existing thing used and not built here, confirmed by reading or trying it'
-rs_rule "item 9, touches" '9\. \*\*touches\.\*\* open pieces that change the same file, schema, prompt or record, and the merge order'
+rs_rule "item 9 reads the Reach fields" '9\. \*\*reach\.\*\* the `## reach` fields\.'
+rs_rule "item 9 still names open pieces changing the same thing, and the merge order" \
+  'change the same file, schema, prompt or record, are named with the merge order'
 rs_rule "item 10, no open choice" '10\. \*\*no open choice a person would notice\.\*\*'
+rs_rule "item 10 says the lint has refused its fixed phrases" \
+  'the ready-gate lint has already refused its fixed phrases'
+rs_rule "item 10 keeps the judgement-only words for the checker" \
+  'refused here where a person would see the difference: "may", "optional", "some", "most", "short", "fast", an open "x or y", and any other count or size without a number'
 rs_rule "item 11, complete and consistent" '11\. \*\*complete and consistent\.\*\* lists are complete'
 rs_rule "item 12, size" '12\. \*\*size\.\*\* one sitting'
 rs_rule "item 13, a flow the person has not seen" '13\. \*\*a flow the person has not seen\.\*\*'
 rs_rule "item 14, screen" '14\. \*\*screen\.\*\* for each new control or message'
+rs_rule "item 15, each check tests its criterion" \
+  '15\. \*\*each check tests its criterion\.\*\* match each acceptance check to the criterion it claims to test'
+rs_rule "item 15, a check that tests something else blocks" \
+  'a check that tests something else is a blocking gap'
 rs_rule "what the list cannot catch" \
   'what this list cannot catch, so ready never reads as safe: domain and model quality, visual polish, platform quirks, gaps in test tools, a builder missing a correct piece, and gates ignored at merge'
 rs_rule "the review and screen-check stay required" \
@@ -174,14 +260,12 @@ rs_rule "without a subagent, one line and the line to paste" \
   'says in one line that the check needs a new session, and gives the exact line to paste there: `/shape <number> check readiness`'
 rs_rule "the check scales with the change" \
   'a colour change answers most items with does not apply and one line why, and runs only the checks its change needs'
-rs_rule "the reach check serves Relies on and Touches" \
+rs_rule "the reach check serves Relies on and Reach" \
   'use the reach check in the `section-builder` skill.s `references/reach-check\.md`'
 rs_rule "unreadable code behind Relies on is a blocking gap" \
   'a relies on line whose code or data the checker cannot read is a blocking gap, never a pass'
 rs_rule "a container passes when its parts are pieces" \
   'a container with parts passes item 12 when every part is its own piece and the container.s own done when is only the joined outcome'
-rs_rule "a ready piece that skipped the check is checked before a run claims it" \
-  'a piece that carries `state:ready` with no `## readiness` section skipped the check\. it stays where it is, the printout names it under needs attention, and a run checks it before claiming it'
 rs_rule "the section carries the date, who checked, the verdict and notes" \
   '## readiness <yyyy-mm-dd>, checked by a session that did not shape it: ready \| not ready - blocking <item>: .* - note <item>:'
 rs_rule "the section is the stored result" 'that section is the stored result every later step reads'
@@ -195,17 +279,25 @@ rs_rule "a fact from outside is research" '`shaping:research` for a fact from ou
 rs_rule "an unseen flow is prototype" '`shaping:prototype` for a gap on item 13'
 rs_rule "a gap the contract can close is spec" '`shaping:spec` for a gap the contract can close with no new answer'
 rs_rule "reading code is never a label" 'reading code is never the reason for a label'
-rs_rule "founding runs the check, or leaves pieces to be checked before a run" \
-  'founding runs this check on each piece it shapes, through a session that did not shape it, and moves a piece to `state:ready` through the gate only on no blocking gap'
-rs_rule "founding without a subagent leaves each shaped piece in check" \
-  'where the coding agent cannot start one, each shaped piece stays in `shaping:check`, and is checked before it can be built'
+rs_rule "founding stops each piece it shapes at spec" \
+  "$FOUNDING_SPEC"
+rs_rule "and /shape takes each piece on from there" \
+  '`/shape` takes each piece on from there'
 rs_guard "$READINESS" "readiness-check.md"
+
+# The case that let a ready piece with no Readiness section stay ready is gone,
+# and so is founding running the check itself: writing the acceptance checks
+# pushes a branch, and founding uploads no code.
+rs_require_absent "the skipped-check case is gone" \
+  "$READINESS" 'skipped the check\. it stays where it is'
+rs_require_absent "founding no longer runs the check" \
+  "$READINESS" 'founding runs this check on each piece it shapes'
 
 # The list itself, byte for byte. The rules above hold each item's opening, and
 # this holds the bodies, since a softened clause inside an item reads as well
 # as the original and would pass every pattern. The sum is of the block from
 # "How to run it:" to "stay required.", copied from the slice that wrote it.
-LIST_SUM=b062ac77e4745eb17f6a08c02e128d2e1b7eb74eb0815e1ed3345966bd2ed2f6
+LIST_SUM=308f192a37631f8ac0d959222ee88d1c3eee8acf2f99c36a08b8b9551a1153e3
 list_sum() {
   sed -n '/^How to run it:$/,/screen-check stay required\.$/p' "$1" > "$rs_dir/list"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -223,6 +315,25 @@ if [ -z "${RS_LIST:-}" ]; then
     && rs_ok "a softened item is caught" \
     || rs_fail "a softened item was not caught"
 fi
+
+# --- the test runner table ------------------------------------------------
+
+# A project with no code yet has no test command, so its acceptance checks are
+# written for the runner this table names. The lint keeps the same table, so a
+# row that went from here would refuse every piece in that language.
+rs_reset
+rs_rule "the floor has a Test runner table" '## test runner'
+rs_rule "Python's runner is pytest" '\| `pytest` \| python \|'
+rs_rule "TypeScript's runner is Vitest" '\| `vitest` \| typescript \|'
+rs_rule "JavaScript's runner is Vitest" '\| `vitest` \| javascript \|'
+rs_rule "Go's runner is go test" '\| `go test` \| go \|'
+rs_rule "Rust's runner is cargo test" '\| `cargo test` \| rust \|'
+rs_rule "any other language has none, so no Test runner line" \
+  'any other language has none\. spec then writes no `test runner:` line'
+rs_rule "Test runner names a runner from this table for the stack's language" \
+  '`test runner:` names a runner from this table for the language of agents\.md.s stack section'
+rs_rule "the lint keeps the same table" 'the ready-gate lint keeps the same table'
+rs_guard "$FLOOR" "check-floor.md"
 
 # --- /shape runs the check and moves by its result ------------------------
 
@@ -267,10 +378,10 @@ rs_require_load_bearing "change-triage moves an answered question to ready only 
   "$TRIAGE" 'question is answered and the readiness check finds no blocking gap'
 rs_require_load_bearing "change-triage says what a piece in check is" \
   "$TRIAGE" 'a piece in `shaping:check` is waiting for its readiness check'
-rs_require_load_bearing "founding runs the check through a session that did not shape the piece" \
-  "$SETUP" 'founding runs the readiness check in the `shape` skill.s `references/readiness-check\.md` on each shaped piece through a session that did not shape it'
-rs_require_load_bearing "founding without a subagent leaves the check for before a build" \
-  "$SETUP" 'each shaped piece stays in `shaping:check`, and is checked before it can be built'
+rs_require_load_bearing "founding stops each piece it shapes at spec" "$SETUP" "$FOUNDING_SPEC"
+rs_require_absent "founding no longer runs the readiness check itself" \
+  "$SETUP" 'founding runs the readiness check in the'
+rs_require_load_bearing "the completion report says founding stops at spec" "$REPORT" "$FOUNDING_SPEC"
 rs_require_load_bearing "the compatibility page gives the route without a subagent" \
   "$COMPAT" '/shape <number> check readiness'
 
@@ -298,6 +409,14 @@ rs_require_load_bearing "WORKFLOW.md says what happens without a second session"
   "$WORKFLOW" 'gives you one line to paste into a new one'
 rs_require_load_bearing "WORKFLOW.md says the agent layer is complete" \
   "$WORKFLOW" 'below it sits the agent layer, which is complete'
+rs_require_load_bearing "WORKFLOW.md's two-layer paragraph names the loop module and the bar" \
+  "$WORKFLOW" 'the loop module, and the bar that module needs'
+rs_require_load_bearing "WORKFLOW.md gives the reach line the person reads" \
+  "$WORKFLOW" '"this changes sign-in\. it also reaches billing, which 14 checks guard\. if it breaks, people cannot sign in, and a rollback undoes it\."'
+rs_require_load_bearing "WORKFLOW.md says the lint checks the rest" \
+  "$WORKFLOW" 'the ready-gate lint checks the rest'
+rs_require_load_bearing "WORKFLOW.md says founding stops each piece at spec" \
+  "$WORKFLOW" 'each piece it shapes stops in spec'
 rs_require_load_bearing "PHILOSOPHY's example keeps the header short" \
   "$PHILOSOPHY" 'the person sees a short header in plain words'
 rs_require_load_bearing "PHILOSOPHY's example makes the agent layer complete" \

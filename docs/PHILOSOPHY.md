@@ -353,10 +353,12 @@ person sees a short header in plain words: what the piece is for, what done
 means, including the cases that are not the normal one, and what it changes in
 the masterplan. Below it the agent layer is complete: every choice they would
 notice by trying the tool, the data it stores, what leaves the tool, the rules
-it must still meet, what it relies on and what it touches. A field that does
-not apply says why in one line. The sentence is "you read the header; the agent
-reads the rest, and nothing you would notice is left for the build to decide".
-When it goes wrong, a session that did not shape the piece usually finds the
+it must still meet and what it relies on. It names the loop module and the bar
+that module needs, and carries the reach line the person can read on its own:
+what the piece changes, what else it reaches and what happens if it breaks. A
+field that does not apply says why in one line. The sentence is "you read the
+header; the agent reads the rest, and nothing you would notice is left for the
+build to decide". When it goes wrong, a session that did not shape the piece usually finds the
 gap before the piece turns ready, and /shape asks them about it; a gap found
 later goes back through /shape with the piece's number. They never need to read
 the agent layer, and nothing that affects their product is missing from it.
