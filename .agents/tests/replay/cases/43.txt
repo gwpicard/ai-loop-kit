@@ -1,0 +1,17 @@
+# setup: fixture
+# Scenario 43: a request plainly bigger than one piece, and genuinely ambiguous
+# between the two ways of relating the parts. Grouping items into a named kit
+# could be a part of booking one, or an outcome of its own that has to land
+# first. A request only a careless session could get wrong would pass every time
+# and catch nothing.
+#
+# The person agrees to the split without proposing one, so the relationships in
+# the end state are the kit's own work rather than something it was handed.
+/shape Stewards should be able to book a whole kit for an event instead of adding the items one at a time.
+---
+A kit is a named set, like the PA kit or the camping kit. Mostly the same items every time, though somebody needs to be able to change what is in one.
+---
+# when: more than one|bigger than|cut|split|parts|masterplan|pieces
+Yes, cut it up however makes sense. Just tell me what order they come in before you start.
+---
+That looks right. Write them down and we will build them another day.

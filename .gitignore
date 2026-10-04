@@ -1,0 +1,14 @@
+node_modules/
+.env
+dist/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.agents/tmp/
+
+# A printout of the project's open issues, regenerated on demand.
+# One person's view of a shared record, so it never belongs to everyone.
+plan.local.md
+.claude/settings.local.json
+.claude/worktrees/

@@ -1,0 +1,42 @@
+name: pull request base
+
+# `stable` is the default branch, so a new pull request aims at it unless
+# somebody changes the base. Only a release may move `stable`. This goes red on
+# a pull request whose base is `stable`, and says how to change it.
+#
+# It is a workflow of its own rather than a job in source checks for two
+# reasons. Changing the base of a pull request sends an `edited` event, and the
+# check has to run again then or the red mark stays after the fix. Adding
+# `edited` to source checks would re-run the rehearsals on every change to a
+# title, and its concurrency group would cancel a rehearsal already running.
+#
+# It must never become a required check on `stable`. A required check refuses
+# the release job's update of the branch, in the same way a pull-request rule
+# would. `.agents/tools/check-pull-request-base.sh` says more.
+#
+# The base arrives through the environment rather than being written into the
+# run block, so a branch name is never read as part of a command.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pull-request-base-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pull-request-base:
+    if: github.repository == 'gwpicard/ai-build-kit' || github.repository == 'gwpicard/ai-loop-kit'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check the pull request does not merge into stable
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: .agents/tools/check-pull-request-base.sh "$BASE"

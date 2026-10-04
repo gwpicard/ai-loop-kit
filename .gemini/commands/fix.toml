@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/fix/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "Bring the tool back to doing what it already should."
+prompt = """
+Load and follow the instructions in `.agents/skills/fix/SKILL.md`, the single source of truth for the /fix command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

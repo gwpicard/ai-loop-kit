@@ -1,0 +1,34 @@
+name: maintainer branch check
+
+# Two branches are not maintainer branches. Work merges into `main`, which the
+# pull request checks have already covered by then, and a release moves
+# `stable`, whose commit was validated as part of `main` and again by `verify
+# release`. Checking either one again bills a hosted minute to re-run a check
+# that has already passed.
+on:
+  push:
+    branches-ignore:
+      - main
+      - stable
+
+permissions:
+  contents: read
+
+# Pushing again to the same branch replaces the earlier check. Without this,
+# the run it replaced keeps going and is still billed.
+concurrency:
+  group: branch-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-kit-validation:
+    if: github.repository == 'gwpicard/ai-build-kit' || github.repository == 'gwpicard/ai-loop-kit'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Regenerate adapters and check for drift
+        run: .agents/tools/build-adapters.sh --check
+      - name: Validate the kit
+        run: .agents/tools/validate-kit.sh

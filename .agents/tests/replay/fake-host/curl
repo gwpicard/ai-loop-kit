@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""A stand-in for curl, for the addresses a replayed Vercel launch reaches.
+
+The live address answers from whichever deployment the stand-in host has put
+there, so its health route reports that build's commit and its sign-in page
+shows that build's wording. A generated deployment address is behind Vercel's
+sign-in and answers 302, as the recipe says. The Supabase sign-in settings
+answer to the public key. Every other address fails as an unreachable host
+would, because a run with nobody watching must reach no network.
+
+Where FAKE_HOST_STATE is not set at all, the run is not one of these scenarios
+and the real curl answers. Where it is set and its file is missing, every
+address fails as unreachable. A call whose every address is a service on this
+machine, on a port other than the app's, goes to the real curl either way.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def host():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("fake_vercel", os.path.join(HERE, "vercel"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def wording(state, commit):
+    """The sign-in button's words in the build of that commit."""
+    shown = subprocess.run(["git", "--git-dir", state.get("remote", ""), "show",
+                            "%s:lib/wording.ts" % commit], capture_output=True, text=True)
+    found = re.search(r'signInButton[^=]*=\s*"([^"]*)"', shown.stdout)
+    return found.group(1) if found else "Continue"
+
+
+def page(state, dep, path):
+    """What the app in one deployment answers on one path."""
+    path = "/" + path.lstrip("/").split("?")[0]
+    json_type = {"content-type": "application/json"}
+    html_type = {"content-type": "text/html; charset=utf-8"}
+    if path == "/api/health":
+        return 200, json_type, json.dumps({
+            "status": "ok", "database": "ok", "commit": dep["commit"],
+            "project": state["supabase_ref"]})
+    if path == "/sign-in":
+        return 200, html_type, (
+            "<!DOCTYPE html><html><head><title>Noticeboard</title></head><body>"
+            "<main><h1>Sign in to the noticeboard</h1><form>"
+            "<label>Work email <input type=\"email\" name=\"email\"></label>"
+            "<button type=\"submit\">%s</button></form></main></body></html>"
+            % wording(state, dep["commit"]))
+    if path == "/":
+        return 200, html_type, (
+            "<!DOCTYPE html><html><head><title>Noticeboard</title></head><body>"
+            "<main><h1>Noticeboard</h1><p><a href=\"/sign-in\">Sign in</a> to see "
+            "the office notices.</p></main></body></html>")
+    return 404, {"content-type": "text/plain"}, "The page could not be found\n\nNOT_FOUND\n"
+
+
+VALUED_LONG = {"--header", "--output", "--write-out", "--request", "--data", "--data-raw",
+               "--data-binary", "--user-agent", "--user", "--max-time", "--connect-timeout",
+               "--retry", "--retry-delay", "--referer", "--cookie", "--cookie-jar", "--url",
+               "--data-urlencode", "--form", "--cacert", "--resolve", "--proxy"}
+VALUED_SHORT = set("HowXdAumeEbcrYFxT")
+
+
+def parse(argv):
+    urls, options, headers = [], {}, []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg.startswith("--"):
+            name, eq, inline = arg.partition("=")
+            if name in VALUED_LONG:
+                value = inline if eq else (argv[i + 1] if i + 1 < len(argv) else "")
+                i += 0 if eq else 1
+                if name == "--header":
+                    headers.append(value)
+                elif name == "--url":
+                    urls.append(value)
+                else:
+                    options[name] = value
+            else:
+                options[name] = True
+        elif arg.startswith("-") and len(arg) > 1:
+            letters = arg[1:]
+            j = 0
+            while j < len(letters):
+                letter = letters[j]
+                if letter in VALUED_SHORT:
+                    rest = letters[j + 1:]
+                    if rest:
+                        value = rest
+                    else:
+                        value = argv[i + 1] if i + 1 < len(argv) else ""
+                        i += 1
+                    if letter == "H":
+                        headers.append(value)
+                    else:
+                        options["-" + letter] = value
+                    break
+                options["-" + letter] = True
+                j += 1
+        else:
+            urls.append(arg)
+        i += 1
+    return urls, options, headers
+
+
+def answer(state, url, headers):
+    """(status, headers, body) for one address, or (exit code, message)."""
+    match = re.match(r"^(https?)://([^/:]+)(?::(\d+))?(/.*)?$", url)
+    if not match:
+        return None, 3, "curl: (3) URL rejected: Malformed input to a URL function"
+    name, path = match.group(2), match.group(4) or "/"
+    vercel = host()
+    if name == state["production_url"]:
+        dep = vercel.find(state, state["alias"])
+        return page(state, dep, path), 0, ""
+    for dep in state["deployments"]:
+        if name == dep["url"]:
+            return (302, {"location": "https://vercel.com/sso-api?url=https%%3A%%2F%%2F%s%s"
+                          % (name, path)}, "Redirecting...\n"), 0, ""
+    if name == "%s.supabase.co" % state["supabase_ref"]:
+        keys = [h.split(":", 1)[1].strip() for h in headers
+                if h.lower().startswith("apikey:")]
+        if path.startswith("/auth/v1/settings") and keys and keys[0] == state["public_key"]:
+            return (200, {"content-type": "application/json"}, json.dumps({
+                "external": {"email": True}, "disable_signup": False,
+                "mailer_autoconfirm": False})), 0, ""
+        return (401, {"content-type": "application/json"},
+                '{"message":"No API key found in request"}'), 0, ""
+    if name == "api.supabase.com":
+        return (401, {"content-type": "application/json"}, '{"message":"Unauthorized"}'), 0, ""
+    if name in ("localhost", "127.0.0.1", "0.0.0.0"):
+        port = match.group(3) or "80"
+        return None, 7, ("curl: (7) Failed to connect to %s port %s after 0 ms: "
+                         "Couldn't connect to server" % (name, port))
+    return None, 6, "curl: (6) Could not resolve host: %s" % name
+
+
+def main():
+    vercel = host()
+    argv = sys.argv[1:]
+    # A service on this machine that is not the app, such as a coding agent's
+    # own hook listener, belongs to the machine running the harness rather
+    # than to the scenario, so the real curl answers it. That holds only when
+    # every address in the call is such a service. The app's own port stays
+    # unreachable, since no container runs here.
+    local = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:(\d+))?(/|$)")
+    addresses = parse(argv)[0]
+    if addresses and all(local.match(a) and local.match(a).group(3) not in (None, "3000")
+                         for a in addresses):
+        vercel.delegate("curl", local_service=True)
+    state_path = os.environ.get("FAKE_HOST_STATE", "")
+    if not state_path or not os.path.isfile(state_path):
+        vercel.delegate("curl")
+    vercel.note("CALL\tcurl %s" % " ".join(argv))
+    state = vercel.load(state_path)
+    vercel.sync(state)
+    vercel.tick(state)
+    vercel.save(state, state_path)
+
+    urls, options, headers = parse(argv)
+    if not urls:
+        sys.stderr.write("curl: try 'curl --help' or 'curl --manual' for more information\n")
+        sys.exit(2)
+    silent = options.get("-s") or options.get("--silent")
+    show_error = options.get("-S") or options.get("--show-error") or not silent
+    fail = options.get("-f") or options.get("--fail")
+    code = 0
+    for url in urls:
+        got, exit_code, message = answer(state, url, headers)
+        if got is None:
+            if show_error:
+                sys.stderr.write(message + "\n")
+            code = exit_code
+            continue
+        status, head, body = got
+        if fail and status >= 400:
+            if show_error:
+                sys.stderr.write("curl: (22) The requested URL returned error: %d\n" % status)
+            code = 22
+            continue
+        text = ""
+        if options.get("-i") or options.get("--include") or options.get("-I") or options.get("--head"):
+            text += "HTTP/2 %d \r\n" % status
+            for key, value in head.items():
+                text += "%s: %s\r\n" % (key, value)
+            text += "server: Vercel\r\n\r\n"
+        if not (options.get("-I") or options.get("--head")):
+            text += body
+        out = options.get("-o") or options.get("--output")
+        if out and out != "-":
+            with open(out, "w") as handle:
+                handle.write(text)
+        else:
+            sys.stdout.write(text)
+        fmt = options.get("-w") or options.get("--write-out")
+        if isinstance(fmt, str):
+            sys.stdout.write(fmt.replace("%{http_code}", str(status))
+                             .replace("%{response_code}", str(status))
+                             .replace("%{url_effective}", url)
+                             .replace("\\n", "\n"))
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,18 @@
+name: checks
+on:
+  pull_request:
+jobs:
+  project-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check sensitive-area map
+        run: sh .agents/hooks/check-sensitive-areas.sh
+      - name: Check the AGENTS.md ceiling
+        run: lines=$(awk 'END { print NR }' AGENTS.md) && if [ "$lines" -gt 200 ]; then echo "AGENTS.md has $lines lines, above its ceiling of 200. Type /maintain to move the detail to the file that owns it, then push again."; exit 1; fi && echo "AGENTS.md has $lines lines, within its ceiling of 200."
+      - name: Install and test
+        run: |
+          echo "This check is still the placeholder the kit creates, so no tests have run and nothing has been verified."
+          echo "Run the setup-ai-build-kit skill's stand-up step to replace it with the project's real install and test commands."
+          echo "Red is the correct answer until then. A green tick here would mean nothing."
+          exit 1

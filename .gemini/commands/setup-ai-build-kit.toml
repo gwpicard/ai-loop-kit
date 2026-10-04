@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/setup-ai-build-kit/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "Begin a new project, or resume a beginning that was interrupted."
+prompt = """
+Load and follow the instructions in `.agents/skills/setup-ai-build-kit/SKILL.md`, the single source of truth for the /setup-ai-build-kit command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

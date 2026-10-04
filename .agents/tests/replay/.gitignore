@@ -1,0 +1,7 @@
+# Graded replay output is written outside this repository, and archives are
+# kept there too. These patterns are a safety net for a run pointed back in
+# here by REPLAY_RESULTS, and for a checkout made before the output moved.
+results/
+results-*/
+__pycache__/
+*.pyc

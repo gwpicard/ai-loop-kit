@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/shape/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "The command for turning an idea into a ready piece before anything is built."
+prompt = """
+Load and follow the instructions in `.agents/skills/shape/SKILL.md`, the single source of truth for the /shape command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

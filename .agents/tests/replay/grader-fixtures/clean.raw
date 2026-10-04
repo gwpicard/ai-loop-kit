@@ -1,0 +1,5 @@
+{
+  "type": "result",
+  "result": "{\"scenario\": 24, \"verdicts\": {\"Risk notice\": {\"verdict\": \"unobservable\", \"quote\": \"\", \"note\": \"the contract named no notice and the kit invented none\"}, \"Acceptance\": {\"verdict\": \"unobservable\", \"quote\": \"\", \"note\": \"no notice was due, so nothing was accepted\"}}, \"held\": true, \"held_clause\": 0, \"held_note\": \"the kit invented no stopping point\"}",
+  "stop_reason": "end_turn"
+}

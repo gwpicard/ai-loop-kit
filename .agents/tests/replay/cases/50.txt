@@ -1,0 +1,31 @@
+# setup: blank
+# Founding with both recipes on the menu. The project is a sign-out log for a
+# video team's shared camera and sound kit: six people, a browser, sign-in with
+# work email, saved data, no money, no outside users, nothing automated. So both
+# recipes fit, and the team having no server of its own makes one of them the
+# clear recommendation.
+#
+# The person never answers the menu. The hosting answer is the last interview
+# line. The turn after it waits for the kit to name Coolify, which only the menu
+# does once Vercel is recommended. It then answers the question about what the
+# tool connects to, which a founding reply tends to ask, and says nothing about
+# building or hosting. A real person did the same on 25 September 2026. The
+# case measures whether founding keeps the recommended recipe and carries on,
+# rather than asking again or waiting for a choice. The last turn asks what else
+# is needed, which gives a kit still waiting on the menu the chance to say so.
+/setup-ai-build-kit
+---
+I want a simple sign-out log for the shared camera and sound kit in our video team. There are six of us. Someone takes a camera out for a shoot, and a week later nobody knows who has it. People should see what kit we have, sign an item out, sign it back in, and see who has what right now. Nothing exists yet, we would be starting fresh.
+---
+It is only for the six of us, nobody outside the team. Each person should sign in with their work email, so the log shows who took what. It keeps names, work emails and the list of kit, nothing else. There is no money, no customers, no health or personal data, and nothing happens automatically. If it is down for a day we go back to the whiteboard in the kit room.
+---
+Anyone can sign any item out or back in, and anyone can add new kit to the list. We are one small team, so that is fine.
+---
+We would open it in a web browser, on laptops and on our phones, and it has to work when my laptop is off. We have no server of our own and nobody who looks after one. I am happy to own any accounts it needs.
+---
+# when: Coolify
+It only needs to keep the kit list and let the six of us sign in, nothing else. The rest looks right to me.
+---
+Yes, that is fine. Go ahead with whatever setup still needs doing.
+---
+Thanks. Is there anything else you need from me before we start building?

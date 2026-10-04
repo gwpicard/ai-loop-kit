@@ -1,0 +1,39 @@
+name: release label
+
+# Release Drafter chooses the next version from the labels on the merged pull
+# requests. It cannot read a change, so an unlabelled one falls through to
+# "Other changes" and quietly becomes a patch. A release adding a command then
+# goes out with a number promising only repairs.
+#
+# This asks the one question a machine can answer: did somebody choose? It runs
+# on the pull request rather than at merge, so the answer arrives while there is
+# still something to do about it, and re-runs when a label is added or removed.
+#
+# It reads nothing and writes nothing. The labels arrive in the event payload,
+# and they reach the script on standard input rather than through the run block,
+# so nothing from the pull request is ever expanded into a command.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  release-label:
+    if: github.repository == 'gwpicard/ai-build-kit' || github.repository == 'gwpicard/ai-loop-kit'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check the pull request says what kind of change it is
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          printf '%s' "$LABELS" \
+            | python3 -c 'import json, sys; print("\n".join(json.load(sys.stdin)))' \
+            | .agents/tools/check-release-label.sh

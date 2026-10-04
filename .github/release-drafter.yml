@@ -1,0 +1,45 @@
+name-template: "AI Build Kit v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+change-template: "- $TITLE"
+change-title-escapes: "\\<*_&"
+categories:
+  - type: pre-exclude
+    when:
+      label: skip-release-notes
+  - title: Changes for people using the kit
+    semver-increment: minor
+    exclusive: true
+    when:
+      labels:
+        - feature
+        - enhancement
+  - title: Fixes
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: bug
+  - title: Documentation
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: documentation
+  - title: Other changes
+    semver-increment: patch
+  - type: version-resolver
+    semver-increment: major
+    when:
+      label: release-major
+  - type: version-resolver
+    semver-increment: minor
+    when:
+      label: release-minor
+  - type: version-resolver
+    semver-increment: patch
+    when:
+      label: release-patch
+  - type: version-resolver
+    semver-increment: patch
+template: |
+  This release contains the checked AI Build Kit. The notes below explain what changed.
+
+  $CHANGES

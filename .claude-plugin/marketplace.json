@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "ai-build-kit",
+  "description": "The Claude Code distribution of AI Build Kit.",
+  "owner": {
+    "name": "Guillaume Picard"
+  },
+  "plugins": [
+    {
+      "name": "ai-build-kit",
+      "source": "./",
+      "description": "A guided workflow for building reliable software with an AI coding agent.",
+      "license": "MIT",
+      "category": "productivity",
+      "tags": [
+        "development",
+        "workflow",
+        "agent-skills"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/maintain/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "The service visit for AI Build Kit updates, project upkeep, handovers, and retirement."
+prompt = """
+Load and follow the instructions in `.agents/skills/maintain/SKILL.md`, the single source of truth for the /maintain command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

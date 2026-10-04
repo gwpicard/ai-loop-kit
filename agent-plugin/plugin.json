@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ai-build-kit",
+  "version": "0.19.2",
+  "description": "A guided workflow for building reliable software with an AI coding agent.",
+  "author": {
+    "name": "Guillaume Picard"
+  },
+  "homepage": "https://github.com/gwpicard/ai-build-kit",
+  "repository": "https://github.com/gwpicard/ai-build-kit",
+  "license": "MIT",
+  "keywords": [
+    "agent-skills",
+    "software-development",
+    "workflow"
+  ]
+}

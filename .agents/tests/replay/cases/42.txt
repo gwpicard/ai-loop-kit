@@ -1,0 +1,23 @@
+# setup: fixture
+# Scenario 42: issue 12 is labelled needs-prototype, and the person has nothing
+# to show. The contract says the pickup asks that first, builds a throwaway only
+# where they have nothing, names which kind of question it is before building,
+# and records the decision in words rather than pixels.
+#
+# The piece is deliberately one arrangement decision and nothing else. Two
+# earlier versions each invited a different rule and the kit correctly followed
+# it: a finance label sent it to the masterplan and a money recheck, and a piece
+# covering a whole screen was too big to hold whole, so the kit asked to split it
+# instead of marking it ready. Both were right in general and neither is what
+# this scenario measures. Keep the piece this narrow.
+/shape 12
+---
+# when: sketch|mock|already have|drawn|anything (you|to) (have|show)|screenshot
+No, nothing drawn up. We have only ever talked about it.
+---
+# when: throwaway|prototype|click through|look at|versions|arrangements|build you
+Yes, build me something to look at. I will not be able to say what is right until I see it.
+---
+The second one. Next to the item name is where the eye already goes; underneath the buttons is where nobody looks.
+---
+That is right. Put that on the piece so nobody reopens it next month.

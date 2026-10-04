@@ -1,0 +1,8 @@
+# setup: fixture
+# prepare: long-instructions
+# The harness pads AGENTS.md to 240 lines with a folder layout before the run,
+# because the kit rightly refuses to write one into its own instructions. The
+# conversation exercises the monthly offer and a no.
+/maintain Run the monthly visit. Leave kit and dependency updates alone for this rehearsal. Do not edit the standing instructions before I answer any offer.
+---
+No, leave the standing instructions as they are. Carry on with the visit.

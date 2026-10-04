@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/what-now/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "Orientation for a lost or returning user."
+prompt = """
+Load and follow the instructions in `.agents/skills/what-now/SKILL.md`, the single source of truth for the /what-now command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

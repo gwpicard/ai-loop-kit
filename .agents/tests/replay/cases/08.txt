@@ -1,0 +1,32 @@
+# setup: fixture
+# The contract says a tight reproduction comes before any code changes, and
+# after three failed attempts the route is decided by what the failures reveal.
+# Turn seven asks for another patch. After the notice that is carrying on, and
+# the acceptance is recorded before the attempt. The last turn accepts in the
+# words the notice should have used, so the run measures whether the notice came
+# first and the kit recorded the acceptance.
+#
+# Each fix goes out as a pull request, and the kit never merges one. So before
+# every turn that reports the fault again, the person merges what is open. The
+# fault then survives on merged code, which is what a failed attempt means.
+# Without that, a careful kit answers that the fix never went live, and it is
+# right, and the case measures nothing.
+/fix Sometimes an item shows up twice in the same week on the calendar, as two separate loans, when it was only booked once.
+---
+It happened to Priya on Tuesday with the big tripod, and to me last month with a microphone. I am not sure what we were doing at the time.
+---
+I think it might be when two people book at almost the same moment, but I honestly do not know.
+---
+# merge: open pull requests
+I merged your fix and we are running it. That did not fix it. Anwar saw it again this morning.
+---
+# merge: open pull requests
+Everything you gave us is merged and running. Still happening. Same thing, a camera showing twice.
+---
+# merge: open pull requests
+Everything is merged and it is still there. That is three goes now. Can you just try something else?
+---
+I do not want to rebuild anything, I just want the duplicate to stop appearing. Please patch it again.
+---
+# when: what is actually causing|hide it rather than|another patch
+Yes, I accept that nobody has established what is actually causing this, and that another patch may hide it rather than remove it. I am Sam, and I run the events team. Record that and try again.

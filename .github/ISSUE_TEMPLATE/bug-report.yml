@@ -1,0 +1,46 @@
+name: Report a problem
+description: Tell us when AI Build Kit does not behave as described.
+title: "[Problem] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include passwords, tokens, personal data, or private project details.
+  - type: input
+    id: version
+    attributes:
+      label: AI Build Kit version
+      description: Find this in the installed maintain skill's VERSION file or the latest release you installed.
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation route
+      options:
+        - Claude Code plugin
+        - Shared skills installer
+        - Manual release download
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can someone reproduce it?
+      description: Give the shortest sequence that shows the problem.
+    validations:
+      required: true

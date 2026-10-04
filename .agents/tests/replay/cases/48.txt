@@ -1,0 +1,11 @@
+# setup: fixture
+# A settled term stays on a shaped piece, which is then parked before sync.
+/shape Let a steward see who has each item from the overdue list. We keep calling both the person using an item and the steward who made the booking its "owner". Help me settle those names as part of shaping this piece, then stop before building it.
+---
+A borrower is the person using an item. A booking steward is the teammate who entered the loan. Either can be the same person. Keep those names on the piece you are shaping; do not change the masterplan or build anything yet.
+---
+Park the piece we just shaped. We can keep asking across the room for now. The names we settled still describe the people using the existing tool, so keep that decision on the parked piece.
+---
+/sync Check the records, including what we settled while planning. Do not build or reopen the parked piece. Leave any proposed record correction for me to answer.
+---
+Yes, put the agreed meanings of borrower and booking steward into the masterplan. Keep the piece parked and leave the tool's behaviour alone.

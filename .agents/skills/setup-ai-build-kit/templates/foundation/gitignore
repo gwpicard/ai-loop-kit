@@ -1,0 +1,22 @@
+node_modules/
+.env
+dist/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.agents/tmp/
+
+# A printout of the project's open issues, regenerated on demand.
+# One person's view of a shared record, so it never belongs to everyone.
+plan.local.md
+.claude/settings.local.json
+.claude/worktrees/
+
+# The state of a run of several pieces, which a new session resumes from.
+# It belongs to this computer's run, never to the shared record.
+.agents/runs/
+
+# The working copies a run builds its pieces in, one for each piece.
+# The kit clears each one away once its pull request has closed.
+.agents/worktrees/

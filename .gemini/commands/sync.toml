@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/sync/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "True the documents up against what actually happened."
+prompt = """
+Load and follow the instructions in `.agents/skills/sync/SKILL.md`, the single source of truth for the /sync command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

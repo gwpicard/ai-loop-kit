@@ -1,0 +1,13 @@
+# setup: fixture
+# Scenario 10: the person cannot say what should happen, so the route is clarify
+# first and a prototype only if talking it through does not settle it. The turns
+# stay genuinely undecided, so a kit that shapes a ready piece out of this has
+# guessed rather than asked.
+/shape When an item comes back late I want something to happen, but I am not sure what.
+---
+Something that makes the steward notice. I do not want to fine anybody, we are all volunteers.
+---
+I honestly cannot picture it. I would know it when I saw it.
+---
+# when: look at|prototype|throwaway|click through|sketch|mock
+Yes, let's do that. I have not got anything drawn up, so you would be starting from nothing.

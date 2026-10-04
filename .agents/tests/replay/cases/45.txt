@@ -1,0 +1,11 @@
+# setup: fixture
+# Scenario 45: a small rule the masterplan does not yet promise. The person
+# approves the result and its build, then asks to see what was saved. They never
+# invoke recovery, so the normal save has to carry the masterplan change.
+/shape When I ask what is free for a date range, put the available items in alphabetical order so I can find an item quickly. Keep the existing availability rules exactly as they are.
+---
+Yes, alphabetical order by the item name. Plain names like Camera, Microphone and Tripod are enough for this piece. The result should be the same whatever order the item list was entered in. I do not need a new screen.
+---
+That is the piece I want. Run /implement on it here. Build it, check an unsorted list and the existing booking rules, then save it through the usual route. The example can stand as my check of the result; do not merge anything.
+---
+Show me the saved masterplan paragraph and say whether the checks passed. Finish any remaining save step. Leave the pull request for me to merge.

@@ -1,0 +1,27 @@
+# setup:
+# An ordinary internal tool founded from scratch, written so the founding
+# interview happens against a realistically vague person: someone who answers
+# plausibly, hedges, and says "I don't know" at least once, rather than feeding
+# clean answers. The project is a team lunch-order tracker: a small team, what
+# each person wants and who is collecting, no money, no outside users, nothing
+# regulated, nothing automated.
+#
+# This scenario watches the SHAPE of the questions the kit asks. An open
+# question the person answers in their own words, such as what the tool should
+# do, must arrive as a plain question. A closed question with a short complete
+# set of answers, such as whether code already exists or they are starting
+# fresh, may be offered as choices. Harness text complaining that a question
+# does not suit a choice interface is outside the kit's control and is not the
+# kit's own wording. The founder never names the interview, the build path, or
+# any record.
+/setup-ai-build-kit
+---
+I think I want something to help us sort out the team lunch order. It's a bit of a mess every day. I'm not totally sure what it should look like though.
+---
+Mostly just what each person wants that day and who is going to go and collect it, I think. There's no paying through it, we just settle up between ourselves. It's only our own team, about ten people.
+---
+I don't know, to be honest. I hadn't thought about whether people need their own logins. Whatever is simplest is fine, we all sit together.
+---
+No, there's nothing built yet, we would be starting fresh. It doesn't need to do anything by itself, no reminders or anything like that.
+---
+Yes, that captures it. Go ahead and set it up.

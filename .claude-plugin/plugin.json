@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "ai-build-kit",
+  "displayName": "AI Build Kit",
+  "description": "A guided workflow for building reliable software with an AI coding agent.",
+  "version": "0.19.2",
+  "author": {
+    "name": "Guillaume Picard"
+  },
+  "homepage": "https://github.com/gwpicard/ai-build-kit",
+  "repository": "https://github.com/gwpicard/ai-build-kit",
+  "license": "MIT",
+  "keywords": [
+    "agent-skills",
+    "software-development",
+    "workflow"
+  ],
+  "commands": [
+    "./.claude/commands/fix.md",
+    "./.claude/commands/implement.md",
+    "./.claude/commands/maintain.md",
+    "./.claude/commands/shape.md",
+    "./.claude/commands/queue.md",
+    "./.claude/commands/setup-ai-build-kit.md",
+    "./.claude/commands/ship.md",
+    "./.claude/commands/sync.md",
+    "./.claude/commands/what-now.md"
+  ],
+  "skills": [
+    "./.claude/skills/change-triage",
+    "./.claude/skills/clarify",
+    "./.claude/skills/screen-check",
+    "./.claude/skills/second-opinion",
+    "./.claude/skills/section-builder"
+  ]
+}

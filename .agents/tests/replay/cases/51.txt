@@ -1,0 +1,33 @@
+# setup: blank
+# prepare: one-recipe-menu
+# Founding with one recipe on the menu. The harness takes every other recipe
+# out of the installed kit first, which is the menu a real founding had on 25
+# September 2026. That founding skipped the menu, assumed the two questions
+# before it, never ran the recipe's tool report, and named the recipe only in
+# the completion report as a choice already made.
+#
+# The project is a booking sheet for a small charity's two meeting rooms: eight
+# people, a browser, sign-in with work email, saved data, no money, no outside
+# users, nothing automated. The one recipe on the menu fits it.
+#
+# The person gives every interview answer in the first two turns, the two
+# questions of the stand-up step included, so founding has what it needs early.
+# The next turn waits for the menu itself: a reply naming the recipe as
+# recommended or the default, or offering an own stack. A host's name alone
+# does not open it, because scenario 50's gate waited for one and fired late,
+# and neither does an interview guess the person may change.
+# That turn answers only the other thing a founding reply tends to ask and
+# says nothing about building or hosting, so the case measures whether founding
+# keeps the recipe and carries on. The last turn asks what else is needed.
+/setup-ai-build-kit
+---
+I want a simple booking sheet for the two meeting rooms at our charity office. There are eight of us. People book a room for an hour or two, and we keep double-booking because the paper diary lives on one desk. People should see which room is free, book a slot, cancel their own booking, and see who has booked what today. Nothing exists yet, we would be starting fresh.
+---
+It is only for the eight of us, nobody outside the office. Each person should sign in with their work email, so a booking shows who made it. It keeps names, work emails and the bookings, nothing else. There is no money, no customers, no health or personal data, and nothing happens automatically. Anyone can book either room, and only the person who made a booking can cancel it. If it is down for a day we go back to the paper diary. We would open it in a web browser, on laptops and on our phones, and it has to work when my laptop is off. We have no server of our own and nobody who looks after one. I am happy to own any accounts it needs.
+---
+# when: (recommend|default).*(vercel|recipe)|(vercel|recipe).*(recommend|default)|unless you (pick|choose) (another|a different) (recipe|stack)|(bring|use) your own stack
+It only needs to keep the bookings and let the eight of us sign in, nothing else. The rest looks right to me.
+---
+Yes, that is fine. Go ahead with whatever setup still needs doing.
+---
+Thanks. Is there anything else you need from me before we start building?

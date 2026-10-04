@@ -1,0 +1,10 @@
+# setup: fixture
+# The first two turns prepare the disposable fixture and remove one check.
+# The next shaping request touches the decision that relied on it.
+In this disposable rehearsal project, record beside the masterplan's rule that a loan occupies its return day: "rests on a_loan_occupies_its_last_day in app/test_bramble.py". This is fixture preparation only. Keep the rule itself and every other record unchanged.
+---
+Remove just the a_loan_occupies_its_last_day check and its entry in CHECKS from app/test_bramble.py in this disposable project. Leave the behaviour and every other check alone. Keep the masterplan exactly as it is. Do not replace the removed check yet.
+---
+/shape Let me see whether an item is free on the day another loan is due back. Use our existing rule about return days. Shape the piece and stop before building it.
+---
+Keep the return-day rule. If anything needs proving, write that on the piece so it is checked when the piece is built. I am not asking to change how bookings work.

@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/ship/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "Take checked work to the copy of the tool the team actually uses."
+prompt = """
+Load and follow the instructions in `.agents/skills/ship/SKILL.md`, the single source of truth for the /ship command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

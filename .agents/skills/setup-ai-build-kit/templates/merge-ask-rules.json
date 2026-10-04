@@ -1,0 +1,6 @@
+{
+  "ask": [
+    "Bash(gh pr merge *)",
+    "Bash(gh api *pulls/*/merge*)"
+  ]
+}

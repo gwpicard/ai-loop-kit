@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/implement/. Do not edit here.
+# Regenerate with .agents/tools/build-adapters.sh
+description = "The everyday command for building a piece that has already been shaped and marked ready."
+prompt = """
+Load and follow the instructions in `.agents/skills/implement/SKILL.md`, the single source of truth for the /implement command.
+Treat the following as the user's request (it may be empty): {{args}}
+"""

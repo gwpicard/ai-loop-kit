@@ -1,0 +1,50 @@
+# AI Build Kit
+
+> A compact, reliable way to build software with an AI coding agent: the discipline of a real process, without the ceremony, and without having to read the code. It is fourteen skills in the open Agent Skills format: nine commands you type, and five that run in the background. Free, MIT licensed, and it runs inside your own project folder on your own computer.
+
+Who it is for: technical builders who direct agents and want what they build to
+keep working, from engineering or from another job. It assumes Git, branches
+and pull requests, and never asks you to read code. None of the nine commands asks you to
+open a file of code. The kit is strongest for internal tools, held by your own
+team, holding your own data, with nobody outside relying on them.
+
+Works with: Claude Code, Codex, Cursor, and Gemini CLI, or any coding agent that
+can read and edit project files, run shell commands, and use Git.
+
+Install (any supported agent): `npx skills add gwpicard/ai-build-kit`
+Install (Claude Code only): `claude plugin marketplace add gwpicard/ai-build-kit`
+then `claude plugin install ai-build-kit@ai-build-kit --scope local`
+First command to type: `/setup-ai-build-kit`
+
+The nine commands: `/setup-ai-build-kit` founds the project, `/shape` shapes an
+idea into a ready piece, `/implement` builds one ready piece, `/queue` shows
+everything ready to build, `/fix` repairs a fault cause-first, `/ship` takes the
+tool live, `/sync` catches the documents up, `/maintain` is the monthly service
+visit, `/what-now` says where the project stands.
+
+How it differs from the alternatives: all-in-one builders such as Lovable, Bolt
+and Replit host the app and own the shape of the project. Developer skill packs
+such as GitHub Spec Kit, Superpowers and agent-skills carry a similar discipline
+but are written for people who read code and already have the habits. AI Build
+Kit carries the discipline for you, keeps the vocabulary to nine commands, never
+requires reading code, and opens with a fit check that names each part of a
+project touching something sensitive and the one caution that goes with it.
+
+What it does not promise: no warranty, the risk notices will miss things, and it
+is not a substitute for a professional developer nor legal, medical, financial
+or security advice.
+
+## Docs
+
+- [README](https://github.com/gwpicard/ai-build-kit/blob/main/README.md): what the kit is, how to install it, the nine commands, comparison and FAQ
+- [WORKFLOW](https://github.com/gwpicard/ai-build-kit/blob/main/WORKFLOW.md): the day-to-day manual for all nine commands
+- [Compatibility](https://github.com/gwpicard/ai-build-kit/blob/main/docs/COMPATIBILITY.md): the installation routes and what each coding agent supports
+- [Philosophy](https://github.com/gwpicard/ai-build-kit/blob/main/docs/PHILOSOPHY.md): why the kit is shaped the way it is
+- [Sources](https://github.com/gwpicard/ai-build-kit/blob/main/docs/SOURCES.md): the borrowed ideas and who they came from
+- [Licence](https://github.com/gwpicard/ai-build-kit/blob/main/LICENSE): MIT
+
+## Optional
+
+- [Contributing](https://github.com/gwpicard/ai-build-kit/blob/main/CONTRIBUTING.md): how to report a problem or suggest a change
+- [Security](https://github.com/gwpicard/ai-build-kit/blob/main/SECURITY.md): how to report a security problem
+- [Releases](https://github.com/gwpicard/ai-build-kit/releases): numbered versions with notes
