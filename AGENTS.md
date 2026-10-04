@@ -255,7 +255,29 @@ attribution line, not the word.
   numeric one, and `--delete-last` removes the last, as a run that lost a
   claim race deletes its own. An older bare comment gets an id from a range
   of its own, so ids never collide. A remote that is a network address is
-  never asked, so a base there counts as missing.
+  never asked, so a base there counts as missing. It models the repository's
+  labels, because the gate script creates the kit's set and has to be seen
+  creating each one once: a new repository starts with GitHub's nine, and a
+  label that exists is refused unless forced. An issue still takes a label the
+  repository does not list. It reads one issue on its own, answering 404 for
+  one that does not exist, and keeps a close's reason and comment. A scenario
+  can set faults in the state file: no network, a refused label write, a
+  refused label creation, a refused comment, and a second session's change
+  that lands between two reads of one issue.
+- `.agents/tests/gate-script.sh` drives the gate script a founded project
+  receives against that stand-in, and reads the labels back after every call.
+  The gate is the one way a piece changes state, so a board is only as true as
+  the gate's refusals. The check reads the transition table out of the script
+  and drives every row twice, once where the condition holds and once where it
+  fails, so a row added there and not tried here fails it. Each pass prints one
+  line and writes the labels in one call, and each refusal names what failed
+  and gives a `next:` command. It also holds the 26 labels and their colours,
+  created once and never again, capture of a new piece and of an issue with no
+  state, the refusal of a parent, drop, tidy, and a report that names every
+  piece out of order and changes nothing. It holds the run status written
+  beside the labels, and the cases that are not the normal one: no network,
+  an account that cannot create labels, two sessions moving one piece, two
+  states, and bad input.
 - `.agents/tests/fake-host.sh` checks the replay harness's stand-ins for a
   host's tools, which scenario 54 launches through on the Vercel recipe. The
   stand-in host keeps a list of deployments beside the project and builds each
@@ -388,7 +410,10 @@ attribution line, not the word.
   for the GitHub CLI. It then drives the step `/maintain` runs on every visit,
   which adds the helper to a project founded before it shipped, replaces an
   older copy, changes nothing the second time, and refuses a folder that is not
-  a founded project or a helper path that is a link. On the same six layouts
+  a founded project or a helper path that is a link. The gate script travels
+  the same way, so every route ends with a runnable copy identical to the
+  template, and the step adds it, replaces an older copy, changes nothing the
+  second time and refuses a link. On the same six layouts
   it opens every pointer the founded AGENTS.md, the masterplan and the skills
   name to a file inside a skill. A pointer names the skill and the path inside
   it, never a fixed project folder, because a project installed for Claude Code
@@ -783,7 +808,11 @@ attribution line, not the word.
   linter on an unused import. It then does the same for a TypeScript project,
   the language the web app recipes build in, with the tools installed as that
   project's own dependencies. It does not run the Next.js starter, since a
-  project the starter made keeps the starter's own lint settings.
+  project the starter made keeps the starter's own lint settings. Both
+  projects carry the gate script where founding places it and stay green. In
+  the Python project an unused import added to that copy turns the linter
+  red, which proves the green counts, and the type check passes on it by name,
+  since `mypy .` leaves folders starting with a dot out.
 - `.agents/tests/waste-read.sh` guards the quarterly read for copied code,
   unused code and unused dependencies: that it stays off Explore privately,
   keeps the settings chosen on purpose, drops a name found anywhere else in

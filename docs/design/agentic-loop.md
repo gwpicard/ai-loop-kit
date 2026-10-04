@@ -85,7 +85,8 @@ piece goes back.
 
 ## Issue states
 
-Each open issue carries exactly one state label. A state that has sub-labels
+Each open issue carries exactly one state label. A parent, an issue with open
+parts, carries none: its parts carry the states. A state that has sub-labels
 carries exactly one of them. Labels are prefixed with their dimension.
 
 | State | Meaning | Sub-label, exactly one |
@@ -111,6 +112,20 @@ labels and the run record in one step, and refuses when the condition fails. A
 hook and the deny rules stop the agent editing state labels directly. A person
 can still change labels on GitHub, and the next gate run reports what it finds.
 
+Every move reads the piece twice: once to check the condition, and again just
+before it writes. If the labels changed in between, another session moved the
+piece, and the gate refuses rather than write over that move.
+
+To tell whether a sub-state's question was answered, the gate keeps one hidden
+line as the last line of the piece's body:
+`<!-- loop:gate sub-state=<sub-state> since=<date> answer=<short hash> -->`. It
+writes the line on every move into a shaping sub-state, with a hash of the
+section that records that sub-state's answer (`## Decided` for clarify and
+prototype, `## Research` for research, and an empty section for the others). On
+the way out it compares the section with the hash. A piece with no such line is
+read as having entered with the section empty. Only the gate writes the line,
+and it changes nothing else in the body.
+
 | From | To | Condition |
 |---|---|---|
 | (new) | `shaping:raw` | Captured in the person's words |
@@ -124,6 +139,11 @@ can still change labels on GitHub, and the next gate run reports what it finds.
 | `state:in-review` | `state:building` | Review finds a defect the spec already covers |
 | `state:in-review` | `state:shaping` | Review finds a problem in the spec |
 | `state:ready` | `state:shaping` | The person pulls it back before a run claims it |
+| `state:building` or `state:in-review` | `state:ready` | A run gives it back when it ends early or is abandoned, or a piece it needs was kicked back; the branch is kept |
+
+Leaving `shaping:spec` for `research`, `clarify` or `prototype` needs a new
+`## Open question` holding one question, the same rule as leaving `raw` for
+one of those three.
 
 ## Shaping
 
