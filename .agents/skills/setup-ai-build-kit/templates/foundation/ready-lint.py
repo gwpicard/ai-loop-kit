@@ -950,7 +950,10 @@ class Lint:
         return "\n".join(kept)
 
     def brief(self) -> None:
-        """No line number or file path outside Relies on and the lines naming a check."""
+        """No line number or file path outside Relies on and the lines naming a check.
+
+        A test file named under Under the hood is the one further exception.
+        """
         refs = ["origin/main"] if self.project.main else []
         branch = clean(self.loop.get("Acceptance branch", ""))
         if branch and self.project.has_ref(f"refs/remotes/origin/{branch}"):
@@ -959,16 +962,29 @@ class Lint:
         lines = without(self.body, UNCOUNTED + ["Relies on"])
         labels = "|".join(re.escape(f) for f in PATH_FIELDS)
         allowed = re.compile(rf"\b({labels}):")
-        details = False
+        # Under the hood may name a test file by its whole path, and nothing
+        # else there is let off. This disagrees with the written rule, which
+        # lists only Relies on and the check lines. The check wins: test-guard.sh
+        # lets a piece change an existing test only when Under the hood names it
+        # by its whole path, so refusing a test path there would refuse every
+        # piece that has to change one. The block is found the way test-guard.sh
+        # finds it: a collapsed details block, or a heading of its own.
+        hood = ""
         reaching = False
         named_lines: list[str] = []
         named_paths: list[str] = []
         for line in lines:
-            if "<summary>" in line and "Under the hood" in line:
-                details = True
-            if details:
-                details = "</details>" not in line
+            if re.search(r"<summary>\s*Under the hood\s*</summary>", line):
+                hood = "details"
                 continue
+            if hood == "details" and "</details>" in line:
+                hood = ""
+                continue
+            if re.match(r"^#+\s*Under the hood\s*$", line):
+                hood = "heading"
+                continue
+            if hood == "heading" and re.match(r"^#+\s", line):
+                hood = ""
             if field_name(line, ["Reaches"]):
                 reaching = True
             elif reaching and not (line.startswith((" ", "\t")) or
@@ -985,8 +1001,12 @@ class Lint:
             named_lines.extend(re.findall(r"\blines? \d+\b|[\w./-]+\.[A-Za-z]{1,5}:\d+",
                                           scanned, re.IGNORECASE))
             for word in scanned.split():
-                path = word.strip("`*_\"'()[]{}<>,;:!?").rstrip(".")
+                # Twice, so a path in backticks before a full stop is still read.
+                marks = "`*_\"'()[]{}<>,;:!?"
+                path = word.strip(marks).rstrip(".").strip(marks)
                 path = re.sub(r":\d+$", "", path)
+                if hood and is_test_file(path):
+                    continue
                 if self.is_path(path, tracked):
                     named_paths.append(path)
         for found in dict.fromkeys(named_lines):

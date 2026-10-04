@@ -208,7 +208,7 @@ class Project:
         git(self.dir, "commit", "-q", "-m", "later work on main")
         git(self.dir, "push", "-q", "origin", "main")
 
-    def lint(self, number, issues, extra_env=None, faults=None, path_first=None):
+    def lint(self, number, issues, extra_env=None, faults=None, path_first=None, script=None):
         state = {"repo": "rehearsal/project", "next": 900, "issues": issues}
         if faults:
             state["faults"] = faults
@@ -226,7 +226,7 @@ class Project:
             env["PATH"] = path_first + os.pathsep + env["PATH"]
         env.update(extra_env or {})
         started = time.time()
-        done = subprocess.run([sys.executable, LINT, str(number)], cwd=self.dir, env=env,
+        done = subprocess.run([sys.executable, script or LINT, str(number)], cwd=self.dir, env=env,
                               capture_output=True, text=True)
         self.seconds = time.time() - started
         self.left_in_tmp = os.listdir(temporary)
@@ -278,7 +278,7 @@ def refused(project, number, issues, what, *needles, extra_env=None, path_first=
 # --- the pieces --------------------------------------------------------------
 
 def body(loop, reach, works=None, decided=None, extra="", relies=None, must=None,
-         evidence=None, not_normal=None, needs=None):
+         evidence=None, not_normal=None, needs=None, hood=None):
     works = works if works is not None else [
         "A refund of a paid order returns the whole amount. Check: tests/test_refund.py"]
     parts = ["## So that", "A shop owner can refund an order from its page.", "",
@@ -302,7 +302,7 @@ def body(loop, reach, works=None, decided=None, extra="", relies=None, must=None
               needs or "Heavy: no\nDev server: no\nBrowser: no\nExpected duration: 20 minutes\n"
                        "Cannot share: nothing", "",
               "<details><summary>Under the hood</summary>", "",
-              "Build the refund beside the order total.", "", "</details>", "",
+              hood or "Build the refund beside the order total.", "", "</details>", "",
               "## Evidence", evidence or "Automated behaviour checks on each Done when line."]
     return "\n".join(parts) + "\n" + extra
 
@@ -511,6 +511,55 @@ passes(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD),
                                  evidence="1. The refund check.\n2. The order check."))],
        "a numbered list under Evidence")
 
+# Under the hood may name a test file by its whole path, because test-guard.sh
+# lets an existing test change only when Under the hood names it that way. The
+# written rule lists only Relies on and the check lines, so the lint and the
+# rule disagree here on purpose, and the exception is no wider than that.
+HOOD_TEST = ("Build the refund beside the order total. It changes "
+             "`tests/test_orders.py`, because the order total now subtracts refunds.")
+HOOD_PIECE = body(BUILD_LOOP, reach(HEAD), hood=HOOD_TEST)
+passes(py, 12, [build_piece(HOOD_PIECE)], "a test file named by its path under Under the hood")
+passes(py, 12, [build_piece(GOOD.replace(
+    "<details><summary>Under the hood</summary>", "### Under the hood").replace(
+    "Build the refund beside the order total.", HOOD_TEST).replace("</details>", ""))],
+    "a test file named under an Under the hood heading")
+# test-guard.sh, on a copy where that test has changed, lists it until the
+# piece names it there, and not after.
+hood_guard = os.path.join(WORK, "hood-guard")
+subprocess.run([REAL_GIT, "clone", "-q", py.dir, hood_guard], check=True)
+write(hood_guard, {"tests/test_orders.py": "def test_order_total():\n    assert True\n"})
+unnamed = subprocess.run(["sh", TEST_GUARD, "HEAD", "-"], cwd=hood_guard, input=GOOD,
+                         capture_output=True, text=True)
+named = subprocess.run(["sh", TEST_GUARD, "HEAD", "-"], cwd=hood_guard, input=HOOD_PIECE,
+                       capture_output=True, text=True)
+expect(unnamed.returncode == 1 and "tests/test_orders.py" in unnamed.stdout
+       and named.returncode == 0,
+       "test-guard.sh lets the changed test through only once Under the hood names it",
+       "unnamed %s %r, named %s %r" % (unnamed.returncode, unnamed.stdout,
+                                       named.returncode, named.stdout))
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD), works=[
+    "The refund keeps tests/test_orders.py passing. Check: tests/test_refund.py"]))],
+    "the same test file named in a Works line's words", "tests/test_orders.py")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD),
+                                  hood="Build the refund in `app/orders.py`."))],
+        "a source file named under Under the hood", "app/orders.py")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD),
+                                  hood="Build the refund after line 12 of the page."))],
+        "a line number under Under the hood", "line 12")
+# The exception is load-bearing: a copy of the lint without it refuses the
+# test file under Under the hood.
+lint_text = open(LINT).read()
+without_hood = lint_text.replace("if hood and is_test_file(path):", "if False:")
+expect(without_hood != lint_text, "the lint carries the Under the hood exception")
+loose = os.path.join(WORK, "ready-lint-without-hood.py")
+with open(loose, "w") as handle:
+    handle.write(without_hood)
+code, out, err = py.lint(12, [build_piece(HOOD_PIECE)], script=loose)
+expect(code == 1 and "tests/test_orders.py" in out + err,
+       "without the exception, the test file under Under the hood is refused",
+       "exit %s out=%r err=%r" % (code, out, err))
+clean_after(py, "the lint without the Under the hood exception")
+
 # The sensitive area, read from the masterplan on origin/main.
 care = Project("care", PY_FILES, PY_STACK, masterplan=care_path("not yet done"))
 care.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
@@ -666,6 +715,19 @@ code, out, err = broken.lint(12, [build_piece(body(BUILD_LOOP, reach(broken.head
 expect(code == 2 and "install" in (out + err).lower(),
        "an install that fails exits 2 naming the install, never a failing check", repr(out + err))
 clean_after(broken, "an install that fails")
+
+# The install shares the checks' time limit, lowered here as for the check.
+stuck = Project("install-hangs", PY_FILES, PY_STACK.replace(
+    "- Install: nothing to install.", "- Install `sleep 120`."))
+stuck.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
+code, out, err = stuck.lint(12, [build_piece(body(BUILD_LOOP, reach(stuck.head())))],
+                            extra_env={"READY_LINT_TIME_LIMIT": "3"})
+expect(code == 2 and "install" in (out + err).lower() and "limit" in (out + err).lower(),
+       "an install that runs past the time limit exits 2 naming the install and the limit",
+       repr(out + err))
+expect(stuck.seconds < 60, "the install past its limit is stopped, not waited for",
+       "%.0fs" % stuck.seconds)
+clean_after(stuck, "an install that runs past the time limit")
 
 shell = Project("shell-runner", dict(PY_FILES, **{
     "run-tests.sh": "#!/bin/sh\nexec python3 \"$@\"\n"}),

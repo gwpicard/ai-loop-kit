@@ -470,7 +470,13 @@ attribution line, not the word.
   done nor accepted, the crew's steps, caps and reason and the refusal of two
   writers, each refused phrase read from the lint's own list, a line number or
   tracked file path outside `## Relies on` and the lines naming a check, a
-  numbered list of build steps, and the length limit for each type. It drives
+  numbered list of build steps, and the length limit for each type. Under the
+  hood is the one further place a path may stand, and only a test file's,
+  because `test-guard.sh` lets a test change only when Under the hood names it.
+  The written rule does not list it, and the lint says so. A test path there
+  passes, in a collapsed block or under a heading, and the same path in a Works
+  line's words is refused. So are a source path and a line number there, and a
+  copy of the lint without the exception refuses the test path. It drives
   pytest and Node's own runner: a check failing on its assertion passes, and
   one failing on a missing import, one passing today and a spec branch that
   changes source code are refused, while a spec branch cut before a later
@@ -478,9 +484,10 @@ attribution line, not the word.
   `package.json`, and a Vitest check passes only once the install brings its
   dependency. A runner the lint cannot read passes with a note, a project with
   no code yet passes without running its checks, and with no `origin/main` a
-  build piece is sent to the first-upload question. A failed install, GitHub
-  out of reach and a checkout that cannot be made each exit 2 and leave
-  nothing behind, and a check past a lowered time limit is stopped and named.
+  build piece is sent to the first-upload question. A failed install, an
+  install past a lowered time limit, GitHub out of reach and a checkout that
+  cannot be made each exit 2 and leave nothing behind, and a check past a
+  lowered time limit is stopped and named.
   It also holds that the lint's Test runner table is the check floor's, that
   it counts a test file exactly as `test-guard.sh` does, that the design
   note's Settled when built list carries the three length limits, and that
