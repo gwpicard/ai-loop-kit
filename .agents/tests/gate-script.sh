@@ -583,7 +583,7 @@ after_first = kit_labels_now()
 created_first = [c for c in calls() if c.startswith("label create")]
 second = gate("labels")
 after_second = kit_labels_now()
-created_second = [c for c in calls() if c.startswith("label create")]
+created_second = [c for c in calls() if c.startswith("label create")][len(created_first):]
 expect(passed_one_line(first, "labels, first run") and after_first == KIT,
        "one run creates all 26 labels, each in its family's colour",
        str(set(KIT.items()) ^ set(after_first.items())))
@@ -613,7 +613,7 @@ pairs = [("state:ready", "building", ["--assignee", "@me"], "building"),
          ("state:in-review", "ready", [], "withdrawn")]
 for origin, target, more, status in pairs:
     fresh([issue(90, family(origin) + ["type:feature"], KICKBACK)],
-          pull_requests=[{"number": 3, "title": "x", "body": "Closes #90", "head": "x",
+          pull_requests=[{"number": 3, "title": "x", "body": "Closes #%d" % 90, "head": "x",
                           "base": "main", "state": "OPEN"}])
     write_run("pairing", [(90, "building")])
     state_json = os.path.join(PROJECT, ".agents", "runs", "pairing", "state.json")
