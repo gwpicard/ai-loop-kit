@@ -21,6 +21,7 @@ Commands:
                                  [--reason <text>] [--withdrawn-by <number>]
   gate.py check-contract <number> [--run <name>]
   gate.py evidence <number> [--phase before] [--at <commit>] -- <command>
+  gate.py evidence <number> --breakage <patch> -- <command>
   gate.py drop <number> --reason <text>
   gate.py tidy
   gate.py report
@@ -38,7 +39,8 @@ commit is the tip of the piece's Acceptance branch, or none without one. The
 hash covers the body with the sections the system writes later left out
 (Kickback, Readiness and Learned) and every <!-- loop:... --> marker line, each
 line's trailing spaces dropped. check-contract reads the newest such comment
-and works the hash out again. A piece being built whose contract changed goes
+by the account that added state:ready, read from the issue's label events, and
+works the hash out again. A comment by any other account is ignored. A piece being built whose contract changed goes
 back to shaping:spec with a Kickback section saying so, and its branch stays. A
 piece with no hash comment has one recorded then. section-builder runs it at
 the start of every attempt, and the move to state:in-review runs it again.
@@ -62,12 +64,22 @@ or fix piece each acceptance check is also run at the spec commit, or with
 none at the commit on the branch that first holds it, and must fail there on
 its assertion. Each check has the ready-gate lint's time limit, ten minutes.
 
+For a build or fix piece, once its checks pass, the gate also reads the
+breakages of the changed code recorded on the current commit. Where StrykerJS
+or mutmut is among the project's dependencies at the base, an acceptance check
+that failed on none of them forces the person's review, as a weak_check line,
+and a commit with no breakage recorded refuses the move. With neither, the
+record says in one line that the checks were not tested by breaking the code.
+
 evidence runs one command in the folder that has the piece's branch checked
 out, or with --phase before at the spec commit or the --at commit, in a
 checkout of its own. Every run, the builder's and the gate's, is one line in
 .agents/pieces/<number>/evidence.jsonl in the main folder: the command, its
 exit code, the commit, whether the tree was clean, the time and the phase,
-with what it printed kept in a file beside it. Each line carries a hash
+with what it printed kept in a file beside it. With --breakage the gate
+applies the patch in a temporary worktree at the commit the piece's branch
+holds, runs the command there, records it with phase breakage and the patch's
+hash, and removes the worktree with git worktree remove. Each line carries a hash
 chained to the line before it, and a record holding a line this script did not
 write is refused. Only this script writes that file.
 
@@ -209,6 +221,8 @@ CHANGED = "The contract changed while it was being built."
 
 # The scripts beside this one that the move to state:in-review runs.
 BAR_GUARD = "bar-guard.sh"
+NO_BREAKAGE = ("the checks were not tested by breaking the code: neither StrykerJS nor "
+               "mutmut is among the project's dependencies")
 AREA_MAP = "area-map.py"
 MAP_FILE = "docs/working-rules.md"
 
@@ -847,13 +861,43 @@ def spec_commit(number: int, body: str) -> str:
            f"git fetch origin {branch}, then run the same command again")
 
 
+def ready_account(number: int) -> str | None:
+    """The account that last added state:ready to the piece, read from the
+    issue's label events, or None when no event shows one."""
+    events = gh_json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}/events",
+                      "--paginate"])
+    found = None
+    for event in events if isinstance(events, list) else []:
+        if not isinstance(event, dict) or event.get("event") != "labeled":
+            continue
+        label = event.get("label")
+        who = event.get("actor")
+        if not isinstance(label, dict) or not isinstance(who, dict):
+            continue
+        if label.get("name") == "state:ready" and who.get("login"):
+            found = str(who["login"])
+    return found
+
+
 def contract_on_record(number: int) -> tuple[str, str] | None:
-    """The hash and spec commit from the newest loop:contract comment, or None."""
+    """The hash and spec commit from the newest loop:contract comment the gate
+    can trust, or None.
+
+    Anybody who can comment on the issue can post a loop:contract line, so only
+    a comment by the account that added state:ready counts. The gate posts the
+    hash from that same account, just before it moves the labels.
+    """
+    trusted = ready_account(number)
+    if trusted is None:
+        return None
     comments = gh_json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}/comments",
                         "--paginate"])
     found = None
     for comment in comments if isinstance(comments, list) else []:
         if not isinstance(comment, dict):
+            continue
+        user = comment.get("user")
+        if not isinstance(user, dict) or user.get("login") != trusted:
             continue
         for match in CONTRACT.finditer(str(comment.get("body") or "")):
             found = (match.group(1), match.group(2))
@@ -1039,7 +1083,7 @@ def guard_the_bar(number: int, body: str, names: Sequence[str], pull: dict[str, 
                     "detail": f"{path} ({kind}) changes the bar, named on a Changes the bar "
                               "line"} for kind, path, _ in rows]
         reasons += outside_boundary(folder, base, body)
-        fresh_evidence(number, body, names, folder, base, spec, bool(temp), move)
+        reasons += fresh_evidence(number, body, names, folder, base, spec, bool(temp), move)
         return reasons
     finally:
         if temp:
@@ -1301,9 +1345,61 @@ def first_commit_with(folder: str, base: str, path: str) -> str:
     return added[0] if added else base
 
 
+def mutation_runner(folder: str, base: str) -> str | None:
+    """StrykerJS or mutmut, where the project lists one among its dependencies
+    at the base, or None. Read at the base, so a branch cannot take its runner
+    out to skip the breakages."""
+    listed = git(folder, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only",
+                 base).stdout.splitlines()
+    for path in listed:
+        name = path.rsplit("/", 1)[-1]
+        if name == "package.json":
+            try:
+                data = json.loads(git(folder, "show", f"{base}:{path}").stdout)
+            except ValueError:
+                continue
+            for key in ("dependencies", "devDependencies", "optionalDependencies"):
+                deps = data.get(key) if isinstance(data, dict) else None
+                if isinstance(deps, dict) and any(str(n).startswith("@stryker-mutator/")
+                                                  for n in deps):
+                    return "StrykerJS"
+        elif name in ("pyproject.toml", "setup.cfg", "setup.py", "Pipfile") or \
+                re.match(r"^requirements.*\.(txt|in)$", name):
+            text = git(folder, "show", f"{base}:{path}").stdout
+            if re.search(r"(?im)^[^#\n]*\bmutmut\b", text):
+                return "mutmut"
+    return None
+
+
+def weak_checks(earlier: list[dict[str, Any]], checks: list[str],
+                commit: str) -> list[dict[str, str]] | None:
+    """A weak_check reason for each acceptance check that failed on none of the
+    breakages recorded on this commit, or None when none is recorded.
+
+    A run stopped at the time limit caught nothing, as a crash or a timeout
+    counts as unchecked rather than caught.
+    """
+    tried = [line for line in earlier if line.get("phase") == "breakage"
+             and line.get("commit") == commit and "command" in line]
+    if not tried:
+        return None
+    reasons = []
+    for path in checks:
+        mine = [line for line in tried if path in str(line["command"])]
+        if any(line.get("exit") not in (0, None) and not line.get("late") for line in mine):
+            continue
+        detail = (f"the acceptance check {path} failed on none of the {len(mine)} "
+                  f"breakage(s) of the changed code recorded on {commit[:12]}" if mine else
+                  f"the acceptance check {path} was run against none of the breakages of "
+                  f"the changed code recorded on {commit[:12]}")
+        reasons.append({"reason": "weak_check", "source": "evidence", "detail": detail})
+    return reasons
+
+
 def fresh_evidence(number: int, body: str, names: Sequence[str], folder: str, base: str,
-                   spec: str, fresh_checkout: bool, move: str) -> None:
-    """Run every check the piece names, on the commit as it stands, before review.
+                   spec: str, fresh_checkout: bool, move: str) -> list[dict[str, str]]:
+    """Run every check the piece names, on the commit as it stands, before review,
+    and return the reasons the breakages give to force the person's review.
 
     The builder's own word counts for nothing: a check missing, failing, passing
     only on a retry, or run on a tree with changes nobody saved refuses the
@@ -1342,6 +1438,8 @@ def fresh_evidence(number: int, body: str, names: Sequence[str], folder: str, ba
         if problem:
             refuse(f"{problem}, so #{number}'s checks could not run",
                    f"put the install right, then run: {move}")
+    reasons: list[dict[str, str]] = []
+    runner_missing = ""
     temp = tempfile.mkdtemp(prefix="gate-reports-")
     try:
         runner = lint.detect_runner(test, folder) if lint is not None and runnable else None
@@ -1387,6 +1485,19 @@ def fresh_evidence(number: int, body: str, names: Sequence[str], folder: str, ba
         elif module in ("goal", "gauntlet"):
             entries.append(note_entry("before", spec, f"a {module} piece has no before run, so "
                                       "no check was run at a spec commit"))
+        # The acceptance checks are tested by breaking the changed code once they
+        # pass, where the project already has a runner for it.
+        broken_against = [p for p in checks if " " not in p.strip()]
+        if module in ("build", "fix") and broken_against and lint is not None and runnable:
+            mutation = mutation_runner(folder, base)
+            if mutation is None:
+                entries.append(note_entry("breakage", commit, NO_BREAKAGE))
+            else:
+                found = weak_checks(earlier, broken_against, commit)
+                if found is None:
+                    runner_missing = mutation
+                else:
+                    reasons = found
     finally:
         for name in os.listdir(temp):
             os.remove(os.path.join(temp, name))
@@ -1398,6 +1509,14 @@ def fresh_evidence(number: int, body: str, names: Sequence[str], folder: str, ba
         refuse(f"the gate ran #{number}'s checks itself, and they do not hold:\n"
                + "\n".join(f"- {p}" for p in problems),
                f"make each listed check hold on a saved commit, then run: {move}")
+    if runner_missing:
+        refuse(f"the project has {runner_missing}, and no breakage of the changed code is "
+               f"recorded on the commit as it stands ({commit[:12]}), so #{number}'s "
+               "acceptance checks were not tested by breaking the code",
+               "break the changed code on purpose as section-builder's "
+               "references/test-strength.md says, run each breakage with gate.py evidence "
+               f"{number} --breakage <patch> -- <acceptance check command>, then run: {move}")
+    return reasons
 
 
 def before_runs(number: int, lint: Any, checks: list[str], folder: str, base: str, spec: str,
@@ -1620,13 +1739,19 @@ def closing_pull(number: int) -> dict[str, Any] | None:
 
 def command_evidence(arguments: list[str], options: dict[str, str],
                      command: list[str]) -> None:
-    usage = "gate.py evidence <number> [--phase before] [--at <commit>] -- <command>"
+    usage = ("gate.py evidence <number> [--phase before] [--at <commit>] -- <command>, or "
+             "gate.py evidence <number> --breakage <patch> -- <command>")
     if len(arguments) != 1 or not command:
         refuse("evidence takes one issue number, then -- and the command to run", usage)
     number = number_from(arguments[0])
     phase = options.get("phase", "after")
     if phase not in ("before", "after"):
         refuse(f"'{phase}' is not a phase; a run is before or after", usage)
+    if "breakage" in options:
+        if "phase" in options or "at" in options:
+            refuse("a breakage runs at the commit the piece's branch holds, so --breakage "
+                   "takes no --phase or --at", usage)
+        phase = "breakage"
     issue = read_issue(number)
     if not is_open(issue):
         refuse(f"#{number} is closed", "gate.py report")
@@ -1637,17 +1762,17 @@ def command_evidence(arguments: list[str], options: dict[str, str],
     lint = need_lint(number, f"gate.py evidence {number} -- <command>")
     text = command[0] if len(command) == 1 else shlex.join(command)
     body = str(issue.get("body") or "")
-    if phase == "after":
-        pull = closing_pull(number)
-        branch = str(pull.get("headRefName") or "") if pull else acceptance_branch(body) or ""
-        folder = worktree_for(branch) if branch else None
-        if folder is None:
-            top = git(os.getcwd(), "rev-parse", "--show-toplevel").stdout.strip()
-            current = git(os.getcwd(), "branch", "--show-current").stdout.strip()
-            if branch and current != branch:
-                refuse(f"no folder on this computer has {branch}, #{number}'s branch, checked "
-                       "out", "check it out, then run the same command again")
-            folder = top or os.getcwd()
+    if phase == "breakage":
+        folder = branch_folder(number, body)
+        commit, _ = folder_state(folder)
+        code, output, late, patch_hash = run_breakage(number, lint, options["breakage"],
+                                                      text, commit, usage)
+        entry = run_entry_for(number, "breakage", text, code, commit, True, output, "evidence")
+        entry["patch"] = patch_hash
+        if late:
+            entry["late"] = True
+    elif phase == "after":
+        folder = branch_folder(number, body)
         commit, dirty = folder_state(folder)
         code, output, late = lint.run_limited(text, folder)
         entry = run_entry_for(number, "after", text, code, commit, not dirty, output, "evidence")
@@ -1681,10 +1806,65 @@ def command_evidence(arguments: list[str], options: dict[str, str],
         entry = run_entry_for(number, "before", text, code, resolved, True, output, "evidence")
     for note in write_record(number, [entry]):
         say(note)
-    state = "clean tree" if entry["clean"] else "a tree with changes nobody saved"
+    state = ("clean tree, with one breakage applied" if phase == "breakage" else
+             "clean tree" if entry["clean"] else "a tree with changes nobody saved")
     said = "ran past the time limit and was stopped" if late else f"exited {code}"
     say(f"#{number} evidence recorded: `{text}` {said} at {entry['commit'][:12]} "
         f"({phase}, {state})")
+
+
+def branch_folder(number: int, body: str) -> str:
+    """The folder that has the piece's branch checked out, refusing when none does."""
+    pull = closing_pull(number)
+    branch = str(pull.get("headRefName") or "") if pull else acceptance_branch(body) or ""
+    folder = worktree_for(branch) if branch else None
+    if folder is None:
+        top = git(os.getcwd(), "rev-parse", "--show-toplevel").stdout.strip()
+        current = git(os.getcwd(), "branch", "--show-current").stdout.strip()
+        if branch and current != branch:
+            refuse(f"no folder on this computer has {branch}, #{number}'s branch, checked "
+                   "out", "check it out, then run the same command again")
+        folder = top or os.getcwd()
+    return folder
+
+
+def run_breakage(number: int, lint: Any, given: str, command: str, commit: str,
+                 usage: str) -> tuple[int, str, bool, str]:
+    """Apply one breakage patch in a temporary worktree at the commit, run the
+    command there, and remove the worktree. The piece's own folder never holds
+    broken code. Returns the exit code, the output, whether the run was stopped
+    at the time limit, and the patch's hash."""
+    patch = os.path.abspath(given)
+    name = os.path.basename(patch)
+    if not os.path.isfile(patch):
+        refuse(f"the breakage patch {name} does not exist", usage)
+    with open(patch, "rb") as handle:
+        patch_hash = hashlib.sha256(handle.read()).hexdigest()
+    root = main_folder()
+    checkout = lint.Checkout(types.SimpleNamespace(root=root), commit)
+    try:
+        try:
+            checkout.open()
+        except lint.CannotRun as error:
+            refuse(f"the breakage {name} could not be set up ({error})", usage)
+        applied = git(checkout.path, "apply", patch)
+        if applied.returncode != 0:
+            said = (applied.stderr.strip().splitlines() or ["git gave no reason"])[0]
+            refuse(f"the breakage patch {name} does not apply at {commit[:12]}, the commit "
+                   f"#{number}'s branch holds ({said}), so nothing was recorded",
+                   f"make the patch again against {commit[:12]}, then run the same command "
+                   "again")
+        agents = git(root, "show", f"{commit}:AGENTS.md").stdout
+        problem = install_in(lint, checkout.path, agents, commit)
+        if problem:
+            refuse(f"{problem}, so the breakage {name} did not run", usage)
+        code, output, late = lint.run_limited(command, checkout.path)
+        # Put the code back, so git worktree remove finds no tracked change.
+        if git(checkout.path, "apply", "-R", patch).returncode != 0:
+            git(checkout.path, "checkout", "-q", "--", ".")
+    finally:
+        checkout.clear()
+    return code, output, late, patch_hash
 
 
 def command_check_contract(arguments: list[str], options: dict[str, str]) -> None:
@@ -1937,7 +2117,7 @@ COMMANDS = {"move": command_move, "capture": command_capture, "drop": command_dr
             "evidence": lambda arguments, options: command_evidence(arguments, options, []),
             "check-contract": command_check_contract}
 OPTIONS = ("--run", "--assignee", "--reason", "--withdrawn-by", "--title", "--body-file",
-           "--phase", "--at")
+           "--phase", "--at", "--breakage")
 
 
 def parse(argv: list[str]) -> tuple[list[str], dict[str, str]]:

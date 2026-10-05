@@ -699,16 +699,17 @@ json.dump(state, open(path, "w"))
 ACTOR
 }
 
-"$GH" issue create --title "Gift cards" --body "x" --label "type:feature" > /dev/null
-"$GH" issue edit 4 --add-label "state:ready" > /dev/null
+gift=$("$GH" issue create --title "Gift cards" --body "x" --label "type:feature")
+gift=${gift##*/}
+"$GH" issue edit "$gift" --add-label "state:ready" > /dev/null
 set_actor someone-else
-"$GH" issue edit 4 --remove-label "state:ready" --add-label "state:shaping" > /dev/null
-"$GH" issue comment 4 --body "Written by someone else." > /dev/null
+"$GH" issue edit "$gift" --remove-label "state:ready" --add-label "state:shaping" > /dev/null
+"$GH" issue comment "$gift" --body "Written by someone else." > /dev/null
 set_actor replay-person
-"$GH" issue comment 4 --body "Written by the person." > /dev/null
-"$GH" api "repos/rehearsal/project/issues/4/events" > "$WORK/events"
-"$GH" api "repos/rehearsal/project/issues/4/comments" > "$WORK/rest-comments"
-"$GH" issue view 4 --json comments > "$WORK/view-comments"
+"$GH" issue comment "$gift" --body "Written by the person." > /dev/null
+"$GH" api "repos/rehearsal/project/issues/$gift/events" > "$WORK/events"
+"$GH" api "repos/rehearsal/project/issues/$gift/comments" > "$WORK/rest-comments"
+"$GH" issue view "$gift" --json comments > "$WORK/view-comments"
 python3 - "$WORK/events" <<'CHECK' && pass "label events list in order, each with its label and the account that acted" || fail "the label events did not read back as GitHub gives them"
 import json, sys
 events = json.load(open(sys.argv[1]))
@@ -728,15 +729,15 @@ assert [c["author"]["login"] for c in view] == ["someone-else", "replay-person"]
 CHECK
 # A comment a fixture wrote with no author, as older state files hold, is the
 # person's own.
-python3 - "$FAKE_GH_STATE" <<'OLD'
+python3 - "$FAKE_GH_STATE" "$gift" <<'OLD'
 import json, sys
 state = json.load(open(sys.argv[1]))
-issue = [i for i in state["issues"] if i["number"] == 4][0]
+issue = [i for i in state["issues"] if i["number"] == int(sys.argv[2])][0]
 issue["comments"].append({"id": 7, "body": "An older comment."})
 issue["comments"].append("A bare older comment.")
 json.dump(state, open(sys.argv[1], "w"))
 OLD
-case "$("$GH" api "repos/rehearsal/project/issues/4/comments")" in
+case "$("$GH" api "repos/rehearsal/project/issues/$gift/comments")" in
   *'"body": "An older comment.", "user": {"login": "replay-person"}'*'"body": "A bare older comment.", "user": {"login": "replay-person"}'*)
     pass "a comment with no author is the person's own" ;;
   *) fail "a comment with no author did not read as the person's" ;;

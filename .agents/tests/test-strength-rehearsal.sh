@@ -243,7 +243,7 @@ def built_piece(name, runner):
     repo = seed(name, runner)
     with open(STATE, "w") as handle:
         json.dump({"repo": "rehearsal/shop", "next": 900, "pull_requests": [
-            {"number": 1, "title": "Free delivery", "body": "Closes #12",
+            {"number": 1, "title": "Free delivery", "body": "Closes #%d" % 12,
              "head": "spec/12-delivery", "base": "main", "state": "OPEN"}],
             "issues": [{"number": 12, "title": "Free delivery", "body": BODY,
                         "state": "open", "assignees": [], "blocked_by": [],

@@ -289,10 +289,42 @@ checks a colour change needs, and the full check on the pull request runs the
 rest.
 
 The agent changes an existing test only when the piece names it and says why. A
-small script lists any other test that changed, and any check that changed after
-it was first saved, and each one is put back before the piece is saved. A test
-in the way, or a done line that cannot be met, is reported to you and never
+test in the way, or a done line that cannot be met, is reported to you and never
 worked round.
+
+The bar a piece is built against is fixed when it is made ready. The gate posts
+a fingerprint of the piece's contract on its issue, leaving out the sections the
+kit writes during a build, and reads it again before every attempt and before
+review. A contract that changed while the piece was being built sends it back to
+shaping, and its branch stays.
+
+When the piece moves to review, the gate lists every change the build made to
+what it is measured against. That covers an acceptance check, an existing test,
+a skip marker, a silenced lint or type warning, a test or lint tool's settings,
+an updated snapshot, and the project check, a workflow, the gate and its hooks. A
+change the piece did not name on a `Changes the bar:` line is refused, and the
+refusal names each file and says to put it back. An acceptance check can never
+be named: it changes only by being reported to you.
+
+What forces your review: a change the piece did name, a changed file outside the
+piece's boundary in the area map, and an acceptance check that noticed none of
+the deliberate breakages described below. The gate posts the reasons on the
+issue, and the piece waits for you in to check.
+
+Done is the gate running the checks. Before review, the gate itself runs every
+acceptance check, every guard check and the project's Test command on the saved
+commit, and for a build or a fix confirms each acceptance check failed before the
+change. What the agent says about its checks counts for nothing: a red, missing
+or retried check refuses the move. Every run is a line in
+`.agents/pieces/<number>/evidence.jsonl` on your computer, which only the gate
+writes. The type check and the linter are left to the project check on GitHub.
+
+Once every acceptance check passes, the agent breaks the changed code on purpose
+and has the gate run the acceptance checks against each breakage. It does this
+without asking, on every build path, where the project already has StrykerJS or
+mutmut, and it never installs either. In a repair, the test that keeps the fault
+from returning is the acceptance check. Where neither tool is there, the record
+says the checks were not tested this way, and the pull request says so too.
 
 Once the piece is built, the agent walks through the tool itself with sample
 data, the way you would, and records what it saw. It keeps every picture it
@@ -328,10 +360,9 @@ saved until you reply. When nobody is there, as in an unattended run, the piece
 goes to to check with a pull request saying it waits for your try before it is
 merged.
 
-On Build with care, /implement can offer to break the changed code on purpose
-to check whether its tests notice. The fix loop offers the same check for the test
-that keeps a repaired fault from returning. It runs locally when the language
-has a suitable tool, covers only the changed code, and is optional.
+On Build with care the agent can also offer to break the changed code to check
+whether the project's other tests notice. It runs locally when the language has a
+suitable tool, covers only the changed code, and is optional.
 
 You get one line: "The tests were checked by breaking the code on purpose 40
 times. They caught 37. The three they missed are listed on the piece." Misses
