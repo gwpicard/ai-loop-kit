@@ -24,3 +24,7 @@ plan.local.md
 # What the gate records about each piece on this computer, such as the reasons
 # a piece goes to the person's review. Only the gate writes it.
 .agents/pieces/
+
+# A failed attempt's work, kept on this computer before the next attempt
+# starts. The kit never deletes it; the piece names the folder and the command.
+.agents/recovery/

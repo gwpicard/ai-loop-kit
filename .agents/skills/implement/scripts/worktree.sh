@@ -378,10 +378,20 @@ else:
 # being_built <path> <branch>: true when an unfinished run lists a piece in
 # this worktree, or on this branch, as waiting or building.
 being_built() {
-  [ -d "$MAIN/.agents/runs" ] || return 1
   python3 - "$MAIN" "$(relative "$1")" "$2" <<'PY' 2>/dev/null
 import glob, json, os, sys
 main, rel, branch = sys.argv[1:4]
+# Retained failure records outlive a run folder. Cleanup must keep both copies.
+for path in glob.glob(os.path.join(main, ".agents", "recovery", "*", "recovery.json")):
+    try:
+        retained = json.load(open(path))
+    except Exception:
+        # An unreadable retention record cannot authorise removal.
+        sys.exit(0)
+    target = os.path.realpath(os.path.join(main, rel))
+    if any(target == os.path.realpath(retained.get(key, ""))
+           for key in ("source", "baseline_worktree")):
+        sys.exit(0)
 for path in glob.glob(os.path.join(main, ".agents", "runs", "*", "state.json")):
     try:
         run = json.load(open(path))

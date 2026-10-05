@@ -58,6 +58,28 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gate=\"$CLAUDE_PROJECT_DIR/.agents/tools/gate.py\"; if [ -f \"$gate\" ]; then python3 \"$gate\" stop-check; fi",
+            "timeout": 1800
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gate=\"$CLAUDE_PROJECT_DIR/.agents/tools/gate.py\"; if [ -f \"$gate\" ]; then python3 \"$gate\" stop-check; fi",
+            "timeout": 1800
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

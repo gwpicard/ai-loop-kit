@@ -294,6 +294,28 @@ Use the harness's skill picker or ask for a skill by name. When native
 discovery is unavailable, open `.agents/skills/<name>/SKILL.md` directly and
 follow it.
 
+### Task context capabilities
+
+Each attempt of the build loop is a fresh builder: a subagent started with a
+short brief and none of the conversation before it. Whether a coding agent can
+start one by itself is set out, with its sources, in the section-builder
+skill's
+[task context capabilities](../.agents/skills/section-builder/references/task-context-capabilities.md).
+In short:
+
+| Harness | Starts a fresh builder itself |
+|---|---|
+| Claude Code | Yes, as a subagent that does not fork the conversation |
+| Codex | Only where its subagent tool starts a thread with no earlier conversation and may edit files |
+| Cursor | Yes, where a task subagent that can write files is offered |
+| Gemini CLI | Yes, through its generalist subagent with build permissions |
+| GitHub Copilot | Not shown here, so the run stops and asks for a new session |
+| Any other coding agent | Not shown here either, until somebody records the route |
+
+Where none can be started, the run stops at a point it can resume from and asks
+you to open a new session and type `/implement`. Nothing is lost: the run
+record, the notes and the failed attempts' work stay on this computer.
+
 ## Who may start a command
 
 You can type one of the eight commands, name it anywhere in a message, or just
@@ -326,6 +348,7 @@ after a clean checkpoint and explicit approval.
 | Check-up due | `what-now` says when a visit is overdue | Said automatically when a session opens |
 | Safety | Standing restrictions and approval gates | Mechanical command deny list |
 | Long runs | Normal sequential work | Native goal or orchestration mode |
+| A builder that says it is done | The gate runs the checks itself before review | Claude Code's Stop hook sends a builder back while an acceptance check fails; Codex follows in slice 19: Codex parity |
 
 During `setup-ai-build-kit`, the capability check records which enhancements the current
 harness provides and selects a fallback for anything absent. Missing optional

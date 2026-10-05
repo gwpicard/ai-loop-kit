@@ -60,6 +60,12 @@ BOOTSTRAP="$PROJECT/.agents/skills/setup-ai-build-kit/scripts/bootstrap-project.
   fail "installed setup-ai-build-kit skill did not place the area map script at .agents/tools/area-map.py"
 grep -qx '## Areas' "$PROJECT/docs/working-rules.md" 2>/dev/null || \
   fail "installed setup-ai-build-kit skill did not write docs/working-rules.md with an Areas section"
+# The build loop reads its limits from the project's own settings file, which
+# founding writes from the template beside the founding skill.
+LOOP_TEMPLATE="$PACK/.agents/skills/setup-ai-build-kit/templates/loop-settings.json"
+[ -f "$LOOP_TEMPLATE" ] || fail "the released setup-ai-build-kit skill has no loop-settings.json template"
+cmp -s "$PROJECT/.agents/loop-settings.json" "$LOOP_TEMPLATE" || \
+  fail "installed setup-ai-build-kit skill did not write .agents/loop-settings.json from its template"
 
 for record in masterplan.md CHANGELOG.md .ai-build-kit-maintenance; do
   [ ! -e "$PROJECT/$record" ] || \
@@ -83,9 +89,12 @@ grep -qF '(One line, written by the setup-ai-build-kit skill.)' "$PROJECT/AGENTS
 grep -qF '.claude/settings.local.json' "$PROJECT/.gitignore" || \
   fail "project foundation does not keep local Claude plugin state out of Git"
 
+printf '%s\n' '{ "attempts": 5, "piece_budget_minutes": 45 }' > "$PROJECT/.agents/loop-settings.json"
 printf '%s\n' "Existing project instructions" > "$PROJECT/AGENTS.md"
 (cd "$PROJECT" && "$BOOTSTRAP" >/dev/null) || \
   fail "project bootstrap could not be rerun"
+[ "$(cat "$PROJECT/.agents/loop-settings.json")" = '{ "attempts": 5, "piece_budget_minutes": 45 }' ] || \
+  fail "a second founding overwrote the project's edited loop settings"
 [ "$(cat "$PROJECT/AGENTS.md")" = "Existing project instructions" ] || \
   fail "project bootstrap overwrote existing project instructions"
 cp "$PACK/.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.md" "$PROJECT/AGENTS.md"

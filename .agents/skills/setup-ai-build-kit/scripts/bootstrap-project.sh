@@ -173,6 +173,18 @@ RULES_TEMPLATE="$SKILL_ROOT/templates/working-rules.md"
 RULES_FILE="$PROJECT_ROOT/docs/working-rules.md"
 [ -f "$RULES_TEMPLATE" ] && [ ! -L "$RULES_TEMPLATE" ] || \
   fail "template file is missing: templates/working-rules.md"
+
+# The build loop's limits live in .agents/loop-settings.json, which the person
+# edits. Its template sits beside the masterplan's rather than in the
+# foundation folder, so it is checked and copied on its own, with the same
+# rules: a copy already there is the person's, and is kept.
+LOOP_TEMPLATE="$SKILL_ROOT/templates/loop-settings.json"
+LOOP_FILE="$PROJECT_ROOT/.agents/loop-settings.json"
+[ -f "$LOOP_TEMPLATE" ] && [ ! -L "$LOOP_TEMPLATE" ] || \
+  fail "template file is missing: templates/loop-settings.json"
+[ ! -L "$PROJECT_ROOT/.agents" ] || fail "project path is redirected outside the project: .agents"
+[ ! -e "$PROJECT_ROOT/.agents" ] || [ -d "$PROJECT_ROOT/.agents" ] || \
+  fail "project path is not a folder: .agents"
 [ ! -L "$PROJECT_ROOT/docs" ] || fail "project path is redirected outside the project: docs"
 [ ! -e "$PROJECT_ROOT/docs" ] || [ -d "$PROJECT_ROOT/docs" ] || \
   fail "project path is not a folder: docs"
@@ -271,6 +283,14 @@ if [ -e "$RULES_FILE" ] || [ -L "$RULES_FILE" ]; then
 else
   mkdir -p "$PROJECT_ROOT/docs"
   cp "$RULES_TEMPLATE" "$RULES_FILE"
+  created=$((created + 1))
+fi
+
+if [ -e "$LOOP_FILE" ] || [ -L "$LOOP_FILE" ]; then
+  kept=$((kept + 1))
+else
+  mkdir -p "$PROJECT_ROOT/.agents"
+  cp "$LOOP_TEMPLATE" "$LOOP_FILE"
   created=$((created + 1))
 fi
 

@@ -242,35 +242,91 @@ rs_rule "the record never calls the caution done" \
 rs_guard "$FOUNDATION" "the project's own AGENTS.md template"
 rs_require_absent "the project's instructions no longer stop at a person" "$FOUNDATION" "stop where it is a person"
 
-# /implement builds through section-builder, whose flagged route used to stop
-# at the condition whatever the person said. It now gives the notice and builds
-# when the person carries on. A run with nobody present still stops, because
-# accepting on the person's behalf is the one thing no run may do.
+# The build never asks for an acceptance. A person accepts a risk in one place
+# only, /shape's clarify step, where they are present to hear the notice and
+# carry on after it. section-builder used to give the notice too and build when
+# the person carried on, which meant a builder with nobody there carried the
+# same rule as a session with the person in it, one sentence away from
+# accepting on their behalf. Now a piece that reaches a build touching a
+# sensitive area with no acceptance on the record is kicked back to clarify,
+# and the gate refuses its claim besides, so the rule holds even if the words
+# drift.
 SECTION="$ROOT/.agents/skills/section-builder/SKILL.md"
+LOOP="$ROOT/.agents/skills/section-builder/references/build-loop.md"
 IMPLEMENT="$ROOT/.agents/skills/implement/SKILL.md"
 RUNNING="$ROOT/.agents/skills/implement/references/running-longer.md"
 
 rs_reset
-rs_rule "the flagged route gives the notice before building in the area" \
-  'before building inside the area, give the risk notice once, in full'
-rs_rule "carrying on writes the line and the piece is built" \
-  'if the person carries on after it, write the .accepted:. line with their words and the date, read it back, and build and save the piece on the pull-request route'
-rs_rule "an unattended run never accepts for the person" \
-  'in an unattended run nobody is there to carry on, so never write an acceptance on the person.s behalf'
-rs_rule "a recorded acceptance makes it the pull-request route" \
-  'where the person carried on and the acceptance is recorded, this is the pull-request route'
-rs_rule "a blocked piece waits until the person carries on" \
+rs_rule "the flagged route asks for no acceptance and writes no Accepted: line" \
+  'never ask for an acceptance here and never write an `accepted:` line'
+rs_rule "an acceptance is asked for only in /shape's clarify step" \
+  'an acceptance is asked for and recorded only in `/shape`.s clarify step, where the person is present'
+rs_rule "the piece is kicked back to clarify with the area named" \
+  'kick the piece back to `shaping:clarify` through the gate, with a `## kickback` section naming the area'
+rs_rule "the gate refuses the claim for such a piece" \
+  'the gate refuses the claim of a piece whose reach touches a sensitive area with no recorded acceptance'
+rs_rule "a kicked-back piece waits until the person carries on in /shape" \
   'or the person carries on after the notice and the acceptance is recorded'
-rs_rule "the flagged route asks no further question before the build" \
-  'do this in the reply that answers them, and do not ask a further question before the build'
-rs_rule "the flagged route opens a lock that only waits for this caution" \
-  'a lock whose only purpose is to wait for this caution opens with the acceptance, unless the person asks to keep it'
 rs_guard "$SECTION" "section-builder's flagged route"
+rs_require_absent "section-builder no longer gives the notice before building" "$SECTION" \
+  'before building inside the area, give the risk notice'
+rs_require_absent "section-builder no longer writes the line on a carry-on" "$SECTION" \
+  'write the .accepted:. line with their words and the date, read it back, and build'
 rs_require_absent "section-builder no longer requires the condition before merge" "$SECTION" 'must be met before merge or live activation'
-rs_require_load_bearing "implement lets a blocked piece go on when the person carries on" "$IMPLEMENT" \
+rs_require_load_bearing "the build loop never asks for an acceptance" "$LOOP" \
+  'never asks for an acceptance and never writes an `accepted:` line'
+rs_require_load_bearing "implement leaves a kicked-back piece until the person carries on in /shape" "$IMPLEMENT" \
   'until the person carries on after the risk notice and the acceptance is recorded'
 rs_require_load_bearing "an unattended run still stops at a sensitive area" "$RUNNING" \
   'at any touch of a named sensitive area'
+rs_require_load_bearing "a run never accepts for the person" "$RUNNING" \
+  'a run never writes an acceptance on the person.s behalf'
+
+# The same, read mechanically. No sentence in section-builder (its SKILL.md and
+# references), the implement skill or the queue skill may ask for an acceptance
+# or write an Accepted: line, unless it says never to. The fix loop's
+# escalation still gives its notice until its own rewrite lands, so its file is
+# left out here and named. A copy with one asking sentence planted proves the
+# reader catches it.
+[ -n "${RS_LIST:-}" ] || {
+SKILLS="$ROOT/.agents/skills"
+asking() {
+  python3 - "$@" <<'PYEOF'
+import re
+import sys
+
+ASKS = re.compile(r"\b(give|gives|giving) the risk notice\b|\b(ask|asks|asking) (the person )?"
+                  r"(for )?(an|their|the) acceptance\b|\b(write|writes|writing) (the|an|their) "
+                  r"(`accepted:` line|accepted: line|acceptance)\b|\b(record|records|recording) "
+                  r"(the|their|an) acceptance\b", re.IGNORECASE)
+NEVER = re.compile(r"\b(never|not|no|nobody|cannot)\b", re.IGNORECASE)
+found = []
+for path in sys.argv[1:]:
+    text = " ".join(open(path, encoding="utf-8").read().split())
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if ASKS.search(sentence) and not NEVER.search(sentence):
+            found.append("%s: %s" % (path, sentence[:160]))
+print("\n".join(found))
+PYEOF
+}
+building=$(find "$SKILLS/section-builder" "$SKILLS/implement" "$SKILLS/queue" -name '*.md' \
+  ! -path "$SKILLS/section-builder/references/fix-loop.md" | sort)
+said=$(asking $building)
+if [ -z "$said" ]; then
+  rs_ok "section-builder, implement and queue never ask for an acceptance or write the line"
+else
+  printf '%s\n' "$said" >&2
+  rs_fail "a building skill asks for an acceptance or writes an Accepted: line"
+fi
+cp "$SECTION" "$rs_dir/planted.md"
+printf '\n%s\n' 'If the person carries on, write the `Accepted:` line with their words.' \
+  >> "$rs_dir/planted.md"
+if [ -n "$(asking "$rs_dir/planted.md")" ]; then
+  rs_ok "a copy of section-builder with one asking sentence planted is caught"
+else
+  rs_fail "a planted asking sentence was not caught"
+fi
+}
 
 # The notice and the acceptance now happen while the piece is shaped, in
 # shaping:clarify, so a run never meets a sensitive area nobody accepted. The

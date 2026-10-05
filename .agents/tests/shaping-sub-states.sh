@@ -250,6 +250,16 @@ rs_rule "a piece that never came back from a build gains no Kickback section" \
   'a piece that never came back from a build gains no `## kickback` section'
 rs_rule "since /shape reads that section first, as a returned build" \
   '`/shape` reads that section first and as a build that came back'
+# A piece can come back more than once. Each earlier branch keeps its own
+# line, so nothing a run did is lost however many times spec runs again.
+rs_rule "a piece may keep several earlier spec branches, each on its own line" \
+  'a piece may keep more than one earlier spec branch, each on a `kept branch:` line of its own'
+rs_rule "each placed where its own trigger says, oldest first" \
+  'each line goes where its own trigger says, oldest first'
+rs_rule "spec never removes or rewrites an earlier Kept branch line" \
+  'spec never removes or rewrites an earlier `kept branch:` line'
+rs_rule "the spec fingerprint leaves every one of them out" \
+  'the gate.s fingerprint of spec leaves every `kept branch:` line out'
 rs_rule "a half-finished spec run reuses its branch" \
   'when neither applies and `acceptance branch:` is not yet written, as after a spec run stopped half-way with its branch pushed, reuse that branch and cut no new one'
 # A project with no code online.

@@ -32,6 +32,22 @@ if grep -qF 'SessionStart' "$ROOT/.claude/settings.json"; then
   fail "the maintainer source wired a project session hook into its own settings"
 fi
 
+# The build loop's Stop hook is wired into the settings a project receives,
+# never into this repository's own. Here nothing builds a piece, so a hook that
+# ran the gate's stop check would only ever find nothing to do, and a session
+# working on the kit must not be sent back by a project's checks.
+for stop_event in '"Stop"' '"SubagentStop"'; do
+  if grep -qF "$stop_event" "$ROOT/.claude/settings.json"; then
+    fail "the maintainer source wired a $stop_event hook into its own settings"
+  fi
+  grep -qF "$stop_event" \
+    "$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/claude-settings.json" || \
+    fail "the settings a project receives carry no $stop_event hook"
+done
+grep -qF 'stop-check' \
+  "$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/claude-settings.json" || \
+  fail "the settings a project receives do not run the gate's stop check"
+
 "$BUILDER" v0.3.0 "$PACK" >/dev/null
 
 TEMPLATE="$PACK/.agents/skills/setup-ai-build-kit/templates/foundation/session-start.sh"

@@ -120,9 +120,16 @@ rs_rule "a hard choice wins over a missing fact" 'the hard choice wins, and it g
 rs_rule "the claim step sends a visible hard choice back" 'a piece whose text shows a hard open choice goes back to shaping unclaimed'
 
 # Failure, and a blocking failure.
-rs_rule "three failed attempts kick the piece back" 'after the third, kick it back'
-rs_rule "to spec when a check cannot be met as written" 'to `shaping:spec` with `python3 \.agents/tools/gate\.py move <number> spec --run <run name>` when an attempt showed a check that cannot be met as written'
-rs_rule "and to research otherwise" 'to `shaping:research` with `python3 \.agents/tools/gate\.py move <number> research --run <run name>` otherwise'
+# Each piece is built in the build loop: every attempt a fresh builder ending
+# with one of five statuses, each with one route the gate takes. A failure of
+# the computer is never a kickback, and the limit sends the piece to research,
+# or to spec for a check that cannot be met as written.
+rs_rule "every attempt ends with one status and the gate takes its route" 'every attempt is a fresh builder that ends with one of five statuses, and the gate takes the route for each'
+rs_rule "needs_context and blocked are a kickback to the sub-state named" '`needs_context` and `blocked` are a kickback to the sub-state the builder named'
+rs_rule "environment_failed is tried once more and does not count" '`environment_failed` is tried once more as a fresh attempt that does not count'
+rs_rule "a second one stops the piece in building and the person is told" 'a second one stops the piece in `state:building`, with its records kept'
+rs_rule "environment_failed is never a kickback" 'it is never a kickback'
+rs_rule "at the limit, research, or spec for a check that cannot be met" 'at the limit the gate kicks the piece back to `shaping:research`, or to `shaping:spec` when the last result names a check that cannot be met as written'
 # A piece whose build needs software installed on this computer, outside the
 # project folder, waits for a yes nobody is there to give in a run. Installing
 # it anyway is how a person's machine got changed without a word.

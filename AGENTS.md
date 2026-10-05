@@ -188,7 +188,9 @@ attribution line, not the word.
   ready gate asks for. A founded project holds `.agents/tools/area-map.py` and
   a `docs/working-rules.md` whose Areas section passes the check. An `app`
   folder the stand-up makes is named by the check once Git's index holds a
-  file in it, and passes once founding claims it. A whole copy of the kit
+  file in it, and passes once founding claims it. Founding writes
+  `.agents/loop-settings.json` from the template beside the founding skill,
+  and a second founding leaves an edited copy alone. A whole copy of the kit
   founded in place claims `docs/` and `agent-plugin/`, the second with the
   area line the setup skill gives.
 - `.agents/tests/release-publication.sh` rehearses first and later publication
@@ -234,7 +236,9 @@ attribution line, not the word.
   out. It reads `origin/HEAD` first, then `main`, `master` and the branch
   checked out, and a remote holding fewer changes proves it never fetches.
   With both due, the day line comes first and the Claude output stays one
-  object. A folder with no history keeps the day rule.
+  object. A folder with no history keeps the day rule. The settings a project
+  receives carry the build loop's Stop and SubagentStop hooks, which run the
+  gate's stop check, and this repository's own settings carry neither.
 - `.agents/tests/check-up-counts-work.sh` guards the prose around that count.
   `/what-now` runs the reminder script in its plain mode and takes its
   answer, so a session's opening and `/what-now` never disagree. `/maintain`
@@ -306,7 +310,12 @@ attribution line, not the word.
   refuses the move too, and so does a lint missing from beside the gate. Most
   moves run a copy of the gate with a stand-in lint whose answer each case
   sets, and one runs the real gate beside the real lint on a piece carrying
-  only `Touches:`. The move to review also runs the bar guard, so the gate's
+  only `Touches:`. The claim refuses a piece whose Boundary or Reaches line
+  touches a sensitive area with no caution done or accepted in the
+  masterplan, read with the area map as the lint reads it, and allows it once
+  the acceptance is recorded. A second `Kept branch:` line with no new
+  acceptance branch is still refused the move to check. The move to review
+  also runs the bar guard, so the gate's
   copy sits beside the bar guard and the test guard, and the pull request's
   branch is on this computer, changing nothing.
 - `.agents/tests/frozen-bar-rehearsal.sh` drives the gate against the same
@@ -357,6 +366,77 @@ attribution line, not the word.
   once the build is green, and its Fresh evidence row says the gate alone
   holds fresh evidence until slice 7: Build and fix loop modules adds the Stop
   hook. section-builder says the gate runs the checks itself before review.
+- `.agents/tests/loop-modules.sh` guards the written rules of the build loop,
+  section-builder's `references/build-loop.md`, for a piece labelled
+  `loop:build`. Every attempt is a fresh builder started with a bounded brief,
+  carrying the previous attempt's note and nothing of its conversation, and it
+  ends with exactly one of five statuses written to the run's results folder.
+  A finding that would change a Done when line, a Decided line or the boundary
+  ends the attempt as `needs_context` and is never acted on. The run script
+  writes a start request the coordinating session acts on and never starts a
+  model session itself, and the check reads the script for a coding agent's
+  command line or a model service. It holds the limits, the kept work and the
+  history-keeping revert, the switch through the gate, and the build never
+  asking for an acceptance. It holds section-builder's steps 4, 5 and 8
+  pointing at the loop, WORKFLOW.md's five endings in its Day to day section,
+  and the design note's three sentences: where a loop at its limit goes, a
+  budget of time alone, and the start request.
+- `.agents/tests/builder-status-rehearsal.sh` drives the build loop with stub
+  builders, new processes given only the brief, against the stand-in GitHub in
+  throwaway projects with a bare repository as their remote. A single
+  `/implement` gets a run of one, claimed through the gate, and the start
+  request names the piece, the attempt, the worktree, the brief and the result
+  file, with the subagent's id written back. `done` runs the checks through
+  the gate's evidence record and goes on to review, `done_with_concerns` also
+  writes a `builder_concerns` line to `forced.jsonl`, and `needs_context` and
+  `blocked` kick the piece back to the sub-state named, with a Kickback section
+  and the branch pushed. `gate.py result` refuses a missing file, bad JSON, no
+  status, an unknown one, a need of another kind and a malformed cause. Three
+  failed attempts each leave a note, a kept copy and a restoring commit, then a
+  kickback to research listing every attempt with no check output, and to spec
+  when the last result names an acceptance check that cannot be met. The time
+  budget stops the loop too, and a merge commit or an attempt that committed
+  nothing is put back cleanly. `environment_failed` is retried once without
+  counting, then stops the piece in building, and twice in a row on two
+  pieces pauses the run at once. A missing settings file means the defaults,
+  said once, and a broken one starts nothing and names the key. A result
+  GitHub could not take is routed on resume with no new claim, a locked run
+  refuses a second resume, and `switch-module` changes only the label and
+  keeps the contract hash.
+- `.agents/tests/attempt-note-rehearsal.sh` runs the implement skill's
+  `scripts/attempt-note.py` on a throwaway attempt and compares the note with
+  `.agents/tests/fixtures/attempt-note.md`: each check that failed in the
+  attempt with its exit code and the last 40 lines of its output, read from
+  the file the evidence record names, the files touched, the commit and the
+  status. Runs from before the attempt, before runs, breakages and a check
+  that later passed are left out, and an attempt with no evidence says so.
+- `.agents/tests/stop-hook.sh` feeds `gate.py stop-check` the input Claude
+  Code gives a Stop or SubagentStop hook, in throwaway worktrees. A builder
+  whose result says done while an acceptance check fails is sent back with one
+  line naming the check, once, and the run goes through the evidence record
+  without asking GitHub. No result yet, another status, a second stop, a
+  folder that belongs to no piece and this repository all let the session
+  stop. It runs the settings template's hook commands as written, with a
+  timeout above the checks' ten minutes, and holds that this repository's own
+  settings carry neither hook.
+- `.agents/tests/task-handoff.sh`, brought over from the overnight batch,
+  guards section-builder's `references/task-handoff.md` and
+  `references/task-context-capabilities.md`: every attempt of the build loop
+  is a fresh builder with no inherited conversation, only a writable tool that
+  can start fresh qualifies, a coding agent with no route stops the run where
+  it can resume and says to open a new session, and the compatibility page
+  points at the reference. Its stubs, in `.agents/tests/fixtures/`, check the
+  brief's saved inputs and an interrupted builder; they cannot show that a
+  model lost its context.
+- `.agents/tests/failure-recovery.sh`, brought over from the overnight batch,
+  runs the implement skill's `scripts/recovery.py` in disposable projects. A
+  failed attempt's commits, staged, unstaged, untracked and ignored work are
+  kept and verified, a later checked baseline never carries the failed work,
+  and an interrupted record is reconciled before anything continues. Each
+  attempt is kept once in its own folder. Installed folders such as
+  `node_modules/` are named and left out, and an env file is named and never
+  copied, so no key reaches the archive or the records. A builder that left no
+  result is counted only once it is known to have ended, with its work kept.
 - `.agents/tests/bar-guard-rehearsal.sh` runs section-builder's
   `scripts/bar-guard.sh` in fresh copies of one throwaway repository whose
   acceptance branch holds two commits. It makes each of the seven kinds alone
@@ -623,7 +703,8 @@ attribution line, not the word.
   guard and the test guard it wraps travel from the section-builder skill to
   `.agents/tools/` beside the gate script, so every route ends with both
   identical to that skill's, and the step adds them, leaves them alone the
-  next time and replaces an older bar guard.
+  next time and replaces an older bar guard. Every route also ends with
+  `.agents/loop-settings.json` identical to the founding skill's template.
 - `.agents/tests/queue-groups.sh` guards what `/queue` may call safe to build
   together, and the plan it prints. The rule that matters is that it reads the
   printout's grouping rather than working safety out again, since the printout
@@ -1570,9 +1651,14 @@ attribution line, not the word.
   flagged work is built. The kit gives the risk notice once, in full, and a
   person who carries on after it has accepted: the kit writes the `Accepted:`
   line with their words and the date, and the work goes ahead. It guards that
-  definition in the fix loop, fit-check.md, `/ship`, founding, section-builder,
-  `/implement` and the project's own AGENTS.md, and that none of them drifts
-  back to a stop. An unattended run still stops at a sensitive area, because
+  definition in the fix loop, fit-check.md, `/ship`, founding and the
+  project's own AGENTS.md, and that none of them drifts back to a stop. The
+  build never asks: section-builder, the build loop and `/implement` never
+  ask for an acceptance or write an `Accepted:` line, and a piece that meets
+  an unaccepted sensitive area is kicked back to clarify with the area named.
+  A reader goes through every sentence of section-builder, its references, the
+  implement skill and the queue skill, leaving out the fix loop until its own
+  rewrite, and a copy with one asking sentence planted is caught. An unattended run still stops at a sensitive area, because
   nobody is there to carry on, and it never accepts on the person's behalf. It also guards what
   still earns the acceptance: the notice came first, silence and an
   instruction given before the notice do not count, and the line is read back
@@ -1646,7 +1732,8 @@ attribution line, not the word.
   passes on `origin/main` sends the piece to clarify, and a question found
   while writing sends it to the sub-state it needs. After a kickback or a
   passing check, a new branch takes the next number from 2, and the earlier
-  one is never deleted but named on a `Kept branch:` line, while a spec run
+  one is never deleted but named on a `Kept branch:` line, one line for each
+  earlier branch, oldest first, never removed or rewritten, while a spec run
   stopped half-way reuses its branch. That line goes under `## Kickback` after
   a kickback, and in `## Loop` after a passing check, since a piece that never
   came back from a build must not gain a Kickback section. With no
@@ -1957,8 +2044,10 @@ attribution line, not the word.
   and pre-approved merges are swept at the end, bases first. Every move a run
   makes goes through the gate with the run's name, so the labels and
   `run.json` always agree, and the coordinating session alone writes
-  `state.json` while the gate alone writes each piece's status. A piece that
-  fails three attempts is kicked back to `shaping:spec` or `shaping:research`,
+  `state.json` while the gate alone writes each piece's status. Every attempt
+  is a fresh builder ending with one of five statuses whose route the gate
+  takes, `environment_failed` is tried once more and never a kickback, and a
+  piece at its limit is kicked back to `shaping:spec` or `shaping:research`,
   and one whose build needs software installed outside the project folder to
   `shaping:clarify`, never installed, and the run takes the next piece, unless
   the same tool would stop every piece left, which ends the run. A piece in
@@ -2172,7 +2261,11 @@ attribution line, not the word.
   written for anything below Tested. Its mechanical half reads the harness map
   and requires a grade for every agent in it. It also refuses Tested for an
   agent the harness cannot drive, and for an agent other than the harness's
-  default that `baseline.md` never names. A grade raised by editing the page
+  default that `baseline.md` never names. The harness map also says which
+  coding agents can start a fresh builder for the build loop, pointing at the
+  reference that owns the evidence, and the optional features say the Stop hook
+  that sends a done builder back is Claude Code's, with Codex to follow. A
+  grade raised by editing the page
   rather than by a recorded run is the thing it exists to catch, and it proves
   each refusal on a copy of the page.
 - `.agents/tests/loop-first-ground.sh` guards the ground the loop-first

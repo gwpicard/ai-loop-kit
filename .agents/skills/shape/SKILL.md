@@ -191,6 +191,10 @@ After a kickback, the `Kept branch:` line goes under `## Kickback`.
 After a check was found passing on `origin/main`, it goes in `## Loop` beside `Acceptance branch:`.
 A piece that never came back from a build gains no `## Kickback` section, since
 `/shape` reads that section first and as a build that came back.
+A piece may keep more than one earlier spec branch, each on a `Kept branch:` line of its own,
+since a piece can come back more than once. Each line goes where its own trigger says, oldest first.
+Spec never removes or rewrites an earlier `Kept branch:` line, and the gate's fingerprint of spec
+leaves every `Kept branch:` line out, so adding one is never a rewritten contract.
 
 When neither applies and `Acceptance branch:` is not yet written, as after a spec run stopped half-way with its branch pushed, reuse that branch and cut no new one.
 
