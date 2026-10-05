@@ -156,8 +156,8 @@ rs_rule "research that needs the person moves to clarify" \
 rs_rule "a written contract moves to check" \
   'once its contract is written, the piece moves to `shaping:check`, `python3 \.agents/tools/gate\.py move <number> check`, and the readiness check runs'
 rs_rule "ready on Ready" 'on ready the piece moves to `state:ready`, `python3 \.agents/tools/gate\.py move <number> ready`'
-rs_rule "not ready goes to the sub-state its first BLOCKING line needs" \
-  'on not ready it moves to the sub-state its first blocking line needs'
+rs_rule "not ready goes to the sub-state that closes its gaps" \
+  'on not ready it moves to the sub-state that closes its gaps'
 rs_rule "typed alone, an issue with no state is captured, never opened twice" \
   'take it in with `python3 \.agents/tools/gate\.py capture <number>`, and never open a second issue for it'
 rs_rule "a captured issue gets exactly one type label first" \

@@ -1,6 +1,6 @@
 ---
 name: shape
-description: The command for turning an idea into a ready piece before anything is built. Typed with words after it, it takes the request in plain language, works out what kind of work it is, shapes it into a piece, and settles any open question. Asked only to note an idea, it files the piece and stops. Typed alone it shapes the next piece still waiting on one. It records and stops; it never builds, though it offers to hand a ready piece to implement.
+description: The command for turning an idea into a ready piece before anything is built. Typed with words after it, it takes the request in plain language, works out what kind of work it is, and takes the piece through the shaping sub-states, raw, research, clarify, prototype, spec and check, until the ready gate passes it. A bug with a clear reproduction takes the bug route, straight from raw to spec. Asked only to note an idea, it files the piece and stops. Typed alone it shapes the next piece still waiting. It records and stops; it never builds, though it offers to hand a ready piece to implement.
 ---
 
 # Shape
@@ -141,11 +141,10 @@ own, these are the moves it makes:
   with the same command.
 - Research whose result needs the person moves to `shaping:clarify` once what it
   found is written under `## Research`.
-- Before a written contract moves on, the ready-gate lint runs on it, as "The readiness check" below says.
 - Once its contract is written, the piece moves to `shaping:check`, `python3 .agents/tools/gate.py move <number> check`, and the readiness check runs.
+  "Spec: writing the contract" below says what the contract holds.
   On Ready the piece moves to `state:ready`, `python3 .agents/tools/gate.py move <number> ready`.
-  On Not ready it moves to the sub-state its first BLOCKING line needs: `spec`,
-  `clarify`, `research` or `prototype`.
+  On Not ready it moves to the sub-state that closes its gaps, as "The readiness check" below says.
 - A piece in `state:ready` that nobody has claimed and somebody wants another
   look at moves back with `clarify`, or with `research`, `prototype` or `spec`
   where that is the question.
@@ -155,20 +154,79 @@ Never write the label another way, as the `setup-ai-build-kit` skill's
 `references/blocked-commands.md` says. Where GitHub cannot be reached, the gate changes nothing, so say so and leave the
 piece as it is.
 
+## Spec: writing the contract
+
+`shaping:spec` has no open question, so write the whole contract alone, with
+nobody asked anything: the loop module and its bar, the reach fields, `## Not in this piece`,
+and every other field the `setup-ai-build-kit` skill's
+`references/pieces.md` describes.
+
+For a build or fix piece, write the acceptance checks as real tests, one for
+each line of `## Done when` a machine can judge, and point a `Check:` line at
+each. Commit them on a branch named `spec/<number>-<short name>`, cut from `origin/main`,
+holding test files only, and push it. `Acceptance branch:` under `## Loop` names it.
+Where the project can run them, run each check on `origin/main` before the
+push: it has to fail on its assertion. A goal or gauntlet piece gets no acceptance branch here, since its
+bar is the one clarify agreed under `## Loop`.
+
+An acceptance check that passes on `origin/main` when written means the line it guards is already true.
+Write that finding as the one question under `## Open question` and move the piece to `shaping:clarify`.
+In the same way, a question found while writing sends the piece back to the sub-state it needs, with the
+question written under `## Open question`. The gate moves a piece out of spec to research, clarify or prototype only with a new question:
+one whose fingerprint differs from the section the gate found when the piece
+entered spec. A question already asked and answered, still written on the piece, is refused,
+so a piece cannot go round on the same question.
+
+Once `## Loop` and `## Reach` are written, move the piece to `shaping:check`.
+The gate refuses that move until the two sections have changed since the piece entered spec.
+
+### A spec branch that already exists
+
+When spec runs on a piece that already has a spec branch, after a kickback or after a check was found passing on `origin/main`, cut a new acceptance branch from `origin/main`.
+Name it `spec/<number>-<short name>-<n>`, where `<n>` is the next unused number from 2, and hold test files only on it.
+Carry the checks that are still valid onto it, and name it on the `Acceptance branch:` line.
+Never delete the earlier branch: name it on a `Kept branch:` line, never as `Acceptance branch:`,
+even when it holds commits the person wants kept.
+After a kickback, the `Kept branch:` line goes under `## Kickback`.
+After a check was found passing on `origin/main`, it goes in `## Loop` beside `Acceptance branch:`.
+A piece that never came back from a build gains no `## Kickback` section, since
+`/shape` reads that section first and as a build that came back.
+
+When neither applies and `Acceptance branch:` is not yet written, as after a spec run stopped half-way with its branch pushed, reuse that branch and cut no new one.
+
+### A project with no code online yet
+
+A spec branch follows section-builder's "The first upload": the first push of a spec branch on a project whose code is not online asks first, as a piece's first push does.
+Where `origin/main` does not exist, ask the first-upload question before cutting anything.
+After a yes, cut the spec branch from the local `main`, push it, and create `main` on GitHub at the commit it was cut from,
+as that section says, then fetch, so the branch stands on `origin/main`.
+After a no, push nothing: the piece stays in `shaping:spec` with the reason written on it.
+Until then the ready-gate lint refuses a build or fix piece, naming "answer the first-upload question in `/shape`".
+
+Where AGENTS.md's stack section records `Test command: none for <language>`, write the acceptance checks as test files for the runner
+the Test runner table in the `setup-ai-build-kit` skill's
+`references/check-floor.md` names for that language, and name it under `## Loop` as `Test runner: <runner>`, the field the lint reads.
+Nothing can run them yet, and the lint passes them on its route for a project
+with no code. The build that adds the runner records the test command in the stack section.
+
 ## The readiness check
 
-Before the piece moves to `shaping:check`, run the ready-gate lint,
-`python3 .agents/tools/ready-lint.py <number>`, so the checker never reads a
+`shaping:check` runs the ready-gate lint, then the fresh checker, then `gate.py move <number> ready`,
+and says the result in one line.
+
+In `shaping:check`, first run the ready-gate lint, `python3 .agents/tools/ready-lint.py <number>`, so the checker never reads a
 piece the lint would refuse. It checks what a machine can: every section is
 there, the bar fits the loop module, each acceptance check fails on today's
 code on its assertion, and the reach is whole. Say the lint's result in one
 line, such as "The ready-gate lint found two gaps: the reach names no test for
-billing, and the check for refunds passes today." Close each gap on the piece
-and run the lint again. A gap only the person can close is written as the one
-question under `## Open question`, and the piece moves to `shaping:clarify`.
-Where the lint says GitHub or its checkout could not be reached, say so and
-leave the piece where it is. The move to `state:ready` runs the lint again, so
-a piece changed after it passed is caught there.
+billing, and the check for refunds passes today." Where the lint says GitHub or
+its checkout could not be reached, say so and leave the piece where it is. The
+move to `state:ready` runs the lint again, so a piece changed after it passed
+is caught there.
+
+On a lint refusal the fresh checker does not run. Write the lint's gaps as the piece's `## Readiness` section,
+replacing any earlier one: a first line `<date>, ready-gate lint: Not ready`,
+then one `- BLOCKING lint: <gap>` line for each gap the lint printed. The gate's move out of `shaping:check` reads that section as it reads the fresh checker's.
 
 Before a piece moves to `state:ready`, a session that did not shape it checks it
 against the fixed list in the `shape` skill's `references/readiness-check.md`.
@@ -188,10 +246,25 @@ yourself.
 The check writes a `## Readiness` section on the piece: the date, "checked by a
 session that did not shape it", Ready or Not ready, and its notes. Read that
 section back and let it decide the move. With no blocking gap, move the piece to `state:ready` through the gate.
-A blocking gap sends it back through the gate to the sub-state its first BLOCKING line needs, with the gap written on it.
 Notes stay on the piece for the builder. Say the result in one line, such as "A session that did not
-shape this piece checked it: ready, with two notes for the builder." After a gap
-is closed, run the check again in a new subagent.
+shape this piece checked it: ready, with two notes for the builder."
+
+### Where a gap sends the piece
+
+When the lint refuses the piece or the fresh checker writes Not ready, write each blocking gap on the piece and move it through the gate to the sub-state that closes the gap:
+
+- `shaping:clarify` for a gap a person must settle, with the gap as its `## Open question`,
+  including a Relies on line whose code does not exist or does not return what the piece needs;
+- `shaping:research` for a fact from outside the project;
+- `shaping:prototype` for a gap on item 13, a flow the person has not seen;
+- `shaping:spec` for a lint refusal, or a gap in the contract's own wording.
+
+Where gaps need different sub-states, the piece goes to the first of clarify, prototype, research and spec, and the other gaps stay written on it.
+Say in one line where the piece went and why, such as "The check found the
+refund rule undecided, so this piece is back in clarify with that question."
+No `needs-` label is written. The gate moves a piece out of `shaping:check` to another sub-state only once `## Readiness` has changed since the piece entered check,
+so the result is written before the move. After a gap is closed, run the check
+again in a new subagent.
 
 ## When a piece is waiting on a question
 
@@ -350,6 +423,20 @@ move the piece from `shaping:clarify` to `shaping:prototype` or
 shaping past it. A piece whose question is settled carries `state:ready` and no
 `shaping:` label, and the gate never lets the two sit together.
 
+## A piece that came back from a build
+
+A piece arriving in shaping with a `## Kickback` section came back from a build. Read that section first:
+what happened, what was tried, and what decision is needed. Then read the
+piece's comments: answers the person already left there are read before any question is asked again.
+A complete answer is reconciled into `## Decided` and the fields it changes,
+with the original words kept. An incomplete, unrelated or empty answer leaves the question open,
+and silence or a label never supplies a decision or an acceptance.
+
+Keep the piece's branch, and never delete it. Settle the question in the sub-state the kickback named,
+rewrite the contract in `shaping:spec`, remove the old `## Readiness` result,
+and run the check again. Spec cuts a new acceptance branch and names the old
+one on a `Kept branch:` line, as "A spec branch that already exists" says.
+
 ## Typed alone, or given a piece
 
 Typed alone, first take in any open issue that carries no `state:` label, such
@@ -361,8 +448,8 @@ Then take the next piece still in shaping, in this order: a piece with a `## Kic
 Within one place in that order, take the oldest piece first. Pieces already
 part-shaped finish before new notes start.
 
-A piece with a `## Kickback` section came back from a build: read what happened
-first, and settle the decision it asks for. A piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran,
+A piece with a `## Kickback` section is taken in as "A piece that came back
+from a build" says. A piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran,
 so run the check on it rather than shaping it again. A piece in `shaping:raw` is triaged first, as change-triage's "Triage in raw" says, and then
 follows the sub-state that triage gives it. When nothing is waiting and every
 piece is already ready, say so and point the person at `/implement` to build the

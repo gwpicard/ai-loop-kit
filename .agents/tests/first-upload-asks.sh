@@ -80,6 +80,10 @@ rs_require_load_bearing "ship's records follow the first upload rule" "$SHIP" 't
 # the first thing a project ever pushes.
 rs_require_load_bearing "shape's acceptance pull request follows the first upload rule" "$SHAPE" \
   'pushing that pull request is the project.s first upload, which waits for the yes section-builder.s "the first upload" describes'
+# A spec branch is pushed while the piece is still being shaped, so on a new
+# project it can be the first thing that ever goes online.
+rs_require_load_bearing "shape's spec branch follows the first upload rule" "$SHAPE" \
+  'the first push of a spec branch on a project whose code is not online asks first, as a piece.s first push does'
 rs_require_load_bearing "the push-to-main rule names its one narrow exception" "$BLOCKED" 'the one exception is the project.s first upload: after the person.s yes, and only when the remote lists no branch, `main` is created through the github api at the commit the piece.s branch was cut from'
 rs_require_load_bearing "and main is never written by a git push" "$BLOCKED" 'it is never written by a `git push`'
 

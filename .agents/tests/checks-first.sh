@@ -63,6 +63,15 @@ rs_rule "a check passing on today's code means the line is wrong" \
   'the done when line is wrong: say so in the hand-over and do not build that line'
 rs_rule "a colour change runs the checks it needs, not the whole suite" \
   'the whole suite is not the default'
+# A piece shaped with an acceptance branch already has its checks. Building
+# elsewhere would leave them behind, and writing them again would let the build
+# write its own bar.
+rs_rule "a piece with an acceptance branch is built on that branch" \
+  'a piece whose `## loop` names an `acceptance branch:` is built on that branch itself, so the build.s pull request comes from it'
+rs_rule "its step 4 confirms the committed checks still fail" \
+  'its checks are already written and committed there\. run each on today.s code and confirm it still fails, rather than writing it again'
+rs_rule "a piece with no acceptance branch keeps today's step 4" \
+  'a piece with no acceptance branch keeps this step as written'
 
 # Test protection. The rule, the script that holds it, and what happens to a
 # file it lists. The last is the one a builder is tempted past.

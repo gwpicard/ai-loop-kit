@@ -30,6 +30,12 @@ A move from shaping:check to state:ready also needs one loop: label and the
 ready-gate lint beside this script, .agents/tools/ready-lint.py, to pass. The
 refusal prints the lint's gaps as it gave them.
 
+A move into a shaping sub-state writes a hidden marker holding a fingerprint
+of the sections that sub-state answers in, and the move out reads them again.
+Leaving spec for check needs Loop and Reach changed, leaving spec to ask again
+needs an Open question the piece did not carry in, and leaving check for
+another sub-state needs Readiness changed.
+
 It talks to GitHub through the GitHub command-line tool already signed in on
 this computer, and writes a run's piece status into
 .agents/runs/<name>/run.json in the project's main folder.
@@ -107,7 +113,7 @@ for _origin in ASKING:
     for _target in ASKING + ["shaping:spec"]:
         if _target != _origin:
             TRANSITIONS.append((_origin, _target, "answered"))
-TRANSITIONS.append(("shaping:spec", "shaping:check", "none"))
+TRANSITIONS.append(("shaping:spec", "shaping:check", "contract written"))
 for _target in ASKING:
     TRANSITIONS.append(("shaping:spec", _target, "new question"))
 TRANSITIONS.append(("shaping:check", "state:ready", "readiness says ready"))
@@ -131,7 +137,23 @@ RUN_STATUS = {"state:building": "building", "state:in-review": "integrated",
 # The section that records a sub-state's answer.
 ANSWER_SECTION = {"research": "Research", "clarify": "Decided", "prototype": "Decided"}
 
-MARKER = re.compile(r"^<!-- loop:gate sub-state=([a-z-]+) since=(\S+) answer=([0-9a-f]*) -->\s*$")
+# The sections each sub-state fingerprints when a piece enters it, read again
+# on the way out. Research, clarify and prototype read their answer section.
+# Spec reads Loop and Reach together, since the contract it writes lives in
+# both, and check reads Readiness, which the lint or the fresh checker writes.
+ENTRY_SECTIONS: dict[str, tuple[str, ...]] = {
+    "research": ("Research",), "clarify": ("Decided",), "prototype": ("Decided",),
+    "spec": ("Loop", "Reach"), "check": ("Readiness",)}
+
+# Spec also fingerprints its Open question on entry, in the marker's question
+# field, so a move back to asking needs a question the piece did not carry in.
+QUESTION_ON_ENTRY = ("spec",)
+
+# The line naming an earlier spec branch, which spec's fingerprint leaves out.
+KEPT_BRANCH = re.compile(r"^\s*(?:[-*]\s+)?Kept branch:", re.IGNORECASE)
+
+MARKER = re.compile(r"^<!-- loop:gate sub-state=([a-z-]+) since=(\S+) answer=([0-9a-f]*)"
+                    r"(?: question=([0-9a-f]*))? -->\s*$")
 
 
 # --- how the gate speaks -------------------------------------------------
@@ -309,15 +331,55 @@ def read_marker(body: str) -> tuple[str, str] | None:
     return found
 
 
+def marker_question(body: str) -> str | None:
+    """The Open question fingerprint the last marker holds, if it holds one."""
+    found = None
+    for line in body.splitlines():
+        match = MARKER.match(line)
+        if match:
+            found = match.group(4)
+    return found
+
+
+def fingerprint(body: str, sub_state: str) -> str:
+    """The hash of the sections a sub-state reads, as the body holds them now.
+
+    One section is hashed as it reads, so a marker written before spec and
+    check had fingerprints of their own still compares the same. Readiness is
+    read from its last section, which replaces any earlier one.
+    """
+    headings = ENTRY_SECTIONS.get(sub_state, ())
+    if not headings:
+        return digest("")
+    if len(headings) == 1:
+        return digest(section(body, headings[0], last=headings[0] == "Readiness"))
+    # A Kept branch line names an earlier spec branch and is not part of the
+    # contract, so adding it alone never counts as the contract written.
+    return digest("\n".join(
+        f"## {h}\n" + "\n".join(line for line in (section(body, h) or "").splitlines()
+                                if not KEPT_BRANCH.match(line))
+        for h in headings))
+
+
 def with_marker(body: str, sub_state: str) -> str:
     """The body with one marker as its last line, and nothing else changed."""
     kept = [line for line in body.splitlines() if not MARKER.match(line)]
     text = "\n".join(kept).rstrip()
-    heading = ANSWER_SECTION.get(sub_state)
-    answer = digest(section(text, heading)) if heading else digest("")
+    answer = fingerprint(text, sub_state)
     since = datetime.datetime.now().astimezone().date().isoformat()
-    marker = f"<!-- loop:gate sub-state={sub_state} since={since} answer={answer} -->"
+    marker = f"<!-- loop:gate sub-state={sub_state} since={since} answer={answer}"
+    if sub_state in QUESTION_ON_ENTRY:
+        marker += f" question={digest(section(text, 'Open question'))}"
+    marker += " -->"
     return (text + "\n\n" if text else "") + marker + "\n"
+
+
+def entered_with(body: str, sub_state: str) -> str:
+    """The fingerprint the piece carried in, or an empty body's with no marker."""
+    marker = read_marker(body)
+    if marker and marker[0] == sub_state:
+        return marker[1]
+    return fingerprint("", sub_state)
 
 
 def questions_in(text: str | None) -> int:
@@ -491,6 +553,25 @@ def check_condition(condition: str, number: int, origin: str, target: str,
             refuse(f"#{number} has {has}; {short(target)} needs an ## Open question "
                    "section holding one question",
                    "write the one question under ## Open question, then run: " + move)
+    if condition == "new question":
+        # A question the piece carried into spec was already asked. Sending the
+        # piece back on it would go round the same question again.
+        marker = read_marker(body)
+        brought = marker_question(body) if marker and marker[0] == "spec" else None
+        if digest(question) == (brought if brought is not None else digest("")):
+            refuse(f"the question under ## Open question on #{number} is the one it carried "
+                   "into spec, so it was already asked",
+                   f"write the contract in spec, then run: gate.py move {number} check")
+
+    if condition == "contract written":
+        missing = [h for h in ENTRY_SECTIONS["spec"] if not section(body, h)]
+        if missing:
+            refuse(f"#{number} has no ## {' and no ## '.join(missing)} section; leaving spec "
+                   "needs the contract written",
+                   "write ## Loop and ## Reach in /shape " + str(number) + ", then run: " + move)
+        if fingerprint(body, "spec") == entered_with(body, "spec"):
+            refuse(f"## Loop and ## Reach on #{number} have not changed since it entered spec",
+                   f"write the contract in /shape {number}, then run: {move}")
 
     if condition == "answered":
         sub = short(origin)
@@ -527,6 +608,10 @@ def check_condition(condition: str, number: int, origin: str, target: str,
                    f"set the loop: label in /shape {number}, then run: {move}")
         run_lint(number, move)
     if condition == "readiness says not ready":
+        if fingerprint(body, "check") == entered_with(body, "check"):
+            refuse(f"## Readiness on #{number} has not changed since it entered check",
+                   "run the readiness check and write its ## Readiness section, then run: "
+                   + move)
         verdict, blocking = readiness(body)
         if verdict != "Not ready" or not blocking:
             says = ("nothing" if verdict is None

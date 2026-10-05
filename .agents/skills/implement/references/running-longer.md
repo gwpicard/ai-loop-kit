@@ -51,8 +51,8 @@ A ready piece with no `## Readiness` section was shaped before the check
 existed. Run the readiness check on it before claiming it, as
 the `shape` skill's `references/readiness-check.md` says, through a session
 that did not shape it. Ready lets the run take it. Not ready sends it back to shaping with
-each blocking gap written on it, through the gate to the sub-state the check's
-first BLOCKING line needs, such as
+each blocking gap written on it, through the gate to the sub-state that closes
+its gaps, as that file says, such as
 `python3 .agents/tools/gate.py move <number> research`, and the run moves on.
 
 A piece the person opted in to check, with a `Waiting on you: try it` line or a

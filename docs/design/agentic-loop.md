@@ -121,8 +121,14 @@ line as the last line of the piece's body:
 `<!-- loop:gate sub-state=<sub-state> since=<date> answer=<short hash> -->`. It
 writes the line on every move into a shaping sub-state, with a hash of the
 section that records that sub-state's answer (`## Decided` for clarify and
-prototype, `## Research` for research, and an empty section for the others). On
-the way out it compares the section with the hash. A piece with no such line is
+prototype, `## Research` for research, `## Loop` and `## Reach` together for
+spec, `## Readiness` for check, and an empty section for raw). Spec's hash
+leaves out a `Kept branch:` line, which names an earlier spec branch and is
+not part of the contract, so adding that line alone never lets a piece leave
+spec. Spec's line also
+carries `question=<short hash>`, a hash of its `## Open question`, so a move
+back to asking needs a question the piece did not carry in. On the way out it
+compares the section with the hash. A piece with no such line is
 read as having entered with the section empty. Only the gate writes the line,
 and it changes nothing else in the body.
 

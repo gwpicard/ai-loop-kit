@@ -423,8 +423,8 @@ A piece with no question left moves to `shaping:spec`, and to `shaping:check`
 once its contract is written. The readiness check runs there. Only a
 `## Readiness` section saying Ready with no blocking line lets the gate move it
 to `state:ready`, so every ready piece carries a section that, written by a
-session that did not shape it, names no blocking gap. Not ready sends it back to the sub-state its first blocking
-line needs. A piece never reaches `state:ready` with a question open.
+session that did not shape it, names no blocking gap. Not ready sends it back to the sub-state that closes its
+gaps, as the `shape` skill's `references/readiness-check.md` says. A piece never reaches `state:ready` with a question open.
 
 ### Review sub-labels
 
