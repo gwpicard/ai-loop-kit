@@ -501,6 +501,17 @@ expect(passed_one_line(result, "spec -> check with a new acceptance branch and a
        and labels_of(18) == ["shaping:check", "state:shaping", "type:feature"],
        "a new acceptance branch with the earlier one kept in ## Loop leaves spec")
 
+# A piece may keep more than one earlier spec branch, each on its own Kept
+# branch line. A second one added with no new acceptance branch is still no
+# rewritten contract.
+KEPT_TWO = KEPT + "Kept branch: spec/10-refunds-first\n"
+fresh([issue(18, ["state:shaping", "shaping:spec", "type:feature"],
+             entered_with(LOOP_AGAIN + KEPT + REACH, "spec", LOOP_AGAIN + KEPT_TWO + REACH))])
+result = gate("move", "18", "check")
+expect(refused_with_next(result, "spec -> check with only a second Kept branch line added")
+       and labels_of(18) == ["shaping:spec", "state:shaping", "type:feature"],
+       "a second Kept branch line with no new acceptance branch is not a rewritten contract")
+
 # The check's way back: a lint-written section counts as the checker's does,
 # and a Ready section never sends a piece back.
 fresh([issue(18, ["state:shaping", "shaping:check", "type:feature"],
@@ -550,6 +561,70 @@ with open(run_file("night")) as handle:
 expect(passed_one_line(first, "claim of the blocker") and
        passed_one_line(second, "claim after its blocker in the same run") and order == [15, 14],
        "a blocker claimed earlier in the same run lets the piece on top be claimed", str(order))
+
+# A claim of a piece whose reach touches a sensitive area with no acceptance on
+# the record is refused. The gate reads the area map and the masterplan's
+# sensitive areas on main, as the ready-gate lint does, so the rule holds even
+# if a skill's words drift and a build is asked to start anyway. The same piece
+# is claimed once the masterplan records the person's acceptance.
+CARE = os.path.join(WORK, "care")
+CARE_TOOLS = os.path.join(WORK, "care-tools")
+os.makedirs(CARE_TOOLS)
+shutil.copy(GATE, os.path.join(CARE_TOOLS, "gate.py"))
+shutil.copy(os.path.join(os.path.dirname(GATE), "area-map.py"), CARE_TOOLS)
+shutil.copy(STUB, CARE_TOOLS)
+CARE_MAP = ("# Working rules\n\n## Areas\n\n- refunds: app/refunds.py\n  sensitive: money\n"
+            "- shop: app/shop\n")
+
+
+def care_project(stands):
+    if os.path.isdir(CARE):
+        shutil.rmtree(CARE)
+    os.makedirs(os.path.join(CARE, "docs"))
+    subprocess.run(["git", "init", "-q", "-b", "main", CARE], check=True)
+    with open(os.path.join(CARE, "masterplan.md"), "w") as handle:
+        handle.write("# Masterplan\n\n## Build path\n\nPath: Build with care\n"
+                     "Sensitive areas:\n  money: the refund button; caution: the shop's "
+                     "bookkeeper looks before it goes live; " + stands + "\n"
+                     "Accepted: none\n\n## What it does, and for whom\n\nRefunds.\n")
+    with open(os.path.join(CARE, "docs", "working-rules.md"), "w") as handle:
+        handle.write(CARE_MAP)
+    subprocess.run(["git", "-C", CARE, "add", "-A"], check=True)
+    subprocess.run(["git", "-C", CARE, "-c", "user.name=R", "-c", "user.email=r@example.invalid",
+                    "commit", "-q", "-m", "records"], check=True)
+
+
+def care_gate(*args):
+    done = subprocess.run([sys.executable, os.path.join(CARE_TOOLS, "gate.py"), *args], cwd=CARE,
+                          env=ENV, capture_output=True, text=True)
+    return done.returncode, done.stdout, done.stderr
+
+
+for reach, what in (("Boundary: refunds\nReaches: none\n", "Boundary"),
+                    ("Boundary: shop\nReaches: refunds: guarded by tests/test_refunds.py\n",
+                     "Reaches line")):
+    care_project("waiting")
+    fresh([issue(19, ["state:ready", "type:feature", "loop:build"], "## Reach\n" + reach)])
+    result = care_gate("move", "19", "building", "--assignee", "@me")
+    said = result[1] + result[2]
+    expect(refused_with_next(result, "claim in a sensitive area named by %s" % what)
+           and labels_of(19) == ["loop:build", "state:ready", "type:feature"]
+           and find(19)["assignees"] == [] and "money" in said,
+           "a claim of a piece whose %s touches a sensitive area with no acceptance is refused, "
+           "naming the area" % what, said)
+care_project("accepted 2026-10-02")
+fresh([issue(19, ["state:ready", "type:feature", "loop:build"],
+             "## Reach\nBoundary: refunds\nReaches: none\n")])
+result = care_gate("move", "19", "building", "--assignee", "@me")
+expect(passed_one_line(result, "claim in a sensitive area with an acceptance")
+       and labels_of(19) == ["loop:build", "state:building", "type:feature"],
+       "the same claim moves once the masterplan records the acceptance")
+care_project("waiting")
+fresh([issue(19, ["state:ready", "type:feature", "loop:build"],
+             "## Reach\nBoundary: shop\nReaches: none\n")])
+result = care_gate("move", "19", "building", "--assignee", "@me")
+expect(passed_one_line(result, "claim outside the sensitive area"),
+       "a piece outside every sensitive area is claimed as before")
 
 # Pull back defaults to clarify.
 fresh([issue(16, ["state:ready", "type:feature"])])

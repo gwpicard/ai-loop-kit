@@ -155,6 +155,7 @@ founds_with_helper() {
   holds_the_lint "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/ready-lint.py"
   holds_the_area_map "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/area-map.py"
   holds_the_guards "$project" "$route" "${bootstrap%/setup-ai-build-kit/scripts/*}"
+  holds_the_loop_settings "$project" "$route" "${bootstrap%/scripts/*}/templates/loop-settings.json"
   prints_the_plan "$project" "$route" "$TARGET"
 }
 
@@ -175,6 +176,22 @@ holds_the_guards() {
       fail "$route: no .agents/tools/$name identical to the section-builder skill's"
     fi
   done
+}
+
+# The build loop's limits, written from the template the installed founding
+# skill carries, identical to it and to the one in this repository.
+LOOP_SETTINGS_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/loop-settings.json"
+holds_the_loop_settings() {
+  project=$1
+  route=$2
+  installed=$3
+  placed="$project/.agents/loop-settings.json"
+  if [ -f "$placed" ] && [ ! -L "$placed" ] && cmp -s "$placed" "$installed" && \
+     cmp -s "$placed" "$LOOP_SETTINGS_TEMPLATE"; then
+    pass "$route: .agents/loop-settings.json is in place, identical to the template"
+  else
+    fail "$route: no .agents/loop-settings.json identical to the template"
+  fi
 }
 
 # A runnable ready-gate lint at the project's path, beside the gate script,

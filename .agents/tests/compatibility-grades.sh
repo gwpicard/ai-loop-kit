@@ -62,6 +62,22 @@ rs_rule "Codex's known limits are written down" \
 rs_rule "the known limits of the experimental agents are written down" \
   '### known limits of cursor, gemini cli and github copilot'
 rs_guard "$COMPAT" "COMPATIBILITY.md"
+# Each attempt of the build loop is a fresh builder, and only some coding agents
+# can start one by themselves. The harness map says which, from the reference
+# that owns the evidence, and the optional features say the Stop hook that
+# sends a done builder back is Claude Code's alone for now.
+rs_require_load_bearing "the harness map says which agents start a fresh builder" "$COMPAT" \
+  '\| coding agent \| starts a fresh builder itself \|'
+rs_require_load_bearing "Claude Code starts one as a subagent that does not fork" "$COMPAT" \
+  '\| claude code \| yes, as a subagent that does not fork the conversation \|'
+rs_require_load_bearing "an agent with no route stops the run for a new session" "$COMPAT" \
+  'not shown here, so the run stops and asks for a new session'
+rs_require_load_bearing "the harness map points at the reference that owns it" "$COMPAT" \
+  'section-builder/references/task-context-capabilities\.md'
+rs_require_load_bearing "the Stop hook is Claude Code's" "$COMPAT" \
+  'claude code.s stop hook sends a builder back while an acceptance check fails'
+rs_require_load_bearing "Codex follows in slice 19" "$COMPAT" \
+  'codex follows in slice 19: codex parity'
 
 rs_require "the README points a person choosing an agent at the grades" \
   "$README" 'compatibility\.md#how-much-has-been-proved-on-each-agent'

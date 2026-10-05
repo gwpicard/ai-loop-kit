@@ -206,10 +206,10 @@ rs_rule "the flagged route kicks the piece back to clarify with the caution" \
   'write a `## kickback` section naming the caution and the condition, and move the piece back to `shaping:clarify` through the gate, `python3 \.agents/tools/gate\.py move <number> clarify`'
 rs_rule "it stays in shaping until the acceptance is recorded" \
   'it stays in shaping until the person carries on after the risk notice and the acceptance is recorded'
-rs_rule "three failed attempts kick back to spec for an impossible check" \
-  'to `shaping:spec`, `python3 \.agents/tools/gate\.py move <number> spec`, when an attempt showed a check that cannot be met as written'
-rs_rule "and to research otherwise" \
-  'and to `shaping:research`, `python3 \.agents/tools/gate\.py move <number> research`, otherwise'
+rs_rule "the gate takes the route for each status a builder ends with" \
+  'the gate takes the route for each status, `python3 \.agents/tools/gate\.py result <number> <result file>`'
+rs_rule "so a piece that fails its attempts goes back through the gate" \
+  'so a piece that fails its attempts goes back to shaping through the gate'
 rs_rule "software outside the folder in a run kicks back to clarify" \
   'in a run with nobody watching, kick the piece back to `shaping:clarify` instead'
 rs_rule "a refused gate call is reported and that move stops" \
@@ -225,8 +225,8 @@ rs_rule "a hard choice seen at the plan goes back through the gate" \
   'then move it with no claim to undo: `python3 \.agents/tools/gate\.py move <number> clarify`'
 rs_rule "a hard choice met while building is kicked back through the gate" \
   'write the question on the piece under a `## kickback` section, push the branch and keep it, and send it back to shaping, `python3 \.agents/tools/gate\.py move <number> clarify --run <run name>`'
-rs_rule "three failed attempts kick back through the gate" \
-  'after the third, kick it back: write a `## kickback` section on the piece'
+rs_rule "a run's failed attempts go back through the gate" \
+  'every attempt is a fresh builder that ends with one of five statuses, and the gate takes the route for each'
 rs_rule "a piece in hand at the end goes back to ready through the gate" \
   'give the piece back to `state:ready` with `python3 \.agents/tools/gate\.py move <number> ready --run <run name>`'
 rs_rule "the checkpoint route in a run closes on save, then tidies" \
