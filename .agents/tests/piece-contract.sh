@@ -271,13 +271,28 @@ rs_rule "the section carries the date, who checked, the verdict and notes" \
 rs_rule "the section is the stored result" 'that section is the stored result every later step reads'
 rs_rule "a blocking line rules out Ready" 'a piece with a blocking line cannot carry the verdict ready'
 rs_rule "notes never hold a piece back" 'notes stay on the piece for the builder, and never hold the piece back'
-rs_rule "not ready moves the piece to the sub-state its first gap needs, the gaps on it" \
-  'not ready moves it to the sub-state its first blocking line needs, with each blocking gap written on the piece'
-rs_rule "a gap a person must settle is clarify" \
-  '`shaping:clarify` for a gap a person must settle, including a relies on line whose code does not exist or does not return what the piece needs'
+rs_rule "not ready moves the piece to the sub-state that closes its gaps, the gaps on it" \
+  'not ready moves it to the sub-state that closes its gaps, with each blocking gap written on the piece'
+rs_rule "a gap a person must settle is clarify, as its Open question" \
+  '`shaping:clarify` for a gap a person must settle, with the gap as its `## open question`, including a relies on line whose code does not exist or does not return what the piece needs'
 rs_rule "a fact from outside is research" '`shaping:research` for a fact from outside the project'
 rs_rule "an unseen flow is prototype" '`shaping:prototype` for a gap on item 13'
-rs_rule "a gap the contract can close is spec" '`shaping:spec` for a gap the contract can close with no new answer'
+rs_rule "a lint refusal or the contract's own wording is spec" \
+  '`shaping:spec` for a lint refusal, or a gap in the contract.s own wording'
+# Several gaps go one way, in a fixed order, so two sessions never send the
+# same piece to different places, and the gaps left behind are not lost.
+rs_rule "several gaps go to the first of clarify, prototype, research and spec" \
+  'where gaps need different sub-states, the piece goes to the first of clarify, prototype, research and spec, and the other gaps stay written on it'
+rs_rule "/shape says where the piece went in one line" \
+  '`/shape` says in one line where the piece went and why'
+rs_rule "no needs- label is written" 'no `needs-` label is written'
+# A lint refusal stops the checker, so the lint's gaps are the stored result.
+rs_rule "a lint refusal means this check does not run" \
+  'when the ready-gate lint refuses the piece, this check does not run'
+rs_rule "the lint's gaps are written as the Readiness section" \
+  '`<yyyy-mm-dd>, ready-gate lint: not ready`, then one `- blocking lint: <gap>` line for each gap the lint printed'
+rs_rule "the gate reads it as it reads this check's" \
+  'the gate reads it as it reads this check.s'
 rs_rule "reading code is never a label" 'reading code is never the reason for a label'
 rs_rule "founding stops each piece it shapes at spec" \
   "$FOUNDING_SPEC"
@@ -351,8 +366,8 @@ rs_rule "a session typed that way runs the check itself" \
 rs_rule "the section is read back and decides the move" \
   'read that section back and let it decide the move'
 rs_rule "no blocking gap moves the piece to ready through the gate" 'with no blocking gap, move the piece to `state:ready` through the gate'
-rs_rule "a blocking gap sends the piece back, written on it" \
-  'a blocking gap sends it back through the gate to the sub-state its first blocking line needs, with the gap written on it'
+rs_rule "a blocking gap sends the piece to the sub-state that closes it, written on it" \
+  'write each blocking gap on the piece and move it through the gate to the sub-state that closes the gap'
 rs_rule "every field is considered when shaping" \
   'consider every field, and where one does not apply, say why in one line'
 rs_rule "every noticeable choice is decided" \
@@ -368,8 +383,8 @@ rs_rule "Done when of /shape names the check" \
   'moved to `state:ready` only after a session that did not shape it wrote a `## readiness` section naming no blocking gap'
 # The ready-gate lint runs before the fresh checker, so the checker never reads
 # a piece a machine would refuse, and its result is one line.
-rs_rule "/shape runs the placed ready-gate lint" \
-  'run the ready-gate lint, `python3 \.agents/tools/ready-lint\.py <number>`'
+rs_rule "/shape runs the placed ready-gate lint first, in shaping:check" \
+  'in `shaping:check`, first run the ready-gate lint, `python3 \.agents/tools/ready-lint\.py <number>`'
 rs_rule "the lint runs before the fresh checker starts" \
   'so the checker never reads a piece the lint would refuse'
 rs_rule "the lint's result is said in one line" 'say the lint.s result in one line'

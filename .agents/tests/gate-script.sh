@@ -252,6 +252,22 @@ NOT_READY = ("## Readiness\n2026-10-04, checked by a session that did not shape 
 KICKBACK = ("## Kickback\nThe check for the refund total cannot be met as written. "
             "Tried twice. Needs a decision on rounding.\n")
 ANSWER = {"research": RESEARCH, "clarify": DECIDED, "prototype": DECIDED}
+LOOP_GUESS = "## Loop\nLoop module: build (guess, a new screen)\n"
+LOOP = "## Loop\nLoop module: build\nAcceptance branch: spec/10-refunds\n"
+REACH = "## Reach\nBoundary: billing\nReaches: none\n"
+LINT_NOT_READY = ("## Readiness\n2026-10-05, ready-gate lint: Not ready\n"
+                  "- BLOCKING lint: Reach names no test for billing\n")
+
+
+def entered_with(before, sub, now):
+    """A body that held `before` when the piece entered `sub`, and holds `now` today.
+
+    The gate fingerprints a sub-state's sections on the way in. Spec's way out
+    reads Loop and Reach, and its Open question, and check's reads Readiness, so
+    a case builds the marker from what the piece held on entry.
+    """
+    marker = module.with_marker(before, sub).rstrip("\n").splitlines()[-1]
+    return (now.rstrip("\n") + "\n\n" if now.strip() else "") + marker + "\n"
 
 
 def case(origin, target):
@@ -271,19 +287,26 @@ def case(origin, target):
         bad = issue(n, family(origin) + typed, "")
         return [good], [bad], move, move, {}
     if origin == "shaping:spec" and sub == "check":
-        good = issue(n, family(origin) + typed)
-        bad = issue(n, family(origin) + ["shaping:clarify"] + typed)
+        # Loop and Reach written since the piece entered spec, or the same
+        # contract it already carried then.
+        good = issue(n, family(origin) + typed, entered_with(LOOP_GUESS, "spec", LOOP + REACH))
+        bad = issue(n, family(origin) + typed, entered_with(LOOP + REACH, "spec", LOOP + REACH))
         return [good], [bad], move, move, {}
     if origin == "shaping:spec":
-        return ([issue(n, family(origin) + typed, QUESTION)],
-                [issue(n, family(origin) + typed, "")], move, move, {})
+        # A new question, or the one the piece already carried into spec.
+        return ([issue(n, family(origin) + typed, entered_with("", "spec", QUESTION))],
+                [issue(n, family(origin) + typed, entered_with(QUESTION, "spec", QUESTION))],
+                move, move, {})
     if origin == "shaping:check" and target == "state:ready":
         return ([issue(n, family(origin) + typed + ["loop:build"], READY)],
                 [issue(n, family(origin) + typed + ["loop:build"], READY_WITH_BLOCKING)],
                 move, move, {})
     if origin == "shaping:check":
-        return ([issue(n, family(origin) + typed, NOT_READY)],
-                [issue(n, family(origin) + typed, READY)], move, move, {})
+        # A Not ready written since the piece entered check, or the one it
+        # already carried then.
+        return ([issue(n, family(origin) + typed, entered_with("", "check", NOT_READY))],
+                [issue(n, family(origin) + typed, entered_with(NOT_READY, "check", NOT_READY))],
+                move, move, {})
     if origin == "state:ready" and target == "state:building":
         return ([issue(n, family(origin) + typed)], [issue(n, family(origin) + typed)],
                 move + ["--assignee", "@me"], move, {})
@@ -389,7 +412,7 @@ expect(refused_with_next(result, "research with no source")
 
 # The marker: written on the way in, last line, read on the way out.
 MARKER = re.compile(r"^<!-- loop:gate sub-state=([a-z-]+) since=(\d{4}-\d{2}-\d{2}) "
-                    r"answer=([0-9a-f]+) -->$")
+                    r"answer=([0-9a-f]+)(?: question=([0-9a-f]+))? -->$")
 fresh([issue(12, ["state:shaping", "shaping:raw", "type:feature"], QUESTION + "\n" + DECIDED)])
 result = gate("move", "12", "clarify")
 body = find(12)["body"]
@@ -415,6 +438,55 @@ expect(passed_one_line(result, "a changed Decided") and
 markers = [l for l in find(12)["body"].splitlines() if l.startswith("<!-- loop:gate")]
 expect(len(markers) == 1 and MARKER.match(markers[0]).group(1) == "spec",
        "the marker is rewritten, never added twice", str(markers))
+
+# Spec's marker carries a second fingerprint, of its Open question, so a
+# question already asked and answered cannot send the piece back round.
+fresh([issue(18, ["state:shaping", "shaping:clarify", "type:feature"],
+             QUESTION + "\n" + DECIDED)])
+result = gate("move", "18", "spec")
+markers = [l for l in find(18)["body"].splitlines() if l.startswith("<!-- loop:gate")]
+match = MARKER.match(markers[0]) if len(markers) == 1 else None
+expect(passed_one_line(result, "clarify -> spec with its question still written") and match
+       and match.group(1) == "spec" and match.group(4),
+       "a move into spec writes a fingerprint of the Open question beside the answer",
+       str(markers))
+result = gate("move", "18", "clarify")
+expect(refused_with_next(result, "spec -> clarify on the question already answered")
+       and labels_of(18) == ["shaping:spec", "state:shaping", "type:feature"],
+       "a question already asked and answered, still on the piece, cannot leave spec")
+fixture = load()
+fixture["issues"][0]["body"] = find(18)["body"].replace(
+    "Should a refund go back to the card it came from?",
+    "Should a refund over the limit need a second person?")
+with open(STATE, "w") as handle:
+    json.dump(fixture, handle)
+result = gate("move", "18", "clarify")
+expect(passed_one_line(result, "spec -> clarify on a new question")
+       and labels_of(18) == ["shaping:clarify", "state:shaping", "type:feature"],
+       "a new question sends the piece back from spec")
+
+# Leaving spec for check needs both Loop and Reach, not one of them.
+fresh([issue(18, ["state:shaping", "shaping:spec", "type:feature"],
+             entered_with(LOOP_GUESS, "spec", LOOP))])
+result = gate("move", "18", "check")
+expect(refused_with_next(result, "spec -> check with no Reach")
+       and labels_of(18) == ["shaping:spec", "state:shaping", "type:feature"],
+       "a contract with no Reach section cannot leave spec")
+
+# The check's way back: a lint-written section counts as the checker's does,
+# and a Ready section never sends a piece back.
+fresh([issue(18, ["state:shaping", "shaping:check", "type:feature"],
+             entered_with("", "check", LINT_NOT_READY))])
+result = gate("move", "18", "spec")
+expect(passed_one_line(result, "check -> spec with a lint-written Not ready")
+       and labels_of(18) == ["shaping:spec", "state:shaping", "type:feature"],
+       "a Readiness section the lint's refusal wrote sends the piece from check to spec")
+fresh([issue(18, ["state:shaping", "shaping:check", "type:feature"],
+             entered_with("", "check", READY))])
+result = gate("move", "18", "spec")
+expect(refused_with_next(result, "check -> spec with a Ready section")
+       and labels_of(18) == ["shaping:check", "state:shaping", "type:feature"],
+       "a Readiness section saying Ready never sends a piece back from check")
 
 # No marker at all reads as an empty answer section at entry, and the next move writes one.
 fresh([issue(13, ["state:shaping", "shaping:clarify", "type:feature"], "")])

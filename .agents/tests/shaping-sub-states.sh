@@ -20,6 +20,14 @@
 # questions only they can answer: the pre-mortem when the reach touches
 # something that hurts when it breaks, and the bar for a goal or a gauntlet.
 # Prototype shows them something and keeps the throwaway out of the build.
+#
+# The third part guards spec, check and kickback intake. Spec writes the whole
+# contract alone and commits the acceptance checks on a branch of their own,
+# so the bar exists before the build. Check runs the lint and then a session
+# that did not shape the piece, and sends each gap to the sub-state that can
+# close it. A kicked-back piece is read before anybody is asked anything, and
+# its branch is never lost. The words a person reads, in WORKFLOW.md and the
+# skill's description, are held here too.
 
 set -eu
 
@@ -28,10 +36,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 
 TRIAGE="$ROOT/.agents/skills/change-triage/SKILL.md"
 SHAPE="$ROOT/.agents/skills/shape/SKILL.md"
+WORKFLOW="$ROOT/WORKFLOW.md"
 CLARIFY="$ROOT/.agents/skills/clarify/SKILL.md"
 
 rs_init "Shaping sub-state checks"
-rs_exists "$TRIAGE" "$SHAPE" "$CLARIFY"
+rs_exists "$TRIAGE" "$SHAPE" "$CLARIFY" "$WORKFLOW"
 
 # --- triage in raw, in change-triage ------------------------------------------
 
@@ -179,5 +188,164 @@ rs_rule "and written under Loop with the date too" \
 rs_rule "a guess at the bar is written only once approved" \
   'written only once the person approves it'
 rs_guard "$CLARIFY" "the clarify skill"
+
+# --- spec: the contract, in /shape -------------------------------------------
+
+# Spec has no question, so the system writes the contract alone. The checks are
+# real tests on a branch of their own, which is what makes the bar exist
+# before anybody builds against it.
+rs_reset
+rs_rule "spec writes the whole contract alone" \
+  '`shaping:spec` has no open question, so write the whole contract alone'
+rs_rule "the contract holds the loop module and bar, the reach and Not in this piece" \
+  'the loop module and its bar, the reach fields, `## not in this piece`'
+rs_rule "a build or fix piece gets its acceptance checks as real tests" \
+  'for a build or fix piece, write the acceptance checks as real tests'
+rs_rule "on a spec branch cut from origin/main" \
+  'commit them on a branch named `spec/<number>-<short name>`, cut from `origin/main`'
+rs_rule "holding test files only, and pushed" 'holding test files only, and push it'
+rs_rule "Acceptance branch names it" '`acceptance branch:` under `## loop` names it'
+rs_rule "a goal or gauntlet piece gets no acceptance branch here" \
+  'a goal or gauntlet piece gets no acceptance branch here'
+# A check that already passes guards a line that is already true, so the
+# person has to say what the piece is for.
+rs_rule "a check passing on origin/main sends the piece to clarify" \
+  'an acceptance check that passes on `origin/main` when written means the line it guards is already true'
+rs_rule "with that finding as its question" \
+  'write that finding as the one question under `## open question` and move the piece to `shaping:clarify`'
+rs_rule "a question found while writing sends the piece back" \
+  'a question found while writing sends the piece back to the sub-state it needs'
+rs_rule "only a new question leaves spec for asking" \
+  'the gate moves a piece out of spec to research, clarify or prototype only with a new question'
+rs_rule "a question already asked and answered is refused" \
+  'a question already asked and answered, still written on the piece, is refused'
+rs_rule "spec leaves for check only once Loop and Reach changed" \
+  'the gate refuses that move until the two sections have changed since the piece entered spec'
+# A second spec run never loses the first branch's work, and a half-finished
+# run is resumed rather than forked.
+rs_rule "a kickback or a passing check cuts a new acceptance branch" \
+  'after a kickback or after a check was found passing on `origin/main`, cut a new acceptance branch from `origin/main`'
+rs_rule "named with the next unused number from 2" \
+  'name it `spec/<number>-<short name>-<n>`, where `<n>` is the next unused number from 2'
+rs_rule "the new branch holds test files only" 'hold test files only on it'
+rs_rule "still-valid checks are carried over" 'carry the checks that are still valid onto it'
+rs_rule "the earlier branch is never deleted, and named as kept" \
+  'never delete the earlier branch: name it on a `kept branch:` line under `## kickback`, never as `acceptance branch:`'
+rs_rule "even when it holds commits the person wants kept" \
+  'even when it holds commits the person wants kept'
+rs_rule "a half-finished spec run reuses its branch" \
+  'when neither applies and `acceptance branch:` is not yet written, as after a spec run stopped half-way with its branch pushed, reuse that branch and cut no new one'
+# A project with no code online.
+rs_rule "a spec branch's first push asks first" \
+  'the first push of a spec branch on a project whose code is not online asks first, as a piece.s first push does'
+rs_rule "with no origin/main the first-upload question comes before anything is cut" \
+  'where `origin/main` does not exist, ask the first-upload question before cutting anything'
+rs_rule "after a yes main is created and the branch stands on origin/main" \
+  'after a yes, cut the spec branch from the local `main`, push it, and create `main` on github at the commit it was cut from'
+rs_rule "after a no the piece stays in spec with the reason" \
+  'after a no, push nothing: the piece stays in `shaping:spec` with the reason written on it'
+rs_rule "the lint refuses the piece until then" \
+  'answer the first-upload question in `/shape`'
+rs_rule "with no test command the checks are written for the floor's runner" \
+  'where agents\.md.s stack section records `test command: none for <language>`, write the acceptance checks as test files for the runner'
+rs_rule "named under Loop as Test runner" \
+  'name it under `## loop` as `test runner: <runner>`, the field the lint reads'
+rs_rule "the build that adds the runner records the test command" \
+  'the build that adds the runner records the test command in the stack section'
+rs_guard "$SHAPE" "the /shape spec section"
+
+# --- check: the lint, the fresh checker and where a gap goes -----------------
+
+rs_reset
+rs_rule "check runs the lint, then the fresh checker, then the move to ready" \
+  '`shaping:check` runs the ready-gate lint, then the fresh checker, then `gate\.py move <number> ready`'
+rs_rule "on a lint refusal the fresh checker does not run" \
+  'on a lint refusal the fresh checker does not run'
+rs_rule "the lint's gaps become the Readiness section" \
+  'write the lint.s gaps as the piece.s `## readiness` section'
+rs_rule "its first line names the lint" 'a first line `<date>, ready-gate lint: not ready`'
+rs_rule "one BLOCKING lint line for each gap" \
+  'then one `- blocking lint: <gap>` line for each gap the lint printed'
+rs_rule "the gate reads that section as the checker's" \
+  'the gate.s move out of `shaping:check` reads that section as it reads the fresh checker.s'
+rs_rule "each gap goes to the sub-state that closes it" \
+  'write each blocking gap on the piece and move it through the gate to the sub-state that closes the gap'
+rs_rule "a person's gap goes to clarify as its Open question" \
+  '`shaping:clarify` for a gap a person must settle, with the gap as its `## open question`'
+rs_rule "including a Relies on line that does not hold" \
+  'including a relies on line whose code does not exist or does not return what the piece needs'
+rs_rule "a fact from outside goes to research" '`shaping:research` for a fact from outside the project'
+rs_rule "an unseen flow goes to prototype" \
+  '`shaping:prototype` for a gap on item 13, a flow the person has not seen'
+rs_rule "a lint refusal or the contract's wording goes to spec" \
+  '`shaping:spec` for a lint refusal, or a gap in the contract.s own wording'
+rs_rule "several gaps: the first of clarify, prototype, research and spec" \
+  'where gaps need different sub-states, the piece goes to the first of clarify, prototype, research and spec, and the other gaps stay written on it'
+rs_rule "where it went is said in one line" 'say in one line where the piece went and why'
+rs_rule "no needs- label is written" 'no `needs-` label is written'
+rs_rule "check leaves for a sub-state only once Readiness changed" \
+  'the gate moves a piece out of `shaping:check` to another sub-state only once `## readiness` has changed since the piece entered check'
+rs_guard "$SHAPE" "the /shape check section"
+
+# --- kickback intake ---------------------------------------------------------
+
+# A kicked-back piece carries what a run learned. Asking the person again
+# before reading it, or losing its branch, throws that away.
+rs_reset
+rs_rule "a kickback section is read first" \
+  'a piece arriving in shaping with a `## kickback` section came back from a build\. read that section first'
+rs_rule "what happened, what was tried, what decision is needed" \
+  'what happened, what was tried, and what decision is needed'
+rs_rule "answers left as comments are read before asking again" \
+  'answers the person already left there are read before any question is asked again'
+rs_rule "an incomplete or empty answer leaves the question open" \
+  'an incomplete, unrelated or empty answer leaves the question open'
+rs_rule "the branch is kept" 'keep the piece.s branch, and never delete it'
+rs_rule "the question is settled in the sub-state the kickback named" \
+  'settle the question in the sub-state the kickback named'
+rs_rule "the contract is rewritten in spec" 'rewrite the contract in `shaping:spec`'
+rs_rule "the old Readiness result is removed" 'remove the old `## readiness` result'
+rs_rule "and the check runs again" 'and run the check again'
+rs_guard "$SHAPE" "the /shape kickback intake"
+
+# --- the description a person and the harness read --------------------------
+
+DESC="$rs_dir/description.md"
+grep -m1 '^description:' "$SHAPE" > "$DESC" || true
+rs_reset
+rs_rule "the description names the shaping sub-states" \
+  'the shaping sub-states, raw, research, clarify, prototype, spec and check'
+rs_rule "the description names the bug route" \
+  'a bug with a clear reproduction takes the bug route, straight from raw to spec'
+rs_guard "$DESC" "the /shape description line"
+
+# --- WORKFLOW.md tells the same story ----------------------------------------
+
+rs_reset
+rs_rule "WORKFLOW section 2 says what spec and check do" \
+  'in `shaping:spec` the agent writes the whole contract alone'
+rs_rule "WORKFLOW says the asking sub-states have no fixed order" \
+  'a piece sits in whichever of those three its next question needs, in no fixed order'
+rs_rule "WORKFLOW gives the pre-mortem question" \
+  'clarify asks you one question once: "say this went live and went wrong\. who noticed, and what did they see\?"'
+rs_rule "WORKFLOW gives the bug fast path" \
+  'if your report says what you did, what you expected and what happened instead, it goes straight from raw to spec'
+rs_rule "WORKFLOW says a bug missing a step is asked for it" \
+  'if a step is missing, /shape asks you for it first'
+rs_rule "WORKFLOW says what a kicked-back piece looks like" \
+  'a piece that comes back from a build carries a kickback section saying what happened, what was tried and what decision is needed'
+rs_rule "WORKFLOW says your comments are read before you are asked again" \
+  '/shape reads it first, and reads any answer you left as a comment, before asking you again'
+rs_rule "WORKFLOW says the branch is kept and the check runs again" \
+  'it keeps the branch, settles the question, rewrites the contract and runs the check again'
+rs_guard "$WORKFLOW" "WORKFLOW.md"
+rs_require_order "WORKFLOW names spec and check in section 2" "$WORKFLOW" \
+  '^## 2\. ' 'In `shaping:spec` the agent writes the whole contract alone'
+rs_require_order "and before section 3" "$WORKFLOW" \
+  'In `shaping:spec` the agent writes the whole contract alone' '^## 3\. '
+rs_require_order "WORKFLOW gives the bug route in section 5" "$WORKFLOW" \
+  '^## 5\. ' 'it goes straight from raw to spec'
+rs_require_order "and the kickback before section 6" "$WORKFLOW" \
+  'carries a Kickback section saying what happened' '^## 6\. '
 
 rs_done
