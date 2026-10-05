@@ -857,6 +857,92 @@ expect(code == 0 and before and before[0]["commit"] == checks_commit and before[
        "a build piece with no acceptance branch runs its before check at the commit that "
        "holds the checks", "exit %s before %r out %r err %r" % (code, before, out, err))
 
+# --- a breakage of the changed code, run through the gate -------------------------
+#
+# Once the checks pass, the build breaks the code it changed on purpose, saves
+# each breakage as a patch and has the gate run a check against it. The gate
+# applies the patch in a temporary worktree at the commit as it stands, so the
+# piece's own folder never holds broken code, and records the run.
+
+
+def worktrees(repo):
+    return [l for l in git(repo, "worktree", "list", "--porcelain").splitlines()
+            if l.startswith("worktree ")]
+
+
+repo = project()
+made_ready(repo, piece_body())
+build(repo, REFUND)
+with open(os.path.join(repo, "app", "billing", "refund.py"), "w") as handle:
+    handle.write("def refund():\n    return 0\n")
+patch = os.path.join(WORK, "refund-zero.patch")
+with open(patch, "w") as handle:
+    handle.write(git(repo, "diff") + "\n")
+git(repo, "checkout", "--", "app/billing/refund.py")
+before_trees = worktrees(repo)
+code, out, err = gate(repo, "evidence", "12", "--breakage", patch, "--", PYTEST,
+                      "tests/test_refund.py")
+lines = [l for l in evidence(repo) if l.get("phase") == "breakage"]
+with open(patch, "rb") as handle:
+    patch_hash = hashlib.sha256(handle.read()).hexdigest()
+expect(code == 0 and len(lines) == 1 and lines[0].get("patch") == patch_hash
+       and lines[0].get("exit") not in (0, None) and lines[0].get("commit") == head(repo),
+       "a breakage run is one line with phase breakage, the patch's hash, the exit code and the "
+       "current commit", "exit %s lines %r out %r err %r" % (code, lines, out, err))
+expect(git(repo, "status", "--porcelain") == "" and worktrees(repo) == before_trees,
+       "the breakage ran in a temporary worktree that is gone again, and the piece's folder "
+       "is untouched", "%r %r" % (git(repo, "status", "--porcelain"), worktrees(repo)))
+
+# A patch that does not apply at the commit as it stands is refused by name,
+# and nothing is recorded.
+stale = os.path.join(WORK, "stale.patch")
+with open(stale, "w") as handle:
+    handle.write("--- a/app/billing/refund.py\n+++ b/app/billing/refund.py\n"
+                 "@@ -1,2 +1,2 @@\n def refund():\n-    return 99\n+    return 98\n")
+count = len(evidence(repo))
+code, out, err = gate(repo, "evidence", "12", "--breakage", stale, "--", PYTEST,
+                      "tests/test_refund.py")
+expect(code != 0 and "stale.patch" in out + err and "does not apply" in out + err
+       and "next:" in err and len(evidence(repo)) == count and worktrees(repo) == before_trees,
+       "a breakage patch that does not apply is refused by name, and nothing is recorded",
+       "exit %s out %r err %r" % (code, out, err))
+
+# --- whose hash comment counts ----------------------------------------------------
+#
+# Anybody who can comment on the issue can post a loop:contract line. Only the
+# account that added state:ready to the piece is trusted, read from the issue's
+# label events, so a later hash posted by somebody else cannot move the bar.
+
+repo = project()
+body = piece_body()
+made_ready(repo, body)
+state = load()
+state["issues"][0]["comments"].append({"id": 98, "author": "intruder", "body":
+                                       "<!-- loop:contract sha256=%s commit=none -->"
+                                       % ("0" * 64)})
+with open(STATE, "w") as handle:
+    json.dump(state, handle)
+code, out, err = gate(repo, "check-contract", "12")
+expect(code == 0 and labels_of(12) == ["loop:build", "state:building", "type:feature"],
+       "a later hash comment by another account is ignored, and the trusted one is read",
+       "exit %s labels %r out %r err %r" % (code, labels_of(12), out, err))
+
+repo = project()
+fresh([issue(12, ["state:building", "type:feature", "loop:build"], body, assignees=["me"],
+             comments=[{"id": 97, "author": "intruder", "body":
+                        "<!-- loop:contract sha256=%s commit=none -->" % expected_hash(body)}])])
+state = load()
+state["issues"][0]["events"] = [{"id": 1, "event": "labeled", "actor": "replay-person",
+                                 "label": "state:ready"}]
+with open(STATE, "w") as handle:
+    json.dump(state, handle)
+code, out, err = gate(repo, "check-contract", "12")
+said = [l for l in (out + err).splitlines() if l.strip()]
+expect(code == 0 and len(said) == 1 and "record" in said[0].lower()
+       and len(contract_comments(12)) == 2,
+       "a piece whose only hash comment is by another account is treated as having none, and "
+       "one is recorded now", "exit %s said %r comments %r" % (code, said, comments_of(12)))
+
 # --- the evidence folder stays on this computer ---------------------------------
 
 with open(os.path.join(FOUNDATION, "gitignore")) as handle:

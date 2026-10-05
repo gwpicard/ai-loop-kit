@@ -683,6 +683,69 @@ set_fault '{"race": {"number": 1, "on_read": 2, "add": ["state:in-review"], "rem
   && pass "the race lands on the second read" || fail "the race never landed"
 set_fault '{}'
 
+echo "== Who added a label, and who wrote a comment =="
+
+# The gate trusts a contract hash only from the account that made the piece
+# ready, so the stand-in keeps who added each label and who wrote each comment.
+# The account acting is the state file's actor, replay-person unless a scenario
+# sets another.
+set_actor() {
+  python3 - "$FAKE_GH_STATE" "$1" <<'ACTOR'
+import json, sys
+path, who = sys.argv[1], sys.argv[2]
+state = json.load(open(path))
+state["actor"] = who
+json.dump(state, open(path, "w"))
+ACTOR
+}
+
+"$GH" issue create --title "Gift cards" --body "x" --label "type:feature" > /dev/null
+"$GH" issue edit 4 --add-label "state:ready" > /dev/null
+set_actor someone-else
+"$GH" issue edit 4 --remove-label "state:ready" --add-label "state:shaping" > /dev/null
+"$GH" issue comment 4 --body "Written by someone else." > /dev/null
+set_actor replay-person
+"$GH" issue comment 4 --body "Written by the person." > /dev/null
+"$GH" api "repos/rehearsal/project/issues/4/events" > "$WORK/events"
+"$GH" api "repos/rehearsal/project/issues/4/comments" > "$WORK/rest-comments"
+"$GH" issue view 4 --json comments > "$WORK/view-comments"
+python3 - "$WORK/events" <<'CHECK' && pass "label events list in order, each with its label and the account that acted" || fail "the label events did not read back as GitHub gives them"
+import json, sys
+events = json.load(open(sys.argv[1]))
+seen = [(e["event"], e["label"]["name"], e["actor"]["login"]) for e in events]
+assert seen == [("labeled", "type:feature", "replay-person"),
+                ("labeled", "state:ready", "replay-person"),
+                ("labeled", "state:shaping", "someone-else"),
+                ("unlabeled", "state:ready", "someone-else")], seen
+assert all(isinstance(e["id"], int) and e.get("created_at") for e in events)
+CHECK
+python3 - "$WORK/rest-comments" "$WORK/view-comments" <<'CHECK' && pass "each comment carries its author, in the REST listing and in the view" || fail "a comment's author did not read back"
+import json, sys
+rest = json.load(open(sys.argv[1]))
+view = json.load(open(sys.argv[2]))["comments"]
+assert [c["user"]["login"] for c in rest] == ["someone-else", "replay-person"], rest
+assert [c["author"]["login"] for c in view] == ["someone-else", "replay-person"], view
+CHECK
+# A comment a fixture wrote with no author, as older state files hold, is the
+# person's own.
+python3 - "$FAKE_GH_STATE" <<'OLD'
+import json, sys
+state = json.load(open(sys.argv[1]))
+issue = [i for i in state["issues"] if i["number"] == 4][0]
+issue["comments"].append({"id": 7, "body": "An older comment."})
+issue["comments"].append("A bare older comment.")
+json.dump(state, open(sys.argv[1], "w"))
+OLD
+case "$("$GH" api "repos/rehearsal/project/issues/4/comments")" in
+  *'"body": "An older comment.", "user": {"login": "replay-person"}'*'"body": "A bare older comment.", "user": {"login": "replay-person"}'*)
+    pass "a comment with no author is the person's own" ;;
+  *) fail "a comment with no author did not read as the person's" ;;
+esac
+case "$("$GH" api "repos/rehearsal/project/issues/999/events" 2>&1)" in
+  *404*) pass "the events of an issue that does not exist answer 404" ;;
+  *) fail "the events of a missing issue were answered" ;;
+esac
+
 # Nothing the kit reached for during this rehearsal should have been refused.
 if grep -q "UNSUPPORTED" "$FAKE_GH_LOG"; then
   unexpected=$(grep "UNSUPPORTED" "$FAKE_GH_LOG" | grep -vc "search repos\|repo list\|nosuchfield\|visibility public\|private=false\|force=true\|-X DELETE\|someone/else\|git/ref -f" || true)
