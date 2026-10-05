@@ -102,7 +102,7 @@ rs_rule "on the pull-request route the gate checks the bar at the move to to che
 rs_rule "the builder never runs the test guard in the gate's place" \
   'never run `test-guard\.sh` yourself in its place'
 rs_rule "on the checkpoint route the builder runs the bar guard before the commit" \
-  'on the checkpoint route no move to `to check` happens, so run the guard.s copy yourself before the commit: `sh \.agents/tools/bar-guard\.sh <base> <piece file> <spec commit>`'
+  'on the checkpoint route no move to `to check` happens, so run the guard.s copy yourself before the commit\. the project keeps that copy of this skill.s `scripts/bar-guard\.sh` in its `\.agents/tools/` folder under the same name\. run it from the project.s folder with `sh`, giving it `<base> <piece file> <spec commit>`'
 # Today's protection for a check written first: with no acceptance branch, the
 # checks commit stands in for the spec commit, so a check changed after its own
 # commit is still listed.

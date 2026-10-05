@@ -494,8 +494,10 @@ Before anything is saved, the bar is checked: the bar guard, this skill's
 the build made to what the piece is measured against. On the pull-request route the gate does it when the piece moves to `to check`, as below, and
 then runs the checks itself. Never run `test-guard.sh` yourself in its place.
 
-On the checkpoint route no move to `to check` happens, so run the guard's copy yourself before the commit: `sh .agents/tools/bar-guard.sh <base> <piece file> <spec commit>`
-from the project's folder. The spec commit is the tip of the piece's
+On the checkpoint route no move to `to check` happens, so run the guard's copy yourself before the commit.
+The project keeps that copy of this skill's `scripts/bar-guard.sh` in its
+`.agents/tools/` folder under the same name. Run it from the project's folder
+with `sh`, giving it `<base> <piece file> <spec commit>`. The spec commit is the tip of the piece's
 `Acceptance branch:`; for a piece with no `Acceptance branch:`, give the checks commit step 4 made in its place. The base is the
 commit the piece's branch was cut from: `main`, or the branch of the piece it
 stacks on. The piece file holds the

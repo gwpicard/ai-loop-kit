@@ -99,8 +99,8 @@ the repair's issue as the piece. A repair with no issue yet gives the guard the
 repair's report saved as the piece text, which names no test.
 
 Once the regression test passes, it is the acceptance check that section-builder
-breaks the repaired code against, without an offer, as the `section-builder`
-skill's `references/test-strength.md` says. Keep the breakages to the repaired
+breaks the repaired code against, without an offer, as the
+`section-builder` skill's `references/test-strength.md` says. Keep the breakages to the repaired
 code, and run each through the gate; do not run it again when section-builder
 saves the repair.
 
