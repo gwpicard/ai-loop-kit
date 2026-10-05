@@ -32,12 +32,12 @@
 #   skip-or-focus     a skip or focus marker added to a test.
 #   suppression       a lint or type suppression added.
 #   tool-settings     a test, lint, type-check or coverage tool's settings file
-#                     gained a line.
+#                     gained or lost a line. Taking a setting out can loosen a
+#                     tool as surely as adding one.
 #   snapshot          a snapshot that existed at the base and changed.
 #   guarded-file      a change to a workflow, the gate and its scripts, the
 #                     hooks or the Claude Code settings.
-# A marker, suppression or settings change that only takes text out is not
-# listed. The acceptance checks are left out of the six other kinds, since they
+# A marker or suppression that is only taken out is not listed. The acceptance checks are left out of the six other kinds, since they
 # are the bar rather than the build.
 #
 # For the five kinds after existing-test, a change counts as named only on a
@@ -254,12 +254,16 @@ while IFS="$tab" read -r status path; do
     fi
   fi
   if is_settings "$path"; then
+    # Lines added and lines taken out both count: a setting removed, such as
+    # "strict": true, lowers the bar as surely as one added.
     if gitq ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-      added=$(gitq diff --numstat "$base" -- "$path" | awk -F "$tab" '{ s += $1 } END { print s + 0 }')
+      moved=$(gitq diff --numstat "$base" -- "$path" | awk -F "$tab" '{ s += $1 + $2 } END { print s + 0 }')
+    elif [ -f "$path" ]; then
+      moved=$(grep -c '' "$path" || true)
     else
-      added=$(grep -c '' "$path" || true)
+      moved=$(gitq diff --numstat "$base" -- "$path" | awk -F "$tab" '{ s += $1 + $2 } END { print s + 0 }')
     fi
-    if [ "$added" -gt 0 ]; then
+    if [ "$moved" -gt 0 ]; then
       add tool-settings "$path" "$(named_or_not "$path")"
     fi
   fi

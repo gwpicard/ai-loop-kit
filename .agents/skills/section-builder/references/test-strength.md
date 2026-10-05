@@ -1,18 +1,44 @@
 # Check whether the tests notice
 
-This check is offered only on Build with care, and only where a local runner
-exists for the project's language. Say: "I can break the changed code on
-purpose to check the tests notice." It is optional evidence. A declined or
-unavailable check does not hold up the piece, and no result from it becomes
-an automatic gate. Existing required checks and sensitive-area cautions still
-apply.
+Once every acceptance check passes, break the code this piece changed on
+purpose and see whether the acceptance checks notice. Do this without offering
+first, on every build path, wherever StrykerJS or mutmut is already among the
+project's dependencies. Never install a runner to do it. An acceptance check
+that notices none of the breakages goes to the person's review; it never stops
+the piece.
 
-After the ordinary tests pass, run the check only if the person accepts the
-offer. Limit the deliberate breakages to code changed by this piece. In a
-repair, use the regression test against the repaired code. Run locally in a
-disposable copy, with no hosted service and no real records or live actions.
-Never run it across the whole project or leave deliberately broken code in
-the working tree.
+## The acceptance checks, once the build is green
+
+Limit the deliberate breakages to code changed by this piece against its base.
+In a repair, the regression test is the acceptance check, run against the
+repaired code. Use the runner to find the breakages, then save each one as a
+patch and run it through the gate, which applies it in a temporary worktree at
+the commit the piece's branch holds and records the run:
+
+    python3 .agents/tools/gate.py evidence <number> --breakage <patch> -- <acceptance check command>
+
+Run each acceptance check against each breakage. Never apply a breakage to the
+piece's own folder, and never leave deliberately broken code in the working
+tree. Run locally, with no hosted service and no real records or live actions.
+
+Before the piece moves to review, the gate reads those runs on the current
+commit. An acceptance check that failed on none of them is written to
+`forced.jsonl` as a `weak_check`, and the piece waits for the person. Where the
+project has a runner and no breakage is recorded on the current commit, the gate
+refuses the move and names the command to run. A new commit needs its own
+breakages. Where the project has neither runner, the gate writes one line saying
+the checks were not tested by breaking the code, and nothing is forced.
+
+## The optional run on other code
+
+The person may also want to know whether the project's other tests notice a
+breakage of the changed code. This run is offered only on Build with care, and
+only where a local runner exists for the project's language. Say: "I can break
+the changed code on purpose to check the tests notice." It is optional
+evidence. A declined or unavailable run does not hold up the piece, and no
+result from it becomes an automatic gate. Existing required checks and
+sensitive-area cautions still apply. Run it only if the person accepts the
+offer, and never across the whole project.
 
 ## Under the hood
 

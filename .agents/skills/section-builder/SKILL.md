@@ -188,18 +188,28 @@ existing tests the reach check in step 7 finds. The whole suite is not the
 default. A colour change runs the checks a colour change needs, and the project
 check on the pull request runs the rest.
 
+Once every acceptance check passes, where StrykerJS or mutmut is already among
+the project's dependencies, break the code this piece changed on purpose and
+run each acceptance check against each breakage through the gate, as
+`references/test-strength.md` says. Do it without an offer, on every build path,
+and never install a runner. An acceptance check that notices none of them goes
+to the person's review and adds no refusal of its own. Where neither runner is
+there, say so in one sentence in the pull request description: "The checks were
+not tested by breaking the code, because the project has neither StrykerJS nor
+mutmut."
+
 On Build with care, where a runner exists for the project's language, offer
-the optional check in `references/test-strength.md`: break only the changed
-code on purpose to see whether its tests notice. Run it after the ordinary
-tests pass, if the person wants it. Use that reference's one-line report and
-sort the misses on the piece. This offer adds no gate to saving the work.
+the optional run on the project's other tests in that reference, after the
+ordinary tests pass. Use that reference's one-line report and sort the misses
+on the piece. This offer adds no gate to saving the work.
 
 ## 4. Write the checks first
 
 Before any code, write each check a machine can run that the Done when lines
 name, under both `### Works` and `### When it is not the normal case`. Then run
 each one on today's code and record that it fails: the Done when line, the
-check, and the failure it showed. Commit the checks on their own, before the
+check, and the failure it showed. Run each through the gate, `python3 .agents/tools/gate.py evidence <number> -- <command>`,
+so the piece's record holds the run. Commit the checks on their own, before the
 code, in a commit that holds nothing else, so the saved history shows each check
 failing before the change that makes it pass. Where the project's pre-commit
 hook refuses a commit whose checks fail, commit the checks together with the
@@ -209,8 +219,9 @@ it changes. Checks only a person can make are exempt, such as whether a layout
 reads well: name them, and leave them to the walk-through in step 6.
 
 Where the piece names an `Acceptance branch:`, its checks are already written and committed there. Run each on today's code and confirm it still fails, rather than writing it again,
-and record the failure as above. The last commit `/shape` made on that branch
-is the checks commit the guard in step 8 reads. A piece with no acceptance branch keeps this step as written.
+and record the failure as above. Those are the acceptance checks, and the build never writes or changes one: a check that looks wrong is reported, as below.
+The last commit `/shape` made on that branch is the spec commit the guard in
+step 8 reads. A piece with no acceptance branch keeps this step as written, and the checks it writes first count as its acceptance checks from the commit that holds them.
 
 A check that passes on today's code proves nothing about this piece. Where it
 passes because the check is wrong, fix the check. Where it passes because the
@@ -478,17 +489,21 @@ proves the behaviour, and the review exists for what the check cannot see.
 
 ## 8. Save
 
-Before anything is saved, on any route, run this skill's `scripts/test-guard.sh
-<base> <piece file> <checks commit>` from the project's folder. The base is the
+Before anything is saved, the bar is checked: the bar guard, this skill's
+`scripts/bar-guard.sh`, which wraps `scripts/test-guard.sh`, lists every change
+the build made to what the piece is measured against. On the pull-request route the gate does it when the piece moves to `to check`, as below, and
+then runs the checks itself. Never run `test-guard.sh` yourself in its place.
+
+On the checkpoint route no move to `to check` happens, so run the guard's copy yourself before the commit: `sh .agents/tools/bar-guard.sh <base> <piece file> <spec commit>`
+from the project's folder. The spec commit is the tip of the piece's
+`Acceptance branch:`; for a piece with no `Acceptance branch:`, give the checks commit step 4 made in its place. The base is the
 commit the piece's branch was cut from: `main`, or the branch of the piece it
-stacks on. The checks commit is the one step 4 made. The piece file holds the
+stacks on. The piece file holds the
 piece's text, saved with `gh issue view <number> --json body --jq .body` into
-`.agents/tmp/`. The guard lists each existing test file changed since the base
-that the piece's `Under the hood` does not name, and any check changed since its
-own commit. Put each listed file back as it was, `git checkout <base> --
-<file>`, or `git checkout <checks commit> -- <file>` for a check. Where the
+`.agents/tmp/`. Put each file it lists as `not named` back as it was, `git checkout <base> --
+<file>`, or `git checkout <spec commit> -- <file>` for an acceptance check. Where the
 guard says a listed file was moved, remove the moved copy too. Then run the
-checks again. Where the piece cannot pass without that change, step 4 says what
+checks again through the gate, `python3 .agents/tools/gate.py evidence <number> -- <command>`. Where the piece cannot pass without that change, step 4 says what
 to report.
 
 A code move and its map change share one save. Where the piece made, moved or
@@ -546,9 +561,13 @@ That move reads the contract again and runs the bar guard, this skill's
 build changed what the piece is measured against without the piece naming it
 on a `Changes the bar:` line, such as a check, a skipped test, a suppression or
 a tool's settings, the gate refuses the move and names each file. Put each one
-back as the refusal says and move the piece again. A named change, or a changed
-file outside the piece's `Boundary:`, goes to the person's review, and the gate
-posts the reasons on the issue.
+back as the refusal says and move the piece again. The gate then runs every acceptance check, every guard check and the Test command itself on the saved commit,
+and records each run in `.agents/pieces/<number>/`. What you say about the checks counts for nothing there: a red,
+missing or retried check refuses the move and names it, and so does a project
+with a runner and no breakage recorded on that commit. A named change, a changed
+file outside the piece's `Boundary:`, or an acceptance check that noticed none
+of the breakages goes to the person's review, and the gate posts the reasons on
+the issue.
 
 Once the check is green the piece is ready for review. Merge it only as
 `references/merge.md` says: on a yes that names it, or under the person's

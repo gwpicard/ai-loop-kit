@@ -232,8 +232,8 @@ may change, with the reason.
 the piece needs, one path to a line, written as `Changes the bar: <path>,
 because <reason>` with the whole path. A guarded change is one the bar guard,
 the `section-builder` skill's `scripts/bar-guard.sh`, lists: a lint or type
-suppression, a skip or focus marker in a test, a line added to a test, lint,
-type-check or coverage tool's settings, an updated snapshot, or a change to a
+suppression, a skip or focus marker in a test, a line added to or taken out of
+a test, lint, type-check or coverage tool's settings, an updated snapshot, or a change to a
 workflow, a hook, the gate's scripts or the Claude Code settings.
 
 A guarded change counts as named only on a `Changes the bar:` line under `Under the hood`,

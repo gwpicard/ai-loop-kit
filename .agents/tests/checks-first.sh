@@ -72,6 +72,16 @@ rs_rule "its step 4 confirms the committed checks still fail" \
   'its checks are already written and committed there\. run each on today.s code and confirm it still fails, rather than writing it again'
 rs_rule "a piece with no acceptance branch keeps today's step 4" \
   'a piece with no acceptance branch keeps this step as written'
+# The checks a spec wrote are the bar. A builder that could rewrite one would
+# be writing the bar it is judged against.
+rs_rule "on an acceptance branch the builder never writes or changes a check" \
+  'those are the acceptance checks, and the build never writes or changes one'
+# With no spec, the checks written first are the bar, from the commit that
+# holds them, which is where the gate runs them to see them fail.
+rs_rule "with no acceptance branch the checks written first are the acceptance checks" \
+  'the checks it writes first count as its acceptance checks from the commit that holds them'
+rs_rule "each failing run is recorded through the gate" \
+  'run each through the gate, `python3 \.agents/tools/gate\.py evidence <number> -- <command>`'
 # The bar was fixed when the piece was made ready. An attempt that starts on a
 # contract somebody changed since would build against a bar nobody checked.
 rs_rule "every attempt starts by asking the gate whether the contract changed" \
@@ -83,8 +93,25 @@ rs_rule "a changed contract stops the attempt" \
 # file it lists. The last is the one a builder is tempted past.
 rs_rule "an existing test changes only when Under the hood names it" \
   'an existing test may change only when the piece.s `under the hood` names it and gives the reason'
-rs_rule "the guard runs before saving, with the checks commit" \
-  'run this skill.s `scripts/test-guard\.sh <base> <piece file> <checks commit>`'
+# The guard and the checks before saving. On the pull-request route the gate
+# runs both when the piece moves to to check, so a builder's own run of the old
+# test guard would only be a second, weaker opinion. The checkpoint route has
+# no such move, so there the builder runs the bar guard itself.
+rs_rule "on the pull-request route the gate checks the bar at the move to to check" \
+  'on the pull-request route the gate does it when the piece moves to `to check`'
+rs_rule "the builder never runs the test guard in the gate's place" \
+  'never run `test-guard\.sh` yourself in its place'
+rs_rule "on the checkpoint route the builder runs the bar guard before the commit" \
+  'on the checkpoint route no move to `to check` happens, so run the guard.s copy yourself before the commit: `sh \.agents/tools/bar-guard\.sh <base> <piece file> <spec commit>`'
+# Today's protection for a check written first: with no acceptance branch, the
+# checks commit stands in for the spec commit, so a check changed after its own
+# commit is still listed.
+rs_rule "with no acceptance branch the checkpoint route gives the checks commit" \
+  'for a piece with no `acceptance branch:`, give the checks commit step 4 made in its place'
+rs_rule "the gate runs every check itself on the saved commit" \
+  'runs every acceptance check, every guard check and the test command itself on the saved commit'
+rs_rule "the builder's word counts for nothing there" \
+  'what you say about the checks counts for nothing there'
 # A stacked piece measured from main would answer for its parent's changes.
 rs_rule "the base is the branch the piece was cut from" \
   'the commit the piece.s branch was cut from: `main`, or the branch of the piece it stacks on'
@@ -94,7 +121,7 @@ rs_rule "where no new test file is possible, the existing file is named" \
 rs_rule "a new check is never put back to pass the guard" \
   'never put a new check back to get past the guard'
 rs_rule "a listed file is put back as it was" \
-  'put each listed file back as it was, .git checkout <base> -- <file>.'
+  'put each file it lists as `not named` back as it was, .git checkout <base> -- <file>.'
 rs_rule "a test is never weakened, skipped or deleted to get past it" \
   'never weaken, skip or delete a test to get past it'
 rs_rule "a wrong test or impossible line is reported, never worked round" \

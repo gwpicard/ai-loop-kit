@@ -334,7 +334,9 @@ member also costs roughly a full context of its own.
 
 With automatic review, the checks are the only judge, so the builder cannot
 change them. When a piece passes the ready gate, the gate script records a hash
-of its contract, and a contract changed during the build is a kickback.
+of its contract, and a contract changed during the build is a kickback. The hash
+leaves out the sections the system writes during a build, Kickback, Readiness
+and Learned, so writing them is no change to the contract.
 
 The build gate compares the branch with `main` and refuses a diff that edits,
 deletes or skips an acceptance check or an existing test. It also refuses an
@@ -350,9 +352,10 @@ that it is done counts for nothing.
 A bar can also be weak from the start, so the ready gate tests the checks
 themselves. Each acceptance check must fail on `main` on its assertion, never
 on an error such as a failed import. The fresh checker matches each check to
-the criterion it claims to test. After the build goes green, the existing
-test-strength check breaks the changed code on purpose, and an acceptance check
-that does not notice forces `review:person`. Red before green is judged as
+the criterion it claims to test. Test-strength runs without an offer once the
+build is green, wherever the project already has a runner for it: it breaks the
+changed code on purpose, and an acceptance check that does not notice forces
+`review:person`. Red before green is judged as
 evidence; the kit does not prescribe the steps a builder takes to get there.
 
 ## Review
@@ -634,8 +637,8 @@ check a bar can name.
 |---|---|
 | One state and one sub-label | The gate script, a hook, deny rules |
 | The ready gate | The lint, plus the fresh session's verdict |
-| The frozen bar | The gate script's diff check and the contract hash |
-| Fresh evidence | The gate script, through a Stop hook that runs the real checks |
+| The frozen bar | The gate script's bar guard and the contract hash |
+| Fresh evidence | The gate script, which runs the real checks itself before review, and a Stop hook that runs them too; until slice 7: Build and fix loop modules adds the Stop hook, the gate alone holds fresh evidence |
 | Integration one piece at a time, bisect on red | The run scripts |
 | No push to `main`, no force push | Deny rules, and GitHub protection where the plan allows it |
 | Automatic merge conditions | The gate script and GitHub's automatic merge |

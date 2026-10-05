@@ -258,6 +258,22 @@ expect(code == 1 and ("tool-settings", "pyproject.toml", "not named") in rows,
        "a line added to pyproject.toml is listed as tool-settings",
        "exit %s rows %r" % (code, rows))
 
+# A settings line taken out, with nothing added, is a change to the settings
+# too: taking out `select` loosens the linter as surely as an ignore line.
+SETTING_OUT = {"pyproject.toml": "[tool.ruff]\nline-length = 100\n"}
+code, rows, err = one_case("a settings line taken out", SETTING_OUT)
+expect(code == 1 and rows == [("tool-settings", "pyproject.toml", "not named")],
+       "a settings line taken out with nothing added is listed as tool-settings, not named",
+       "exit %s rows %r" % (code, rows))
+code, rows, err = one_case("a settings line taken out, named", SETTING_OUT,
+                           hood="Changes the bar: pyproject.toml, because the rule set moved.")
+expect(code == 0 and rows == [("tool-settings", "pyproject.toml", "named")],
+       "the same line taken out and named on a Changes the bar line is listed as named",
+       "exit %s rows %r" % (code, rows))
+code, rows, err = one_case("a settings file deleted", remove=["jest.config.js"])
+expect(code == 1 and ("tool-settings", "jest.config.js", "not named") in rows,
+       "a settings file deleted is listed as tool-settings", "exit %s rows %r" % (code, rows))
+
 # An updated snapshot: one that existed at the base and changed.
 kind_case("snapshot", "web/__snapshots__/cart.test.js.snap", "an existing snapshot rewritten",
           {"web/__snapshots__/cart.test.js.snap": "exports[`cart 1`] = `two`;\n"})
@@ -329,14 +345,12 @@ expect(code == 0 and ("existing-test", "tests/test_orders.py", "named") in rows,
 
 # --- what the guard leaves alone -----------------------------------------------
 
-# A suppression, a skip marker or a settings line taken out.
+# A suppression or a skip marker taken out. A settings line taken out is
+# listed, below, since taking out a setting can loosen a tool as surely as
+# adding one.
 code, rows, err = one_case("a suppression taken out",
                            {"app/legacy.py": "import os\n\n\ndef old():\n    return os.sep\n"})
 expect(code == 0 and rows == [], "a suppression taken out is not listed",
-       "exit %s rows %r" % (code, rows))
-code, rows, err = one_case("a settings line taken out",
-                           {"pyproject.toml": "[tool.ruff]\nline-length = 100\n"})
-expect(code == 0 and rows == [], "a settings change that only removes text is not listed",
        "exit %s rows %r" % (code, rows))
 # A line edited beside a suppression it already carried adds none.
 code, rows, err = one_case("a line edited beside its suppression",
@@ -366,9 +380,12 @@ expect(code == 0 and rows == [], "a new test file the build adds is not listed",
 code, rows, err = one_case("no spec commit",
                            {"tests/test_refund.py": "def test_refund():\n    assert True\n"},
                            spec=None)
-expect(code in (0, 1) and not any(r[0] == "acceptance-check" for r in rows),
-       "called without a spec commit, the guard lists no acceptance check",
-       "exit %s rows %r" % (code, rows))
+# With no spec commit the two checks are files the build added, so neither is an
+# existing test. The second carries a suppression of its own, which is then
+# listed like any other added suppression, and nothing else is.
+expect(code == 1 and rows == [("suppression", "tests/test_refund_total.py", "not named")],
+       "called without a spec commit, the guard lists no acceptance check, only the "
+       "suppression the second check carries", "exit %s rows %r" % (code, rows))
 
 # --- when it cannot run --------------------------------------------------------
 
