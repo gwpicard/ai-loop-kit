@@ -342,7 +342,9 @@ attribution line, not the word.
   check must fail at the spec commit on its assertion, so one failing on an
   import or already passing is refused. A goal piece's record says it has no
   before run, and a build piece with no acceptance branch runs its before
-  check at the commit that first holds it. A breakage run through `gate.py
+  check at the commit that first holds it. The bar guard gets that same
+  commit, so such a piece whose check was edited after it is refused as an
+  acceptance check edit, while a goal piece whose test changed still moves. A breakage run through `gate.py
   evidence --breakage` is one line with phase `breakage`, the patch's hash and
   the exit code, made in a temporary worktree that is gone again, and a patch
   that does not apply is refused by name with nothing recorded.

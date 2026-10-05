@@ -47,8 +47,12 @@ the start of every attempt, and the move to state:in-review runs it again.
 
 The move to state:in-review also runs the bar guard beside this script,
 .agents/tools/bar-guard.sh, on the pull request's branch. A change to the bar
-the piece did not name refuses the move and names each file to put back. A
-named one, and a changed path outside the piece's Boundary in the area map at
+the piece did not name refuses the move and names each file to put back. The
+guard gets the spec commit. A build or fix piece with no Acceptance branch gives
+it the commit on the branch that first holds its checks instead, so a check
+edited after that commit is refused too. For a goal or gauntlet piece it gets
+no commit.
+A named one, and a changed path outside the piece's Boundary in the area map at
 the base, forces the person's review: each reason is a line in
 .agents/pieces/<number>/forced.jsonl in the main folder, and the reasons are
 posted on the issue as one comment. Only this script writes that file.
@@ -1058,7 +1062,8 @@ def guard_the_bar(number: int, body: str, names: Sequence[str], pull: dict[str, 
         base = git(folder, "merge-base", base_ref, "HEAD").stdout.strip()
         if not base:
             refuse(f"{head} shares no history with {base_name}", "gate.py report")
-        args = ["sh", guard, base, "-"] + ([spec] if spec != "none" else [])
+        at = spec if spec != "none" else checks_commit(number, body, names, folder, base, move)
+        args = ["sh", guard, base, "-"] + ([at] if at != "none" else [])
         try:
             done = subprocess.run(args, cwd=folder, input=body, capture_output=True,
                                   text=True, check=False)
@@ -1078,7 +1083,7 @@ def guard_the_bar(number: int, body: str, names: Sequence[str], pull: dict[str, 
                    f"cannot go to review:\n{listed}{moved}",
                    f"put each listed file back as it was at the base, with git checkout "
                    f"{base[:12]} -- <file>, or an acceptance check as it was at "
-                   f"{spec[:12]}, then run: {move}")
+                   f"{at[:12]}, then run: {move}")
         reasons = [{"reason": "guard_change", "source": "move",
                     "detail": f"{path} ({kind}) changes the bar, named on a Changes the bar "
                               "line"} for kind, path, _ in rows]
@@ -1343,6 +1348,25 @@ def first_commit_with(folder: str, base: str, path: str) -> str:
     added = git(folder, "log", "--diff-filter=A", "--format=%H", "--reverse",
                 f"{base}..HEAD", "--", path).stdout.split()
     return added[0] if added else base
+
+
+def checks_commit(number: int, body: str, names: Sequence[str], folder: str, base: str,
+                  move: str) -> str:
+    """For a build or fix piece with no spec commit, the commit on the branch
+    that holds its acceptance checks: the latest of the commits that first add
+    each one, which the before run uses too. The bar guard then lists a check
+    changed after it. "none" for a goal or gauntlet piece, or a branch that adds
+    no check."""
+    loops = [n for n in names if n.startswith("loop:")]
+    module = loops[0].split(":", 1)[1] if len(loops) == 1 else ""
+    if module not in ("build", "fix") or not (section(body, "Done when")
+                                              or section(body, "Loop")):
+        return "none"
+    lint = need_lint(number, move)
+    paths = [p for p in acceptance_checks(body, module, lint) if " " not in p.strip()]
+    found = {first_commit_with(folder, base, p) for p in paths} - {base}
+    newest_first = git(folder, "rev-list", f"{base}..HEAD").stdout.split()
+    return next((c for c in newest_first if c in found), "none")
 
 
 def mutation_runner(folder: str, base: str) -> str | None:
