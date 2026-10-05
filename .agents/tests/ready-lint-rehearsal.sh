@@ -382,6 +382,11 @@ for branch, what, needles in (
 passes(py, 12, [build_piece(body("Loop module: build\nAcceptance branch: spec/12-early",
                                  reach(HEAD)))],
        "a spec branch cut before a later commit to main that changed source code")
+# After a check was found passing on origin/main, spec cuts a new branch and
+# names the earlier one on a Kept branch line in ## Loop. The lint reads only
+# the Acceptance branch, so the kept branch's passing check is never run.
+passes(py, 12, [build_piece(body(BUILD_LOOP + "\nKept branch: spec/12-passing", reach(HEAD)))],
+       "a Kept branch line in ## Loop naming an earlier branch whose check passes on main")
 
 # The ten-minute limit, lowered so the rehearsal does not wait ten minutes.
 refused(py, 12, [build_piece(body("Loop module: build\nAcceptance branch: spec/12-hangs",

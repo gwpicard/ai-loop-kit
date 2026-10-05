@@ -185,8 +185,12 @@ The gate refuses that move until the two sections have changed since the piece e
 When spec runs on a piece that already has a spec branch, after a kickback or after a check was found passing on `origin/main`, cut a new acceptance branch from `origin/main`.
 Name it `spec/<number>-<short name>-<n>`, where `<n>` is the next unused number from 2, and hold test files only on it.
 Carry the checks that are still valid onto it, and name it on the `Acceptance branch:` line.
-Never delete the earlier branch: name it on a `Kept branch:` line under `## Kickback`, never as `Acceptance branch:`,
+Never delete the earlier branch: name it on a `Kept branch:` line, never as `Acceptance branch:`,
 even when it holds commits the person wants kept.
+After a kickback, the `Kept branch:` line goes under `## Kickback`.
+After a check was found passing on `origin/main`, it goes in `## Loop` beside `Acceptance branch:`.
+A piece that never came back from a build gains no `## Kickback` section, since
+`/shape` reads that section first and as a build that came back.
 
 When neither applies and `Acceptance branch:` is not yet written, as after a spec run stopped half-way with its branch pushed, reuse that branch and cut no new one.
 

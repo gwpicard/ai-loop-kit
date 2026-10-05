@@ -149,6 +149,9 @@ ENTRY_SECTIONS: dict[str, tuple[str, ...]] = {
 # field, so a move back to asking needs a question the piece did not carry in.
 QUESTION_ON_ENTRY = ("spec",)
 
+# The line naming an earlier spec branch, which spec's fingerprint leaves out.
+KEPT_BRANCH = re.compile(r"^\s*(?:[-*]\s+)?Kept branch:", re.IGNORECASE)
+
 MARKER = re.compile(r"^<!-- loop:gate sub-state=([a-z-]+) since=(\S+) answer=([0-9a-f]*)"
                     r"(?: question=([0-9a-f]*))? -->\s*$")
 
@@ -350,7 +353,12 @@ def fingerprint(body: str, sub_state: str) -> str:
         return digest("")
     if len(headings) == 1:
         return digest(section(body, headings[0], last=headings[0] == "Readiness"))
-    return digest("\n".join(f"## {h}\n{section(body, h) or ''}" for h in headings))
+    # A Kept branch line names an earlier spec branch and is not part of the
+    # contract, so adding it alone never counts as the contract written.
+    return digest("\n".join(
+        f"## {h}\n" + "\n".join(line for line in (section(body, h) or "").splitlines()
+                                if not KEPT_BRANCH.match(line))
+        for h in headings))
 
 
 def with_marker(body: str, sub_state: str) -> str:

@@ -283,7 +283,8 @@ attribution line, not the word.
   an account that cannot create labels, two sessions moving one piece, two
   states, and bad input. A move out of spec or check reads what the gate
   fingerprinted when the piece came in: spec leaves for check only once
-  `## Loop` and `## Reach` have changed, and leaves to ask again only with an
+  `## Loop` and `## Reach` have changed, and a `Kept branch:` line added on
+  its own is no change. It leaves to ask again only with an
   `## Open question` it did not carry in, so a question already answered is
   refused. Check leaves for another sub-state only once `## Readiness` has
   changed, and a Readiness section the lint's refusal wrote counts as the
@@ -491,7 +492,8 @@ attribution line, not the word.
   pytest and Node's own runner: a check failing on its assertion passes, and
   one failing on a missing import, one passing today and a spec branch that
   changes source code are refused, while a spec branch cut before a later
-  commit to `main` passes. An `npm test` command is read through
+  commit to `main` passes. So does a `Kept branch:` line in `## Loop`, whose
+  branch's checks are never run. An `npm test` command is read through
   `package.json`, and a Vitest check passes only once the install brings its
   dependency. A runner the lint cannot read passes with a note, a project with
   no code yet passes without running its checks, and with no `origin/main` a
@@ -1484,9 +1486,11 @@ attribution line, not the word.
   while writing sends it to the sub-state it needs. After a kickback or a
   passing check, a new branch takes the next number from 2, and the earlier
   one is never deleted but named on a `Kept branch:` line, while a spec run
-  stopped half-way reuses its branch. With no `origin/main`, spec asks the
-  first-upload question before cutting anything, and with `Test command: none
-  for <language>` it writes the checks for the check floor's runner and names
+  stopped half-way reuses its branch. That line goes under `## Kickback` after
+  a kickback, and in `## Loop` after a passing check, since a piece that never
+  came back from a build must not gain a Kickback section. With no
+  `origin/main`, spec asks the first-upload question before cutting
+  anything, and with `Test command: none for <language>` it writes the checks for the check floor's runner and names
   it on `Test runner:`. Check runs the lint, then the fresh checker, and sends
   each gap where it can be closed. A kicked-back piece is read first,
   comments included, before anybody is asked again, and keeps its branch. It

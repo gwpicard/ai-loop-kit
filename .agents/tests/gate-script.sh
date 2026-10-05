@@ -473,6 +473,25 @@ expect(refused_with_next(result, "spec -> check with no Reach")
        and labels_of(18) == ["shaping:spec", "state:shaping", "type:feature"],
        "a contract with no Reach section cannot leave spec")
 
+# After a check was found passing on origin/main, spec names the earlier branch
+# on a Kept branch line in ## Loop. That line alone is not a rewritten
+# contract, so it never lets the piece leave spec, and it never stops a piece
+# whose contract did change.
+KEPT = "Kept branch: spec/10-refunds\n"
+fresh([issue(18, ["state:shaping", "shaping:spec", "type:feature"],
+             entered_with(LOOP + REACH, "spec", LOOP + KEPT + REACH))])
+result = gate("move", "18", "check")
+expect(refused_with_next(result, "spec -> check with only a Kept branch line added")
+       and labels_of(18) == ["shaping:spec", "state:shaping", "type:feature"],
+       "a Kept branch line added to ## Loop is not a rewritten contract")
+LOOP_AGAIN = LOOP.replace("spec/10-refunds", "spec/10-refunds-2")
+fresh([issue(18, ["state:shaping", "shaping:spec", "type:feature"],
+             entered_with(LOOP + REACH, "spec", LOOP_AGAIN + KEPT + REACH))])
+result = gate("move", "18", "check")
+expect(passed_one_line(result, "spec -> check with a new acceptance branch and a kept one")
+       and labels_of(18) == ["shaping:check", "state:shaping", "type:feature"],
+       "a new acceptance branch with the earlier one kept in ## Loop leaves spec")
+
 # The check's way back: a lint-written section counts as the checker's does,
 # and a Ready section never sends a piece back.
 fresh([issue(18, ["state:shaping", "shaping:check", "type:feature"],
