@@ -235,7 +235,9 @@ approved one, run `sh <installed setup-ai-build-kit skill>/scripts/place-plan-he
 from the project root. It places the helper, and beside it the gate script, `.agents/tools/gate.py`, and the state guard hook, `.agents/hooks/state-guard.sh`,
 since an update brings none of them. The ready-gate lint the gate calls,
 `.agents/tools/ready-lint.py`, and the area map script the project check runs,
-`.agents/tools/area-map.py`, are placed beside the gate script the same way. It adds each one when it is missing,
+`.agents/tools/area-map.py`, are placed beside the gate script the same way. So are the bar guard the gate runs before a piece goes to review, `.agents/tools/bar-guard.sh`,
+and the test guard it wraps, `.agents/tools/test-guard.sh`, both copied from
+the `section-builder` skill. It adds each one when it is missing,
 replaces a copy that differs from the installed one, and changes nothing when
 the copy is current, so it is safe on every visit. It refuses a link or a
 folder where one of them belongs.

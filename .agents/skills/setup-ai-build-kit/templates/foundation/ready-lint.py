@@ -992,7 +992,8 @@ class Lint:
     def brief(self) -> None:
         """No line number or file path outside Relies on and the lines naming a check.
 
-        A test file named under Under the hood is the one further exception.
+        Under the hood is the one further place: a test file named anywhere in
+        it, and any path on a `Changes the bar:` line in it.
         """
         refs = ["origin/main"] if self.project.main else []
         branch = clean(self.loop.get("Acceptance branch", ""))
@@ -1008,7 +1009,10 @@ class Lint:
         # lets a piece change an existing test only when Under the hood names it
         # by its whole path, so refusing a test path there would refuse every
         # piece that has to change one. The block is found the way test-guard.sh
-        # finds it: a collapsed details block, or a heading of its own.
+        # finds it: a collapsed details block, or a heading of its own. A
+        # `Changes the bar:` line in it may name any path, because the bar guard
+        # lets a change to the bar through only when such a line names it by its
+        # whole path, and it reads nowhere else.
         hood = ""
         reaching = False
         named_lines: list[str] = []
@@ -1034,6 +1038,8 @@ class Lint:
                 continue
             if field_name(line, ["Acceptance branch"]):
                 continue
+            bar_line = bool(hood) and re.match(r"^\s*(?:[-*]\s+)?Changes the bar:",
+                                               line) is not None
             cut = allowed.search(line)
             scanned = line[:cut.start()] if cut else line
             scanned = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", scanned)
@@ -1045,6 +1051,8 @@ class Lint:
                 marks = "`*_\"'()[]{}<>,;:!?"
                 path = word.strip(marks).rstrip(".").strip(marks)
                 path = re.sub(r":\d+$", "", path)
+                if bar_line:
+                    continue
                 if hood and is_test_file(path):
                     continue
                 if self.is_path(path, tracked):

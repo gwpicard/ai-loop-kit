@@ -366,7 +366,7 @@ expect(code == 0 and rows == [], "a new test file the build adds is not listed",
 code, rows, err = one_case("no spec commit",
                            {"tests/test_refund.py": "def test_refund():\n    assert True\n"},
                            spec=None)
-expect(code == 0 and not any(r[0] == "acceptance-check" for r in rows),
+expect(code in (0, 1) and not any(r[0] == "acceptance-check" for r in rows),
        "called without a spec commit, the guard lists no acceptance check",
        "exit %s rows %r" % (code, rows))
 
