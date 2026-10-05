@@ -251,16 +251,16 @@ fi
 # section-builder, which claims it in its step 1 and only then loads the fix
 # loop. So the loop claims nothing, and the masterplan check that once opened
 # /fix now lives in change-triage alone, where shaping-sub-states.sh holds it.
-# What the loop still moves is the piece it sends back after three attempts.
+# What the loop still moves is the piece it sends back at its limit, and that
+# move is the gate's result route, which the run script calls, never a move the
+# builder writes itself.
 rs_reset
 rs_rule "the fix loop claims nothing of its own" \
   'the fix loop claims nothing of its own: section-builder.s step 1 claimed the piece before it loaded this file'
 rs_rule "a refused gate call is reported and that move stops" \
   'where the gate refuses a move, tell the person its line in plain words and stop that move'
-rs_rule "an unmeetable check sends the piece back to spec" \
-  '`python3 \.agents/tools/gate\.py move <number> spec`, when an attempt showed a check that cannot be met as written'
-rs_rule "anything else sends it back to research" \
-  '`python3 \.agents/tools/gate\.py move <number> research`, otherwise'
+rs_rule "the piece goes back to shaping through the gate's result route" \
+  'both go through `python3 \.agents/tools/gate\.py result <number> <result file>`, which the run script calls'
 rs_rule "the bug label stays on a piece sent back" \
   'its `type:bug` label stays on it, because the fault is still there'
 rs_guard "$FIX" "the fix loop"

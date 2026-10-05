@@ -23,6 +23,13 @@ rs_rule "reports the breaking change by title and date" 'it broke in the change 
 rs_rule "names every temporary item" 'name every temporary log and harness added'
 rs_rule "removes each temporary item" 'remove each one'
 rs_rule "reruns evidence without instrumentation" 'run the regression evidence without them'
+# A reproduction that fails only some of the time looks like a fix the first
+# time it happens to pass. So it is written down as unreliable, it becomes a
+# cause of its own, and a pass on a later run never counts as fixed.
+rs_rule "a reproduction that passes only sometimes is recorded as unreliable" \
+  'a reproduction that passes only sometimes is recorded as unreliable'
+rs_rule "it is ranked as a cause of its own" 'ranked as a cause of its own'
+rs_rule "it is never counted as fixed on a retry" 'never counted as fixed on a retry'
 rs_guard "$FIX" "section-builder/references/fix-loop.md"
 
 rs_reset

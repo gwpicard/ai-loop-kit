@@ -30,53 +30,24 @@ FIT="$ROOT/.agents/skills/setup-ai-build-kit/references/fit-check.md"
 rs_init "Acceptance checks"
 rs_exists "$FIX" "$FIT"
 
-rs_rule "the notice is given once, in full, before the next attempt" \
-  'give the notice once, in full, in one reply'
-rs_rule "carrying on after the notice is the acceptance" \
-  'take carrying on as the acceptance'
-rs_rule "any instruction to go on counts" \
-  'any instruction to go on with the work after the notice counts'
-rs_rule "silence does not count, nor an instruction before the notice" \
-  'silence does not, and neither does a question or an instruction given before the notice'
-rs_rule "the acceptance is recorded before the work starts" \
-  'build-path section before the replacement starts, with the date and the person.s own words'
-rs_rule "and one collected afterwards is not an acceptance" \
-  'a note about something that already happened'
-rs_rule "the masterplan is read back before building" \
-  'read the masterplan back before the replacement starts'
-rs_rule "and the line being there decides whether building happens" \
-  'let the .accepted:. line being there decide'
-rs_rule "a missing line means it was not recorded, whatever was said" \
-  'was not recorded whatever was said'
-rs_rule "and the work waits until it is written" 'and the work waits until it is written'
-rs_rule "the believed-versus-read distinction is stated" \
-  'is what a run believes it did'
-rs_rule "no second question for a cleaner yes" \
-  'do not ask again for a cleaner yes'
-rs_rule "a reply that asks for no work leaves the notice standing" \
-  'leaves the work waiting and the notice standing'
-rs_rule "the line is written and the work started in the same reply" \
-  'start the replacement in the reply that answers them'
-rs_rule "no lock is kept that only waits for the skipped caution" \
-  'keep no lock that only waits for the skipped caution'
-# A real acceptance was written from a choice form that came back with no
-# option selected, and the line named a team's approval the person never
-# mentioned. So the repair's acceptance carries the same three rules as
-# fit-check.md: an empty form answer is not carrying on, the line quotes what
-# the person typed or chose, and the masterplan stops contradicting it.
-rs_rule "a form answer with no option selected is not carrying on" \
-  'a form or menu answer with no option selected'
-rs_rule "the line quotes the typed words exactly" \
-  'quoted exactly as typed, in quotation marks'
-rs_rule "the line names only people the person named" \
-  'names only people the person named'
-rs_rule "the line says when the answer was a selected option" \
-  'says so when the answer was a selected option'
-rs_rule "untrue masterplan sentences are corrected in the same save" \
-  'correct every masterplan sentence the acceptance makes untrue in the same save'
-rs_rule "the reply names the corrected sentences" \
-  'name those sentences in one line'
+# A repair is built in a loop with nobody there, so the fix loop no longer
+# collects an acceptance itself. It used to give the notice, take carrying on
+# as the acceptance and write the line before a fourth attempt. Those rules now
+# live where the person is present: fit-check.md and /shape's clarify step,
+# both held below. What the fix loop must still say is that it never asks,
+# that the acceptance is written only in /shape, and that one already on the
+# record stands while the kickback still happens.
+rs_rule "the fix loop never asks for an acceptance or writes the line" \
+  'the loop never asks for an acceptance and never writes an `accepted:` line'
+rs_rule "the acceptance is written only in /shape's clarify step" \
+  'the acceptance is written in `/shape`.s clarify step, never in the loop'
+rs_rule "an acceptance already on the record stands" \
+  'an acceptance already on the record stands'
 rs_guard "$FIX" "the fix loop"
+rs_require_absent "the fix loop no longer writes the line before a replacement" "$FIX" \
+  'build-path section before the replacement starts'
+rs_require_absent "the fix loop no longer takes carrying on as the acceptance itself" "$FIX" \
+  'take carrying on as the acceptance'
 
 # fit-check.md is where every skill reads the rule from, so the definition has
 # to hold there too.
@@ -283,11 +254,9 @@ rs_require_load_bearing "a run never accepts for the person" "$RUNNING" \
   'a run never writes an acceptance on the person.s behalf'
 
 # The same, read mechanically. No sentence in section-builder (its SKILL.md and
-# references), the implement skill or the queue skill may ask for an acceptance
-# or write an Accepted: line, unless it says never to. The fix loop's
-# escalation still gives its notice until its own rewrite lands, so its file is
-# left out here and named. A copy with one asking sentence planted proves the
-# reader catches it.
+# references, the fix loop included), the implement skill or the queue skill
+# may ask for an acceptance or write an Accepted: line, unless it says never
+# to. A copy with one asking sentence planted proves the reader catches it.
 [ -n "${RS_LIST:-}" ] || {
 SKILLS="$ROOT/.agents/skills"
 asking() {
@@ -310,7 +279,11 @@ print("\n".join(found))
 PYEOF
 }
 building=$(find "$SKILLS/section-builder" "$SKILLS/implement" "$SKILLS/queue" -name '*.md' \
-  ! -path "$SKILLS/section-builder/references/fix-loop.md" | sort)
+  | sort)
+case "$building" in
+  *"/section-builder/references/fix-loop.md"*) ;;
+  *) rs_fail "the sentence reader does not read the fix loop" ;;
+esac
 said=$(asking $building)
 if [ -z "$said" ]; then
   rs_ok "section-builder, implement and queue never ask for an acceptance or write the line"

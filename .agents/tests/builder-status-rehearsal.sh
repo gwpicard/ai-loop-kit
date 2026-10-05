@@ -485,6 +485,189 @@ code, out, err = lab.gate(repo, "switch-module", "12", "fix")
 expect(code == 1 and lab.labels_of(12) == ["loop:build", "state:building", "type:feature"],
        "switch-module refuses fix for a contract with no reproduction", out + err)
 
+# --- the fix loop: a repair runs in the same attempts -------------------------------
+#
+# A loop:fix piece is a repair. No cause may be tested before a reproduction
+# exists, so the gate refuses a commit to anything other than a test made
+# before its record shows the reproduction failing at the start commit. The
+# Must not change line is held by a guard check the gate runs before review.
+# At the limit a repair goes back to research with every attempt's causes, or
+# to clarify when its reproduction was never shown.
+
+REPRO = ["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_refund.py"]
+FIX_PIECE = lp.piece_body(loop="Loop module: fix\nAcceptance branch: spec/12-refunds\n"
+                               "Reproduction: tests/test_refund.py\n"
+                               "Must not change: a refund never marks the order as broken.")
+GUARD_TEST = ("import app.billing.refund as refund\n\n\ndef test_keeps():\n"
+              "    assert not getattr(refund, 'BROKEN', False)\n")
+FIX_BUILDING = ["loop:fix", "state:building", "type:feature"]
+
+
+def evidence_lines(repo, number=12):
+    path = os.path.join(repo, ".agents", "pieces", str(number), "evidence.jsonl")
+    if not os.path.isfile(path):
+        return []
+    with open(path) as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+def commit_dated(repo, files, date, message="change the code"):
+    """A commit whose committer date is given, so its order against the
+    evidence record is fixed whatever the clock does."""
+    lab.write(repo, files)
+    env = dict(lab.env, GIT_COMMITTER_DATE=date, GIT_AUTHOR_DATE=date)
+    for args in (["add", "-A"], ["commit", "-q", "-m", message]):
+        subprocess.run(["git", "-C", repo, *args], env=env, check=True, capture_output=True)
+    return lab.git(repo, "rev-parse", "HEAD")
+
+
+LONG_AGO = "2001-01-01T00:00:00+00:00"
+CAUSE = {"cause": "the refund returns the stored zero", "prediction": "returning the "
+         "amount makes the check pass", "outcome": "confirmed"}
+
+# The brief of a repair points its builder at the fix loop.
+repo, run, code, out, err = setup(body=FIX_PIECE, loop_label="loop:fix")
+request, code, out, err = next_request(repo, run)
+brief_path = os.path.join(repo, (request or {}).get("brief", "missing"))
+brief = json.load(open(brief_path)) if os.path.isfile(brief_path) else {}
+expect("fix-loop.md" in json.dumps(brief.get("authorisation", {})),
+       "the brief of a loop:fix piece points its builder at references/fix-loop.md",
+       json.dumps(brief.get("authorisation", {})))
+
+# Right order: the reproduction fails at the start commit first, then the code
+# changes. done goes on to review.
+code, out, err = lab.gate(repo, "evidence", "12", "--", *REPRO)
+expect(code == 0, "the reproduction is recorded failing at the start commit", out + err)
+lab.stub_builder(repo, request or {}, {"app/billing/refund.py": lp.REFUND_DONE},
+                 {"status": "done", "concerns": [], "needs": [], "could_not_check": [],
+                  "causes": [CAUSE]})
+code, out, err = end(repo, run)
+expect(code == 0 and "route: review" in out and lab.labels_of(12) == FIX_BUILDING,
+       "a repair that showed its reproduction failing before changing the code goes on to "
+       "review", out + err)
+
+# Wrong order: the code changed before the reproduction was shown failing.
+repo, run, code, out, err = setup(body=FIX_PIECE, loop_label="loop:fix")
+request, code, out, err = next_request(repo, run)
+start = lab.git(repo, "rev-parse", "HEAD")
+commit_dated(repo, {"app/billing/refund.py": lp.REFUND_DONE}, LONG_AGO)
+code, out, err = lab.gate(repo, "evidence", "12", "--phase", "before", "--at", start, "--",
+                          *REPRO)
+lab.write_result(repo, request or {}, {"status": "done", "concerns": [], "needs": [],
+                                       "could_not_check": [], "causes": [CAUSE]})
+code, out, err = end(repo, run)
+expect("reproduction" in (out + err).lower() and "refused" in (out + err).lower()
+       and notes(repo) == ["attempt-1.md"] and lab.labels_of(12) == FIX_BUILDING,
+       "gate.py result refuses a repair whose code changed before the reproduction was shown "
+       "failing, and the attempt counts as failed", out + err)
+
+
+def pull_for(number=12):
+    data = lab.load()
+    data["pull_requests"] = [{"number": 1, "title": "Refunds", "body": "Closes #%d" % number,
+                              "head": "spec/12-refunds", "base": "main", "state": "OPEN"}]
+    lab.save(data)
+
+
+def claimed_fix():
+    """A repair made ready and claimed by hand, with its pull request open."""
+    repo = lab.project()
+    lab.ready_piece(repo, 12, FIX_PIECE, "loop:fix")
+    pull_for()
+    code, out, err = lab.gate(repo, "move", "12", "building", "--assignee", "me")
+    if code != 0:
+        raise SystemExit("the repair could not be claimed: " + out + err)
+    return repo
+
+
+# The move to review holds the same order.
+repo = claimed_fix()
+commit_dated(repo, {"app/billing/refund.py": lp.REFUND_DONE}, LONG_AGO)
+lab.gate(repo, "evidence", "12", "--phase", "before", "--", *REPRO)
+code, out, err = lab.gate(repo, "move", "12", "in-review")
+expect(code == 1 and "reproduction" in err.lower() and lab.labels_of(12) == FIX_BUILDING,
+       "the move to review refuses a repair whose code changed before the reproduction was "
+       "shown failing", out + err)
+repo = claimed_fix()
+lab.gate(repo, "evidence", "12", "--", *REPRO)
+lab.commit(repo, {"app/billing/refund.py": lp.REFUND_DONE}, "the fix")
+code, out, err = lab.gate(repo, "move", "12", "in-review")
+expect(code == 0 and "state:in-review" in lab.labels_of(12),
+       "the move to review lets a repair through when the reproduction failed first",
+       out + err)
+
+# The guard check: accepted only when it passes at the start commit, then run
+# by the gate before review.
+repo = claimed_fix()
+lab.commit(repo, {"tests/test_new_guard.py": "from app.billing.refund import refund\n\n\n"
+                  "def test_guard():\n    assert refund() == 10\n"}, "a guard check")
+code, out, err = lab.gate(repo, "evidence", "12", "--phase", "guard", "--", "python3", "-m",
+                          "pytest", "-q", "-p", "no:cacheprovider", "tests/test_new_guard.py")
+expect(code == 1 and "start commit" in err and not any(
+           line.get("phase") == "guard" for line in evidence_lines(repo)),
+       "a guard check that fails at the start commit is refused and not recorded", out + err)
+
+repo = claimed_fix()
+lab.commit(repo, {"tests/test_keeps.py": GUARD_TEST}, "the guard check")
+GUARD = ["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_keeps.py"]
+code, out, err = lab.gate(repo, "evidence", "12", "--phase", "guard", "--", *GUARD)
+expect(code == 0 and any(line.get("phase") == "guard" and line.get("exit") == 0
+                         and "tests/test_keeps.py" in str(line.get("command"))
+                         for line in evidence_lines(repo)),
+       "a guard check that passes at the start commit is recorded with phase guard",
+       out + err)
+lab.gate(repo, "evidence", "12", "--phase", "before", "--", *REPRO)
+lab.commit(repo, {"app/billing/refund.py": lp.REFUND_DONE + "BROKEN = True\n"},
+           "a fix that breaks what must not change")
+code, out, err = lab.gate(repo, "move", "12", "in-review")
+expect(code == 1 and "tests/test_keeps.py" in err and lab.labels_of(12) == FIX_BUILDING,
+       "the move to review runs the guard check and refuses when it fails", out + err)
+expect(any(line.get("source") == "move" and "tests/test_keeps.py" in str(line.get("command"))
+           for line in evidence_lines(repo)),
+       "the guard check is in the gate's own run", repr(evidence_lines(repo)[-4:]))
+lab.commit(repo, {"app/billing/refund.py": lp.REFUND_DONE}, "the fix, keeping the guard")
+code, out, err = lab.gate(repo, "move", "12", "in-review")
+expect(code == 0 and "state:in-review" in lab.labels_of(12),
+       "once the guard check holds again the repair moves to review", out + err)
+
+# Three failed fixes: back to research, with every attempt's causes in rank
+# order and the notice.
+repo, run, code, out, err = setup(body=FIX_PIECE, loop_label="loop:fix")
+request, code, out, err = next_request(repo, run)
+lab.gate(repo, "evidence", "12", "--", *REPRO)
+for attempt in (1, 2, 3):
+    lab.stub_builder(repo, request or {}, {"app/billing/refund.py": lp.REFUND_WRONG},
+                     {"status": "done", "concerns": [], "needs": [], "could_not_check": [],
+                      "causes": [{"cause": "first cause of attempt %d" % attempt,
+                                  "prediction": "p%d" % attempt, "outcome": "ruled out"},
+                                 {"cause": "second cause of attempt %d" % attempt,
+                                  "prediction": "q%d" % attempt, "outcome": "not tested"}]})
+    code, out, err = end(repo, run)
+    request = lab.request_of(out) or request
+kickback = body_of()
+expect(lab.labels_of(12) == ["loop:fix", "shaping:research", "state:shaping", "type:feature"],
+       "three failed fixes kick the repair back to research", out + err)
+order = [kickback.find("%s cause of attempt %d" % (rank, n)) for n in (1, 2, 3)
+         for rank in ("first", "second")]
+expect(all(i >= 0 for i in order) and order == sorted(order),
+       "the Kickback lists every attempt's causes, each list in rank order", kickback[-1500:])
+expect("still relying on something that produces wrong results" in kickback
+       and "hide the fault" in kickback,
+       "the Kickback carries the notice, since nobody is in the loop to hear it",
+       kickback[-1500:])
+
+# A reproduction never shown failing at the start commit: back to clarify.
+repo, run, code, out, err = setup(body=FIX_PIECE, settings=False, loop_label="loop:fix")
+set_limits(repo, json.dumps({"attempts": 1, "piece_budget_minutes": 120}))
+request, code, out, err = next_request(repo, run)
+lab.stub_builder(repo, request or {}, {"tests/test_probe.py": "def test_probe():\n    pass\n"},
+                 {"status": "done", "concerns": [], "needs": [], "could_not_check": []})
+code, out, err = end(repo, run)
+expect(lab.labels_of(12) == ["loop:fix", "shaping:clarify", "state:shaping", "type:feature"]
+       and "reproduction" in body_of().lower(),
+       "a repair whose reproduction was never shown failing goes back to clarify at the limit",
+       out + err)
+
 expect(lab.model_calls() == [], "no model session was started anywhere",
        repr(lab.model_calls()))
 lab.finish("builder-status-rehearsal.sh")

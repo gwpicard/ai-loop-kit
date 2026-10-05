@@ -10,8 +10,8 @@
 # being acted on, and that the run script never starts a model session. A
 # builder that quietly finished a piece by rewriting its Done when would look
 # the same as one that met it. So each rule is read back here and taken out in
-# turn to prove it is needed, in the loop's reference, in section-builder, in
-# WORKFLOW.md and in the design note.
+# turn to prove it is needed, in the loop's reference, in the fix loop's, in
+# section-builder, in WORKFLOW.md and in the design note.
 
 set -eu
 
@@ -19,6 +19,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$ROOT/.agents/tests/lib/rule-shape.sh"
 
 LOOP="$ROOT/.agents/skills/section-builder/references/build-loop.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 SECTION="$ROOT/.agents/skills/section-builder/SKILL.md"
 RUN="$ROOT/.agents/skills/implement/scripts/run.py"
 WORKFLOW="$ROOT/WORKFLOW.md"
@@ -130,6 +131,104 @@ rs_require_load_bearing "environment failed is tried once more, then the build s
   'environment failed is tried once more, and if it fails again the build stops'
 rs_require_load_bearing "three failed attempts or two hours is a kickback" "$WORKFLOW" \
   'after three failed attempts, or two hours, the piece goes back to shaping with a `## kickback` section'
+
+# --- the fix loop --------------------------------------------------------------
+#
+# A piece labelled loop:fix runs in the same attempts, each builder following
+# the repair discipline in fix-loop.md. The order of its steps is what keeps a
+# repair from patching a guess, so the steps are read back in order. The gate
+# holds what a machine can judge, and builder-status-rehearsal.sh drives it:
+# no change to the code before the reproduction is shown failing, the guard
+# check, and the two routes at the limit. What is left is the prose a builder
+# reads.
+
+rs_exists "$FIX"
+rs_require_order "step 1, define the symptom, comes before the feedback loop" "$FIX" \
+  '^## 1\. Define the symptom$' '^## 2\. Build the tightest feedback loop available$'
+rs_require_order "the earlier repairs are read before causes are ranked" "$FIX" \
+  'read `CHANGELOG\.md` and closed pieces' '^## 4\. Rank causes$'
+rs_require_order "step 2 comes before reproduce and minimise" "$FIX" \
+  '^## 2\. Build the tightest feedback loop available$' '^## 3\. Reproduce and minimise$'
+rs_require_order "step 3 comes before ranking causes" "$FIX" \
+  '^## 3\. Reproduce and minimise$' '^## 4\. Rank causes$'
+rs_require_order "step 4 comes before testing one cause at a time" "$FIX" \
+  '^## 4\. Rank causes$' '^## 5\. Test one cause at a time$'
+rs_require_order "step 5 comes before fix and lock it down" "$FIX" \
+  '^## 5\. Test one cause at a time$' '^## 6\. Fix and lock it down$'
+rs_require_order "step 6 comes before cleanup" "$FIX" \
+  '^## 6\. Fix and lock it down$' '^## 7\. Cleanup$'
+
+rs_reset
+rs_rule "a repair runs in the same attempts as a build" \
+  'a repair runs in the same loop as a build'
+rs_rule "the run script, fresh builders, statuses and limits are the build loop's" \
+  'the run script, the fresh builder for each attempt, the five statuses, the limits and the kept work are as the `section-builder` skill.s `references/build-loop\.md` says'
+rs_rule "no cause is tested before a reproduction exists" \
+  'no cause is tested before a reproduction exists'
+rs_rule "the gate refuses a code change made before the reproduction failed at the start commit" \
+  'refuse a repair when a commit that changes a file other than a test was made, in the attempt, before the gate.s record showed the reproduction failing at the start commit'
+rs_rule "so the reproduction is run through the gate before the first change to the code" \
+  'run the `reproduction:` check through the gate, `python3 \.agents/tools/gate\.py evidence <number> -- <command>`, on the start commit, before the first change to the code'
+rs_rule "two to five causes, each with a prediction, in rank order in the result" \
+  'list two to five plausible causes, each with a falsifiable prediction, most likely first, and write them in the result.s `causes` list in that rank order'
+rs_rule "each cause carries its outcome" \
+  'each with its outcome: `ruled out`, `confirmed` or `not tested`'
+rs_rule "each fix adds the cheapest check that would have caught the fault" \
+  'each fix adds the cheapest check that would have caught the fault'
+rs_rule "the must-not-change line is held by a guard check" \
+  'the `must not change:` line is held by a guard check'
+rs_rule "a test Reaches names is that guard check" \
+  'where `reaches:` already names a test guarding that behaviour, that test is the guard check'
+rs_rule "otherwise a new test file in the attempt's first commit" \
+  'otherwise write one as a new test file in the attempt.s first commit, before any other change'
+rs_rule "recorded with the guard phase" \
+  '`python3 \.agents/tools/gate\.py evidence <number> --phase guard -- <command>`'
+rs_rule "accepted only when it passes at the start commit" \
+  'the gate accepts it only when it passes at the start commit'
+rs_rule "the gate runs every guard check before review and refuses on a failure" \
+  'before the move to review it runs every check recorded with phase `guard` alongside the others, and refuses when one fails'
+rs_rule "a reproduction that cannot be built ends the attempt naming clarify" \
+  'when no loop can be built, the reproduction cannot be built: end the attempt as `blocked`, naming `clarify`'
+rs_rule "the loop stops on its own and the gate takes the route" \
+  'the loop stops on its own, and the gate takes the route, not the builder'
+rs_rule "three failed fixes go back to research with every attempt's causes in rank order" \
+  'three failed fixes: the gate kicks the piece back to `shaping:research`, with the `causes` list of every attempt written into its `## kickback` section in rank order, because the architecture is in question'
+rs_rule "a reproduction that cannot be built goes back to clarify" \
+  'a reproduction that cannot be built: back to `shaping:clarify`'
+rs_rule "a rebuild is never the automatic fourth attempt" \
+  'a rebuild is never the automatic fourth attempt'
+rs_rule "the notice goes in the Kickback section that declines" \
+  'the gate writes it into the same `## kickback` section that declines'
+rs_rule "a builder at its third attempt never patches a fourth time" \
+  'a builder at its third attempt never patches a fourth time on that conclusion'
+rs_guard "$FIX" "the fix loop"
+rs_require_absent "the six routes are gone" "$FIX" 'gets rebuilt from the masterplan'
+rs_require_absent "the loop no longer stops to ask the person" "$FIX" \
+  'missing access, environment, or artifact means stopping to ask for it'
+
+# --- section-builder points a repair to it -------------------------------------
+
+rs_require_load_bearing "step 1: the run script claims a loop:fix piece too" "$SECTION" \
+  'for a `loop:fix` piece the run script makes the claim the same way, as `references/fix-loop\.md` says'
+rs_require_load_bearing "step 4 loads the fix loop beside the build loop" "$SECTION" \
+  'for a piece labelled `loop:fix`, load `references/fix-loop\.md` as well as `references/build-loop\.md`'
+rs_require_load_bearing "step 5 builds a repair in the same attempts" "$SECTION" \
+  'a `loop:fix` piece is built in the same attempts, each builder following `references/fix-loop\.md`'
+rs_require_load_bearing "step 5 names the repair's two routes at the limit" "$SECTION" \
+  'after three failed fixes the gate sends it to `shaping:research`, or to `shaping:clarify` when its reproduction was never shown failing'
+rs_require_load_bearing "step 8 reaches a repair only after the gate routed done" "$SECTION" \
+  'a `loop:fix` piece reaches this step the same way, once the gate has routed its builder.s `done`'
+
+# --- WORKFLOW.md: the repair's three failed rounds now say kickback -----------
+
+rs_require_load_bearing "WORKFLOW: three failed repairs go back to shaping" "$WORKFLOW" \
+  'if a repair fails three attempts, the loop stops patching and the piece goes back to shaping with a `## kickback` section'
+rs_require_load_bearing "WORKFLOW: to research with every cause tried, or to clarify" "$WORKFLOW" \
+  'to research, with every cause the attempts tested, or to clarify when the fault could never be made to repeat'
+rs_require_load_bearing "WORKFLOW: the gate refuses code changed before the fault repeats" "$WORKFLOW" \
+  'a change to the code made before the fault was shown repeating is refused'
+rs_require_absent "WORKFLOW no longer routes by what the failures revealed" "$WORKFLOW" \
+  'routes by what the failures revealed'
 
 # --- the design note ---------------------------------------------------------
 

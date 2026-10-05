@@ -33,6 +33,13 @@
 # ahead with their acceptance on the record. The notice is still owed at the
 # pause, which is what this guards; acceptance-is-earned.sh guards the record.
 #
+# A repair is now built in a loop with nobody there. The loop declines the
+# fourth attempt by kicking the piece back to shaping, so the notice travels in
+# the Kickback section the gate writes, and /shape gives it in its first reply
+# on the piece. An acceptance the person gave after an earlier notice stays on
+# the record, and the kickback still happens, because nobody is in the loop to
+# carry on.
+#
 # The same runs show two timing failures worth their own rules: who is exposed
 # named early, as a general worry about the bug, and the notice given only after
 # the person had asked again for the work. A notice that arrives after the
@@ -91,7 +98,25 @@ rs_rule "carrying on after the notice lets the next attempt go ahead" \
 rs_rule "one more go after the notice is carrying on" \
   'asking for one more go after hearing the notice is the person carrying on'
 
+# In the loop nobody is there to hear the notice, so it goes in the Kickback
+# section that declines, and an acceptance already on the record changes
+# nothing about the kickback.
+rs_rule "the notice goes in the Kickback section that declines" \
+  'the gate writes it into the same `## kickback` section that declines'
+rs_rule "/shape passes it on in its first reply on the piece" \
+  '`/shape` reads that section first and passes the notice on in the same reply that declines another patch, its first reply on the piece'
+rs_rule "an acceptance already on the record stands" \
+  'an acceptance already on the record stands'
+rs_rule "and the kickback still happens, since nobody is in the loop" \
+  'the kickback still happens, since nobody is present in the loop to carry on'
+
 rs_guard "$FIX" "the fix loop's escalation notice"
+
+# /shape is where the person hears it, so its intake of a kicked-back piece
+# gives the notice before it asks anything.
+rs_require_load_bearing "/shape gives a Kickback's notice before any question" \
+  "$ROOT/.agents/skills/shape/SKILL.md" \
+  'where the kickback section carries a risk notice, as a repair.s does after three failed fixes, give it to the person in your first reply on the piece, before any question'
 
 # The notice is worth nothing if it is withdrawn the moment somebody objects, so
 # the paragraph that holds it has to survive beside the one above.
