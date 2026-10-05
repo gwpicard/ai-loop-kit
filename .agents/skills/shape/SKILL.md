@@ -278,9 +278,9 @@ one step, so it waits for the person rather than for a guess:
 `shaping:clarify` answers what the person wants, through the clarify skill, one question at a time, in the question box its
 "How to ask" describes. Each answer is written into `## Decided` before the gate moves the piece.
 Write what comes out into the shape the `setup-ai-build-kit` skill's
-`references/pieces.md` describes, and keep the person's original words
-underneath, because their words are what a refinement can be checked against
-and what to return to when it reads wrong.
+`references/pieces.md` describes, and keep the person's
+original words underneath, because their words are what a refinement can be
+checked against and what to return to when it reads wrong.
 
 Where the reach touches a sensitive area, stored data or anything that leaves
 the tool, clarify asks the pre-mortem once, and a goal or gauntlet piece agrees its bar here, both as the clarify skill's
