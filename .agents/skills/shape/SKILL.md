@@ -31,7 +31,12 @@ section below says.
 Otherwise run change-triage on the request and follow its route: shape it into a ready
 piece now, run clarify first, run a decision prototype, run a source check,
 update the masterplan first, or stop and rerun the fit check. Say which route
-you chose and why, in one line.
+you chose and why, in one line. A request that becomes a piece is taken in as
+`shaping:raw` and triaged at once, as change-triage's "Triage in raw" says.
+
+Where GitHub cannot be reached when a request would become a piece, nothing is filed. Say so in one line, and
+repeat the person's words back to them in full, so nothing they said is lost
+and they can give it again once GitHub answers.
 
 Clear, piece-sized work becomes a ready piece straight away: write it into the
 shape the `setup-ai-build-kit` skill's `references/pieces.md` describes, take its subjects
@@ -124,6 +129,12 @@ own, these are the moves it makes:
   to `shaping:research` for a fact from outside, `python3 .agents/tools/gate.py move <number> research`;
   or to `shaping:prototype` for a flow the person has not seen, `python3 .agents/tools/gate.py move <number> prototype`.
 - A piece with no open question moves from `shaping:raw` to `shaping:spec`, `python3 .agents/tools/gate.py move <number> spec`.
+  A bug that took change-triage's fast path arrives in `shaping:spec` this way, already carrying `loop:fix`.
+  Write its contract and run the readiness check in the same session, and offer `/implement <number>` as soon as it is ready.
+- In `shaping:spec`, replace a guessed `Loop module:` line, the one triage marked
+  `(guess, ...)`, with the module the contract is written for. Give the piece
+  that module's label where it has none, `gh issue edit <number> --add-label loop:<module>`.
+  The `loop:` label is not a state, so `gh` writes it directly.
 - A settled question is written under `## Decided` for clarify and prototype, or under `## Research` with a source for each claim for research, and the piece moves to `shaping:spec`
   with the same command.
 - Research whose result needs the person moves to `shaping:clarify` once what it
@@ -266,16 +277,19 @@ as one opened by hand or from the form: take it in with `python3 .agents/tools/g
 Then give it exactly one `type:` label before its first move, `gh issue edit <number> --add-label type:<feature|bug|chore>`,
 as change-triage says under "Taking a piece in".
 
-Then take the lowest-numbered piece still in shaping and shape it as above,
-starting with any in `shaping:raw`. A piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran,
-so run the check on it rather than shaping it again. A piece with a
-`## Kickback` section came back from a build: read what happened first, and
-settle the decision it asks for. When nothing is waiting and every
+Then take the next piece still in shaping, in this order: a piece with a `## Kickback` section first, then a piece waiting in `shaping:check`, then `shaping:research`, which needs nobody, then `shaping:clarify` and `shaping:prototype` when the person is there, then `shaping:spec`, then the oldest `shaping:raw`.
+Within one place in that order, take the oldest piece first. Pieces already
+part-shaped finish before new notes start.
+
+A piece with a `## Kickback` section came back from a build: read what happened
+first, and settle the decision it asks for. A piece in `shaping:check` is waiting for its readiness check: its shaping finished and the check never ran,
+so run the check on it rather than shaping it again. A piece in `shaping:raw` is triaged first, as change-triage's "Triage in raw" says, and then
+follows the sub-state that triage gives it. When nothing is waiting and every
 piece is already ready, say so and point the person at `/implement` to build the
 next one. The command does not run out of things to do quietly; it says the
 plan is shaped.
 
-Given an issue number, settle that piece rather than the lowest-numbered one, so
+Given an issue number, settle that piece rather than the next in that order, so
 somebody with one piece in mind is not made to work through the list. Given it
 as `/shape <number> check readiness`, run the readiness check on that piece and
 nothing else. Where that

@@ -73,6 +73,11 @@ rs_require_load_bearing "change-triage says /shape starts the step unless asked 
   "$TRIAGE" 'unless the person asked only to file the piece'
 rs_require_load_bearing "change-triage recognises a request to file" \
   "$TRIAGE" 'just file this idea'
+# A note that repeats an earlier piece goes onto that piece, whether it is open
+# or closed, and closed for either reason. Searching only the ideas left out
+# missed a note repeating a piece already built, and filed it twice.
+rs_require_load_bearing "a note matching an open or closed piece goes onto that piece" \
+  "$TRIAGE" 'where it matches an open piece, or a closed one whether completed or not planned'
 
 # The cost is what the one-line warning before a sitting draws on.
 rs_reset

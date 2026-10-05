@@ -22,13 +22,19 @@ back around and getting built by accident, and it only works if somebody looks. 
 misunderstanding or a setup problem rather than a real gap? Does it contradict
 an existing rule in the masterplan?
 
+Then compare what it asks for with what the masterplan promises. This is the
+check a report of something broken has always needed first. Behaviour the masterplan promised and the tool does not do is a repair, and becomes `type:bug`.
+Behaviour the masterplan never promised is a wish, however it is worded, and becomes `type:feature`.
+A wish handled as a repair goes into the wrong loop, which then hunts for a
+fault nobody made. Nobody can misfile work by how they word it, because
+catching that is this step's job.
+
 ## Capture: a note for later
 
 When the person asks only to note an idea, in plain words such as "note this
 for later" or "just file this idea", or types `/shape later` or `/shape idea`
 with it, do not classify or route it. They asked to write it down, not to have
-it shaped. Run Step 1's search first. Where it matches an open piece or an
-idea closed as not planned, add the person's words to that issue as a comment and say which
+it shaped. Run Step 1's search first. Where it matches an open piece, or a closed one whether completed or not planned, add the person's words to that issue as a comment and say which
 one, and file a new issue only if the person says theirs is different.
 Otherwise capture it through the gate, `python3 .agents/tools/gate.py capture --title "<title>" --body-file <file>`,
 which opens it in `state:shaping` and `shaping:raw` with the person's own words as the body and nothing settled:
@@ -95,7 +101,7 @@ from scratch.
 
 ## Step 4: Route
 
-Route to one of: `/fix`; a ready piece; clarify; a decision
+Route to one of: the bug fast path, below; a ready piece; clarify; a decision
 prototype; a source check; a search for existing work; a step only the person
 can do; work on this computer, done apart from the project; using the tool on
 content, done without a piece; update the
@@ -129,6 +135,44 @@ which `/shape` typed alone picks up and runs.
 Where the gate refuses a move, tell the person its line in plain words and stop that move.
 Never write the label another way, as the `setup-ai-build-kit` skill's
 `references/blocked-commands.md` says.
+
+### Triage in raw
+
+A piece in `shaping:raw` holds the person's words and nothing settled. When
+`/shape` takes one up, triage it and write what it found on the piece, in this order, before it moves:
+
+1. Its `type:` label, from Step 1's comparison with the masterplan, as "Taking
+   a piece in" below says.
+2. A first guess at its loop module, with one line saying why, under `## Loop`: `Loop module: <module> (guess, <one line why>)`.
+   The ready-gate lint accepts only a bare module name on that line, so the lint never reads a guess as the bar.
+   Later, `shaping:spec` replaces the line with the module the contract is written for.
+3. Any piece this one repeats or overlaps, open or closed, completed or not planned, under `## Overlaps`.
+   Write one line for each, naming the piece by its number and title and saying
+   what the two share. For a piece closed as not planned, add the reason it was left out, since only the person can say
+   whether that reason still holds.
+4. The first open question, under `## Open question`, in plain words. Only the
+   first: the next one is written once this one is answered.
+
+Then move it through the gate to the sub-state that answers that question, as the paragraph above says. With no open question, move it to `shaping:spec`,
+`python3 .agents/tools/gate.py move <number> spec`.
+
+One check still comes before any move. A request that would change what kind
+of project this is stops for the fit check before the piece moves to any sub-state, as the paragraph on it below says.
+
+### The bug fast path
+
+A `type:bug` piece with a reproduction a person can follow has no question
+left for the person. A reproduction a person can follow means the steps, the expected result and the actual result.
+With all three, it goes from `shaping:raw` straight to `shaping:spec` and
+takes `loop:fix`: write `Loop module: fix` under `## Loop` with no guess mark,
+and add the label with `gh issue edit <number> --add-label loop:fix`. Write the
+three under `## Steps to reproduce`, in the person's words where they gave
+them, so spec can turn them into the failing check.
+
+A bug with no clear reproduction goes to `shaping:clarify` with the missing step as its question, such as
+"What did you click just before the error appeared?" A guess at the missing
+step would give the fix loop a fault to chase that may not be the one the
+person saw.
 
 ### Taking a piece in
 
