@@ -46,7 +46,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | Destination | What it is |
 |---|---|
 | `tests/house-rules.sh` | The number, attribution, stray-copy, shell-syntax and runnable-mode checks lifted from the old validator, with a self-test that plants each fault. |
-| `.github/workflows/v1-checks.yml` | Runs `tests/run-all.sh` on manual dispatch only. |
+| `.github/workflows/v1-checks.yml` | Runs `tests/run-all.sh` on manual dispatch only. Its job carries the repository gate the old release check demands, which names the old repository as well. It carries the old product name in that one line, until stage D removes the old check. |
 | `BORROWED.md` | This file. |
 
 ## Deliberately not copied
