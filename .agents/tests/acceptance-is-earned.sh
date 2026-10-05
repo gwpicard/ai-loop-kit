@@ -272,6 +272,49 @@ rs_require_load_bearing "implement lets a blocked piece go on when the person ca
 rs_require_load_bearing "an unattended run still stops at a sensitive area" "$RUNNING" \
   'at any touch of a named sensitive area'
 
+# The notice and the acceptance now happen while the piece is shaped, in
+# shaping:clarify, so a run never meets a sensitive area nobody accepted. The
+# build-time route above stays as the backstop for a piece that reaches one
+# anyway. The rules about silence, empty form answers and quoting travel with
+# the notice, and the acceptance is saved on its own records pull request,
+# merged on a yes naming it, before the piece may leave clarify. The ready-gate
+# lint reads the masterplan from origin/main, so it holds the same thing at
+# the gate.
+SHAPE="$ROOT/.agents/skills/shape/SKILL.md"
+
+rs_reset
+rs_rule "the notice is given in clarify where an area has no acceptance" \
+  'where the piece.s boundary or reach touches a sensitive area named in the masterplan.s build path with no recorded acceptance, give the risk notice here, in `shaping:clarify`'
+rs_rule "once, in full, as fit-check.md says" \
+  'give it once, in full, as the `setup-ai-build-kit` skill.s `references/fit-check\.md` says'
+rs_rule "silence and an empty form answer are not carrying on" \
+  'silence does not count, nor a form or menu answer with no option selected'
+rs_rule "the line quotes the person exactly" \
+  'the `accepted:` line quotes the person exactly'
+rs_rule "carrying on writes the line with words and date" \
+  'when the person carries on, write the `accepted:` line with their words and the date'
+rs_rule "untrue masterplan sentences are corrected in the same save" \
+  'correct every masterplan sentence it makes untrue, in the same save'
+rs_rule "the summary goes into Decided so the gate can move the piece" \
+  'write the acceptance.s summary into `## decided` too'
+rs_rule "the line is read back before the piece moves on" \
+  'read the `accepted:` line back before the piece moves on'
+rs_rule "the acceptance is saved on a records pull request of its own" \
+  'saved on a records pull request of their own'
+rs_rule "its merge is asked for with a yes naming it, through the merge step" \
+  'ask for its merge with a yes that names it, as the `section-builder` skill.s `references/merge\.md` says'
+rs_rule "on an every-merge host the ask says it is a build there" \
+  'where the masterplan.s `goes live:` line says every merge goes live, the ask for that merge says it is a build on the host'
+rs_rule "and that a first such merge runs ship's first-launch checks" \
+  'a first such merge runs `/ship`.s first-launch checks'
+rs_rule "the piece leaves clarify only once that pull request has merged" \
+  'the piece leaves `shaping:clarify` only once that pull request has merged'
+rs_rule "until then it says it is waiting for the merge" \
+  '"acceptance saved, waiting for its merge"'
+rs_rule "after a no to the first upload it says it is waiting for that" \
+  '"acceptance recorded here, waiting for the first upload"'
+rs_guard "$SHAPE" "the /shape clarify sub-state"
+
 # The story is told in WORKFLOW.md as well, so a person reading it knows an
 # empty form is not a yes and what the line will say.
 WORKFLOW="$ROOT/WORKFLOW.md"

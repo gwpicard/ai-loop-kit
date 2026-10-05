@@ -47,8 +47,8 @@ rs_guard "$ARTIFACT" "the shipped existing-artifact.md"
 # behaviour survives in whichever one was missed.
 rs_require "clarify asks before it builds a throwaway" \
   "$CLARIFY" 'existing-artifact\.md'
-rs_require "/shape settles a needs-prototype piece with what exists" \
-  "$SHAPE" 'existing-artifact\.md'
+rs_require_order "/shape's prototype sub-state settles with what exists" "$SHAPE" \
+  '^### Prototype: what the person has to see$' 'existing-artifact\.md'
 rs_require "decision-prototype.md checks before building one" \
   "$PROTOTYPE" 'existing-artifact\.md'
 rs_require "/setup names it in the founding interview" \

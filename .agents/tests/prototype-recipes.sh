@@ -2,7 +2,7 @@
 # prototype-recipes.sh: guard what a prototype is supposed to be.
 #
 # decision-prototype.md said what a prototype must obey and never what to build,
-# so a `needs-prototype` piece produced whatever that session improvised. It now
+# so a piece waiting in `shaping:prototype` produced whatever that session improvised. It now
 # names which of two questions it is answering first, and follows
 # a recipe for that one.
 #
@@ -24,6 +24,7 @@ WORKFLOW="$ROOT/WORKFLOW.md"
 SETUP="$ROOT/.agents/skills/setup-ai-build-kit/SKILL.md"
 FOUNDATION="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.md"
 README="$ROOT/README.md"
+SHAPE="$ROOT/.agents/skills/shape/SKILL.md"
 
 rs_init "Prototype-recipe checks"
 rs_exists "$PROTOTYPE" "$BEHAVIOUR" "$STRUCTURE" "$WORKFLOW"
@@ -94,6 +95,14 @@ for recipe in "$BEHAVIOUR" "$STRUCTURE"; do
   rs_require_absent "$name names no framework or code construct" \
     "$recipe" '(reactjs|react app|vue|svelte|npm |node_modules|\.html|\.js\b|\.css|<div|function \()'
 done
+
+# The prototype sub-state runs this file and keeps the throwaway out of the
+# build. A prototype merged as the real thing would carry its fake data and
+# skipped error handling into the tool.
+rs_require_order "/shape's prototype sub-state runs the decision prototype" "$SHAPE" \
+  '^### Prototype: what the person has to see$' 'the `clarify` skill.s `references/decision-prototype\.md`'
+rs_require_load_bearing "the prototype is deleted or kept apart, never merged" "$SHAPE" \
+  'the prototype is deleted or kept apart, never merged'
 
 rs_require "WORKFLOW.md says what the person will get" \
   "$WORKFLOW" 'file you open and click through'
