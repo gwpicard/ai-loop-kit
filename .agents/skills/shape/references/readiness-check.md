@@ -93,15 +93,23 @@ BLOCKING line cannot carry the verdict Ready. Notes stay on the piece for the
 builder, and never hold the piece back. With no gaps and no notes, the
 first line stands alone.
 
+When the ready-gate lint refuses the piece, this check does not run. `/shape`
+writes the lint's gaps as the `## Readiness` section instead, in the same
+place: `<YYYY-MM-DD>, ready-gate lint: Not ready`, then one `- BLOCKING lint: <gap>` line for each gap the lint printed.
+The piece goes to `shaping:spec`, and the gate reads it as it reads this check's.
+
 `/shape` reads the section back and moves the piece through the gate by what
-it says. Ready moves the piece to `state:ready`. Not ready moves it to the sub-state its first BLOCKING line needs, with each blocking gap
+it says. Ready moves the piece to `state:ready`. Not ready moves it to the sub-state that closes its gaps, with each blocking gap
 written on the piece. The sub-state says who can close the gap:
 
-- `shaping:clarify` for a gap a person must settle, including a Relies on
+- `shaping:clarify` for a gap a person must settle, with the gap as its `## Open question`, including a Relies on
   line whose code does not exist or does not return what the piece needs;
 - `shaping:research` for a fact from outside the project;
 - `shaping:prototype` for a gap on item 13, a flow the person has not seen;
-- `shaping:spec` for a gap the contract can close with no new answer.
+- `shaping:spec` for a lint refusal, or a gap in the contract's own wording.
+
+Where gaps need different sub-states, the piece goes to the first of clarify, prototype, research and spec, and the other gaps stay written on it.
+`/shape` says in one line where the piece went and why. No `needs-` label is written.
 
 The checker reads the project's code itself, so reading code is never the
 reason for a label. Once a gap is closed, a session that did not shape the

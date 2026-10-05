@@ -54,6 +54,12 @@ Choose the save route before changing anything:
    Stopping there, safely prepared and kicked back to shaping with the caution
    named, is one of section-builder's two successful outcomes; see step 8.
 
+A piece whose `## Loop` names an `Acceptance branch:` is built on that branch itself, so the build's pull request comes from it.
+`/shape` cut it from `origin/main` and committed the acceptance checks there.
+Fetch it from `origin`, merge the up-to-date `main` into it, and build there
+rather than cutting another branch. In a run on Claude Code, its worktree opens
+on that branch, with `origin/<branch>` as the base.
+
 Pull-request and flagged routes work on a short-lived branch cut from the
 up-to-date `main`, or from the branch a piece in a run stacks on. The checkpoint route may commit on the current branch once
 its state is confirmed clean, but it too starts the piece from the up-to-date
@@ -187,6 +193,10 @@ first code commit instead, and put the failing run's output in the hand-over. A
 committed check changes only by being reported: the guard in step 8 lists it if
 it changes. Checks only a person can make are exempt, such as whether a layout
 reads well: name them, and leave them to the walk-through in step 6.
+
+Where the piece names an `Acceptance branch:`, its checks are already written and committed there. Run each on today's code and confirm it still fails, rather than writing it again,
+and record the failure as above. The last commit `/shape` made on that branch
+is the checks commit the guard in step 8 reads. A piece with no acceptance branch keeps this step as written.
 
 A check that passes on today's code proves nothing about this piece. Where it
 passes because the check is wrong, fix the check. Where it passes because the

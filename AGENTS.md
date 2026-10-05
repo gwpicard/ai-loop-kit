@@ -281,7 +281,13 @@ attribution line, not the word.
   piece out of order and changes nothing. It holds the run status written
   beside the labels, and the cases that are not the normal one: no network,
   an account that cannot create labels, two sessions moving one piece, two
-  states, and bad input. The move to `state:ready` also needs one `loop:`
+  states, and bad input. A move out of spec or check reads what the gate
+  fingerprinted when the piece came in: spec leaves for check only once
+  `## Loop` and `## Reach` have changed, and leaves to ask again only with an
+  `## Open question` it did not carry in, so a question already answered is
+  refused. Check leaves for another sub-state only once `## Readiness` has
+  changed, and a Readiness section the lint's refusal wrote counts as the
+  fresh checker's. The move to `state:ready` also needs one `loop:`
   label and the ready-gate lint beside the gate to pass, and its refusal
   prints the lint's gaps as the lint gave them. A lint that could not run
   refuses the move too, and so does a lint missing from beside the gate. Most
@@ -451,9 +457,14 @@ attribution line, not the word.
   the reach line the person reads, that the list stays out of the founded
   AGENTS.md, and
   that the replay case for it is written and listed as owed. It holds that
-  `/shape` runs the ready-gate lint before a piece moves to `shaping:check`,
-  so the checker never reads a piece the lint would refuse, and says the
-  lint's result in one line. And it holds the one line the lint reads for the
+  `/shape` runs the ready-gate lint first in `shaping:check`, so the checker
+  never reads a piece the lint would refuse, and says the lint's result in
+  one line. On a lint refusal the checker does not run, and the lint's gaps
+  are written as the `## Readiness` section, one `BLOCKING lint:` line each.
+  A gap goes to the sub-state that closes it, with a person's gap as the
+  `## Open question` in clarify and a lint refusal back to spec. Several gaps
+  go to the first of clarify, prototype, research and spec, the rest stay
+  written on the piece, and no `needs-` label is written. And it holds the one line the lint reads for the
   project's tests: the founded stack section asks for `Test command:
   <command>` or `Test command: none for <language>`, and founding writes it.
 - `.agents/tests/ready-lint-rehearsal.sh` runs the ready-gate lint a founded
@@ -850,7 +861,11 @@ attribution line, not the word.
   Either opt-in gives one address a request reached and up to three numbered
   things to try, with nothing saved before the reply, and an unattended run
   opens the pull request saying it waits for the try. It also holds founding's
-  offer of sample data and the same rules in `/fix`.
+  offer of sample data and the same rules in `/fix`. A piece that names an
+  `Acceptance branch:` is built on that branch, so its pull request comes
+  from it, and step 4 confirms the checks `/shape` committed there still fail
+  rather than writing them again. A piece with no such branch keeps step 4 as
+  it was.
 - `.agents/tests/fix-history-first.sh` guards the repair steps that read prior
   work and existing tests before a new attempt, search saved history from a
   known-good point, remove temporary instrumentation, and refuse to call a
@@ -1461,6 +1476,23 @@ attribution line, not the word.
   It holds a goal's metric, command, target and budget and a gauntlet's
   reference and budget, written under `## Loop` with the date once the person
   approves them. Prototype writes its decision into `## Decided` in words.
+  Last, it holds spec, check and kickback intake. Spec writes the whole
+  contract alone and, for a build or fix piece, commits the acceptance checks
+  as real tests on `spec/<number>-<short name>`, cut from `origin/main`,
+  holding test files only, and names it on `Acceptance branch:`. A check that
+  passes on `origin/main` sends the piece to clarify, and a question found
+  while writing sends it to the sub-state it needs. After a kickback or a
+  passing check, a new branch takes the next number from 2, and the earlier
+  one is never deleted but named on a `Kept branch:` line, while a spec run
+  stopped half-way reuses its branch. With no `origin/main`, spec asks the
+  first-upload question before cutting anything, and with `Test command: none
+  for <language>` it writes the checks for the check floor's runner and names
+  it on `Test runner:`. Check runs the lint, then the fresh checker, and sends
+  each gap where it can be closed. A kicked-back piece is read first,
+  comments included, before anybody is asked again, and keeps its branch. It
+  also holds the skill's description, which names the sub-states and the bug
+  route, and WORKFLOW.md telling the sub-states, the bug route, the
+  pre-mortem question and what a kicked-back piece looks like.
 - `.agents/tests/co-change-rehearsal.sh` runs the history query research uses,
   the section-builder skill's `scripts/co-change.sh`, in throwaway
   repositories. It reads back that the file changed most often with the given
@@ -1919,6 +1951,8 @@ attribution line, not the word.
   there, and with none says the pieces wait for a repository of their own.
   An acceptance saved in shaping travels on a records pull request, and where
   that push is the project's first upload, `/shape` asks first in the same way.
+  So does the first push of a spec branch on a project whose code is not
+  online.
 - `.agents/tests/recipes.sh` guards the recipe format. A recipe pairs a build
   stack with a place to run it, and it is the only place outside the README
   allowed to name a service a tool runs on, so the rules around that permission
