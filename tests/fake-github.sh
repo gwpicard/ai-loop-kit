@@ -89,7 +89,7 @@ echo "== A piece made of parts =="
 "$GH" issue create --title "Pick a date range" --body "## Done when
 - a range is chosen" --label "how it works" > /dev/null
 
-# Issue 3 is the parent, issue 4 a part of it. The kit sends the issue number,
+# The third issue is the parent, the fourth a part of it. The kit sends the issue number,
 # mirroring the blocked-by call.
 "$GH" api --method POST "repos/rehearsal/project/issues/3/sub_issues" \
   -f sub_issue_id=4 > /dev/null 2>&1 \
