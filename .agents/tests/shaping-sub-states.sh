@@ -230,9 +230,20 @@ rs_rule "named with the next unused number from 2" \
 rs_rule "the new branch holds test files only" 'hold test files only on it'
 rs_rule "still-valid checks are carried over" 'carry the checks that are still valid onto it'
 rs_rule "the earlier branch is never deleted, and named as kept" \
-  'never delete the earlier branch: name it on a `kept branch:` line under `## kickback`, never as `acceptance branch:`'
+  'never delete the earlier branch: name it on a `kept branch:` line, never as `acceptance branch:`'
 rs_rule "even when it holds commits the person wants kept" \
   'even when it holds commits the person wants kept'
+# Where the kept branch is written depends on why spec ran again. A piece that
+# never left shaping must not gain a Kickback section, because /shape reads
+# that section first and takes it for a build that came back.
+rs_rule "after a kickback the kept branch goes under Kickback" \
+  'after a kickback, the `kept branch:` line goes under `## kickback`'
+rs_rule "after a passing check it goes in Loop beside Acceptance branch" \
+  'after a check was found passing on `origin/main`, it goes in `## loop` beside `acceptance branch:`'
+rs_rule "a piece that never came back from a build gains no Kickback section" \
+  'a piece that never came back from a build gains no `## kickback` section'
+rs_rule "since /shape reads that section first, as a returned build" \
+  '`/shape` reads that section first and as a build that came back'
 rs_rule "a half-finished spec run reuses its branch" \
   'when neither applies and `acceptance branch:` is not yet written, as after a spec run stopped half-way with its branch pushed, reuse that branch and cut no new one'
 # A project with no code online.
