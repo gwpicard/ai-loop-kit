@@ -49,7 +49,9 @@ a removal step is expected. Do not fix it and do not edit the check.
 ## Maintainer skills that stay
 
 These three skills stay under `.agents/maintainer-skills/`: `humanizer`,
-`review-issues` and `stack-research`.
+`review-issues` and `stack-research`. Load `review-issues` from
+`.agents/maintainer-skills/review-issues/SKILL.md` and `stack-research` from
+`.agents/maintainer-skills/stack-research/SKILL.md`.
 
 ## Local settings
 
