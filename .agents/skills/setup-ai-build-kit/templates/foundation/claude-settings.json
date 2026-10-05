@@ -42,7 +42,8 @@
       "Bash(gh label create review:**)",
       "Bash(gh label edit review:**)",
       "Bash(gh label delete review:**)",
-      "Bash(gh api *issues/*/labels*)"
+      "Bash(gh api *issues/*/labels*)",
+      "Edit(//**/.agents/pieces/**)"
     ]
   },
   "hooks": {

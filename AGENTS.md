@@ -323,7 +323,18 @@ attribution line, not the word.
   a path in another area or in none, read from the map at the base, forces a
   review and never refuses. A goal piece and a project whose `origin/main`
   holds only its first upload are held too, and the founded gitignore keeps
-  `.agents/pieces/` out.
+  `.agents/pieces/` out. It also holds the evidence record. `gate.py
+  evidence` runs a command in the folder holding the piece's branch, or at the
+  spec commit, and appends one line to `.agents/pieces/<number>/evidence.jsonl`
+  in the main folder, from a worktree too. A line edited by hand is refused,
+  and a cut-off last line is set aside as an interrupted write. Before review
+  the gate runs each acceptance check, each guard check under `Reaches:` and
+  the Test command itself, and refuses a red check, a missing one, a tree with
+  unsaved changes and a check that passed only on a retry. A build piece's
+  check must fail at the spec commit on its assertion, so one failing on an
+  import or already passing is refused. A goal piece's record says it has no
+  before run, and a build piece with no acceptance branch runs its before
+  check at the commit that first holds it.
 - `.agents/tests/bar-guard-rehearsal.sh` runs section-builder's
   `scripts/bar-guard.sh` in fresh copies of one throwaway repository whose
   acceptance branch holds two commits. It makes each of the seven kinds alone
@@ -1299,6 +1310,12 @@ attribution line, not the word.
   written list of commands that must still run, such as deleting one file or a
   plain `git gc`, keeps those rules from growing. The offer brings those rules
   too, and a no recorded before they existed does not cover them.
+  The matcher also reads file rules, tested first against the documentation's
+  own examples. The founded settings refuse Write and Edit on the gate's record
+  in `.agents/pieces/`, from the main folder and from a run's worktree, while
+  other files still edit and reading the record still runs. The rule is taken
+  out to prove it is needed, and a Write path rule, which Claude Code never
+  consults, or a rule read from the session's own folder is caught.
 - `.agents/tests/refused-commands.sh` guards what happens when a command is
   refused. In a real project the deny list refused `rm -rf`, and the agent ran
   the same deletion again as `rm -r`, which went through. So both
@@ -1313,6 +1330,9 @@ attribution line, not the word.
   the person as a command, and the temporary folders the trim and the
   quarterly reads write are made with `mktemp -d` and left for the computer to
   clear.
+  The founded file names the gate's record in `.agents/pieces/` among the
+  refused writes, and says a refusal there is told to the person and the record
+  never written another way.
 - `.agents/tests/speaks-for-the-person.sh` guards the yes the kit waits for
   before it speaks for the person to anyone else. In a project where
   colleagues file issues, the agent posted a comment under the person's

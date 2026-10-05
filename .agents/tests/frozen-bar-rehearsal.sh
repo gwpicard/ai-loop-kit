@@ -9,9 +9,11 @@
 # contract that changed while the piece was being built sends it back to spec.
 # At the move to review the gate runs the bar guard and refuses a change to the
 # bar the piece did not name, and it places every changed path in the area
-# map, so a change outside the piece's boundary goes to the person. A gate that
-# let any of that through would look the same as one that works, until a piece
-# passed a bar it had lowered itself.
+# map, so a change outside the piece's boundary goes to the person. Then it
+# runs every check itself, on the commit as it stands and, for a build piece,
+# at the spec commit too, and records each run in a chained evidence record. A
+# gate that let any of that through would look the same as one that works,
+# until a piece passed a bar it had lowered itself.
 #
 # Nothing here reaches the network. The stand-in keeps its state in a file, and
 # each project is a throwaway Git folder with a bare repository as its origin.
@@ -66,8 +68,17 @@ os.makedirs(TOOLS)
 for source in (os.path.join(FOUNDATION, "gate.py"), os.path.join(FOUNDATION, "area-map.py"),
                os.path.join(SCRIPTS, "bar-guard.sh"), os.path.join(SCRIPTS, "test-guard.sh")):
     shutil.copy(source, TOOLS)
+# The stand-in is the real lint with its command replaced, since the gate also
+# reads the lint's test-command reader and runner reports when it runs checks.
+with open(os.path.join(FOUNDATION, "ready-lint.py")) as handle:
+    real_lint = handle.read()
+COMMAND = 'if __name__ == "__main__":\n    sys.exit(main(sys.argv[1:]))'
+if COMMAND not in real_lint:
+    print("FAIL: the ready-gate lint no longer ends with its command line", file=sys.stderr)
+    sys.exit(1)
 with open(os.path.join(TOOLS, "ready-lint.py"), "w") as handle:
-    handle.write("print('Ready-gate lint: no gaps.')\n")
+    handle.write(real_lint.replace(COMMAND, 'if __name__ == "__main__":\n'
+                                            '    print("Ready-gate lint: no gaps.")'))
 GATE = os.path.join(TOOLS, "gate.py")
 
 STATE = os.path.join(WORK, "gh-state.json")
@@ -831,7 +842,7 @@ git(repo, "checkout", "-q", "-b", "build/14-totals", "main")
 no_branch = piece_body(loop="Loop module: build",
                        works="The total adds the refund. Check: tests/test_total.py")
 fresh([issue(14, ["state:shaping", "shaping:check", "type:feature", "loop:build"], no_branch)],
-      pulls=[{"number": 2, "title": "Totals", "body": "Closes #14",
+      pulls=[{"number": 2, "title": "Totals", "body": "Closes #%d" % 14,
               "head": "build/14-totals", "base": "main", "state": "OPEN"}])
 gate(repo, "move", "14", "ready")
 gate(repo, "move", "14", "building", "--assignee", "me")

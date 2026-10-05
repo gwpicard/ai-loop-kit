@@ -18,8 +18,12 @@ and strips wrappers such as `timeout` and leading variable assignments before
 it matches; none of the spellings the checks feed it needs that, so it is not
 modelled.
 
+It also judges Edit and Read rules for the file tools, following the
+documentation's "Read and Edit" section; the rules are described where that
+part of the matcher starts.
+
 A check calls self_test() first, which runs the examples in the
-documentation's own table, so a matcher that drifted from the documentation
+documentation's own tables, so a matcher that drifted from the documentation
 fails before it judges anything. Run on its own, this file runs that test.
 """
 

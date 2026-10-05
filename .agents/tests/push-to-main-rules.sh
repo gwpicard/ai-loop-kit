@@ -29,6 +29,10 @@
 # its section. A written list of commands that must still run, such as deleting
 # one file or a plain `git gc`, stops a rule from growing past its purpose.
 #
+# The rule that keeps the agent out of the gate's record, .agents/pieces/, is
+# a file rule rather than a command rule, so it goes through the matcher's file
+# half, from a session in the main folder and from one in a run's worktree.
+#
 # The second half guards prose: the monthly offer in /maintain that brings the
 # rules to a project founded before them, and the written gap itself.
 

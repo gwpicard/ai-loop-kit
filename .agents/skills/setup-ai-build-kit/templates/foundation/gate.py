@@ -20,6 +20,7 @@ Commands:
   gate.py move <number> <target> [--run <name>] [--assignee <login>]
                                  [--reason <text>] [--withdrawn-by <number>]
   gate.py check-contract <number> [--run <name>]
+  gate.py evidence <number> [--phase before] [--at <commit>] -- <command>
   gate.py drop <number> --reason <text>
   gate.py tidy
   gate.py report
@@ -50,6 +51,26 @@ the base, forces the person's review: each reason is a line in
 .agents/pieces/<number>/forced.jsonl in the main folder, and the reasons are
 posted on the issue as one comment. Only this script writes that file.
 
+Before that move the gate also runs the checks itself, on the commit the
+branch holds, and refuses a tree with changes nobody saved: each acceptance
+check and each guard check the piece names under Reaches, with the Test
+command from AGENTS.md's stack section on main, then the Test command alone.
+A check missing or failing refuses the move, and so does one that already
+failed on the same commit, since a pass on a retry counts as a failure. The
+type check and the linter are left to the project check on GitHub. For a build
+or fix piece each acceptance check is also run at the spec commit, or with
+none at the commit on the branch that first holds it, and must fail there on
+its assertion. Each check has the ready-gate lint's time limit, ten minutes.
+
+evidence runs one command in the folder that has the piece's branch checked
+out, or with --phase before at the spec commit or the --at commit, in a
+checkout of its own. Every run, the builder's and the gate's, is one line in
+.agents/pieces/<number>/evidence.jsonl in the main folder: the command, its
+exit code, the commit, whether the tree was clean, the time and the phase,
+with what it printed kept in a file beside it. Each line carries a hash
+chained to the line before it, and a record holding a line this script did not
+write is refused. Only this script writes that file.
+
 A move into a shaping sub-state writes a hidden marker holding a fingerprint
 of the sections that sub-state answers in, and the move out reads them again.
 Leaving spec for check needs Loop and Reach changed, leaving spec to ask again
@@ -69,9 +90,11 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
+import types
 from collections.abc import Sequence
 from typing import Any, NoReturn
 
@@ -687,15 +710,11 @@ def check_condition(condition: str, number: int, origin: str, target: str,
                    f"gate.py move {other} building --run <name>")
 
     if condition == "pull request":
-        pulls = gh_json(["pr", "list", "--state", "open", "--limit", "200",
-                         "--json", "number,body,headRefName,baseRefName"])
-        closing = re.compile(rf"\bcloses\s+#{number}\b", re.IGNORECASE)
-        found = [p for p in pulls if isinstance(p, dict)
-                 and closing.search(str(p.get("body") or ""))]
-        if not found:
+        found = closing_pull(number)
+        if found is None:
             refuse(f"no open pull request says Closes #{number}",
                    f"open the pull request with Closes #{number} in its body, then run: {move}")
-        return found[0]
+        return found
 
     if condition == "kickback":
         kickback = section(body, "Kickback")
@@ -950,12 +969,14 @@ def outside_boundary(folder: str, base: str, body: str) -> list[dict[str, str]]:
     return reasons
 
 
-def guard_the_bar(number: int, body: str, pull: dict[str, Any], spec: str,
-                  move: str) -> list[dict[str, str]]:
-    """Run the bar guard and place the changed paths, on the pull request's branch.
+def guard_the_bar(number: int, body: str, names: Sequence[str], pull: dict[str, Any],
+                  spec: str, move: str) -> list[dict[str, str]]:
+    """Run the bar guard, place the changed paths and run the checks, on the pull
+    request's branch.
 
-    Refuses on a change to the bar the piece did not name. Returns the reasons
-    that force the person's review.
+    Refuses on a change to the bar the piece did not name, and on a check that
+    does not hold when the gate runs it. Returns the reasons that force the
+    person's review.
     """
     guard = os.path.join(os.path.dirname(os.path.abspath(__file__)), BAR_GUARD)
     if not os.path.isfile(guard):
@@ -1017,7 +1038,9 @@ def guard_the_bar(number: int, body: str, pull: dict[str, Any], spec: str,
         reasons = [{"reason": "guard_change", "source": "move",
                     "detail": f"{path} ({kind}) changes the bar, named on a Changes the bar "
                               "line"} for kind, path, _ in rows]
-        return reasons + outside_boundary(folder, base, body)
+        reasons += outside_boundary(folder, base, body)
+        fresh_evidence(number, body, names, folder, base, spec, bool(temp), move)
+        return reasons
     finally:
         if temp:
             git(root, "worktree", "remove", folder)
@@ -1050,6 +1073,402 @@ def record_forced(number: int, reasons: list[dict[str, str]]) -> list[dict[str, 
         with open(path, "a", encoding="utf-8") as handle:
             handle.write("".join(json.dumps(r, sort_keys=True) + "\n" for r in fresh))
     return held + fresh
+
+
+# --- the evidence record -------------------------------------------------
+#
+# Each check the gate runs is one line in .agents/pieces/<number>/evidence.jsonl
+# in the main folder, with what the command printed kept in a file beside it.
+# Each line carries a hash worked out from the line before it and its own
+# fields, so a line the gate did not write breaks the chain. The gate does not
+# trust the record for a pass: before review it runs every check itself. The
+# record is what the person and the boards read afterwards.
+
+EVIDENCE = "evidence.jsonl"
+
+
+def pieces_folder(number: int) -> str:
+    return os.path.join(main_folder(), ".agents", "pieces", str(number))
+
+
+def evidence_name(number: int) -> str:
+    return f".agents/pieces/{number}/{EVIDENCE}"
+
+
+def chain_of(previous: str, entry: dict[str, Any]) -> str:
+    text = previous + json.dumps(entry, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def read_record(number: int) -> tuple[list[dict[str, Any]], str, int]:
+    """The lines the gate wrote, the last line's hash, and the length of a
+    cut-off last line an interrupted write left (0 when there is none).
+
+    Refuses when a whole line does not follow from the one before it.
+    """
+    path = os.path.join(pieces_folder(number), EVIDENCE)
+    if not os.path.exists(path):
+        return [], "", 0
+    with open(path, encoding="utf-8") as handle:
+        raw = handle.read()
+    parts = raw.split("\n")
+    fragment = parts.pop()
+    entries: list[dict[str, Any]] = []
+    previous = ""
+    for count, line in enumerate(parts, start=1):
+        try:
+            value = json.loads(line)
+        except ValueError:
+            value = None
+        chain = value.pop("chain", None) if isinstance(value, dict) else None
+        if not isinstance(value, dict) or chain != chain_of(previous, value):
+            refuse(f"line {count} of {evidence_name(number)} was not written by the gate: it "
+                   "does not follow from the line before it, so the record cannot be trusted",
+                   "stop and tell the person; only they move that file aside, then run the "
+                   "same command again")
+        previous = str(chain)
+        entries.append(value)
+    return entries, previous, len(fragment.encode("utf-8"))
+
+
+def write_record(number: int, entries: list[dict[str, Any]]) -> list[str]:
+    """Append each entry as one chained line, under a lock on the piece's folder.
+
+    Returns the notes to say, such as a cut-off last line set aside.
+    """
+    folder = pieces_folder(number)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, EVIDENCE)
+    notes: list[str] = []
+    # A lock on the piece's folder keeps two gate calls from writing its record
+    # at once. Only a POSIX system has one; elsewhere the record goes unlocked.
+    fcntl: Any = importlib.import_module("fcntl") if os.name == "posix" else None
+    with open(os.path.join(folder, ".lock"), "a", encoding="utf-8") as lock:
+        if fcntl is not None:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        _, previous, cut = read_record(number)
+        if cut:
+            size = os.path.getsize(path)
+            with open(path, "r+b") as handle:
+                handle.truncate(size - cut)
+            notes.append(f"an interrupted write had left a cut-off last line in "
+                         f"{evidence_name(number)}; it was set aside")
+        text = ""
+        for entry in entries:
+            chain = chain_of(previous, entry)
+            text += json.dumps(dict(entry, chain=chain), sort_keys=True) + "\n"
+            previous = chain
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(text)
+    return notes
+
+
+def keep_output(number: int, output: str) -> str:
+    """Save what a command printed beside the record, and return its name."""
+    folder = os.path.join(pieces_folder(number), "output")
+    os.makedirs(folder, exist_ok=True)
+    stamp = datetime.datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    handle, path = tempfile.mkstemp(dir=folder, prefix=stamp + "-", suffix=".txt")
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(output)
+    return os.path.relpath(path, main_folder())
+
+
+def now_stamp() -> str:
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def run_entry_for(number: int, phase: str, command: str, code: int, commit: str, clean: bool,
+                  output: str, source: str) -> dict[str, Any]:
+    return {"command": command, "exit": code, "commit": commit, "clean": clean,
+            "time": now_stamp(), "phase": phase, "source": source,
+            "output": keep_output(number, output)}
+
+
+def note_entry(phase: str, commit: str, note: str) -> dict[str, Any]:
+    return {"note": note, "commit": commit, "time": now_stamp(), "phase": phase,
+            "source": "move"}
+
+
+def folder_state(folder: str) -> tuple[str, list[str]]:
+    """The commit the folder holds and the paths it has not saved. The gate's
+    own record never counts, wherever an older project's gitignore leaves it."""
+    commit = git(folder, "rev-parse", "HEAD").stdout.strip()
+    status = git(folder, "-c", "core.quotePath=false", "status", "--porcelain",
+                 "--untracked-files=all").stdout
+    dirty = []
+    for line in status.splitlines():
+        path = line[3:].split(" -> ")[-1].strip().strip('"')
+        if path and not path.startswith(".agents/pieces/"):
+            dirty.append(path)
+    return commit, dirty
+
+
+def load_lint() -> Any:
+    """The ready-gate lint beside this script, loaded as a module, or None.
+
+    The gate reads the project's Test command, and each runner's report, with
+    the lint's own readers, so the two never read them differently.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), LINT)
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location("ready_lint", path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    writes = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = writes
+    return module
+
+
+def need_lint(number: int, move: str) -> Any:
+    lint = load_lint()
+    if lint is None or not hasattr(lint, "run_limited"):
+        refuse(f"the ready-gate lint, whose readers run the checks, is missing beside the "
+               f"gate, at .agents/tools/{LINT}, so #{number}'s checks cannot run",
+               f"run /maintain, which puts it back, then run: {move}")
+    return lint
+
+
+def acceptance_checks(body: str, module: str, lint: Any) -> list[str]:
+    """The checks the Works lines name, then a fix piece's reproduction."""
+    found: list[str] = []
+    for line in lint.works_lines(section(body, "Done when") or "") or []:
+        value = lint.check_value(line)
+        if value:
+            found.append(value.split()[0].rstrip(".,;") if module in ("build", "fix")
+                         else value)
+    loop = lint.fields_in(section(body, "Loop") or "", ["Reproduction", "Guard checks"])
+    if module == "fix" and loop.get("Reproduction"):
+        found.append(lint.clean(loop["Reproduction"]).split()[0])
+    return list(dict.fromkeys(found))
+
+
+def guard_checks(body: str, lint: Any) -> list[str]:
+    """The tests named under Reaches as guarding an area, and a Guard checks line."""
+    found: list[str] = []
+    reach = lint.fields_in(section(body, "Reach") or "", ["Reaches"])
+    for entry in re.split(r"\n|;|\s\|\s", reach.get("Reaches", "")):
+        at = entry.lower().find("guarded by")
+        if at >= 0:
+            found += lint.Lint.test_paths(None, entry[at + len("guarded by"):])
+    loop = lint.fields_in(section(body, "Loop") or "", ["Guard checks"])
+    if loop.get("Guard checks"):
+        found += lint.Lint.test_paths(None, loop["Guard checks"])
+    return list(dict.fromkeys(p.split("::")[0] for p in found))
+
+
+def install_in(lint: Any, folder: str, agents: str, base: str) -> str | None:
+    """Install the project's dependencies in a fresh checkout; a problem, or None."""
+    stack = lint.stack_section(agents)
+    install = lint.install_command(stack)
+    if install is None:
+        path, job = lint.project_check(agents)
+        install = lint.workflow_install(git(folder, "show", f"{base}:{path}").stdout, job)
+    if not install:
+        return None
+    code, _, late = lint.run_limited(install, folder)
+    if late:
+        return f"the install, `{install}`, ran past the limit of {lint.time_limit()} seconds"
+    if code != 0:
+        return f"the install, `{install}`, failed with exit {code}"
+    return None
+
+
+def failed_before(lines: list[dict[str, Any]], commit: str, needle: str, exact: bool) -> bool:
+    """Whether a clean run on this commit already failed: a pass now is a retry."""
+    for line in lines:
+        if line.get("phase") != "after" or line.get("commit") != commit:
+            continue
+        if line.get("clean") is not True or line.get("exit") == 0 or "command" not in line:
+            continue
+        command = str(line["command"]).strip()
+        if (command == needle) if exact else (needle in command.split() or
+                                               needle in command):
+            return True
+    return False
+
+
+def first_commit_with(folder: str, base: str, path: str) -> str:
+    """The commit on the branch that first added a check, or the base without one."""
+    added = git(folder, "log", "--diff-filter=A", "--format=%H", "--reverse",
+                f"{base}..HEAD", "--", path).stdout.split()
+    return added[0] if added else base
+
+
+def fresh_evidence(number: int, body: str, names: Sequence[str], folder: str, base: str,
+                   spec: str, fresh_checkout: bool, move: str) -> None:
+    """Run every check the piece names, on the commit as it stands, before review.
+
+    The builder's own word counts for nothing: a check missing, failing, passing
+    only on a retry, or run on a tree with changes nobody saved refuses the
+    move. A build or fix piece's acceptance checks must also fail at the spec
+    commit, on their assertion.
+    """
+    commit, dirty = folder_state(folder)
+    if dirty:
+        shown = ", ".join(dirty[:8]) + (" and more" if len(dirty) > 8 else "")
+        refuse(f"{folder} holds changes nobody saved ({shown}), so the tree is not clean and "
+               f"#{number}'s checks cannot run on the commit as it stands",
+               f"commit them or put them back, then run: {move}")
+    loops = [n for n in names if n.startswith("loop:")]
+    module = loops[0].split(":", 1)[1] if len(loops) == 1 else ""
+    agents = git(folder, "show", f"{base}:AGENTS.md").stdout
+    earlier, _, _ = read_record(number)
+    entries: list[dict[str, Any]] = []
+    problems: list[str] = []
+    lint: Any = None
+    checks: list[str] = []
+    guards: list[str] = []
+    test = None
+    if agents.strip() or section(body, "Done when") or section(body, "Reach"):
+        lint = need_lint(number, move)
+        checks = acceptance_checks(body, module, lint)
+        guards = [g for g in guard_checks(body, lint) if g not in checks]
+        test = lint.test_command(lint.stack_section(agents)) if agents else None
+    runnable = bool(test) and not re.match(r"^none for\b", test or "", re.IGNORECASE)
+    to_run = [p for p in checks + guards if " " not in p.strip()]
+    if to_run and not runnable:
+        refuse(f"AGENTS.md's stack section on main gives no Test command that runs, so the "
+               f"gate cannot run #{number}'s checks: {', '.join(to_run)}",
+               f"record the `Test command:` line in AGENTS.md on main, then run: {move}")
+    if fresh_checkout and lint is not None and runnable:
+        problem = install_in(lint, folder, agents, base)
+        if problem:
+            refuse(f"{problem}, so #{number}'s checks could not run",
+                   f"put the install right, then run: {move}")
+    temp = tempfile.mkdtemp(prefix="gate-reports-")
+    try:
+        runner = lint.detect_runner(test, folder) if lint is not None and runnable else None
+        for count, path in enumerate(to_run):
+            kind = "acceptance check" if path in checks else "guard check"
+            if git(folder, "cat-file", "-e", f"HEAD:{path}").returncode != 0:
+                problems.append(f"the {kind} {path} is missing from the commit as it stands")
+                continue
+            report = os.path.join(temp, f"after-{count}")
+            command = lint.check_command(test, runner, path, report)
+            code, output, late = lint.run_limited(command, folder)
+            entries.append(run_entry_for(number, "after", command, code, commit, True, output,
+                                         "move"))
+            if late:
+                problems.append(f"the {kind} {path} ran past the limit of "
+                                f"{lint.time_limit()} seconds and was stopped")
+            elif code != 0:
+                problems.append(f"the {kind} {path} fails on the commit as it stands "
+                                f"({commit[:12]})")
+            elif failed_before(earlier, commit, path, exact=False):
+                problems.append(f"the {kind} {path} failed earlier on this same commit and "
+                                "passed only on a retry, which counts as a failure")
+        if runnable and lint is not None:
+            code, output, late = lint.run_limited(str(test), folder)
+            entries.append(run_entry_for(number, "after", str(test), code, commit, True,
+                                         output, "move"))
+            if late or code != 0:
+                problems.append(f"the project's Test command, `{test}`, "
+                                + ("ran past the time limit" if late else "fails")
+                                + f" on the commit as it stands ({commit[:12]})")
+            elif failed_before(earlier, commit, str(test), exact=True):
+                problems.append(f"the project's Test command, `{test}`, failed earlier on this "
+                                "same commit and passed only on a retry, which counts as a "
+                                "failure")
+        else:
+            entries.append(note_entry("after", commit, "AGENTS.md on main names no Test "
+                                      "command that runs, so the gate ran no project tests"))
+        entries.append(note_entry("after", commit, "the type check and the linter are not run "
+                                  "here; the project check on GitHub runs them"))
+        if module in ("build", "fix") and lint is not None and runnable:
+            problems += before_runs(number, lint, checks, folder, base, spec, agents, test,
+                                    entries, temp)
+        elif module in ("goal", "gauntlet"):
+            entries.append(note_entry("before", spec, f"a {module} piece has no before run, so "
+                                      "no check was run at a spec commit"))
+    finally:
+        for name in os.listdir(temp):
+            os.remove(os.path.join(temp, name))
+        os.rmdir(temp)
+    notes = write_record(number, entries)
+    for note in notes:
+        say(note)
+    if problems:
+        refuse(f"the gate ran #{number}'s checks itself, and they do not hold:\n"
+               + "\n".join(f"- {p}" for p in problems),
+               f"make each listed check hold on a saved commit, then run: {move}")
+
+
+def before_runs(number: int, lint: Any, checks: list[str], folder: str, base: str, spec: str,
+                agents: str, test: str | None, entries: list[dict[str, Any]],
+                temp: str) -> list[str]:
+    """Run each acceptance check where it was written and require it to fail
+    there on its assertion. With no spec commit, a check counts from the commit
+    on the branch that first holds it."""
+    problems: list[str] = []
+    places: dict[str, list[str]] = {}
+    for path in checks:
+        if " " in path.strip():
+            continue
+        at = spec if spec != "none" else first_commit_with(folder, base, path)
+        places.setdefault(at, []).append(path)
+    root = main_folder()
+    for at, paths in places.items():
+        checkout = lint.Checkout(types.SimpleNamespace(root=root), at)
+        try:
+            try:
+                checkout.open()
+            except lint.CannotRun as error:
+                problems.append(f"the checks could not be run at {at[:12]} ({error})")
+                continue
+            problem = install_in(lint, checkout.path, agents, base)
+            if problem:
+                problems.append(f"{problem} at {at[:12]}")
+                continue
+            runner = lint.detect_runner(test, checkout.path)
+            for count, path in enumerate(paths):
+                report = os.path.join(temp, f"before-{at[:12]}-{count}")
+                command = lint.check_command(test, runner, path, report)
+                code, output, late = lint.run_limited(command, checkout.path)
+                entries.append(run_entry_for(number, "before", command, code, at, True, output,
+                                             "move"))
+                where = "the spec commit" if spec != "none" else "the commit that holds it"
+                if late:
+                    problems.append(f"the acceptance check {path} ran past the time limit at "
+                                    f"{where} ({at[:12]})")
+                elif code == 0:
+                    problems.append(f"the acceptance check {path} passes at {where} "
+                                    f"({at[:12]}), so it cannot show the piece was built")
+                elif runner is not None:
+                    problem = judge_failure(lint, runner, report, output)
+                    if problem:
+                        problems.append(f"the acceptance check {path} fails at {where} "
+                                        f"({at[:12]}) on {problem}")
+        finally:
+            checkout.clear()
+    return problems
+
+
+def judge_failure(lint: Any, runner: str, report: str, output: str) -> str | None:
+    """What a failure was when it was not the check's assertion, or None."""
+    try:
+        failures = lint.read_failures(runner, report)
+    except (OSError, ValueError, SyntaxError):
+        failures = []
+    if not failures:
+        kind, line = lint.kind_of(output)
+        return f"{kind}, not on its assertion ({line[:120]})"
+    for failure in failures:
+        if failure["assertion"]:
+            continue
+        kind, line = lint.kind_of(str(failure["detail"]))
+        if kind == "an error that is not an assertion":
+            said_kind, said = lint.kind_of(output)
+            if said_kind != kind:
+                kind, line = said_kind, said
+        return f"{kind}, not on its assertion ({line[:120]})"
+    return None
 
 
 # --- the commands --------------------------------------------------------
@@ -1109,7 +1528,8 @@ def move_piece(arguments: list[str], options: dict[str, str],
             kick_back(number, options)
         else:
             spec = on_record[1]
-        forced = guard_the_bar(number, body_now, pull, spec, f"gate.py move {number} in-review")
+        forced = guard_the_bar(number, body_now, names, pull, spec,
+                               f"gate.py move {number} in-review")
 
     # Read the piece again just before writing. Another session may have moved
     # it since the first read, and a move on stale labels would undo theirs.
@@ -1187,6 +1607,84 @@ def move_piece(arguments: list[str], options: dict[str, str],
         except Unreachable as error:
             done += f"; the comment naming the defect was not posted ({error.detail})"
     return done
+
+
+def closing_pull(number: int) -> dict[str, Any] | None:
+    """The open pull request whose body says Closes #<number>, or None."""
+    pulls = gh_json(["pr", "list", "--state", "open", "--limit", "200",
+                     "--json", "number,body,headRefName,baseRefName"])
+    closing = re.compile(rf"\bcloses\s+#{number}\b", re.IGNORECASE)
+    return next((p for p in pulls if isinstance(p, dict)
+                 and closing.search(str(p.get("body") or ""))), None)
+
+
+def command_evidence(arguments: list[str], options: dict[str, str],
+                     command: list[str]) -> None:
+    usage = "gate.py evidence <number> [--phase before] [--at <commit>] -- <command>"
+    if len(arguments) != 1 or not command:
+        refuse("evidence takes one issue number, then -- and the command to run", usage)
+    number = number_from(arguments[0])
+    phase = options.get("phase", "after")
+    if phase not in ("before", "after"):
+        refuse(f"'{phase}' is not a phase; a run is before or after", usage)
+    issue = read_issue(number)
+    if not is_open(issue):
+        refuse(f"#{number} is closed", "gate.py report")
+    origin = position(number, label_names(issue))
+    if origin not in ("state:building", "state:in-review"):
+        refuse(f"#{number} is in {origin}, and evidence is recorded only while a piece is "
+               "being built", f"claim it first with: gate.py move {number} building")
+    lint = need_lint(number, f"gate.py evidence {number} -- <command>")
+    text = command[0] if len(command) == 1 else shlex.join(command)
+    body = str(issue.get("body") or "")
+    if phase == "after":
+        pull = closing_pull(number)
+        branch = str(pull.get("headRefName") or "") if pull else acceptance_branch(body) or ""
+        folder = worktree_for(branch) if branch else None
+        if folder is None:
+            top = git(os.getcwd(), "rev-parse", "--show-toplevel").stdout.strip()
+            current = git(os.getcwd(), "branch", "--show-current").stdout.strip()
+            if branch and current != branch:
+                refuse(f"no folder on this computer has {branch}, #{number}'s branch, checked "
+                       "out", "check it out, then run the same command again")
+            folder = top or os.getcwd()
+        commit, dirty = folder_state(folder)
+        code, output, late = lint.run_limited(text, folder)
+        entry = run_entry_for(number, "after", text, code, commit, not dirty, output, "evidence")
+    else:
+        at = options.get("at", "")
+        if not at:
+            on_record = contract_on_record(number)
+            at = on_record[1] if on_record else spec_commit(number, body)
+        if at == "none":
+            refuse(f"#{number} has no spec commit, so a before run needs the commit that holds "
+                   "its checks", f"gate.py evidence {number} --phase before --at <commit> -- "
+                                 "<command>")
+        root = main_folder()
+        resolved = git(root, "rev-parse", "--verify", "--quiet", at + "^{commit}").stdout.strip()
+        if not resolved:
+            refuse(f"{at} is not a commit on this computer",
+                   "git fetch origin, then run the same command again")
+        checkout = lint.Checkout(types.SimpleNamespace(root=root), resolved)
+        try:
+            try:
+                checkout.open()
+            except lint.CannotRun as error:
+                refuse(f"the before run could not be set up ({error})", usage)
+            agents = git(root, "show", f"{resolved}:AGENTS.md").stdout
+            problem = install_in(lint, checkout.path, agents, resolved)
+            if problem:
+                refuse(f"{problem}, so the before run did not happen", usage)
+            code, output, late = lint.run_limited(text, checkout.path)
+        finally:
+            checkout.clear()
+        entry = run_entry_for(number, "before", text, code, resolved, True, output, "evidence")
+    for note in write_record(number, [entry]):
+        say(note)
+    state = "clean tree" if entry["clean"] else "a tree with changes nobody saved"
+    said = "ran past the time limit and was stopped" if late else f"exited {code}"
+    say(f"#{number} evidence recorded: `{text}` {said} at {entry['commit'][:12]} "
+        f"({phase}, {state})")
 
 
 def command_check_contract(arguments: list[str], options: dict[str, str]) -> None:
@@ -1436,8 +1934,10 @@ def command_labels(arguments: list[str], options: dict[str, str]) -> None:
 
 COMMANDS = {"move": command_move, "capture": command_capture, "drop": command_drop,
             "tidy": command_tidy, "report": command_report, "labels": command_labels,
+            "evidence": lambda arguments, options: command_evidence(arguments, options, []),
             "check-contract": command_check_contract}
-OPTIONS = ("--run", "--assignee", "--reason", "--withdrawn-by", "--title", "--body-file")
+OPTIONS = ("--run", "--assignee", "--reason", "--withdrawn-by", "--title", "--body-file",
+           "--phase", "--at")
 
 
 def parse(argv: list[str]) -> tuple[list[str], dict[str, str]]:
@@ -1473,6 +1973,13 @@ def main(argv: list[str]) -> int:
             command = argv[0] if argv else ""
             refuse(f"'{command}' is not a gate command",
                    "gate.py report")
+        if argv[0] == "evidence":
+            # Everything after -- is the command the gate runs, as given.
+            rest = argv[1:]
+            split = rest.index("--") if "--" in rest else len(rest)
+            arguments, options = parse(rest[:split])
+            command_evidence(arguments, options, rest[split + 1:])
+            return 0
         arguments, options = parse(argv[1:])
         COMMANDS[argv[0]](arguments, options)
         return 0
