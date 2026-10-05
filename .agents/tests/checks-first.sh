@@ -23,7 +23,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 
 BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
 GUARD="$ROOT/.agents/skills/section-builder/scripts/test-guard.sh"
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 SETUP="$ROOT/.agents/skills/setup-ai-build-kit/SKILL.md"
 MASTERPLAN="$ROOT/.agents/skills/setup-ai-build-kit/templates/masterplan.md"
 RECORD="$ROOT/.agents/skills/setup-ai-build-kit/templates/maintenance-record"
@@ -142,7 +142,7 @@ rs_require_absent "the base is never worked out from main alone" \
 rs_require_absent "an opted-in piece is never left in building with nothing pushed" \
   "$BUILDER" 'push nothing, leave it in `building`'
 
-# --- /fix ------------------------------------------------------------------
+# --- the fix loop -------------------------------------------------------------
 
 rs_reset
 rs_rule "a repair follows the same rules" \
@@ -155,7 +155,7 @@ rs_rule "a test in the way is reported, never weakened" \
   'reported as wrong, never weakened, skipped or deleted'
 rs_rule "a repair with no issue gives the guard its report" \
   'the repair.s report saved as the piece text'
-rs_guard "$FIX" "the /fix skill"
+rs_guard "$FIX" "the fix loop, section-builder/references/fix-loop.md"
 
 # --- founding offers sample data -------------------------------------------
 

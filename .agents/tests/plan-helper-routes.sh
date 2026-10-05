@@ -307,6 +307,14 @@ pointers_resolve() {
   else
     fail "$route: skills found $skills_found pointers; missing: $missing; fixed paths: $fixed"
   fi
+  # The fix loop is what a bug piece is built by, now there is no /fix command.
+  # Its pointer has to be one the skills name, and the check above opens it.
+  # shellcheck disable=SC2086
+  if pointers_in $skill_files | grep -qx 'section-builder|references/fix-loop.md'; then
+    pass "$route: the pointer to the fix loop is named and opens"
+  else
+    fail "$route: no skill names the \`section-builder\` skill's \`references/fix-loop.md\`"
+  fi
 }
 
 pointers_resolve "whole copy" "$WHOLE/.agents/skills" "$WHOLE"

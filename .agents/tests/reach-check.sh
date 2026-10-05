@@ -9,7 +9,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 REACH="$ROOT/.agents/skills/section-builder/references/reach-check.md"
 BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
 SHAPE="$ROOT/.agents/skills/shape/SKILL.md"
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 CAPABILITY="$ROOT/.agents/skills/setup-ai-build-kit/references/capability-check.md"
 SETUP="$ROOT/.agents/skills/setup-ai-build-kit/SKILL.md"
 MAINTAIN="$ROOT/.agents/skills/maintain/SKILL.md"
@@ -39,7 +39,7 @@ rs_require "shape uses it for under-the-hood notes" "$SHAPE" 'references/reach-c
 # so the pre-mortem and the risk notice rest on the code rather than a guess.
 rs_require_load_bearing "shaping's research calls the reach check on origin/main" "$SHAPE" \
   'on a project with code, research also works out what the piece reaches'
-rs_require_order "fix uses it before ranking causes" "$FIX" \
+rs_require_order "the fix loop uses it before ranking causes" "$FIX" \
   'references/reach-check\.md' '^## 4\. Rank causes$'
 rs_require "the capability check records the engine" "$CAPABILITY" 'a reach-check engine is recorded'
 rs_require "setup writes the engine to the profile" "$SETUP" 'the reach-check engine'

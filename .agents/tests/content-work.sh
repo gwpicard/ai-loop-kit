@@ -80,7 +80,7 @@ rs_rule "never on a branch left unpushed" 'never on a branch that is left unpush
 rs_rule "a fault the content shows is said in one line" \
   'shows a problem in the tool, because it fails or the output is wrong, say so in one line'
 rs_rule "and becomes a repair or a piece" \
-  'it becomes a repair through `/fix` or a new piece through this triage'
+  'it becomes a bug piece or a new piece through this triage'
 rs_rule "the content run itself is not a repair" 'the content run itself is not a repair'
 rs_rule "changing the tool for the content is not content work" \
   'a request that changes the tool so it can handle the content is not content work'
@@ -128,7 +128,7 @@ rs_rule "the output goes where the project does not save it" \
 rs_rule "kept content is saved like any other change" \
   'ask to keep it and it is saved like any other change, with its own changelog entry'
 rs_rule "a fault it shows becomes a fix or a piece" \
-  'if the run shows the tool getting something wrong, that becomes a /fix or a new piece'
+  'if the run shows the tool getting something wrong, that becomes a bug or a new piece for /shape'
 rs_guard "$WORKFLOW" "WORKFLOW.md"
 
 rs_require_order "WORKFLOW.md says it in Day to day" "$WORKFLOW" \

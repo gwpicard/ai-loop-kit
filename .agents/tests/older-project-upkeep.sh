@@ -260,7 +260,7 @@ print("\n".join(sorted(module.KIT_SKILLS)))
 PY
 )
 shipped=$(ls "$ROOT/.agents/skills" | sort)
-rs_report "the script names exactly the kit's fourteen skills" \
-  "$([ "$listed" = "$shipped" ] && [ "$(printf '%s\n' "$listed" | grep -c .)" = 14 ] && echo yes || echo no)"
+rs_report "the script names exactly the kit's thirteen skills" \
+  "$([ "$listed" = "$shipped" ] && [ "$(printf '%s\n' "$listed" | grep -c .)" = 13 ] && echo yes || echo no)"
 
 rs_done

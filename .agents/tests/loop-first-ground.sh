@@ -112,7 +112,21 @@ rs_rule "the new growth sentence" \
   'growth has to replace work that was already happening without the kit; anything else should make the kit smaller'
 rs_rule "why this growth is accepted" \
   'replaces improvisation that already happened, with its safety built in'
+# --- the count of commands ----------------------------------------------
+
+# /fix was a shaping route plus a loop module: a bug is shaped like any other
+# piece and built by the fix loop. The count paragraph says so, and the worked
+# examples that answered "type /fix" answer /shape.
+rs_rule "the vocabulary is eight commands" \
+  'eight commands, each named after a moment a person actually reaches for'
+rs_rule "the count paragraph says why nine became eight" \
+  'nine became eight when `/fix` was found to be a shaping route plus a loop module'
+rs_rule "the bug reproduction example fits under /shape and the fix loop" \
+  'tight bug reproduction before a fix, added\. it fits under /shape and the fix loop'
 rs_guard "$PHILOSOPHY" "PHILOSOPHY.md"
+rs_require_absent "PHILOSOPHY.md no longer counts nine commands" "$PHILOSOPHY" 'nine commands'
+rs_require_absent "PHILOSOPHY.md no longer says the count stays at nine" "$PHILOSOPHY" 'count stays at nine'
+rs_require_absent "no worked example sends the person to /fix" "$PHILOSOPHY" '(type|under|to|tell) /fix'
 
 # The principle comes first, before who the kit is for. Read on folded text,
 # so rewrapping cannot break it.

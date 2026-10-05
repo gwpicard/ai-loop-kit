@@ -72,14 +72,14 @@ INSTALL_PATH=$(sed -n 's/^[[:space:]]*"installPath": "\([^"]*\)",$/\1/p' "$LISTI
 BOOTSTRAP="$INSTALL_PATH/.agents/skills/setup-ai-build-kit/scripts/bootstrap-project.sh"
 [ -x "$BOOTSTRAP" ] || fail "installed Claude plugin has no start bootstrap"
 
-# The nine commands are checked where Claude reads them. Its details listing
+# The eight commands are checked where Claude reads them. Its details listing
 # counts skills, agents, hooks and servers and says nothing about commands, so
 # the installed manifest and the command files in the plugin cache are the only
-# evidence that Claude offers all nine. A command carries no trigger setting,
+# evidence that Claude offers all eight. A command carries no trigger setting,
 # because the agent may start one when the person asks for it, so a command
 # file still carrying the retired manual-only setting would put that command
 # back out of reach in silence.
-for word in fix implement maintain queue setup-ai-build-kit shape ship sync what-now; do
+for word in implement maintain queue setup-ai-build-kit shape ship sync what-now; do
   grep -qF "\"./.claude/commands/$word.md\"" "$INSTALL_PATH/.claude-plugin/plugin.json" || \
     fail "installed Claude plugin manifest does not offer the command: $word"
   [ -f "$INSTALL_PATH/.claude/commands/$word.md" ] || \
@@ -88,6 +88,13 @@ for word in fix implement maintain queue setup-ai-build-kit shape ship sync what
     fail "installed Claude command still carries the retired manual-only setting: $word"
   fi
 done
+# There is no /fix command any more: a repair is shaped like any other piece and
+# built by the fix loop. The installed plugin must not offer one.
+if grep -qF '"./.claude/commands/fix.md"' "$INSTALL_PATH/.claude-plugin/plugin.json"; then
+  fail "installed Claude plugin manifest still offers the removed command: fix"
+fi
+[ ! -e "$INSTALL_PATH/.claude/commands/fix.md" ] || \
+  fail "installed Claude plugin still has a command file for the removed command: fix"
 grep -qF '${CLAUDE_PLUGIN_ROOT}/.agents/skills/setup-ai-build-kit/SKILL.md' \
   "$INSTALL_PATH/.claude/commands/setup-ai-build-kit.md" || \
   fail "installed start command does not load the plugin's canonical skill"

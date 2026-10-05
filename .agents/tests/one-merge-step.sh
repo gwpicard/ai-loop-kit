@@ -27,7 +27,7 @@ MERGE="$SKILLS/section-builder/references/merge.md"
 SB="$SKILLS/section-builder/SKILL.md"
 IMPLEMENT="$SKILLS/implement/SKILL.md"
 LONGER="$SKILLS/implement/references/running-longer.md"
-FIX="$SKILLS/fix/SKILL.md"
+FIX="$SKILLS/section-builder/references/fix-loop.md"
 SHIP="$SKILLS/ship/SKILL.md"
 SYNC="$SKILLS/sync/SKILL.md"
 MASTERPLAN="$SKILLS/setup-ai-build-kit/templates/masterplan.md"
@@ -112,7 +112,7 @@ rs_require_load_bearing "section-builder merges only through the step" "$SB" 'me
 rs_require_load_bearing "section-builder still reports ready for review, not done" "$SB" 'report the piece as ready for review, not as done'
 rs_require_load_bearing "/implement points at the step" "$IMPLEMENT" 'the `section-builder` skill.s `references/merge\.md`'
 rs_require_load_bearing "a run's merges follow the step" "$LONGER" 'the `section-builder` skill.s `references/merge\.md`'
-rs_require_load_bearing "/fix points at the step" "$FIX" 'the `section-builder` skill.s `references/merge\.md`'
+rs_require_load_bearing "the fix loop points at the step" "$FIX" 'the `section-builder` skill.s `references/merge\.md`'
 rs_require_load_bearing "/ship points at the step" "$SHIP" 'any merge follows the `section-builder` skill.s `references/merge\.md`'
 rs_require_load_bearing "/sync points at the step" "$SYNC" 'merge it only as the `section-builder` skill.s `references/merge\.md` says'
 
@@ -150,7 +150,7 @@ rs_require_absent "the founded AGENTS.md no longer says a human alone merges" "$
 rs_require_load_bearing "the founded AGENTS.md names the yes or the pre-approval" "$FOUNDED" 'a merge needs a yes naming it or a run.s pre-approval'
 
 # WORKFLOW.md tells it once, for every route.
-rs_require_load_bearing "WORKFLOW says every route shares the step" "$WORKFLOW" 'the same merge step serves /implement, /fix, /ship and /sync'
+rs_require_load_bearing "WORKFLOW says every route shares the step" "$WORKFLOW" 'the same merge step serves /implement, /ship and /sync'
 rs_require_load_bearing "WORKFLOW says nothing merges unasked" "$WORKFLOW" 'no command merges a pull request you have not agreed to'
 rs_require_load_bearing "WORKFLOW says a reply naming several counts for each" "$WORKFLOW" 'a reply such as "merge 1, 2 and 4" covers each one it names'
 rs_require_load_bearing "WORKFLOW says put it live is not that yes" "$WORKFLOW" 'saying "put it live" before any merge was named is not that yes'

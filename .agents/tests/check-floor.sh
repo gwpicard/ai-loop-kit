@@ -74,7 +74,7 @@ rs_rule "no claim that the rest is fine" 'it never says that the rest of the pro
 rs_guard "$READS" "the shipped whole-project-reads.md"
 
 rs_require_load_bearing "founding loads the floor" "$SETUP" 'load `references/check-floor\.md`'
-rs_require "the green-tick sentence is unchanged" "$SETUP" "green means the tests really passed; red means don't merge, tell /fix"
+rs_require "the green-tick sentence is unchanged" "$SETUP" "green means the tests really passed; red means don't merge, tell /shape what broke"
 rs_require_load_bearing "the builder runs them before hand-over" "$BUILDER" 'before handing over, run the type check and linter'
 rs_require "the builder reports a failure as expected versus actual" "$BUILDER" 'a failure is a gap like any other: describe it as expected versus actual'
 rs_require "the stack section asks for the commands" "$AGENTS_TEMPLATE" 'run, test, type check and lint commands'

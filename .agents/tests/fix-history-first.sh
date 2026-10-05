@@ -6,7 +6,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$ROOT/.agents/tests/lib/rule-shape.sh"
 
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
 WORKFLOW="$ROOT/WORKFLOW.md"
 
@@ -23,7 +23,7 @@ rs_rule "reports the breaking change by title and date" 'it broke in the change 
 rs_rule "names every temporary item" 'name every temporary log and harness added'
 rs_rule "removes each temporary item" 'remove each one'
 rs_rule "reruns evidence without instrumentation" 'run the regression evidence without them'
-rs_guard "$FIX" "fix/SKILL.md"
+rs_guard "$FIX" "section-builder/references/fix-loop.md"
 
 rs_reset
 rs_rule "a retry-only pass is a test fault" 'passes only on a retry is a fault in the test'

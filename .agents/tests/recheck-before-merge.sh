@@ -52,15 +52,15 @@ rs_rule "a check that has not reported makes the merge wait" \
   'because it is queued or github is slow, the merge waits: say so once in the reply'
 rs_rule "a conflict gets one comment on the pull request" \
   'add one comment to the pull request naming them'
-rs_rule "a conflict goes to /fix as a red check does" \
-  'take the piece to `/fix`, as a red check is'
+rs_rule "a conflict goes to /shape as a red check does" \
+  'take the piece to `/shape` with what broke, as a red check is'
 rs_rule "red only after the update says it passed alone" \
   'say that the piece passed alone and fails with what merged since'
 rs_rule "it names what merged since the last green check" \
   'git log --first-parent --oneline <old base>\.\.origin/main'
 rs_rule "the old base is where the checked head met main" \
   'the old base is `git merge-base <head before the update> origin/main`'
-rs_rule "red only after the update goes to /fix" 'where the subject names only the branch\. take it to `/fix`'
+rs_rule "red only after the update goes to /shape" 'where the subject names only the branch\. take it to `/shape` with what broke'
 rs_rule "origin out of reach merges nothing" \
   'where `origin` cannot be reached, the script exits 2 and nothing changed'
 rs_rule "a stacked pull request is re-aimed, then brought up to date" \
@@ -139,8 +139,8 @@ rs_require_load_bearing "/sync leads with a red main" "$SYNC" \
   'where the finished run is red, it leads the findings'
 rs_require_load_bearing "/sync names what merged since the last green run" "$SYNC" \
   'name the pull requests merged since the last green run'
-rs_require_load_bearing "/sync points a red main to /fix" "$SYNC" \
-  'sync fixes no code, so point to `/fix`'
+rs_require_load_bearing "/sync points a red main to /shape" "$SYNC" \
+  'sync fixes no code, so point to `/shape` with what broke'
 rs_require_load_bearing "WORKFLOW says /sync reads a red main first" "$WORKFLOW" \
   '/sync reads the newest check on `main`'
 

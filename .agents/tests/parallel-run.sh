@@ -110,8 +110,8 @@ rs_rule "two pieces finishing during a merge merge one after the other" \
   'where two pieces finish while a merge is under way, it merges them one after the other, each checked again'
 rs_rule "an agent that never reports is a failed attempt" \
   'a background agent that ends without reporting back counts as a failed attempt at its piece'
-rs_rule "the same file despite different Touches goes to /fix by the merge rule" \
-  'the second merge.s check against the latest `main` then finds the conflict, and the `section-builder` skill.s `references/merge\.md` takes it to `/fix`'
+rs_rule "the same file despite different Touches goes to /shape by the merge rule" \
+  'the second merge.s check against the latest `main` then finds the conflict, and the `section-builder` skill.s `references/merge\.md` takes it to `/shape` with what broke'
 rs_rule "a walk-through that cannot get the browser could not look" \
   'where a walk-through cannot get the browser because another agent holds it, it records that it could not look'
 

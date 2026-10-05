@@ -8,7 +8,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 
 RULES="$ROOT/.agents/skills/section-builder/references/test-strength.md"
 BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 WORKFLOW="$ROOT/WORKFLOW.md"
 
 rs_init "Test-strength rules"
@@ -61,10 +61,10 @@ rs_rule "fix offers to test the regression check" "on build with care, where a r
 rs_rule "fix loads the shared rules" 'follow the `section-builder` skill.s `references/test-strength\.md` for this optional check'
 rs_rule "fix limits the run to its repair" 'keep the run to the repaired code and the regression test'
 rs_rule "fix does not repeat the offer at save" 'do not offer it again when section-builder saves the repair'
-rs_guard "$FIX" "fix's test-strength offer"
+rs_guard "$FIX" "the fix loop's test-strength offer"
 
 rs_require "WORKFLOW explains the optional offer" "$WORKFLOW" 'on build with care, /implement can offer to break the changed code on purpose'
-rs_require "WORKFLOW explains the repair offer" "$WORKFLOW" '/fix offers the same check for the test that keeps a repaired fault from returning'
+rs_require "WORKFLOW explains the repair offer" "$WORKFLOW" 'the fix loop offers the same check for the test that keeps a repaired fault from returning'
 rs_require "WORKFLOW explains how misses are sorted" "$WORKFLOW" 'misses in a named sensitive area are worth stopping for; the rest are worth knowing'
 
 rs_done
