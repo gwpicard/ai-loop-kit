@@ -341,6 +341,7 @@ PY_FILES = {
     "tests/test_orders.py": "from app.orders import order_total\n\n\n"
                             "def test_order_total():\n    assert order_total() == 10\n",
     "src/auth/session.ts": "export const session = 1;\n",
+    "ruff.toml": "line-length = 100\n",
 }
 PY_STACK = ("Recipe: none\n"
             "Test command: python3 -m pytest\n"
@@ -564,6 +565,22 @@ refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD),
 refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD),
                                   hood="Build the refund after line 12 of the page."))],
         "a line number under Under the hood", "line 12")
+# A Changes the bar line under Under the hood names a guarded file the build
+# may change, by its whole path and with a reason, and the bar guard reads only
+# that line for it. So the lint lets a path stand there, and nowhere else in
+# Under the hood.
+passes(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD), hood=(
+    "Build the refund beside the order total.\nChanges the bar: ruff.toml, because the "
+    "refund module needs a longer line.")))],
+    "a settings file named on a Changes the bar line under Under the hood")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD), hood=(
+    "Build the refund beside the order total. It changes ruff.toml, because the refund "
+    "module needs a longer line.")))],
+    "the same settings file elsewhere in Under the hood", "ruff.toml")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD), decided=(
+    "- A refund returns the whole amount.\nChanges the bar: ruff.toml, because the refund "
+    "module needs a longer line.")))],
+    "a Changes the bar line outside Under the hood", "ruff.toml")
 # The exception is load-bearing: a copy of the lint without it refuses the
 # test file under Under the hood.
 lint_text = open(LINT).read()

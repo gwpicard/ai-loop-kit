@@ -40,6 +40,13 @@ LINT_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/read
 # route that left it out would turn every project check red.
 AREA_TARGET=.agents/tools/area-map.py
 AREA_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/area-map.py"
+# The bar guard and the test guard it wraps travel beside the gate script,
+# which runs them before a piece goes to review. They ship in the
+# section-builder skill, and every route ends with copies identical to it.
+BAR_TARGET=.agents/tools/bar-guard.sh
+BAR_SOURCE="$ROOT/.agents/skills/section-builder/scripts/bar-guard.sh"
+TEST_GUARD_TARGET=.agents/tools/test-guard.sh
+TEST_GUARD_SOURCE="$ROOT/.agents/skills/section-builder/scripts/test-guard.sh"
 
 FAIL=0
 fail() {
@@ -147,7 +154,27 @@ founds_with_helper() {
   holds_the_hook "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/state-guard.sh"
   holds_the_lint "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/ready-lint.py"
   holds_the_area_map "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/area-map.py"
+  holds_the_guards "$project" "$route" "${bootstrap%/setup-ai-build-kit/scripts/*}"
   prints_the_plan "$project" "$route" "$TARGET"
+}
+
+# The bar guard and the test guard at the project's paths, identical to the
+# copies the installed section-builder skill carries and to the ones in this
+# repository. The gate runs them with sh, so no runnable bit is asked for.
+holds_the_guards() {
+  project=$1
+  route=$2
+  skills=$3
+  for name in bar-guard.sh test-guard.sh; do
+    placed="$project/.agents/tools/$name"
+    if [ -f "$placed" ] && [ ! -L "$placed" ] && \
+       cmp -s "$placed" "$skills/section-builder/scripts/$name" && \
+       cmp -s "$placed" "$ROOT/.agents/skills/section-builder/scripts/$name"; then
+      pass "$route: .agents/tools/$name is in place, identical to the section-builder skill's"
+    else
+      fail "$route: no .agents/tools/$name identical to the section-builder skill's"
+    fi
+  done
 }
 
 # A runnable ready-gate lint at the project's path, beside the gate script,
@@ -371,7 +398,7 @@ INSTALLED_HELPER="$CLAUDE_ONLY/.claude/skills/setup-ai-build-kit/templates/found
 # A project founded before this release: founded, with no helper and no gate.
 OLD="$SCRATCH/old"
 cp -R "$CLAUDE_ONLY" "$OLD"
-rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/$LINT_TARGET" "$OLD/$AREA_TARGET" "$OLD/plan.local.md"
+rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/$LINT_TARGET" "$OLD/$AREA_TARGET" "$OLD/$BAR_TARGET" "$OLD/$TEST_GUARD_TARGET" "$OLD/plan.local.md"
 PLACE_OLD="$OLD/.claude/skills/setup-ai-build-kit/scripts/place-plan-helper.sh"
 printf '%s\n' "# Masterplan" > "$OLD/masterplan.md"
 
@@ -394,6 +421,8 @@ holds_the_lint "$OLD" "a project founded before the lint, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
 holds_the_area_map "$OLD" "a project founded before the area map script, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/area-map.py"
+holds_the_guards "$OLD" "a project founded before the bar guard, after the backfill" \
+  "$OLD/.claude/skills"
 
 # Run again, it changes nothing and says so. /maintain runs it on every visit.
 before=$(cksum < "$OLD/$TARGET")
@@ -435,6 +464,23 @@ if [ "$(cksum < "$OLD/$AREA_TARGET" 2>/dev/null || echo missing)" = "$area_befor
 else
   fail "a second run changed the area map script or did not say it was current: $said"
 fi
+
+bar_before=$(cksum < "$OLD/$BAR_TARGET" 2>/dev/null || echo missing)
+said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on a third run"
+if [ "$(cksum < "$OLD/$BAR_TARGET" 2>/dev/null || echo missing)" = "$bar_before" ] && \
+   [ "$bar_before" != missing ] && \
+   [ "$(printf '%s\n' "$said" | grep -c "already current")" -ge 7 ]; then
+  pass "a later run leaves the bar guard and the test guard as they were and says they are current"
+else
+  fail "a later run changed the bar guard or did not say the guards were current: $said"
+fi
+
+# An older bar guard is replaced, as the gate script is.
+printf '%s\n' "# an older bar guard" >> "$OLD/$BAR_TARGET"
+said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on an older bar guard"
+cmp -s "$OLD/$BAR_TARGET" "$BAR_SOURCE" && \
+  pass "an older bar guard is replaced with the section-builder skill's" || \
+  fail "an older bar guard was not replaced: $said"
 
 # An older area map script is replaced, as the lint is.
 printf '%s\n' "# an older area map" >> "$OLD/$AREA_TARGET"

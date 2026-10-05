@@ -72,6 +72,12 @@ rs_rule "its step 4 confirms the committed checks still fail" \
   'its checks are already written and committed there\. run each on today.s code and confirm it still fails, rather than writing it again'
 rs_rule "a piece with no acceptance branch keeps today's step 4" \
   'a piece with no acceptance branch keeps this step as written'
+# The bar was fixed when the piece was made ready. An attempt that starts on a
+# contract somebody changed since would build against a bar nobody checked.
+rs_rule "every attempt starts by asking the gate whether the contract changed" \
+  'at the start of every attempt, run `python3 \.agents/tools/gate\.py check-contract <number>`'
+rs_rule "a changed contract stops the attempt" \
+  'a contract that changed since the piece was made ready sends it back to spec, and the attempt stops there'
 
 # Test protection. The rule, the script that holds it, and what happens to a
 # file it lists. The last is the one a builder is tempted past.
