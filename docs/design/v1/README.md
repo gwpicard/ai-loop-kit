@@ -14,4 +14,6 @@ name the thing.
 | `inventory.md` | Every capability of AI Build Kit and of the v1 plan, with where each one lives and what v1 does with it. |
 | `settled-decisions-earlier-plan.md` | The settled decisions of the earlier v1 build plan. Some are replaced by the decisions of 5 October 2026. |
 | `removal-plan.md` | The plan for removing AI Build Kit from this repository, stage by stage. |
-| `drafts/` | The research reports written for the redesign: agentic loops, gates and determinism, the records model, a red team review, skill principles, an audit of the current skills, and spec-driven tools. They are drafts and are not updated. |
+| `drafts/` | The research reports written for the redesign: agentic loops, gates and determinism, the records model, a red team review, skill principles, an audit of the current skills, and spec-driven tools. It also holds the two issue drafts, `issue-core-docs.md` and `issue-walk-away.md`. They are drafts and are not updated. |
+
+Some drafts name `brief-common.md`. It is not included here, because it was a working brief and not a report.

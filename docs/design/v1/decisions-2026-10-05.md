@@ -103,3 +103,10 @@ Decided by the maintainer:
 8. Issue forms: rewritten in stage F.
 9. Tidy all leftover branches, including the old v1 branches in ai-build-kit. Build Kit is in a stable state elsewhere, so its traces here need no preserving.
 10. Removal pull requests merge with merge commits, not squash.
+
+## Overnight run, 5 to 6 October 2026: pre-approved by the maintainer before it starts
+- Merge the removal pull requests (stages A to F) with a merge commit, when the stage's own before and after checks pass, local checks are green and a fresh review is clean.
+- GitHub housekeeping: delete leftover branches here and in gwpicard/ai-build-kit, close the old issues (epic, slices, core docs pass), triage the backlog as agreed (keep 12, close the "better frontend skill" issue as a duplicate of the screens issue, reword the issue on measuring /start for /setup and the fit check wording issue), turn off the release drafter and delete its draft release.
+- Write the v1 build plan and start building the bootstrap core without waiting for the maintainer's review of the plan.
+- Merge the bootstrap pieces' pull requests when the piece's own tests, the local checks and a fresh review are green; otherwise they wait for the maintainer.
+- The maintainer's condition: reviews and gates at every step, so the plan stays accurate and every step works from the latest context (the design document, this file, the removal plan and main as it is now).
