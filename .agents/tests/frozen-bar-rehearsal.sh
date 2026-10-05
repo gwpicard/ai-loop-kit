@@ -76,6 +76,16 @@ ENV = dict(os.environ, GIT_AUTHOR_NAME="R", GIT_AUTHOR_EMAIL="r@example.invalid"
            GIT_COMMITTER_NAME="R", GIT_COMMITTER_EMAIL="r@example.invalid",
            FAKE_GH_STATE=STATE, FAKE_GH_LOG=LOG)
 ENV["PATH"] = FAKE + os.pathsep + ENV["PATH"]
+ENV["PYTHONDONTWRITEBYTECODE"] = "1"
+# The gate runs the piece's checks with the project's Test command, which here
+# is pytest. Where this computer has none, it goes into a throwaway environment.
+if subprocess.run(["python3", "-m", "pytest", "--version"], capture_output=True,
+                  env=ENV).returncode != 0:
+    print("  pytest is not here, installing it into a throwaway environment")
+    venv = os.path.join(WORK, "venv")
+    subprocess.run([sys.executable, "-m", "venv", venv], check=True)
+    subprocess.run([os.path.join(venv, "bin", "pip"), "install", "--quiet", "pytest"], check=True)
+    ENV["PATH"] = FAKE + os.pathsep + os.path.join(venv, "bin") + os.pathsep + os.environ["PATH"]
 
 
 def git(repo, *args):
@@ -93,11 +103,25 @@ def write(repo, files):
             handle.write(text)
 
 
+# The project's own instructions name the command that runs its tests, and its
+# gitignore keeps out what a test run leaves behind and what the gate records.
+AGENTS = ("# AGENTS.md\n\n## Stack, and how to run and check it\n\n"
+          "Test command: python3 -m pytest -q -p no:cacheprovider\n")
+GITIGNORE = "__pycache__/\n.agents/pieces/\n.agents/worktrees/\n"
+
+# The acceptance check fails on its assertion until the refund returns 10,
+# whether or not the refund's module exists yet.
+REFUND_CHECK = ("import importlib\n\n\ndef test_refund():\n    try:\n"
+                "        module = importlib.import_module('app.billing.refund')\n"
+                "    except ImportError:\n        module = None\n"
+                "    assert module is not None and module.refund() == 10\n")
+REFUND = {"app/billing/refund.py": "def refund():\n    return 10\n"}
+
 AREAS = ("# Working rules\n\n## Areas\n\n- billing: app/billing\n- shop: app/shop\n"
          "- tests: tests\n- project records: docs\n")
 
 
-def seed(name, first_upload):
+def seed(name, first_upload, check=None):
     """A project whose origin/main holds the first upload, with an acceptance
     branch cut from it holding one check, checked out in the project folder."""
     repo = os.path.join(WORK, name)
@@ -111,7 +135,7 @@ def seed(name, first_upload):
     git(repo, "remote", "add", "origin", remote)
     git(repo, "push", "-q", "origin", "main")
     git(repo, "checkout", "-q", "-b", "spec/12-refunds")
-    write(repo, {"tests/test_refund.py": "def test_refund():\n    assert False\n"})
+    write(repo, check or {"tests/test_refund.py": REFUND_CHECK})
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "the check")
     git(repo, "push", "-q", "origin", "spec/12-refunds")
@@ -121,6 +145,8 @@ def seed(name, first_upload):
 
 SEED = seed("seed", {
     "README.md": "A shop.\n",
+    "AGENTS.md": AGENTS,
+    ".gitignore": GITIGNORE,
     "docs/working-rules.md": AREAS,
     "app/billing/refund.py": "def refund():\n    return 0\n",
     "app/shop/cart.py": "def cart():\n    return []\n",
@@ -447,7 +473,7 @@ expect(code != 0 and labels_of(12) == BUILDING and "tests/test_orders.py" in out
 repo = project()
 made_ready(repo, piece_body(hood="Build the refund.\nChanges the bar: tests/test_orders.py, "
                                  "because orders now subtract refunds."))
-build(repo, {"tests/test_orders.py": "def test_orders():\n    assert 1 == 1\n"})
+build(repo, dict(REFUND, **{"tests/test_orders.py": "def test_orders():\n    assert 1 == 1\n"}))
 code, out, err = gate(repo, "move", "12", "in-review")
 expect(code == 0 and labels_of(12) == IN_REVIEW and any(
     l.get("reason") == "guard_change" and "tests/test_orders.py" in l.get("detail", "")
@@ -468,9 +494,9 @@ expect(code != 0 and labels_of(12) == BUILDING and "tests/test_refund.py" in out
 # with the path and its area, and never refuse. The map is read from the base.
 repo = project()
 made_ready(repo, piece_body())
-build(repo, {"app/shop/cart.py": "def cart():\n    return [1]\n",
-             "lib/util.py": "def util():\n    return 1\n",
-             "docs/working-rules.md": AREAS + "- library: lib\n"})
+build(repo, dict(REFUND, **{"app/shop/cart.py": "def cart():\n    return [1]\n",
+                         "lib/util.py": "def util():\n    return 1\n",
+                         "docs/working-rules.md": AREAS + "- library: lib\n"}))
 code, out, err = gate(repo, "move", "12", "in-review")
 lines = [l for l in forced(repo) if l.get("reason") == "outside_boundary"]
 expect(code == 0 and labels_of(12) == IN_REVIEW,
@@ -515,7 +541,8 @@ expect(contract_comments(12) and contract_comments(12)[-1][1] == "none" and code
 
 # A project with no code yet: origin/main holds only the first upload, and the
 # acceptance branch is cut from it as on any project.
-NOCODE = seed("nocode", {"README.md": "A shop, to be.\n", "docs/working-rules.md": AREAS})
+NOCODE = seed("nocode", {"README.md": "A shop, to be.\n", "docs/working-rules.md": AREAS,
+                         "AGENTS.md": AGENTS, ".gitignore": GITIGNORE})
 repo = project(NOCODE)
 made_ready(repo, piece_body())
 build(repo, {"app/billing/refund.py": "def refund():\n    return 10\n"})
@@ -524,6 +551,300 @@ expect(contract_comments(12)[0][1] == git(NOCODE, "rev-parse", "origin/spec/12-r
        and code == 0 and labels_of(12) == IN_REVIEW,
        "a project whose origin/main holds only the first upload is measured from it",
        "comments %r exit %s out %r err %r" % (contract_comments(12), code, out, err))
+
+# --- the evidence record ------------------------------------------------------------
+#
+# The gate runs a check itself and records what happened, in the main folder's
+# .agents/pieces/<number>/evidence.jsonl. Before a piece goes to review it runs
+# every check again on the commit as it stands, and the acceptance checks at
+# the spec commit too, so what the builder says counts for nothing.
+
+PYTEST = "python3 -m pytest -q -p no:cacheprovider"
+FIELDS = ("command", "exit", "commit", "clean", "time", "phase")
+
+
+def evidence(main, number=12):
+    path = os.path.join(main, ".agents", "pieces", str(number), "evidence.jsonl")
+    if not os.path.exists(path):
+        return []
+    with open(path) as handle:
+        found = []
+        for line in handle:
+            try:
+                found.append(json.loads(line))
+            except ValueError:
+                found.append({"unreadable": line})
+        return found
+
+
+def evidence_path(main, number=12):
+    return os.path.join(main, ".agents", "pieces", str(number), "evidence.jsonl")
+
+
+def head(repo):
+    return git(repo, "rev-parse", "HEAD")
+
+
+def run_lines(lines, phase=None, check=None):
+    return [l for l in lines if "command" in l and (phase is None or l.get("phase") == phase)
+            and (check is None or check in l.get("command", ""))]
+
+
+# gate.py evidence runs the command in the folder that has the piece's branch,
+# and appends one line with the command, its exit code, the commit, whether
+# the tree was clean, the time and the phase.
+repo = project()
+made_ready(repo, piece_body())
+build(repo, REFUND)
+code, out, err = gate(repo, "evidence", "12", "--", "python3", "-m", "pytest", "-q", "-p",
+                      "no:cacheprovider", "tests/test_refund.py")
+lines = evidence(repo)
+expect(code == 0 and len(lines) == 1 and all(f in lines[0] for f in FIELDS),
+       "gate.py evidence appends one line with the command, exit code, commit, clean tree, "
+       "time and phase", "exit %s lines %r out %r err %r" % (code, lines, out, err))
+expect(lines and lines[0]["exit"] == 0 and lines[0]["commit"] == head(repo)
+       and lines[0]["clean"] is True and lines[0]["phase"] == "after"
+       and "tests/test_refund.py" in lines[0]["command"],
+       "the line records the check passing on the current commit with a clean tree, phase after",
+       repr(lines))
+expect(lines and len(json.dumps(lines[0])) < 1000,
+       "the line stays short, with the command's output kept in a file", repr(lines))
+
+# A dirty tree is recorded as not clean.
+with open(os.path.join(repo, "app", "billing", "refund.py"), "a") as handle:
+    handle.write("# a change nobody saved\n")
+code, out, err = gate(repo, "evidence", "12", "--", "python3", "-m", "pytest", "-q", "-p",
+                      "no:cacheprovider", "tests/test_refund.py")
+lines = evidence(repo)
+expect(code == 0 and len(lines) == 2 and lines[1]["clean"] is False,
+       "a run on a tree with unsaved changes is recorded as not clean", repr(lines))
+git(repo, "checkout", "--", "app/billing/refund.py")
+
+# The before phase runs at the spec commit, where the check fails.
+code, out, err = gate(repo, "evidence", "12", "--phase", "before", "--", "python3", "-m",
+                      "pytest", "-q", "-p", "no:cacheprovider", "tests/test_refund.py")
+lines = evidence(repo)
+expect(code == 0 and lines and lines[-1]["phase"] == "before"
+       and lines[-1]["commit"] == SPEC_TIP and lines[-1]["exit"] != 0,
+       "a before run is made at the spec commit and records the check failing there",
+       "exit %s lines %r out %r err %r" % (code, lines[-1:], out, err))
+
+# A line changed by hand is refused: each line carries a hash chained to the
+# one before it, and the gate writes nothing more on a record it did not write.
+path = evidence_path(repo)
+os.makedirs(os.path.dirname(path), exist_ok=True)
+text = open(path).read() if os.path.exists(path) else '{"exit": 0}\n'
+first = json.loads(text.splitlines()[0])
+forged = text.replace('"exit": %d' % first["exit"], '"exit": 7', 1)
+with open(path, "w") as handle:
+    handle.write(forged)
+code, out, err = gate(repo, "evidence", "12", "--", "python3", "-m", "pytest", "-q", "-p",
+                      "no:cacheprovider", "tests/test_refund.py")
+expect(code != 0 and "evidence.jsonl" in out + err and "not written by the gate" in out + err,
+       "a line edited by hand is refused as one the gate did not write",
+       "exit %s out %r err %r" % (code, out, err))
+with open(path) as handle:
+    expect(handle.read() == forged, "and the refused record is left as it was")
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "not written by the gate" in out + err,
+       "the move to review refuses on a record holding a line the gate did not write",
+       "exit %s labels %r out %r err %r" % (code, labels_of(12), out, err))
+
+# A cut-off last line is an interrupted write, not a forged one.
+repo = project()
+made_ready(repo, piece_body())
+build(repo, REFUND)
+gate(repo, "evidence", "12", "--", "python3", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+     "tests/test_refund.py")
+os.makedirs(os.path.dirname(evidence_path(repo)), exist_ok=True)
+with open(evidence_path(repo), "a") as handle:
+    handle.write('{"command": "python3 -m pyte')
+code, out, err = gate(repo, "evidence", "12", "--", "python3", "-m", "pytest", "-q", "-p",
+                      "no:cacheprovider", "tests/test_refund.py")
+lines = evidence(repo)
+expect(code == 0 and "interrupted" in (out + err).lower() and len(lines) == 2,
+       "a cut-off last line is set aside as an interrupted write and the record carries on",
+       "exit %s lines %r out %r err %r" % (code, lines, out, err))
+
+# Run from a run's worktree, the record still lands in the main folder, so a
+# worktree never holds it and never counts it as unsaved work.
+repo = project()
+made_ready(repo, piece_body())
+git(repo, "checkout", "-q", "main")
+tree = os.path.join(repo, ".agents", "worktrees", "12-refunds")
+git(repo, "worktree", "add", "-q", tree, "spec/12-refunds")
+build(tree, REFUND)
+code, out, err = gate(tree, "evidence", "12", "--", "python3", "-m", "pytest", "-q", "-p",
+                      "no:cacheprovider", "tests/test_refund.py")
+lines = evidence(repo)
+expect(code == 0 and len(lines) == 1 and lines[0]["commit"] == head(tree)
+       and lines[0]["exit"] == 0,
+       "gate.py evidence run from a worktree runs there and records in the main folder",
+       "exit %s lines %r out %r err %r" % (code, lines, out, err))
+expect(not os.path.exists(os.path.join(tree, ".agents", "pieces")),
+       "and the worktree holds no record of its own")
+
+# --- the gate runs the checks itself before review --------------------------------
+
+# A passing piece moves, and the record holds the gate's own runs: the
+# acceptance check on the current commit, the Test command, the check at the
+# spec commit failing, and a line saying the type check and linter are left
+# to the project check on GitHub.
+repo = project()
+made_ready(repo, piece_body())
+build(repo, REFUND)
+code, out, err = gate(repo, "move", "12", "in-review")
+lines = evidence(repo)
+now = head(repo)
+expect(code == 0 and labels_of(12) == IN_REVIEW,
+       "a piece whose checks pass when the gate runs them moves to review",
+       "exit %s labels %r out %r err %r" % (code, labels_of(12), out, err))
+expect(any(l.get("phase") == "after" and "tests/test_refund.py" in l.get("command", "")
+           and l.get("exit") == 0 and l.get("commit") == now and l.get("clean") is True
+           for l in lines),
+       "the gate ran the acceptance check on the current commit with a clean tree", repr(lines))
+expect(any(l.get("phase") == "after" and l.get("command", "").strip() == PYTEST
+           and l.get("exit") == 0 and l.get("commit") == now for l in lines),
+       "the gate ran the project's Test command on the current commit", repr(lines))
+expect(any(l.get("phase") == "before" and "tests/test_refund.py" in l.get("command", "")
+           and l.get("exit") not in (0, None) and l.get("commit") == SPEC_TIP for l in lines),
+       "the gate ran the acceptance check at the spec commit and saw it fail", repr(lines))
+expect(any("type check" in str(l.get("note", "")).lower() for l in lines),
+       "the record says the type check and linter are left to the project check on GitHub",
+       repr(lines))
+
+# A builder that claims done with one check red is refused, and no hook runs
+# here: the gate's own run holds the rule.
+repo = project()
+made_ready(repo, piece_body())
+build(repo, {"app/billing/refund.py": "def refund():\n    return 5\n"})
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "tests/test_refund.py" in out + err
+       and "next:" in err,
+       "with no hook, a piece whose acceptance check is red is refused, naming the check "
+       "and the next action", "exit %s labels %r out %r err %r" % (code, labels_of(12), out, err))
+expect(any("tests/test_refund.py" in l.get("command", "") and l.get("exit") not in (0, None)
+           for l in run_lines(evidence(repo), "after")),
+       "and the red run is in the record", repr(evidence(repo)))
+
+# A guard check named under Reaches is run too, and a red one refuses.
+CART = seed("cart", {
+    "README.md": "A shop.\n", "AGENTS.md": AGENTS, ".gitignore": GITIGNORE,
+    "docs/working-rules.md": AREAS, "app/billing/refund.py": "def refund():\n    return 0\n",
+    "app/shop/cart.py": "def cart():\n    return []\n",
+    "tests/test_cart.py": "from app.shop.cart import cart\n\n\n"
+                          "def test_cart():\n    assert cart() == []\n"})
+repo = project(CART)
+made_ready(repo, piece_body().replace(
+    "Reaches: none", "Reaches: shop: guarded by `tests/test_cart.py`"))
+build(repo, dict(REFUND, **{"app/shop/cart.py": "def cart():\n    return [1]\n"}))
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "tests/test_cart.py" in out + err,
+       "a red guard check named under Reaches refuses the move, naming it",
+       "exit %s out %r err %r" % (code, out, err))
+
+# The tree must be clean: a change nobody saved is refused, never run.
+repo = project()
+made_ready(repo, piece_body())
+build(repo, REFUND)
+with open(os.path.join(repo, "app", "billing", "refund.py"), "a") as handle:
+    handle.write("# not saved\n")
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "clean" in (out + err).lower()
+       and "app/billing/refund.py" in out + err,
+       "a tree with unsaved changes is refused at the move to review, naming the file",
+       "exit %s out %r err %r" % (code, out, err))
+
+# A check the piece names that is not there is refused as missing.
+repo = project()
+made_ready(repo, piece_body(works="A refund returns the whole amount. Check: "
+                                  "tests/test_refund.py\n- Credit is kept. Check: "
+                                  "tests/test_credit.py"))
+build(repo, REFUND)
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "tests/test_credit.py" in out + err
+       and "missing" in (out + err).lower(),
+       "a check the piece names and the branch does not hold is refused as missing",
+       "exit %s out %r err %r" % (code, out, err))
+
+# A check that passes only on a retry is recorded as a failure, never a pass.
+repo = project()
+made_ready(repo, piece_body())
+build(repo, REFUND)
+flag = os.path.join(WORK, "flaky-once")
+flaky = ("test -f %s || { touch %s; exit 1; }; %s tests/test_refund.py" % (flag, flag, PYTEST))
+gate(repo, "evidence", "12", "--", "sh", "-c", flaky)
+gate(repo, "evidence", "12", "--", "sh", "-c", flaky)
+lines = run_lines(evidence(repo), "after", "tests/test_refund.py")
+expect([l["exit"] for l in lines] == [1, 0],
+       "a check that fails and then passes on the same commit is recorded as both runs",
+       repr(lines))
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "retry" in (out + err).lower()
+       and "tests/test_refund.py" in out + err,
+       "a check that passed only on a retry refuses the move to review",
+       "exit %s out %r err %r" % (code, out, err))
+
+# At the spec commit a build piece's check must fail on its assertion. One
+# that fails on a missing module is refused by name, and so is one that passes.
+IMPORTING = seed("importing", {
+    "README.md": "A shop.\n", "AGENTS.md": AGENTS, ".gitignore": GITIGNORE,
+    "docs/working-rules.md": AREAS, "app/billing/refund.py": "def refund():\n    return 0\n"},
+    check={"tests/test_refund.py": "from app.billing.credit import credit\n\n\n"
+                                   "def test_refund():\n    assert credit() == 10\n"})
+repo = project(IMPORTING)
+made_ready(repo, piece_body())
+build(repo, {"app/billing/credit.py": "def credit():\n    return 10\n"})
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "tests/test_refund.py" in out + err
+       and "not on its assertion" in out + err,
+       "a check that fails at the spec commit on a failed import is refused, naming it",
+       "exit %s out %r err %r" % (code, out, err))
+PASSING = seed("passing", {
+    "README.md": "A shop.\n", "AGENTS.md": AGENTS, ".gitignore": GITIGNORE,
+    "docs/working-rules.md": AREAS, "app/billing/refund.py": "def refund():\n    return 10\n"})
+repo = project(PASSING)
+made_ready(repo, piece_body())
+build(repo, {"app/billing/refund.py": "def refund():\n    return 10  # unchanged\n"})
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code != 0 and labels_of(12) == BUILDING and "passes at the spec commit" in out + err,
+       "a check that already passes at the spec commit is refused",
+       "exit %s out %r err %r" % (code, out, err))
+
+# A goal piece has no before run, and its record says so in one line.
+repo = project()
+made_ready(repo, piece_body(loop="Loop module: goal\nMeasured by: tests/test_speed.py"),
+           loop_label="loop:goal")
+build(repo, REFUND)
+code, out, err = gate(repo, "move", "12", "in-review")
+lines = evidence(repo)
+notes = [l for l in lines if l.get("phase") == "before"]
+expect(code == 0 and len(notes) == 1 and "command" not in notes[0]
+       and "no before run" in str(notes[0].get("note", "")),
+       "a goal piece has no before run, and its record says so in one line",
+       "exit %s lines %r out %r err %r" % (code, lines, out, err))
+
+# A build piece made ready with no acceptance branch: the checks written first
+# count from the commit that holds them, and the before run uses that commit.
+repo = project()
+git(repo, "checkout", "-q", "-b", "build/14-totals", "main")
+no_branch = piece_body(loop="Loop module: build",
+                       works="The total adds the refund. Check: tests/test_total.py")
+fresh([issue(14, ["state:shaping", "shaping:check", "type:feature", "loop:build"], no_branch)],
+      pulls=[{"number": 2, "title": "Totals", "body": "Closes #14",
+              "head": "build/14-totals", "base": "main", "state": "OPEN"}])
+gate(repo, "move", "14", "ready")
+gate(repo, "move", "14", "building", "--assignee", "me")
+build(repo, {"tests/test_total.py": "from app.billing.refund import refund\n\n\n"
+                                    "def test_total():\n    assert refund() + 1 == 11\n"},
+      "the checks, first")
+checks_commit = head(repo)
+build(repo, REFUND)
+code, out, err = gate(repo, "move", "14", "in-review")
+before = [l for l in evidence(repo, 14) if l.get("phase") == "before" and "command" in l]
+expect(code == 0 and before and before[0]["commit"] == checks_commit and before[0]["exit"] != 0,
+       "a build piece with no acceptance branch runs its before check at the commit that "
+       "holds the checks", "exit %s before %r out %r err %r" % (code, before, out, err))
 
 # --- the evidence folder stays on this computer ---------------------------------
 

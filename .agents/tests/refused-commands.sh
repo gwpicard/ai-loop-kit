@@ -47,6 +47,9 @@ rs_rule "git reflog expire" '[-] `git reflog expire`'
 rs_rule "git gc with prune" '[-] `git gc` with `--prune`'
 rs_rule "a throwaway folder is refused too" 'deleting a throwaway folder, such as a build folder, is refused too'
 rs_rule "the person can run it themselves" 'the person can run it themselves, or the project.s own clean command can'
+rs_rule "the gate's record is in the mirrored list" '[-] a write to the gate.s record in `\.agents/pieces/`'
+rs_rule "a refusal on the record goes to the person" 'when one is refused, tell the person in one line which file it was and what the write was for, and stop'
+rs_rule "the record is never written another way" 'never write the record another way'
 rs_guard "$FOUNDED" "the founded blocked-commands.md"
 
 # The maintainer's own list.
