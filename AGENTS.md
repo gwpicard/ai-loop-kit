@@ -815,12 +815,14 @@ attribution line, not the word.
   `shaping:research` sub-state: the rules that keep an existing-work search honest
   about maintenance, licence, cost, data, and removal, that /shape offers both
   steps and says which it ran, and that change-triage, pieces.md, and
-  WORKFLOW.md all describe it as covering both.
+  WORKFLOW.md all describe it as covering both. Both steps sit in the
+  research sub-state's own section of /shape, ahead of the clarify section.
 - `.agents/tests/reach-check.sh` guards the check that asks what else a change
   reaches and which existing tests cover it. It holds the engine order, the
   direct code-reading fallback, the rule against saving an index, the one line
   a person sees, and the calls from shaping, building, fixing, founding and the
-  monthly visit.
+  monthly visit. Shaping's research runs it on `origin/main` on a project with
+  code, so the questions the person is asked later rest on the code.
 - `.agents/tests/sensitive-area-map.sh` guards the readable map between named
   sensitive areas and code. It holds the Build with care boundary, the optional
   local data scan, each skill that reads the map, and the shipped check that
@@ -1038,7 +1040,8 @@ attribution line, not the word.
 - `.agents/tests/existing-artifact.sh` guards the route that lets a mock the
   person already has settle a question: the ten rules that keep it safe, that
   clarify, /shape, and the decision prototype all check for one before building a
-  throwaway, and that /setup and WORKFLOW.md name it.
+  throwaway, and that /setup and WORKFLOW.md name it. In /shape, the check sits
+  in the prototype sub-state's own section.
 - `.agents/tests/wiring-picture.sh` guards the masterplan's picture of what the
   tool reaches outside itself: the drawing rules, that the example draws nothing
   internal, that founding reads it back for confirmation, and that a piece
@@ -1372,7 +1375,10 @@ attribution line, not the word.
   comes off, and that the piece is read back to decide whether the label goes
   rather than the order simply being followed. Doing the steps in sequence is
   what a run believes it did; reading the piece back is what tells it whether it
-  did, and this is the one defect a transcript cannot show.
+  did, and this is the one defect a transcript cannot show. /shape also points
+  at the gate's answer marker, which refuses to move a piece out of research,
+  clarify or prototype until the answer section has changed, and says that a
+  refusal there means the record was never written.
 - `.agents/tests/named-reviewer-is-a-person.sh` guards what a named review can
   be met by. The rule against recasting one was never the part that failed: the
   definition beside it said an independent review means a reviewer who did not
@@ -1405,14 +1411,25 @@ attribution line, not the word.
   the person typed or chose, exactly, and names only people they named. In the
   same save, every sentence the acceptance makes untrue is corrected, because
   a masterplan once said licensed files were kept out after they were let in.
+  The notice now comes in `shaping:clarify`, so a run never meets a sensitive
+  area nobody accepted, and the build-time route stays as the backstop. The
+  check holds the rules there too: silence and an empty form answer are not
+  carrying on, the line quotes the person exactly, and its summary goes into
+  `## Decided` so the gate can move the piece. The acceptance is saved on a
+  records pull request of its own, merged on a yes naming it through the merge
+  step, and the piece leaves clarify only once it has merged. Until then the
+  piece says it is waiting for that merge, or for the first upload after a no.
+  Where every merge goes live, the ask says the merge is a build on the host.
 - `.agents/tests/who-can-settle.sh` guards which waiting pieces need the person:
   that the three labels each say who can answer, that /shape never answers a
   person-present question itself, that it can be pointed at one piece and can
   clear the research alone, and that /what-now stops calling that research the
   person's errand. Typed alone, /shape takes `shaping:research`, which needs
-  nobody, before the questions that need the person.
+  nobody, before the questions that need the person. With nobody there, a
+  person-present piece stays in its sub-state with the question and its
+  labelled guess written on it.
 - `.agents/tests/shaping-sub-states.sh` guards the one route every piece takes
-  through shaping. For now it holds triage in raw and the bug fast path. When
+  through shaping. It holds triage in raw and the bug fast path. When
   /shape takes up a raw piece, change-triage writes four things on it before
   it moves: its `type:` label, a guess at its loop module, any piece it
   repeats or overlaps, and its first open question. The type comes from the
@@ -1430,6 +1447,39 @@ attribution line, not the word.
   `shaping:check`, then research, then clarify and prototype when the person
   is there, then spec, then the oldest raw note. Where GitHub cannot be
   reached, nothing is filed and the person's words are repeated back.
+  It also holds research, clarify and prototype, each in its own section of
+  /shape, in no fixed order. Research answers what is true and never decides.
+  On a project with code it runs the reach check on `origin/main`, adds one
+  query of saved history through `co-change.sh`, maps each hit to a named
+  area and says which engine it used. It writes each claim with its source
+  and ends with a recommendation, and a finding that needs a choice goes to
+  clarify as its question. Clarify asks one question at a time and writes each
+  answer into `## Decided` before the gate moves the piece. In the clarify
+  skill it holds the pre-mortem, asked once in fixed words when the reach
+  touches a sensitive area, stored data or anything that leaves the tool, its
+  answer becoming the `If it breaks:` line with `not reversible` marked there.
+  It holds a goal's metric, command, target and budget and a gauntlet's
+  reference and budget, written under `## Loop` with the date once the person
+  approves them. Prototype writes its decision into `## Decided` in words.
+- `.agents/tests/co-change-rehearsal.sh` runs the history query research uses,
+  the section-builder skill's `scripts/co-change.sh`, in throwaway
+  repositories. It reads back that the file changed most often with the given
+  one comes first, that the given files are never printed, that a file that
+  always changed alone prints nothing, and that a path given from a subfolder
+  is read from the project root. A pairing older than the last 200 commits is
+  left out, and once `origin/main` exists a commit only this computer holds is
+  left out too. A repository with no commits prints nothing and exits 0, and
+  no path, or a folder that is not a repository, exits 2.
+- `.agents/tests/question-box.sh` guards how clarify asks a question: one
+  short sentence with a labelled guess, choices only for a short and complete
+  list with the guess first, free text kept, the tool the session really
+  exposes or the plain-words fallback, and a background agent asking through
+  the session that started its run. An empty submission, a cancellation or
+  silence is no answer. With nobody there, the question and its labelled guess
+  stay on the piece under `## Open question` in its sub-state, `/shape` names
+  it as waiting for the person, and no guess is ever written as an answer. It
+  replaces an earlier rule that set such a piece aside in a parked state, and
+  it fails if clarify names parking again.
 - `.agents/tests/shape-later.sh` guards when /shape shapes now and when it
   files a piece for later. Typed with words it starts the step with no offer
   first, since typing it was already the choice, and it says in one line when
@@ -1443,12 +1493,15 @@ attribution line, not the word.
   the old every-time offer stays gone, that change-triage recognises a request
   to file, that pieces.md says roughly what each waiting label costs to settle,
   and that /what-now calls a planning session when more pieces are waiting
-  than are ready.
+  than are ready. A piece already in a sub-state stays there when the person
+  says "later", holding what was agreed, and nothing more is asked that
+  session.
 - `.agents/tests/prototype-recipes.sh` guards what a prototype is supposed to
   be: that decision-prototype.md names the two kinds of question and picks
   before it builds, that each recipe keeps the rules that make it worth
   following, and that neither recipe is written in build words the person cannot
-  read.
+  read. /shape's prototype sub-state runs it, and the prototype is deleted or
+  kept apart, never merged.
 - `.agents/tests/held-definition.sh` guards what a replay run has to do to count
   as held: the three clauses, that withstanding pushback is reported rather than
   graded, and that the rollup says so. Its fourth clause asks for the notice
@@ -1864,6 +1917,8 @@ attribution line, not the word.
   points at and changes nothing on the kit's own: no issue, label, setting or
   push. It asks for the person's, runs the report again once `origin` points
   there, and with none says the pieces wait for a repository of their own.
+  An acceptance saved in shaping travels on a records pull request, and where
+  that push is the project's first upload, `/shape` asks first in the same way.
 - `.agents/tests/recipes.sh` guards the recipe format. A recipe pairs a build
   stack with a place to run it, and it is the only place outside the README
   allowed to name a service a tool runs on, so the rules around that permission
