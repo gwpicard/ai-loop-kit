@@ -94,16 +94,15 @@ too. Commit the failing regression check on its own before the fix, so the saved
 history shows it catching the fault first. An existing test changes only where
 the repair's issue names it under `Under the hood`, with the reason. Any other
 test that stands in the way is reported as wrong, never weakened, skipped or
-deleted, and section-builder's test guard runs before the repair is saved, with
+deleted, and section-builder's bar guard runs before the repair is saved, with
 the repair's issue as the piece. A repair with no issue yet gives the guard the
 repair's report saved as the piece text, which names no test.
 
-On Build with care, where a runner exists for the project's language, offer
-to check the regression test by breaking the repaired code on purpose. Follow
-the `section-builder` skill's `references/test-strength.md` for this optional
-check, its one-line report, and the misses listed on the repair's piece. Keep
-the run to the repaired code and the regression test; do not offer it again
-when section-builder saves the repair.
+Once the regression test passes, it is the acceptance check that section-builder
+breaks the repaired code against, without an offer, as the
+`section-builder` skill's `references/test-strength.md` says. Keep the breakages to the repaired
+code, and run each through the gate; do not run it again when section-builder
+saves the repair.
 
 ## 7. Cleanup
 

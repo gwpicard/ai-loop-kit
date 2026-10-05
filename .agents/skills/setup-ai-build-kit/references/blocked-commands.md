@@ -25,6 +25,8 @@ deny list, mirror these entries there as mechanical enforcement:
 - `git gc` with `--prune`
 - a direct change to a `state:`, `shaping:` or `review:` label, in the
   spellings listed under "Changing a piece's state by hand" below
+- a write to the gate's record in `.agents/pieces/`, as "A piece's record"
+  below describes
 
 The following restrictions do not reduce to one reliable command pattern and
 still apply:
@@ -224,6 +226,24 @@ copy never blocks every command. `gate.py report` names a hook the settings
 expect and the project lacks, and `/maintain` puts it back. Another coding
 agent runs neither the hook nor the deny rules. There this written rule and
 `gate.py report` are what remain.
+
+## A piece's record
+
+The gate script keeps what it records about each piece in
+`.agents/pieces/<number>/` in the project's main folder: a line for each check
+it ran, and the reasons a piece goes to the person's review. Only the gate
+writes there. The Claude Code settings the kit installs refuse the file tools
+on that folder, writing and editing alike. The rule is read from the root of
+the computer, so a session started in a run's worktree is refused too.
+
+When one is refused, tell the person in one line which file it was and what
+the write was for, and stop. Never write the record another way: a script, a
+copy put in its place, or the same lines written in steps. A script that opens
+the file itself is not refused, and the rule still forbids it. The gate chains
+each line it writes to the one before, so it refuses a record holding a line
+it did not write. Before a piece goes to review it runs every check again
+itself, so a line in the record never stands in for a check. Reading the
+record still runs, and so does every `gate.py` command.
 
 ## A merge that goes live
 

@@ -274,7 +274,12 @@ attribution line, not the word.
   one that does not exist, and keeps a close's reason and comment. A scenario
   can set faults in the state file: no network, a refused label write, a
   refused label creation, a refused comment, and a second session's change
-  that lands between two reads of one issue.
+  that lands between two reads of one issue. It keeps who acted, because the
+  gate trusts a contract hash only from the account that made the piece
+  ready. Each label added or taken off is an event listed in order with its
+  label and the account, the state file's `actor`, and each comment carries
+  its author in the REST listing and the view. A comment a fixture wrote with
+  no author is the person's own, and the events of a missing issue answer 404.
 - `.agents/tests/gate-script.sh` drives the gate script a founded project
   receives against that stand-in, and reads the labels back after every call.
   The gate is the one way a piece changes state, so a board is only as true as
@@ -315,7 +320,10 @@ attribution line, not the word.
   mid-build sends the piece to `shaping:spec` with a Kickback section, at
   `check-contract` and again at the move to review, and its branch stays. A
   piece with no hash has one recorded in one line, and with GitHub out of
-  reach the gate refuses rather than read a missing hash as unchanged. At the
+  reach the gate refuses rather than read a missing hash as unchanged. Only a
+  hash comment by the account that added `state:ready`, read from the label
+  events, counts: a later one by another account is ignored, and a piece whose
+  only hash comment is by another account has one recorded now. At the
   move to review, an unnamed settings change, existing test edit or acceptance
   check edit is refused by name, while a named one moves, forces the person's
   review, writes a `guard_change` line to `.agents/pieces/<number>/forced.jsonl`
@@ -323,21 +331,49 @@ attribution line, not the word.
   a path in another area or in none, read from the map at the base, forces a
   review and never refuses. A goal piece and a project whose `origin/main`
   holds only its first upload are held too, and the founded gitignore keeps
-  `.agents/pieces/` out.
+  `.agents/pieces/` out. It also holds the evidence record. `gate.py
+  evidence` runs a command in the folder holding the piece's branch, or at the
+  spec commit, and appends one line to `.agents/pieces/<number>/evidence.jsonl`
+  in the main folder, from a worktree too. A line edited by hand is refused,
+  and a cut-off last line is set aside as an interrupted write. Before review
+  the gate runs each acceptance check, each guard check under `Reaches:` and
+  the Test command itself, and refuses a red check, a missing one, a tree with
+  unsaved changes and a check that passed only on a retry. A build piece's
+  check must fail at the spec commit on its assertion, so one failing on an
+  import or already passing is refused. A goal piece's record says it has no
+  before run, and a build piece with no acceptance branch runs its before
+  check at the commit that first holds it. The bar guard gets that same
+  commit, so such a piece whose check was edited after it is refused as an
+  acceptance check edit, while a goal piece whose test changed still moves. A breakage run through `gate.py
+  evidence --breakage` is one line with phase `breakage`, the patch's hash and
+  the exit code, made in a temporary worktree that is gone again, and a patch
+  that does not apply is refused by name with nothing recorded.
+- `.agents/tests/frozen-bar.sh` guards the words that tell the frozen bar.
+  WORKFLOW.md's section 6, "Evidence", says the bar is fixed at ready, what
+  the gate refuses, what forces the person's review, and that done is the
+  gate running the checks rather than the agent saying so, and each sentence
+  must sit in that section. The design note says the hash leaves out what the
+  system writes during a build and that test-strength runs without an offer
+  once the build is green, and its Fresh evidence row says the gate alone
+  holds fresh evidence until slice 7: Build and fix loop modules adds the Stop
+  hook. section-builder says the gate runs the checks itself before review.
 - `.agents/tests/bar-guard-rehearsal.sh` runs section-builder's
   `scripts/bar-guard.sh` in fresh copies of one throwaway repository whose
   acceptance branch holds two commits. It makes each of the seven kinds alone
   and reads its line back: an acceptance check edited or deleted, an existing
   test edited, deleted or moved away, a skip or focus marker, a suppression, a
-  line added to a tool's settings, an updated snapshot, and a change to a
+  line added to or taken out of a tool's settings, an updated snapshot, and a change to a
   workflow, hook, gate file or the Claude Code settings. Each is then named on
   a `Changes the bar:` line and read as named, except an acceptance check,
   which is never named. A line with no reason, the path elsewhere in Under the
   hood and the line outside it name nothing. A clean copy, a source change, a
-  suppression or settings line taken out, a new snapshot, a new test and the
-  acceptance branch's own suppression list nothing. Called with no spec commit
-  it lists no acceptance check, it exits 2 when it cannot run, and it counts a
-  test file exactly as `test-guard.sh` does.
+  suppression taken out, a new snapshot, a new test and the acceptance
+  branch's own suppression list nothing. A settings line taken out with
+  nothing added is listed, not named or named by the same rule, and so is a
+  settings file deleted. Called with no spec commit it lists no acceptance
+  check and exactly the one suppression the second check carries, it exits 2
+  when it cannot run, and it counts a test file exactly as `test-guard.sh`
+  does.
 - `.agents/tests/state-guard.sh` guards what stops the agent going round the
   gate. A founded project's Claude Code settings run a hook before each
   command and each GitHub tool call, and carry deny rules. Both refuse a direct
@@ -958,7 +994,14 @@ attribution line, not the word.
   from it, and step 4 confirms the checks `/shape` committed there still fail
   rather than writing them again. A piece with no such branch keeps step 4 as
   it was. Every attempt starts with `gate.py check-contract`, and a contract
-  that changed since the piece was made ready stops it.
+  that changed since the piece was made ready stops it. On a piece with an
+  acceptance branch the build never writes or changes a check, and with none
+  the checks written first are its acceptance checks from their commit. Each
+  failing run goes through `gate.py evidence`. On the pull-request route the
+  gate runs the bar guard and the checks at the move to `to check`, and the
+  builder never runs `test-guard.sh` in its place, while the checkpoint route
+  runs the bar guard's copy before the commit, with the checks commit standing
+  in for a missing spec commit.
 - `.agents/tests/fix-history-first.sh` guards the repair steps in the fix loop,
   section-builder's `references/fix-loop.md`, that read prior
   work and existing tests before a new attempt, search saved history from a
@@ -976,15 +1019,29 @@ attribution line, not the word.
   around a build: its live engine and import fallback, silence when nothing got
   worse, fixed lines without a score, and the quarterly count of change spread
   from saved history.
-- `.agents/tests/test-strength.sh` guards the optional check that breaks changed
-  code to see whether tests notice. It holds the Build with care boundary,
-  local scope, plain report, sorting of misses by the area `area-map.py which`
-  names, the offer during repair, and
-  the rule against adding tests just to raise a count.
+- `.agents/tests/test-strength.sh` guards the check that breaks changed code
+  to see whether tests notice. Once every acceptance check passes, the build
+  breaks the code it changed without an offer, on every build path, wherever
+  StrykerJS or mutmut is already a dependency, and never installs one. Each
+  breakage is a patch the gate runs, an acceptance check that notices none
+  goes to the person and never stops the piece, a runner with no breakage
+  recorded is refused, and no runner is one line in the record. In a repair
+  the regression test is the acceptance check. The optional run on the
+  project's other tests keeps its Build with care offer and adds no gate. It
+  holds the local scope, the plain report, the sorting of misses by the area
+  `area-map.py which` names, section-builder's sentence for the pull request
+  when nothing was broken, and the rule against adding tests just to raise a
+  count.
 - `.agents/tests/test-strength-rehearsal.sh` runs weak tests in a throwaway
   JavaScript project. They catch one deliberate breakage and miss a boundary
   error; the report takes its counts from those runs and its words from the
-  shipped rule.
+  shipped rule. It then runs the gate against the stand-in GitHub on a piece
+  whose weak acceptance check misses the boundary error. With StrykerJS among
+  the dependencies and no breakage recorded the move to review is refused,
+  naming the next action. The boundary breakage alone writes a `weak_check`
+  line naming the check and the piece still moves, while a second breakage
+  the check catches forces nothing. With no runner the record holds one line
+  saying the checks were not tested by breaking the code.
 - `.agents/tests/trim.sh` guards the trim, the single pass that takes out what
   a change added and does not need before the person tries it. The rule it
   guards hardest is the limit on what the trim may change: removing and
@@ -1299,6 +1356,12 @@ attribution line, not the word.
   written list of commands that must still run, such as deleting one file or a
   plain `git gc`, keeps those rules from growing. The offer brings those rules
   too, and a no recorded before they existed does not cover them.
+  The matcher also reads file rules, tested first against the documentation's
+  own examples. The founded settings refuse Write and Edit on the gate's record
+  in `.agents/pieces/`, from the main folder and from a run's worktree, while
+  other files still edit and reading the record still runs. The rule is taken
+  out to prove it is needed, and a Write path rule, which Claude Code never
+  consults, or a rule read from the session's own folder is caught.
 - `.agents/tests/refused-commands.sh` guards what happens when a command is
   refused. In a real project the deny list refused `rm -rf`, and the agent ran
   the same deletion again as `rm -r`, which went through. So both
@@ -1313,6 +1376,9 @@ attribution line, not the word.
   the person as a command, and the temporary folders the trim and the
   quarterly reads write are made with `mktemp -d` and left for the computer to
   clear.
+  The founded file names the gate's record in `.agents/pieces/` among the
+  refused writes, and says a refusal there is told to the person and the record
+  never written another way.
 - `.agents/tests/speaks-for-the-person.sh` guards the yes the kit waits for
   before it speaks for the person to anyone else. In a project where
   colleagues file issues, the agent posted a comment under the person's

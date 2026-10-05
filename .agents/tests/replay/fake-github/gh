@@ -372,18 +372,53 @@ def comment_node(number):
     return "IC_kwDOReplay%s" % number
 
 
+def actor(state):
+    """The account the stand-in acts as: replay-person unless a scenario sets
+    another in the state file's actor."""
+    return state.get("actor") or "replay-person"
+
+
+def comment_author(comment):
+    """Who wrote a comment. One a fixture wrote with no author, as older state
+    files hold, is the person's own."""
+    if isinstance(comment, dict) and comment.get("author"):
+        return comment["author"]
+    return "replay-person"
+
+
+def record_label(state, issue, kind, name):
+    """Keep a labeled or unlabeled event, with the account that made it, as the
+    issue's events endpoint lists them. The gate trusts a contract hash only
+    from the account that added state:ready, so who acted has to be kept."""
+    state["event_next"] = state.get("event_next", 5000001)
+    issue.setdefault("events", []).append(
+        {"id": state["event_next"], "event": kind, "actor": actor(state), "label": name,
+         "created_at": "2026-10-05T12:00:%02dZ" % (len(issue["events"]) % 60)})
+    state["event_next"] += 1
+
+
+def rest_event(event):
+    """One event in the shape the REST events endpoint returns."""
+    who = event.get("actor")
+    label = event.get("label")
+    return {"id": event.get("id"), "event": event.get("event"),
+            "actor": who if isinstance(who, dict) else {"login": who or "replay-person"},
+            "label": label if isinstance(label, dict) else {"name": label or ""},
+            "created_at": event.get("created_at") or "2026-10-05T12:00:00Z"}
+
+
 def rest_comment(state, issue, index, comment):
     """One comment in the shape the REST comments endpoint returns."""
     number = comment_id(issue, index, comment)
     return {"id": number, "node_id": comment_node(number),
-            "body": comment_body(comment), "user": {"login": "replay-person"},
+            "body": comment_body(comment), "user": {"login": comment_author(comment)},
             "html_url": "https://github.com/%s/issues/%s#issuecomment-%s"
                         % (state["repo"], issue["number"], number)}
 
 
 def add_comment(state, issue, body):
     state["comment_next"] = state.get("comment_next", 1000001)
-    made = {"id": state["comment_next"], "body": body}
+    made = {"id": state["comment_next"], "body": body, "author": actor(state)}
     state["comment_next"] += 1
     issue.setdefault("comments", []).append(made)
     return made
@@ -737,6 +772,16 @@ def main():
             print(json.dumps([rest_comment(state, issue, n, c)
                               for n, c in enumerate(issue.get("comments", []))]))
             return
+        # The label events on one piece, each with the account that made it.
+        events = re.fullmatch(r"/?repos/[^/]+/[^/]+/issues/(\d+)/events", path)
+        if events and not posting:
+            issue = find(state, events.group(1))
+            if issue is None:
+                sys.stderr.write('{"message":"Not Found","status":"404"}\n'
+                                 "gh: Not Found (HTTP 404)\n")
+                sys.exit(1)
+            print(json.dumps([rest_event(e) for e in issue.get("events", [])]))
+            return
         gone = re.fullmatch(r"/?repos/[^/]+/[^/]+/issues/comments/(\d+)", path)
         if gone and re.search(r"(?:-X|--method)[= ]DELETE\b", " ".join(argv)):
             for issue in state["issues"]:
@@ -883,6 +928,8 @@ def main():
                 "blocked_by": [],
                 "sub_issues": [],
             }
+            for name in issue["labels"]:
+                record_label(state, issue, "labeled", name)
             state["next"] += 1
             state["issues"].append(issue)
             save(state)
@@ -913,7 +960,7 @@ def main():
                 # numeric id a deletion takes comes from the REST listing.
                 shown["comments"] = [
                     {"id": comment_node(comment_id(issue, n, c)),
-                     "author": {"login": "replay-person"},
+                     "author": {"login": comment_author(c)},
                      "body": comment_body(c),
                      "url": "https://github.com/%s/issues/%s#issuecomment-%s"
                             % (state["repo"], issue["number"], comment_id(issue, n, c))}
@@ -932,10 +979,12 @@ def main():
                     for name in value.split(","):
                         if name not in issue["labels"]:
                             issue["labels"].append(name)
+                            record_label(state, issue, "labeled", name)
                 for value in flags_all(argv, "--remove-label"):
                     for name in value.split(","):
                         if name in issue["labels"]:
                             issue["labels"].remove(name)
+                            record_label(state, issue, "unlabeled", name)
                 for value in flags_all(argv, "--add-assignee"):
                     for name in value.split(","):
                         if name not in issue["assignees"]:
