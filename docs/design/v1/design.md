@@ -1078,7 +1078,7 @@ From the research reports:
 - **G.** Supply chain: minimum package age, no install scripts, secret scan in two places, Dependabot, pinned Actions. [Safety](#mfzm5dfkkan.36608)
 - **Loops.** Micro loops shaping, build, integration and review; meta loops run, watch, learning, maintenance and live feedback. [Loops](#mfzm5dfkkan.49401)
 
-From the final research pass (`research/records-model.md` and `research/red-team.md`), decided 5 October 2026:
+From the final research pass (`research/records-model.md` and the red team report in the research folder), decided 5 October 2026:
 
 - **Records.** One home per fact: `AGENTS.md` at 150 lines, an overview at 100, area docs at 300, an area map, the issue and a folded changelog. Lessons become checks; drift is checked on every pull request and every 2 weeks. [The records model](#mfzm5dfkkan.128385)
 - **Integration and review.** Trial joins in a scratch copy; the combined branch moves only on green; a rejection rebuilds it from main under a fresh name, with no revert, no force push and no take-out step. Docs and changelog are committed before the final check, and a merge after main moved triggers a check on main. [Review and integration](#mfzm5dfkkan.22799)
@@ -1100,7 +1100,7 @@ None. The last three questions were decided on 5 October 2026 and are listed abo
 
 **Decided.** In this order:
 
-1. **Done, 5 October 2026.** A final research pass on the finished plan, the records model especially, against current best practice. Reports: `.agents/tmp/v1-factory/research/records-model.md` and `.agents/tmp/v1-factory/research/red-team.md`. Their decisions are listed above and applied throughout this document.
+1. **Done, 5 October 2026.** A final research pass on the finished plan, the records model especially, against current best practice. Reports: `.agents/tmp/v1-factory/research/records-model.md` and the red team report in the same folder. Their decisions are listed above and applied throughout this document.
 2. **Done, 5 October 2026.** A strict review of AI Build Kit's skills, together with the principles v1's skills must follow, including well-defined checks such as Matt Pocock's list. Reports: `.agents/tmp/v1-factory/research/skill-principles.md` and `.agents/tmp/v1-factory/research/skills-audit.md`. Their decisions are in "Skills and checks", confirmed on 5 October 2026.
 3. A plan to remove AI Build Kit from this repository carefully: borrow what v1 keeps first, then delete in an order that never leaves the repository broken mid-way.
 4. The build plan for v1, in small steps, each tested end to end.

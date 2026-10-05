@@ -266,7 +266,7 @@ What changes:
    claude.ai, `redesign-answers.md`, `inventory.md`, `decisions.md`, the eight
    `research/*.md` files and the two issue drafts. Before saving, take out the
    issue numbers found in `agentic-loops.md`, `gates-determinism.md`,
-   `red-team.md`, `skill-principles.md`, `skills-audit.md` and `decisions.md`.
+   the red team report, `skill-principles.md`, `skills-audit.md` and `decisions.md`.
 
 Before: `git status` clean on `main`; tarball opens and lists `redesign-answers.md`.
 After: `git ls-remote --tags origin 'archive/*'` lists four tags at the four

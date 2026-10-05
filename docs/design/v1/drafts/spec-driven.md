@@ -137,7 +137,7 @@ Source: [docs](https://docs.bmad-method.org/),
   the score to an action (document, monitor, mitigate, block). It writes failing
   acceptance tests before code ("a test that has never failed has proven
   nothing"), builds a requirement-to-test trace matrix, audits non-functional
-  evidence, and gives a gate verdict: PASS, CONCERNS, FAIL or WAIVED, where
+  evidence, and gives a gate result: PASS, CONCERNS, FAIL or WAIVED, where
   WAIVED needs a named stakeholder's documented exception. A skipped test blocks
   rather than passing quietly.
 
