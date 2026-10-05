@@ -80,17 +80,17 @@ applies. Save a checkpoint before sweeping work. Stop and ask when:
   required capability;
 - the expected result cannot be reproduced or verified.
 
-### Sensitive areas
+### Areas and sensitive areas
 
-The build-path section may name sensitive areas, each with a caution: a backup
-restored once, a managed service, or a person who looks before the work goes
-live. On Build with care, each area also lists where it lives and may name one
-boundary. Update that map in the same save as a code move; the sensitive-area
-step in the project check says whether it still matches. At the named
-boundary, do the caution where it is the kit's to do. Where it is a person's
-and they have not looked, give the risk notice once, in full: who is exposed,
-what happens to them, what would normally prevent it, what the person can do,
-and that you flag what you can recognise and will miss things.
+Every folder belongs to an area named in the Areas section of
+`docs/working-rules.md`. Move the map in the same save as the code; the project
+check says whether it still matches. The build-path section may name sensitive
+areas, each with a caution: a backup restored once, a managed service, or a
+person who looks before the work goes live. Do the caution where it is the
+kit's to do. Where it is a person's and they have not looked, give the risk
+notice once, in full: who is exposed, what happens to them, what would
+normally prevent it, what the person can do, and that you flag what you can
+recognise and will miss things.
 
 Nothing is refused, and the work does not stop there. If the person carries on
 after the notice, that is their acceptance: record it in the build-path section

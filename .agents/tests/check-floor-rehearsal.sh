@@ -21,7 +21,12 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 FLOOR="$ROOT/.agents/skills/setup-ai-build-kit/references/check-floor.md"
 TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/checks.yml"
-SENSITIVE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/check-sensitive-areas.sh"
+# Founding places the area map script beside the gate script and writes the
+# map from this template. The project check runs the script on every pull
+# request, so it has to stay green with the project's own type check and linter
+# reading it, and the map has to claim the project's folders.
+AREA_MAP="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/area-map.py"
+RULES_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/working-rules.md"
 # Founding writes AGENTS.md from this, and the check counts its lines.
 INSTRUCTIONS="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.md"
 # Founding copies the gate script into every project, and a script the kit puts
@@ -39,11 +44,13 @@ fail() {
 
 [ -f "$GATE" ] || fail "the setup skill carries no gate script at templates/foundation/gate.py"
 [ -f "$READY_LINT" ] || fail "the setup skill carries no ready-gate lint at templates/foundation/ready-lint.py"
+[ -f "$AREA_MAP" ] || fail "the setup skill carries no area map script at templates/foundation/area-map.py"
+[ -f "$RULES_TEMPLATE" ] || fail "the setup skill carries no working rules template at templates/working-rules.md"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 PROJECT="$WORK/project"
-mkdir -p "$PROJECT/.github/workflows" "$PROJECT/.agents/hooks"
+mkdir -p "$PROJECT/.github/workflows"
 
 # --- the commands, read from the shipped table ------------------------------
 
@@ -69,11 +76,12 @@ fi
 
 # --- founding: the project and its wired check ------------------------------
 
-cp "$SENSITIVE" "$PROJECT/.agents/hooks/check-sensitive-areas.sh"
 cp "$INSTRUCTIONS" "$PROJECT/AGENTS.md"
-mkdir -p "$PROJECT/.agents/tools"
+mkdir -p "$PROJECT/.agents/tools" "$PROJECT/docs"
 cp "$GATE" "$PROJECT/.agents/tools/gate.py"
 cp "$READY_LINT" "$PROJECT/.agents/tools/ready-lint.py"
+cp "$AREA_MAP" "$PROJECT/.agents/tools/area-map.py"
+cp "$RULES_TEMPLATE" "$PROJECT/docs/working-rules.md"
 
 # The edit founding makes: the placeholder step goes, and install, type check,
 # lint and test go in its place, each as its own named step.
@@ -116,6 +124,14 @@ if __name__ == "__main__":
     unittest.main()
 PY
 
+# The area map step reads the folders Git tracks, so the project is a
+# repository with its files in Git's index, as founding leaves it.
+index_project() {
+  git -C "$PROJECT" init -q
+  git -C "$PROJECT" add -A
+}
+index_project
+
 # --- running the check the way the hosted runner would ----------------------
 
 # Prints the name of the first step that failed, or nothing when all passed.
@@ -139,7 +155,7 @@ started=$(date +%s)
 first=$(run_check)
 finished=$(date +%s)
 [ -z "$first" ] || { cat "$WORK/last-output" >&2; fail "the new project's check was red on day one, at $first"; }
-echo "  ok: the founded project's check is green on day one ($((finished - started))s), with the gate script and the ready-gate lint in place"
+echo "  ok: the founded project's check is green on day one ($((finished - started))s), with the gate script, the ready-gate lint and the area map script in place"
 
 # Green with the gate script proves nothing unless the check reads it. The
 # linter does: an unused import added to the placed copy turns Lint red.
@@ -159,6 +175,14 @@ grep -q 'ready-lint.py' "$WORK/last-output" || fail "the lint failure did not na
 mv "$WORK/lint.kept" "$PROJECT/.agents/tools/ready-lint.py"
 echo "  ok: the linter reads the placed ready-gate lint, so its green counts"
 
+cp "$PROJECT/.agents/tools/area-map.py" "$WORK/area-map.kept"
+printf '\nimport os\n' >> "$PROJECT/.agents/tools/area-map.py"
+first=$(run_check)
+[ "$first" = "Lint" ] || fail "the linter did not read the placed area map script, got '${first:-nothing}'"
+grep -q 'area-map.py' "$WORK/last-output" || fail "the lint failure did not name area-map.py"
+mv "$WORK/area-map.kept" "$PROJECT/.agents/tools/area-map.py"
+echo "  ok: the linter reads the placed area map script, so its green counts"
+
 # mypy leaves folders whose names start with a dot out of "mypy .", so the
 # type check is also run on the gate script by name, the way a project that
 # points its type check there would.
@@ -168,6 +192,9 @@ echo "  ok: the type check passes on the gate script by name"
 (cd "$PROJECT" && mypy .agents/tools/ready-lint.py) > "$WORK/last-output" 2>&1 ||
   { cat "$WORK/last-output" >&2; fail "the type check fails when pointed at the ready-gate lint"; }
 echo "  ok: the type check passes on the ready-gate lint by name"
+(cd "$PROJECT" && mypy .agents/tools/area-map.py) > "$WORK/last-output" 2>&1 ||
+  { cat "$WORK/last-output" >&2; fail "the type check fails when pointed at the area map script"; }
+echo "  ok: the type check passes on the area map script by name"
 
 # A type error in code no test reaches.
 cat >> "$PROJECT/pricing.py" <<'PY'
@@ -230,12 +257,13 @@ echo "  type check: $type_check"
 echo "  lint: $lint"
 
 PROJECT="$WORK/ts-project"
-mkdir -p "$PROJECT/.github/workflows" "$PROJECT/.agents/hooks" "$PROJECT/src"
-cp "$SENSITIVE" "$PROJECT/.agents/hooks/check-sensitive-areas.sh"
+mkdir -p "$PROJECT/.github/workflows" "$PROJECT/src"
 cp "$INSTRUCTIONS" "$PROJECT/AGENTS.md"
-mkdir -p "$PROJECT/.agents/tools"
+mkdir -p "$PROJECT/.agents/tools" "$PROJECT/docs"
 cp "$GATE" "$PROJECT/.agents/tools/gate.py"
 cp "$READY_LINT" "$PROJECT/.agents/tools/ready-lint.py"
+cp "$AREA_MAP" "$PROJECT/.agents/tools/area-map.py"
+cp "$RULES_TEMPLATE" "$PROJECT/docs/working-rules.md"
 
 awk -v tc="$type_check" -v li="$lint" '
   /- name: Install and test/ { skipping = 1 }
@@ -309,6 +337,12 @@ test("total", () => {
 });
 TS
 
+# Founding claims the folder the stand-up made, and keeps the installed tools
+# out of Git.
+printf '%s\n' '- app code: src/' >> "$PROJECT/docs/working-rules.md"
+printf '%s\n' 'node_modules/' > "$PROJECT/.gitignore"
+index_project
+
 echo "  installing the project's own check tools"
 (cd "$PROJECT" && npm install --no-audit --no-fund --silent) ||
   fail "could not install the TypeScript check tools, so the check could not be rehearsed"
@@ -319,7 +353,8 @@ finished=$(date +%s)
 [ -z "$first" ] || { cat "$WORK/last-output" >&2; fail "the new TypeScript project's check was red on day one, at $first"; }
 [ -f "$PROJECT/.agents/tools/gate.py" ] || fail "the TypeScript project lost its gate script"
 [ -f "$PROJECT/.agents/tools/ready-lint.py" ] || fail "the TypeScript project lost its ready-gate lint"
-echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s), with the gate script and the ready-gate lint in place"
+[ -f "$PROJECT/.agents/tools/area-map.py" ] || fail "the TypeScript project lost its area map script"
+echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s), with the gate script, the ready-gate lint and the area map script in place"
 
 # A type error in code no test reaches. It is exported, so the linter has no
 # reason to object and only the type check can see it.

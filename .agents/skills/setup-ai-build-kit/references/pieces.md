@@ -66,7 +66,7 @@ Loop module: <fix | build | goal | gauntlet>
 
 ## Reach
 Boundary: <area>, <area>
-Reaches: <area>, guarded by <existing tests, by name> | <area>, no test covers it, guarded by <acceptance check>
+Reaches: <area>: guarded by <existing tests, by name> | <area>: no test covers it, guarded by <acceptance check>
 If it breaks: <who notices what, and how it is undone>
 Depends on: <#number>, <#number> | nothing
 Reach derived at: <commit>
@@ -195,6 +195,16 @@ piece may carry:
 - `Depends on:` gives `#<number>` for each piece it needs, separated by commas,
   or `nothing`. The numbers match the piece's blocked-by links.
 - `Reach derived at:` names the commit the reach was worked out on.
+
+The ready-gate lint reads area names from a piece in one fixed way.
+`Boundary:` is a comma-separated list of area names on one line. Each entry
+under `Reaches:` begins with an area name followed by a colon, and the tests or
+"no test covers it" follow the colon. A name is matched whole, ignoring case
+and surrounding spaces, against the names `area-map.py areas` prints, so an
+area name holds no comma and no colon. The areas are the ones in the Areas section
+of `docs/working-rules.md`. The lint refuses a piece that names an area the
+map does not hold, and one whose boundary or reach holds an area with a
+`sensitive:` line whose caution is neither done nor accepted.
 
 The person reads the reach as one sentence, such as "This changes sign-in. It
 also reaches billing, which 14 checks guard. If it breaks, people cannot sign

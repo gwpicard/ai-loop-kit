@@ -6,8 +6,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Check sensitive-area map
-        run: sh .agents/hooks/check-sensitive-areas.sh
+      - name: Check the area map
+        run: command -v python3 >/dev/null 2>&1 || { echo 'Check the area map needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }; python3 .agents/tools/area-map.py check
       - name: Check the AGENTS.md ceiling
         run: lines=$(awk 'END { print NR }' AGENTS.md) && if [ "$lines" -gt 200 ]; then echo "AGENTS.md has $lines lines, above its ceiling of 200. Type /maintain to move the detail to the file that owns it, then push again."; exit 1; fi && echo "AGENTS.md has $lines lines, within its ceiling of 200."
       - name: Install and test

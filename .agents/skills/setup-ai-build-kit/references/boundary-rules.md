@@ -1,8 +1,9 @@
 # Boundary rules
 
-A sensitive area in the masterplan may name one boundary it must not cross.
-On its own that line is a description: a build that crosses it gets one
-sentence, and the person may leave it. A boundary rule turns the line into part
+An area may name one boundary it must not cross. A boundary line sits under
+its area in `docs/working-rules.md`, indented, in the Areas section the fit
+check describes. On its own that line is a description: a build that crosses
+it gets one sentence, and the person may leave it. A boundary rule turns the line into part
 of the project check, so a change that crosses it turns the tick red, and the
 red check carries the person's own sentence.
 
@@ -13,7 +14,7 @@ This is a whole-project read, so the rules in `whole-project-reads.md` apply.
 On Build with care, for an area that already has a `boundary:` line. Offer it,
 never impose it. It is offered at two moments: during founding, once the map is
 written, and at the quarterly visit, for an area named or given a boundary
-since the last one. Never invent a boundary the masterplan does not name.
+since the last one. Never invent a boundary the map does not name.
 
 ## Asking
 
@@ -26,7 +27,7 @@ Add no rule without a yes, and take one away only with a yes too. Record the
 yes on the area's boundary line, with the sentence:
 
 ```md
-    boundary: reached only through src/billing/charge.ts; held by the check: "Nothing outside billing touches the ledger except through the charge step."
+  boundary: reached only through src/billing/charge.ts; held by the check: "Nothing outside billing touches the ledger except through the charge step."
 ```
 
 ## Engines, best first

@@ -185,7 +185,12 @@ attribution line, not the word.
   naming the folder, and founding carries on, since the running skill is whole.
   Founding leaves each piece it opens in `shaping:clarify` or `shaping:spec`
   and takes none further, since only `/shape` writes the whole contract the
-  ready gate asks for.
+  ready gate asks for. A founded project holds `.agents/tools/area-map.py` and
+  a `docs/working-rules.md` whose Areas section passes the check. An `app`
+  folder the stand-up makes is named by the check once Git's index holds a
+  file in it, and passes once founding claims it. A whole copy of the kit
+  founded in place claims `docs/` and `agent-plugin/`, the second with the
+  area line the setup skill gives.
 - `.agents/tests/release-publication.sh` rehearses first and later publication
   against a disposable local destination.
 - `.agents/tests/pre-release-run.sh` guards the written run in
@@ -484,8 +489,11 @@ attribution line, not the word.
   minutes and never tokens, a gauntlet reference that is a dated link, a field
   the module does not use, the five reach lines with their tests on
   `origin/main`, a reach commit `origin/main` holds, `Depends on` matching the
-  blocked-by links with no cycle, a sensitive area whose caution is neither
-  done nor accepted, the crew's steps, caps and reason and the refusal of two
+  blocked-by links with no cycle, an area the project's area map does not
+  hold, read through `area-map.py` beside the lint and matched whole whatever
+  its capitals and spaces, a `Reaches:` entry with no colon after its area, a
+  map with no Areas section, an area whose `sensitive:` line points at a
+  caution neither done nor accepted, the crew's steps, caps and reason and the refusal of two
   writers, each refused phrase read from the lint's own list, a line number or
   tracked file path outside `## Relies on` and the lines naming a check, a
   numbered list of build steps, and the length limit for each type. Under the
@@ -525,9 +533,9 @@ attribution line, not the word.
   a founded project or a helper path that is a link. The gate script travels
   the same way, so every route ends with a runnable copy identical to the
   template, and the step adds it, replaces an older copy, changes nothing the
-  second time and refuses a link. The ready-gate lint travels beside the gate
-  script the same way, and the step adds it, changes nothing the second time
-  and replaces an older copy. The state guard hook does the same, and a
+  second time and refuses a link. The ready-gate lint and the area map script
+  travel beside the gate script the same way, and the step adds each, changes
+  nothing the second time and replaces an older copy. The state guard hook does the same, and a
   folder or a link in its place is refused with nothing placed. On the same six layouts
   it opens every pointer the founded AGENTS.md, the masterplan and the skills
   name to a file inside a skill. A pointer names the skill and the path inside
@@ -843,10 +851,40 @@ attribution line, not the word.
   a person sees, and the calls from shaping, building, fixing, founding and the
   monthly visit. Shaping's research runs it on `origin/main` on a project with
   code, so the questions the person is asked later rest on the code.
-- `.agents/tests/sensitive-area-map.sh` guards the readable map between named
-  sensitive areas and code. It holds the Build with care boundary, the optional
-  local data scan, each skill that reads the map, and the shipped check that
-  fails on a moved path or an unassigned source folder.
+- `.agents/tests/area-map.sh` guards the area map, the `## Areas` section of
+  a founded project's `docs/working-rules.md`. A piece's `Boundary:` and
+  `Reaches:` name areas, and a run plans from them, so every folder belongs to
+  a named area on every build path, not only Build with care. It holds the
+  map's shape in the template and in the fit check, the masterplan's sensitive
+  areas carrying no paths and pointing into the map by name, and the founded
+  AGENTS.md's "Areas and sensitive areas" pointer. It holds the project
+  check's `Check the area map` step with its run line for a runner with no
+  Python, the bootstrap and the placement step carrying the script, and the
+  founding order: stand the project up, add the files to Git's index, claim
+  every folder, run the check, then save. It holds the piece syntax the lint
+  reads, research and the builder's review reading areas through
+  `area-map.py which`, the builder's save step moving the map with the code,
+  and `/maintain` running the check on every visit and asking before it
+  changes the map. It keeps the older map's rules: the optional data scan and
+  its licence, the plain read-back, the builder's fixed review line and the
+  boundary reader it names. Each rule is taken out in turn to prove it is
+  needed.
+- `.agents/tests/area-map-rehearsal.sh` runs the shipped `area-map.py` in
+  throwaway Git projects and reads its output byte for byte, since later
+  steps read it by machine. `which` prints one line per path in the order
+  given, the path as given and then its area, `unclaimed` or `exempt`, with
+  the more specific area winning, a new file placed by its listed folder and
+  a leading `./` dropped. `areas` prints each area with its sensitive name or
+  `-`, in file order. `check` passes on a map claiming every folder and goes
+  red, naming the folder or the line, on an unclaimed folder, a listed path
+  that has gone, a path under two areas, a `sensitive:` line and a masterplan
+  line that do not match, and an area name holding a comma or a colon. A
+  folder whose every child is claimed passes, and a staged file counts as
+  tracked. A line it cannot read, a missing file or section, and a folder
+  outside Git each exit 1 in one line with no traceback, for every action.
+  A piece's `changes/` file passes before and after the fold. It runs the
+  step's run line from the shipped `checks.yml`, which passes in one line, and
+  exits 2 with its own line on a PATH with no Python.
 - `.agents/tests/checks-first.sh` guards the checks written before the code and
   the walk-through that stands in for the person's try. A check written after
   the code can pass on today's code, and a builder working alone can weaken a
@@ -895,7 +933,8 @@ attribution line, not the word.
   from saved history.
 - `.agents/tests/test-strength.sh` guards the optional check that breaks changed
   code to see whether tests notice. It holds the Build with care boundary,
-  local scope, plain report, sorting of misses, the offer during repair, and
+  local scope, plain report, sorting of misses by the area `area-map.py which`
+  names, the offer during repair, and
   the rule against adding tests just to raise a count.
 - `.agents/tests/test-strength-rehearsal.sh` runs weak tests in a throwaway
   JavaScript project. They catch one deliberate breakage and miss a boundary
@@ -937,11 +976,12 @@ attribution line, not the word.
   the language the web app recipes build in, with the tools installed as that
   project's own dependencies. It does not run the Next.js starter, since a
   project the starter made keeps the starter's own lint settings. Both
-  projects carry the gate script and the ready-gate lint where founding places
-  them and stay green. In the Python project an unused import added to either
-  copy turns the linter red, which proves the green counts, and the type check
-  passes on each by name, since `mypy .` leaves folders starting with a dot
-  out.
+  projects carry the gate script, the ready-gate lint and the area map script
+  where founding places them, with an area map that claims their folders, and
+  stay green with the `Check the area map` step running. In the Python project
+  an unused import added to any of the three copies turns the linter red,
+  which proves the green counts, and the type check passes on each by name,
+  since `mypy .` leaves folders starting with a dot out.
 - `.agents/tests/waste-read.sh` guards the quarterly read for copied code,
   unused code and unused dependencies: that it stays off Explore privately,
   keeps the settings chosen on purpose, drops a name found anywhere else in
@@ -965,14 +1005,14 @@ attribution line, not the word.
   imports the other, the project's working tree is unchanged, and a second
   read after the next visit says nothing.
 - `.agents/tests/boundary-rules.sh` guards the offer to hold a sensitive
-  area's boundary in the project check: only for a boundary the masterplan
+  area's boundary in the project check: only for a boundary the area map
   already names, offered and never imposed, added or removed only on a yes,
   green on the day it is added, withdrawn plainly where the language has no
   tool, and worded in the person's own sentence. A rule that turned the tick
   red for a boundary nobody agreed would teach people to ignore red.
   `.agents/tests/boundary-rules-rehearsal.sh` founds a throwaway Build with
   care project, fills the shipped configuration template from the boundary
-  line the masterplan records, and watches the check go red at the `Boundary
+  line its area map records under the area, and watches the check go red at the `Boundary
   rules` step on a crossing import, carrying the person's sentence word for
   word, and green once the import is gone.
 - `.agents/tests/document-read.sh` guards the read in `/sync` that checks a

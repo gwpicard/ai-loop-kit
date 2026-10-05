@@ -60,14 +60,14 @@ an older project keeps working unchanged.
 ## The kit's steps
 
 The kit's own check carries two steps a project's workflow does not:
-`Check sensitive-area map` and `Check the AGENTS.md ceiling`. Offer once to add
+`Check the area map` and `Check the AGENTS.md ceiling`. Offer once to add
 them to the chosen job, copied word for word from the installed skill's
 `templates/foundation/checks.yml`, with the type check and linter from
 `check-floor.md` where the job runs neither. Say that this changes the
 project's own automation, and what each step turns red on: the map step on a
-sensitive area whose listed paths no longer exist, the ceiling step on an
-AGENTS.md above 200 lines, and the type check and linter on the problems their
-tools report.
+folder no area claims or a listed path that no longer exists, the ceiling step
+on an AGENTS.md above 200 lines, and the type check and linter on the problems
+their tools report.
 
 - On a yes, add them to the end of that job's steps and change nothing else in
   the file.
@@ -78,8 +78,10 @@ tools report.
   steps are written for a POSIX shell. Say why in one line, and record `; kit
   steps not added`.
 
-Both steps need only `sh` and `awk`, and both read files from the project
-root. A job on a container image without those tools, or one whose
+The ceiling step needs only `sh` and `awk`, the map step needs `python3` and
+`git` as well, and both read files from the project root. Without `python3`
+the map step says so in one line rather than passing. A job on a container
+image without those tools, or one whose
 `defaults.run.working-directory` points below the root, turns red on the first
 pull request after a yes, and the fix loop then names the step. Where the job sets
 such a folder, give each added step `working-directory: .` so it runs from the

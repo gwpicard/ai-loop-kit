@@ -314,33 +314,15 @@ Last checked: YYYY-MM-DD
 Each named area gets its own line under `Sensitive areas:`, indented two
 spaces. A line carries the area, what in this tool touches it, its caution,
 and where the caution stands: `not yet done`, `done` with the date, or
-`accepted` with the date of the matching `Accepted:` line. On Build with care,
-the next line lists the paths where that area lives. A third line may name one
-boundary the area must not cross, and the project check can hold that boundary
-once the person agrees; `boundary-rules.md` says how. Every top-level source
-folder is listed under an area or on a `none:` line, so the shipped check can
-refuse a new, unassigned folder. Keep this map absent on the other two build paths.
+`accepted` with the date of the matching `Accepted:` line. The line carries no
+paths. The map lives in the Areas section of `docs/working-rules.md`, outside
+the masterplan; a sensitive area points into it by name.
 
 ```md
 Sensitive areas:
   regulated decisions: the treatment recommendation; caution: a clinician signs off the protocol before nurses act on it; not yet done
-    paths: src/recommendations/, src/rules/treatment.ts
-    boundary: reached only through src/rules/treatment.ts
   irreplaceable live data: the maintenance history import; caution: a backup restored once and the import rehearsed on a copy; done 2026-08-12
-    paths: src/imports/maintenance/
-  none: src/reporting/
 ```
-
-Read the paths back in plain words at founding. For example: "Money is the
-refund button, and it lives in the billing folder." Where the project uses a
-language Bearer covers, offer its local data scan to find files that handle
-personal data. Bearer is free to run under the Elastic License 2.0 and is not
-open source. The scan is optional; the map and its check are not.
-
-Write the map in the same save as any code move that changes it. The foundation
-check fails when a listed path has gone or a new top-level source folder has no
-area or `none` line. It says which path or folder needs a decision. The check is
-silent on Explore privately and Build and run it.
 
 Each accepted risk gets its own line, and lines are added rather than replaced.
 A line carries the date, the caution that did not happen, and the words the
@@ -356,3 +338,55 @@ the list, because the exposure is still there; the area's own line changes to
 running the fit check again, when a redesign has removed the area.
 
 The agent reads that section first in every session.
+
+## The area map
+
+The map covers the whole project and exists on every build path. A piece's
+`Boundary:` and `Reaches:` lines name areas, so an area has to name real places
+in the code. Each area is one line in the `## Areas` section of
+`docs/working-rules.md`, written `- <name>: <path>, <path>`, with folders and
+files as paths. An area whose folder does not exist yet is written
+`- <name>: none yet`, and the piece that creates the folder adds its path in
+the same save. An area name holds no comma and no colon, because a piece separates
+areas with commas and ends a reached area's name with a colon.
+
+Under an area, at most one indented `sensitive: <name>` line names the line
+under `Sensitive areas:` it belongs to. Only Build with care names sensitive
+areas, so only there does an area carry one. At most one indented
+`boundary:` line names one boundary the area must not cross, and the project
+check can hold that boundary once the person agrees; `boundary-rules.md` says
+how.
+
+```md
+## Areas
+
+- treatment rules: src/recommendations/, src/rules/treatment.ts
+  sensitive: regulated decisions
+  boundary: reached only through src/rules/treatment.ts
+- maintenance import: src/imports/maintenance/
+  sensitive: irreplaceable live data
+- reporting: src/reporting/
+- project records: docs/
+```
+
+Every tracked folder belongs to an area: the folder is listed, a folder above
+it is listed, or each file and folder directly inside it belongs to one.
+Hidden top-level folders, files at the project root and `changes/` belong to
+none. There is no exempt list beyond hidden top-level folders, root files and
+`changes/`, because an exempt list is where an unclaimed folder hides. A
+folder the map cannot sensibly own, such as vendored code, is listed under an
+area named for what it is: `- vendored libraries: vendor/`.
+
+Read each area and its home back in plain words at founding. For example:
+"Billing is the refund button, and it lives in the billing folder." Where the
+project uses a language Bearer covers, offer its local data scan to find files
+that handle personal data. Bearer is free to run under the Elastic License 2.0
+and is not open source. The scan is optional; the map and its check are not.
+
+Write the map in the same save as any code move that changes it. The project
+check runs `python3 .agents/tools/area-map.py check`, which turns red, naming
+the folder or the line, on a folder no area claims, a listed path that has
+gone, a path listed under two areas, and a `sensitive:` line and a
+`Sensitive areas:` line that do not point at each other. `area-map.py which
+<path>` names the area a path belongs to, and `area-map.py areas` lists every
+area with its sensitive area, so no skill reads the map by hand.

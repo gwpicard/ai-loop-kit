@@ -242,7 +242,9 @@ with the change marked. A code graph is never shown.
 
 The area map covers the whole project, not only the sensitive areas, so that a
 boundary always names real paths. Founding writes it, and the project check
-turns red on a folder no area claims.
+turns red on a folder no area claims. The map lives in the Areas section of
+`docs/working-rules.md`, outside the masterplan; a sensitive area points into
+it by name.
 
 The ready gate checks that every area exists in the map, that every reached
 area names a test or says none covers it, that every sensitive area in the

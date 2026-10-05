@@ -42,7 +42,8 @@ rs_rule "merged work counts once" 'count each change once along the first-parent
 rs_rule "saving the mark cannot create drift" 'leave records-only commits out'
 rs_rule "unmerged work does not count as landed" 'do not include unmerged work'
 rs_rule "the count follows code subjects, including moved paths" 'data, permissions or connections sections\. follow renamed paths'
-rs_rule "the map is optional on other paths" 'do not require one on the other build paths'
+rs_rule "the touched areas come from the area map script" \
+  'run `python3 \.agents/tools/area-map\.py which` on a change.s paths to name the areas it touched'
 rs_rule "several files do not multiply one subject change" 'count a change once for each subject it touched'
 rs_rule "non-zero subject counts earn one line and sync" 'when any subject count is non-zero, give one line with the total and the affected subjects, then offer /sync in that same line'
 rs_rule "zero subject counts stay quiet" 'stay quiet when all three counts are zero'

@@ -76,7 +76,7 @@ rs_rule "the default record for a project with no CI" \
 rs_rule "a line naming no file means the default" \
   'a profile line that names no file means that same default'
 rs_rule "the kit's two steps, copied word for word" \
-  '`check sensitive-area map` and `check the agents\.md ceiling`\. offer once to add them to the chosen job, copied word for word'
+  '`check the area map` and `check the agents\.md ceiling`\. offer once to add them to the chosen job, copied word for word'
 rs_rule "the type check and linter where the job runs neither" \
   'with the type check and linter from `check-floor\.md` where the job runs neither'
 rs_rule "the offer says it changes the project's own automation" \

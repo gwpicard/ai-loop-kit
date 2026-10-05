@@ -336,10 +336,16 @@ masterplan. The offer never holds founding up: with no answer, write
 `Sample data: not agreed yet` and carry on. A tool with neither sign-in nor a growing
 history needs no offer, since a build makes up the small case it needs.
 
-On Build with care, write the sensitive-area paths and any one-line boundaries
-from `references/fit-check.md`, read each area and its home back in plain words,
-then run the sensitive-area check installed by the bootstrap step. On the other
-two paths, leave the map absent; the check says nothing.
+Write the `## Areas` section of `docs/working-rules.md` on every build path,
+from the code where code exists and from the masterplan's own description where
+none does. The bootstrap step copied the file in with the project records area;
+"The area map" in `references/fit-check.md` says how each area is written. An
+area whose folder does not exist yet is written `none yet`. On Build with care,
+give each area inside a sensitive area its `sensitive:` line, and any one-line
+boundary. Read each area and its home back in plain words, as the fit check
+shows, and let the team correct a name or a home before going on. In a whole
+copy of the kit where `agent-plugin/` is tracked, add the area line
+`- kit installation: agent-plugin/`.
 
 If docs/MAINTAINING.md exists, delete it as part of this same commit. Current
 starter releases exclude that source-only file, but older direct clones
@@ -667,6 +673,16 @@ again once the check is done." Where the harness allows it, treat starting,
 checking the page, confirming the address, and stopping as one understandable
 operation rather than several unrelated technical approvals, then give
 AGENTS.md's warning that a technical confirmation box may appear next.
+
+Before the first checkpoint, claim what the stand-up made. Add the files that
+checkpoint will save to Git's index with `git add`, leaving out anything
+`.gitignore` keeps out, because the map check counts a folder once Git's index
+holds a file in it. Then claim, under an area in `docs/working-rules.md`,
+every folder the stand-up created, as "The area map" in the fit check says.
+Then run `python3 .agents/tools/area-map.py check`, and save the checkpoint
+only once it passes. Where it names a folder, claim that folder and run it
+again. Where the computer has no `python3`, say so in one line and carry on:
+the project check runs the same check on the first pull request.
 
 Before the first checkpoint, check whether the project already has a
 suitable save name and email configured. Never invent a real identity, and

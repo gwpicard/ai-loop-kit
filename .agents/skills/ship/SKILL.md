@@ -16,10 +16,11 @@ fit check before continuing.
 
 Read each line under `Sensitive areas`. Say for each whether its caution is
 done, accepted, or `not yet done`. An area `not yet done` gets the risk notice
-in its own step below, and the rest of the work does not wait for it. On Build
-with care, walk its `paths`, its optional `boundary`, and the folders assigned
-to `none`; stop if the shipped sensitive-area check does not agree with the
-current project.
+in its own step below, and the rest of the work does not wait for it. Then
+run `python3 .agents/tools/area-map.py check` and walk the `## Areas` section of `docs/working-rules.md`:
+each area with a `sensitive:` line, where it lives, and its optional
+`boundary`. Stop while the check names a folder or a line, and claim the folder
+or correct the line first.
 
 Read the `Recipe:` line in the stack section of the project's AGENTS.md. A file
 name there, written with its `.md` as founding records it, is the project's

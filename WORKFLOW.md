@@ -108,11 +108,14 @@ Every project has exactly one build path at a time, set by the fit check and rec
 
 **Build with care.** Some of the work touches a sensitive area: personal data, money, sign-in by outsiders, automatic action on people or other systems, irreplaceable live data, or a regulated decision. The masterplan names each area in your tool's own words, with the one caution that goes with it. The kit builds everything else the ordinary way, and in a named area the caution happens before that part goes live, or you accept skipping it on the record.
 
-Each sensitive area also says where it lives in the tool. A check keeps that
-list true: a moved place or a new part with no area stops the check and asks
-you where it belongs. When a change reaches one of those places, the review
-starts from what the change touched rather than from what the piece expected
-to touch. The map exists only on Build with care.
+Whatever the path, the map covers the whole project: every folder belongs to a
+named area, listed in `docs/working-rules.md`, and it exists on every build path.
+A piece names the areas it changes and reaches, so a run plans from real places
+in the code. A check keeps the map true. A folder that moved, or a new one no
+area claims, turns the project check red and names the folder, and /maintain
+asks you where it belongs. A sensitive area points into the map by name. When a
+change reaches one, the review starts from what the change touched rather than
+from what the piece expected to touch.
 
 An area can also name one boundary, such as "the ledger is only reached through
 the charge step". At founding, and at the quarterly visit for a newly named

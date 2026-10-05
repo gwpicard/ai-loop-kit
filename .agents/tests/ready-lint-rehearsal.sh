@@ -159,16 +159,29 @@ def care_path(stands):
             "Sensitive areas:\n"
             "  money: the refund button; caution: the shop's bookkeeper looks before it goes "
             "live; " + stands + "\n"
-            "    paths: app/\n"
-            "  none: tests/, src/\n"
             "Accepted: none\nRecheck when: payments arrive\nLast checked: 2026-10-01\n\n"
             "## What it does, and for whom\n\nRefunds.\n")
+
+
+# The area map every project carries. The lint reads area names from it through
+# area-map.py beside the lint, never from the masterplan.
+WORKING_RULES = ("# Working rules\n\n## Areas\n\n"
+                 "- refunds: app/refunds.py\n"
+                 "- orders: app/orders.py\n"
+                 "- the receipt: none yet\n"
+                 "- the founding records: none yet\n"
+                 "- refunds maths: none yet\n"
+                 "- checks: tests/\n")
+# On Build with care the refunds area points at the money line in the masterplan.
+CARE_RULES = WORKING_RULES.replace("- refunds: app/refunds.py\n",
+                                   "- refunds: app/refunds.py\n  sensitive: money\n")
 
 
 class Project:
     count = 0
 
-    def __init__(self, name, files, stack, masterplan=PLAIN_PATH, push_main=True):
+    def __init__(self, name, files, stack, masterplan=PLAIN_PATH, push_main=True,
+                 rules=WORKING_RULES):
         Project.count += 1
         self.base = os.path.join(WORK, "%02d-%s" % (Project.count, name))
         self.dir = os.path.join(self.base, "project")
@@ -181,7 +194,7 @@ class Project:
         git(self.dir, "checkout", "-q", "-b", "main")
         git(self.dir, "remote", "add", "origin", self.origin)
         write(self.dir, {"AGENTS.md": agents(stack), "masterplan.md": masterplan,
-                         "CHANGELOG.md": "# Changelog\n"})
+                         "CHANGELOG.md": "# Changelog\n", "docs/working-rules.md": rules})
         write(self.dir, files)
         git(self.dir, "add", "-A")
         git(self.dir, "commit", "-q", "-m", "founding")
@@ -310,7 +323,7 @@ def body(loop, reach, works=None, decided=None, extra="", relies=None, must=None
 def reach(head, boundary="refunds", reaches=None, breaks=None, depends="nothing"):
     return "\n".join([
         "Boundary: " + boundary,
-        "Reaches: " + (reaches or "orders, guarded by `tests/test_orders.py`"),
+        "Reaches: " + (reaches or "orders: guarded by `tests/test_orders.py`"),
         "If it breaks: " + (breaks or "the owner sees a wrong refund, and a rollback undoes it."),
         "Depends on: " + depends,
         "Reach derived at: " + head])
@@ -403,7 +416,7 @@ expect(PY_STACK.index("python3 -m pytest") < PY_STACK.index("Test command: false
 # A fix piece: the reproduction fails today, on its assertion.
 FIX = body("Loop module: fix\nAcceptance branch: spec/13-rounding\n"
            "Reproduction: tests/test_rounding.py\nMust not change: the order totals",
-           reach(HEAD, reaches="orders, guarded by `tests/test_orders.py`"),
+           reach(HEAD, reaches="orders: guarded by `tests/test_orders.py`"),
            works=["A refund of seven pounds returns seven pounds. Check: tests/test_rounding.py"])
 FIX_LABELS = ["state:shaping", "shaping:check", "type:bug", "loop:fix"]
 passes(py, 12, [issue(12, FIX, FIX_LABELS)], "a whole fix piece")
@@ -462,13 +475,13 @@ for field in ("Boundary:", "Reaches:", "If it breaks:", "Depends on:", "Reach de
     text = "\n".join(l for l in GOOD.splitlines() if not l.startswith(field)) + "\n"
     refused(py, 12, [build_piece(text)], "a reach with no %s line" % field, field)
 refused(py, 12, [build_piece(body(BUILD_LOOP, reach(
-    HEAD, reaches="orders, guarded by `tests/test_gone.py`")))],
+    HEAD, reaches="orders: guarded by `tests/test_gone.py`")))],
     "a Reaches test that is not on origin/main", "tests/test_gone.py")
 refused(py, 12, [build_piece(body(BUILD_LOOP, reach(
-    HEAD, reaches="the receipt, no test covers it, guarded by tests/test_receipt.py")))],
+    HEAD, reaches="the receipt: no test covers it, guarded by tests/test_receipt.py")))],
     "a no-test line naming a check the piece does not carry", "no test covers it")
 passes(py, 12, [build_piece(body(BUILD_LOOP, reach(
-    HEAD, reaches="the receipt, no test covers it, guarded by tests/test_refund.py")))],
+    HEAD, reaches="the receipt: no test covers it, guarded by tests/test_refund.py")))],
     "a no-test line naming the piece's own acceptance check")
 refused(py, 12, [build_piece(body(BUILD_LOOP, reach("0123456789abcdef0123456789abcdef01234567")))],
         "a Reach derived at that is not a commit", "Reach derived at:")
@@ -559,27 +572,50 @@ expect(without_hood != lint_text, "the lint carries the Under the hood exception
 loose = os.path.join(WORK, "ready-lint-without-hood.py")
 with open(loose, "w") as handle:
     handle.write(without_hood)
+# The lint reads area names through the area map script beside it.
+shutil.copy(os.path.join(os.path.dirname(LINT), "area-map.py"), os.path.join(WORK, "area-map.py"))
 code, out, err = py.lint(12, [build_piece(HOOD_PIECE)], script=loose)
 expect(code == 1 and "tests/test_orders.py" in out + err,
        "without the exception, the test file under Under the hood is refused",
        "exit %s out=%r err=%r" % (code, out, err))
 clean_after(py, "the lint without the Under the hood exception")
 
-# The sensitive area, read from the masterplan on origin/main.
-care = Project("care", PY_FILES, PY_STACK, masterplan=care_path("not yet done"))
+# The areas a piece names, read from the map on origin/main through
+# area-map.py. A name is matched whole, ignoring case and surrounding spaces.
+passes(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD, boundary="refunds,  The Receipt ")))],
+       "a two-area boundary whose second name has a space and other capitals")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(HEAD, boundary="refunds, payouts")))],
+        "a Boundary naming an area the map does not hold", "payouts")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(
+    HEAD, reaches="ledger: guarded by `tests/test_orders.py`")))],
+    "a Reaches entry naming an area the map does not hold", "ledger")
+refused(py, 12, [build_piece(body(BUILD_LOOP, reach(
+    HEAD, reaches="orders, guarded by `tests/test_orders.py`")))],
+    "a Reaches entry whose area name is not followed by a colon", "colon")
+unmapped = Project("no-map", PY_FILES, PY_STACK, rules="# Working rules\n\nNo areas yet.\n")
+unmapped.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
+refused(unmapped, 12, [build_piece(body(BUILD_LOOP, reach(unmapped.head())))],
+        "a project whose map has no Areas section", "## Areas")
+
+# The sensitive area: an area in the boundary or the reach whose map line
+# points at a masterplan line whose caution is neither done nor accepted.
+care = Project("care", PY_FILES, PY_STACK, masterplan=care_path("not yet done"),
+               rules=CARE_RULES)
 care.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
-refused(care, 12, [build_piece(body(BUILD_LOOP, reach(care.head(), boundary="money")))],
+refused(care, 12, [build_piece(body(BUILD_LOOP, reach(care.head(), boundary="refunds")))],
         "a sensitive area under Boundary whose caution is not done", "money")
 refused(care, 12, [build_piece(body(BUILD_LOOP, reach(
-    care.head(), reaches="Money, guarded by `tests/test_orders.py`")))],
+    care.head(), boundary="orders", reaches="Refunds: guarded by `tests/test_orders.py`")))],
     "a sensitive area under Reaches, in other capitals, whose caution is not done", "money")
-cared = Project("cared", PY_FILES, PY_STACK, masterplan=care_path("done 2026-09-30"))
+cared = Project("cared", PY_FILES, PY_STACK, masterplan=care_path("done 2026-09-30"),
+                rules=CARE_RULES)
 cared.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
-passes(cared, 12, [build_piece(body(BUILD_LOOP, reach(cared.head(), boundary="money")))],
+passes(cared, 12, [build_piece(body(BUILD_LOOP, reach(cared.head(), boundary="refunds")))],
        "a sensitive area whose caution is done")
-accepted = Project("accepted", PY_FILES, PY_STACK, masterplan=care_path("accepted 2026-09-30"))
+accepted = Project("accepted", PY_FILES, PY_STACK, masterplan=care_path("accepted 2026-09-30"),
+                   rules=CARE_RULES)
 accepted.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
-passes(accepted, 12, [build_piece(body(BUILD_LOOP, reach(accepted.head(), boundary="money")))],
+passes(accepted, 12, [build_piece(body(BUILD_LOOP, reach(accepted.head(), boundary="refunds")))],
        "a sensitive area whose caution is accepted")
 nopath = Project("no-build-path", PY_FILES, PY_STACK, masterplan="# Masterplan\n\nRefunds.\n")
 nopath.branch("spec/12-sign-in", {"tests/test_refund.py": REFUND_TEST})
@@ -753,7 +789,7 @@ def no_code(name, stack, runner_line, branch_files=None):
         "from app.first import first\n\n\ndef test_first():\n    assert first() == 1\n")})
     loop = "Loop module: build\nAcceptance branch: spec/40-first" + runner_line
     text = body(loop, reach(project.head(),
-                            reaches="the founding records, no test covers it, guarded by "
+                            reaches="the founding records: no test covers it, guarded by "
                                     "tests/test_first.py"),
                 works=["The first page says hello. Check: tests/test_first.py"])
     return project, text
@@ -827,7 +863,7 @@ def node_project(name, command):
 
 def node_piece(project, branch):
     return [issue(30, body("Loop module: build\nAcceptance branch: " + branch,
-                           reach(project.head(), reaches="orders, guarded by "
+                           reach(project.head(), reaches="orders: guarded by "
                                                          "`test/orders.test.mjs`"),
                            works=["A refund returns the whole amount. "
                                   "Check: test/refund.test.mjs"]), LABELS)]
@@ -865,7 +901,7 @@ vitest.branch("spec/33-refunds", {"test/refund.test.js": (
     "import { refund } from \"../lib/refunds.js\";\n"
     "test(\"refund\", () => { expect(refund(10)).toBe(whole(10)); });\n")})
 passes(vitest, 33, [issue(33, body("Loop module: build\nAcceptance branch: spec/33-refunds",
-                                   reach(vitest.head(), reaches="refunds maths, no test covers it, "
+                                   reach(vitest.head(), reaches="refunds maths: no test covers it, "
                                                                 "guarded by test/refund.test.js"),
                                    works=["A refund returns the whole amount. "
                                           "Check: test/refund.test.js"]), LABELS)],

@@ -144,14 +144,25 @@ copilot-instructions.md|.github/copilot-instructions.md
 checks.yml|.github/workflows/checks.yml
 claude-settings.json|.claude/settings.json
 session-start.sh|.agents/hooks/session-start.sh
-check-sensitive-areas.sh|.agents/hooks/check-sensitive-areas.sh
 plan-refresh.sh|.agents/tools/plan-refresh.sh
 gate.py|.agents/tools/gate.py
 ready-lint.py|.agents/tools/ready-lint.py
+area-map.py|.agents/tools/area-map.py
 state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
 gitignore|.gitignore
 FOUNDATION_FILES
+
+# The area map lives in docs/working-rules.md. Its template sits beside the
+# masterplan's rather than in the foundation folder, since founding fills it in,
+# so it is checked and copied on its own, with the same rules.
+RULES_TEMPLATE="$SKILL_ROOT/templates/working-rules.md"
+RULES_FILE="$PROJECT_ROOT/docs/working-rules.md"
+[ -f "$RULES_TEMPLATE" ] && [ ! -L "$RULES_TEMPLATE" ] || \
+  fail "template file is missing: templates/working-rules.md"
+[ ! -L "$PROJECT_ROOT/docs" ] || fail "project path is redirected outside the project: docs"
+[ ! -e "$PROJECT_ROOT/docs" ] || [ -d "$PROJECT_ROOT/docs" ] || \
+  fail "project path is not a folder: docs"
 
 # A project the kit adopts may already run its tests on every pull request, in
 # a workflow of its own. That workflow is then the project check, and the kit's
@@ -225,14 +236,24 @@ copilot-instructions.md|.github/copilot-instructions.md
 checks.yml|.github/workflows/checks.yml
 claude-settings.json|.claude/settings.json
 session-start.sh|.agents/hooks/session-start.sh
-check-sensitive-areas.sh|.agents/hooks/check-sensitive-areas.sh
 plan-refresh.sh|.agents/tools/plan-refresh.sh
 gate.py|.agents/tools/gate.py
 ready-lint.py|.agents/tools/ready-lint.py
+area-map.py|.agents/tools/area-map.py
 state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
 gitignore|.gitignore
 FOUNDATION_FILES
+
+# The area map's file is copied with the same rule: a file already there is
+# kept.
+if [ -e "$RULES_FILE" ] || [ -L "$RULES_FILE" ]; then
+  kept=$((kept + 1))
+else
+  mkdir -p "$PROJECT_ROOT/docs"
+  cp "$RULES_TEMPLATE" "$RULES_FILE"
+  created=$((created + 1))
+fi
 
 [ -z "$own_ci" ] || \
   echo "AI Build Kit found $own_ci running this project's tests on pull requests, so the kit added no checks.yml beside it"

@@ -1,7 +1,10 @@
 #!/usr/bin/env sh
 # boundary-rules-rehearsal.sh: found a throwaway Build with care project with a
 # named area, hold its boundary in the project check, and watch the check go
-# red on an import that crosses it and green once the import is gone.
+# red on an import that crosses it and green once the import is gone. The
+# boundary line sits under its area in the project's area map, the Areas
+# section of docs/working-rules.md, and the area points at the masterplan's
+# sensitive area by name.
 #
 # Everything the rule is made from comes out of shipped files. The boundary
 # line, with the person's sentence recorded on it, is written in the shape the
@@ -66,7 +69,7 @@ const checkCommand = row.split('|')[3].match(/`([^`]+)`/)[1]
   .replace(/^npx /, '').replace('<source folder>', 'src');
 console.log(`  check command: ${checkCommand}`);
 
-// --- founding: the project, its masterplan, its held boundary ---------------
+// --- founding: the project, its masterplan, its area map, its held boundary --
 
 const project = path.join(work, 'project');
 const put = (name, text) => {
@@ -81,9 +84,15 @@ put('masterplan.md', [
   'Path: Build with care',
   'Sensitive areas:',
   '  money: the refund button; caution: the owner checks the first refunds; not yet done',
-  '    paths: src/billing/',
+  '',
+].join('\n'));
+put('docs/working-rules.md', [
+  '# Working rules', '', '## Areas', '',
+  '- billing: src/billing/',
+  '  sensitive: money',
   boundaryLine,
-  '  none: src/reports/, src/index.js',
+  '- reports: src/reports/, src/index.js',
+  '- project records: docs/',
   '',
 ].join('\n'));
 
@@ -92,11 +101,10 @@ put('src/billing/ledger.js', 'export const ledger = [];\n');
 put('src/reports/sum.js', "import { charge } from '../billing/charge.js';\nexport const sum = () => charge();\n");
 put('src/index.js', "import { sum } from './reports/sum.js';\nsum();\n");
 
-// Fill the template from what the masterplan records.
-const plan = fs.readFileSync(path.join(project, 'masterplan.md'), 'utf8');
-const area = plan.match(/^ {2}(\w[\w ]*): /m)[1];
-const folder = plan.match(/^ {4}paths: (\S+)/m)[1];
-const held = plan.match(/^ {4}boundary: reached only through (\S+); held by the check: "(.+)"$/m);
+// Fill the template from what the area map records.
+const map = fs.readFileSync(path.join(project, 'docs/working-rules.md'), 'utf8');
+const [, area, folder] = map.match(/^- (\w[\w ]*): (\S+)$/m);
+const held = map.match(/^\s+boundary: reached only through (\S+); held by the check: "(.+)"$/m);
 assert.ok(held, 'the recorded boundary line could not be read back');
 const [, entry, sentence] = held;
 const asPattern = p => p.replace(/\./g, '[.]');
@@ -116,8 +124,15 @@ const workflow = fs.readFileSync(path.join(foundation, 'checks.yml'), 'utf8')
     '',
   ].join('\n'));
 put('.github/workflows/checks.yml', workflow);
-put('.agents/hooks/check-sensitive-areas.sh', fs.readFileSync(path.join(foundation, 'check-sensitive-areas.sh'), 'utf8'));
+put('.agents/tools/area-map.py', fs.readFileSync(path.join(foundation, 'area-map.py'), 'utf8'));
 put('AGENTS.md', fs.readFileSync(path.join(foundation, 'AGENTS.md'), 'utf8'));
+
+// The area map step reads the folders Git tracks, so the project is a
+// repository with its files in Git's index, as founding leaves it.
+for (const args of [['init', '-q'], ['add', '-A']]) {
+  const git = spawnSync('git', args, { cwd: project, encoding: 'utf8' });
+  assert.equal(git.status, 0, `git ${args.join(' ')} failed: ${git.stderr}`);
+}
 
 // --- running the check the way the hosted runner would ----------------------
 
