@@ -36,7 +36,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/state-guard.sh` | `fbdf054:.agents/tests/state-guard.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit`, `tests/lib` and `tests/stand-ins`. Removed the variables and checks that read the old validator and this repository's own settings. | Reads `.agents/tools/gate.py` wording in `blocked-commands.md`. |
 | `tests/co-change-rehearsal.sh` | `fbdf054:.agents/tests/co-change-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script path is `kit/scripts/co-change.sh`. | Nothing known. |
 | `tests/test-strength-rehearsal.sh` | `fbdf054:.agents/tests/test-strength-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/scripts` and `tests/stand-ins`. Removed the lines that read `references/test-strength.md` and the report assertions built on it. | Nothing known. |
-| `tests/fake-github.sh` | `fbdf054:.agents/tests/fake-github.sh` | `fbdf054` | edited: The stand-in path is `tests/stand-ins/fake-github/gh`. One comment says "the third issue" where it said "issue 3", so the house grep stays clean. | Nothing known. |
+| `tests/fake-github.sh` | `fbdf054:.agents/tests/fake-github.sh` | `fbdf054` | edited: The stand-in path is `tests/stand-ins/fake-github/gh`. One comment is reworded, "the third issue" for "issue 3", as a tidy reword. | Nothing known. |
 | `tests/push-to-main-rules.sh` | `fbdf054:.agents/tests/push-to-main-rules.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/templates` and `tests/lib`. Removed the variables and rules that read the maintain skill and `WORKFLOW.md`. | Reads wording in `blocked-commands.md`. |
 | `tests/merge-ask-rule.sh` | `fbdf054:.agents/tests/merge-ask-rule.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit`. Removed the variables and rules that read skill prose, `WORKFLOW.md`, the compatibility page and this repository's own settings. | Reads wording in `blocked-commands.md`. |
 | `tests/attribution-scrub.sh` | `fbdf054:.agents/tests/attribution-scrub.sh` | `fbdf054` | edited: Folder root now `..`; the closing check now asks that `tests/house-rules.sh` names no exemption for this file (it asked this of the old validator). | Nothing known. |
@@ -71,3 +71,4 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 - `kit/templates/checks.yml`
 - `tests/area-map-rehearsal.sh`
 - `tests/gate-script.sh`
+- `.github/workflows/v1-checks.yml` (stage D1 removes it with the old check)
