@@ -41,6 +41,10 @@ rs_require "/shape settles a named piece, not only the next in line" \
   "$SHAPE" 'given an issue number, settle that piece'
 rs_require "/shape clears what it can when the person leaves" \
   "$SHAPE" 'where the person says they are not staying'
+# Typed alone, /shape takes the research it can settle alone before the
+# questions that need the person, so a short visit still moves pieces on.
+rs_require_load_bearing "/shape takes the pieces the agent can settle alone, in shaping:research, first" \
+  "$SHAPE" 'then `shaping:research`, which needs nobody, then `shaping:clarify` and `shaping:prototype` when the person is there'
 rs_require "and leaves every person-present piece untouched" \
   "$SHAPE" 'settle none of those in their absence'
 
