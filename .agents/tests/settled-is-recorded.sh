@@ -1,8 +1,9 @@
 #!/usr/bin/env sh
 # settled-is-recorded.sh: guard the record a settled question has to leave.
 #
-# A piece waiting on a question carries a `needs-` label. Settling it writes what
-# settled it into `## Decided` and only then takes the label off. Both /shape and
+# A piece waiting on a question sits in a `shaping:` sub-state. Settling it writes
+# what settled it into `## Decided`, or `## Research` for research, and only then
+# takes the label off. Both /shape and
 # pieces.md said so, correctly and in the right order, and three measured runs
 # still relabelled with nothing written. One reached `ready` carrying no
 # `## Done when` at all, so it had never been sized either.
@@ -49,6 +50,14 @@ rs_rule "because a run believes it did the steps in order" \
   'is what a run believes it did'
 rs_rule "and nobody in the conversation can see this part" \
   'nobody in the conversation can see'
+# The gate holds the same read with a machine. On entry to a sub-state it
+# keeps a fingerprint of the answer section in a hidden marker, and it refuses
+# the move until the section differs. The prose points at it, so a refusal
+# there is read as a missing record rather than a fault to work round.
+rs_rule "the gate reads the same from its answer marker" \
+  'the gate reads the same from its answer marker'
+rs_rule "a refusal there means the record was never written" \
+  'a refusal there means the record was never written'
 rs_guard "$SHAPE" "the /shape skill"
 
 # pieces.md is where somebody reading about a piece meets the rule.

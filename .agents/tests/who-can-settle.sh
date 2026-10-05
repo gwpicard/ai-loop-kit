@@ -34,6 +34,10 @@ rs_guard "$PIECES" "pieces.md"
 # piece then looks shaped rather than guessed.
 rs_require_load_bearing "/shape never answers a person-present question itself" \
   "$SHAPE" 'never answer a person-present question yourself'
+# With nobody there the question and its labelled guess stay written on the
+# piece, so the person can answer it on their return without being asked again.
+rs_require_load_bearing "with nobody there, the question and its guess stay on the piece" \
+  "$SHAPE" 'leave each such piece in its sub-state with the question and its labelled guess written under `## open question`'
 rs_require "/shape says why a guess marked ready is worse than the open question" \
   "$SHAPE" 'worse than an open question'
 

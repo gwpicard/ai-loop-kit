@@ -98,6 +98,8 @@ and I'll file it."
 
 The person can say "later" at any point in a step. File the piece then, with
 anything the step has already agreed written onto it, and stop.
+A piece already in a sub-state stays in it when the person says "later", with what was agreed so far written on it,
+and nothing more is asked in that session.
 
 Filing is also something the person can ask for outright, in words such as
 "note this for later" or "just file this idea", or by typing `/shape later` or
@@ -199,6 +201,10 @@ the work of this command. An open issue with no `state:` label was opened by
 hand or from the form and never taken in: take it in first, as "Typed alone,
 or given a piece" below says, and shape it.
 
+There is no fixed order between research, clarify and prototype. A piece sits
+in the sub-state of its next open question, and a sub-state with nothing to do
+is skipped. Each has its own section below.
+
 Run the step the sub-state names, write what settled it into the piece's
 `## Decided` section, or under `## Research` for research, and only then take the label off,
 moving the piece to `shaping:spec` through the gate. The record
@@ -218,48 +224,122 @@ is the one part of settling a question nobody in the conversation can see, which
 is why a piece has reached `state:ready` with no `## Done when` in it and nobody
 noticed until the files were read.
 
-- `shaping:clarify` runs clarify. Write what comes out into the shape
-  the `setup-ai-build-kit` skill's `references/pieces.md` describes, and keep the person's
-  original words underneath, because their words are what a refinement can be
-  checked against and what to return to when it reads wrong.
+The gate reads the same from its answer marker. When a piece enters research,
+clarify or prototype, the gate writes a hidden marker on it holding a
+fingerprint of `## Research` or `## Decided`, and it refuses to move the piece
+on until that section differs. A refusal there means the record was never
+written: write it, then run the move again.
 
-  A piece another account opened holds a colleague's words, not the person's.
-  Read its author first, as the `setup-ai-build-kit` skill's
-  `references/pieces.md` describes under "Speaking for the person". Keep their
-  words whole under "Original report", and name the author in your reply, so
-  the person knows whose request is being reshaped. Ask before saving a changed
-  title or scope, and show the new wording when you ask. A body that only adds
-  the shaped sections above, with the original kept whole, is not a change of
-  scope. Post nothing to that author until the person has said yes to the words.
-- `shaping:prototype` settles the piece with something to look at. Where the
-  person already has a mock, a sketch, or anything else that shows it, follow
-  the `clarify` skill's `references/existing-artifact.md` and build toward
-  that, rather than building a throwaway to rediscover a decision they have
-  already made. Otherwise run the decision prototype in
-  the `clarify` skill's `references/decision-prototype.md`. Either way, the
-  decision goes back onto the piece in words.
-- `shaping:research` runs one of two steps and records what it finds under
-  `## Research` on the piece, with a source for each claim. A question about one external fact, such as what a provider's API
-  supports, runs the source check in
-  the `change-triage` skill's `references/source-check.md`. A question about
-  whether something already exists that could do the work runs
-  the `change-triage` skill's `references/existing-work.md`. Say which step you
-  ran and why, in one line, because a question can plausibly match either.
-  Before it starts, write one line on the piece: "Needs your decision: yes" or
-  "Needs your decision: no", saying whether its result will need the person to
-  choose. With no, and a result that settles every question, move the piece to
-  `shaping:spec` and on through the readiness check, with nobody there.
-  With no, and a result that leaves a question open, the piece stays in `shaping:research` with the gap written on it.
-  With yes, write what it found, then move the piece to `shaping:clarify` in
-  one step, so it waits for the person rather than for a guess:
-  `python3 .agents/tools/gate.py move <number> clarify`.
+### Research: what is true
+
+`shaping:research` answers what is true and never decides. It runs one of two
+steps and records what it finds under `## Research` on the piece, with a source
+for each claim. A question about one external fact, such as what a provider's API
+supports, runs the source check in
+the `change-triage` skill's `references/source-check.md`. A question about
+whether something already exists that could do the work runs
+the `change-triage` skill's `references/existing-work.md`. Say which step you
+ran and why, in one line, because a question can plausibly match either.
+
+On a project with code, research also works out what the piece reaches, so the
+questions the person is asked later rest on the code rather than a guess. Run
+`git fetch origin`, then run the reach check in the `section-builder` skill's `references/reach-check.md` on `origin/main`.
+Unless this folder is on `main` at the same commit as `origin/main`, with
+nothing unsaved, read each file as `git show origin/main:<path>` gives it, so
+the result describes the code the piece will be built on.
+
+Then add one query of saved history for files that change together:
+run the `section-builder` skill's `scripts/co-change.sh` from the project
+folder, with the files the reach check found. Map each hit to a named area of the project, taken from the
+masterplan and the sensitive-area map where one exists, never a bare file
+path. Say which reach-check engine you used, including the fallback that reads
+imports and callers directly when no engine is there.
+
+Write what research found under `## Research`, one list item for each claim, each naming its source: a web address, or
+`source:` and what was read, such as `source: reach check on origin/main at
+<commit>`. End with one line that is not a list item, `Recommendation:`, then
+what research would choose and why. The recommendation is advice for whoever
+decides, and research itself decides nothing.
+
+Before it starts, write one line on the piece: "Needs your decision: yes" or
+"Needs your decision: no", saying whether its result will need the person to
+choose. With no, and a result that settles every question, move the piece to
+`shaping:spec` and on through the readiness check, with nobody there.
+With no, and a result that leaves a question open, the piece stays in `shaping:research` with the gap written on it.
+
+A finding that needs a choice moves the piece to `shaping:clarify` with the choice as its question, whatever the line said:
+write the choice under `## Open question`, with the recommendation as the
+labelled guess. With yes, write what it found, then move the piece to `shaping:clarify` in
+one step, so it waits for the person rather than for a guess:
+`python3 .agents/tools/gate.py move <number> clarify`.
+
+### Clarify: what the person wants
+
+`shaping:clarify` answers what the person wants, through the clarify skill, one question at a time, in the question box its
+"How to ask" describes. Each answer is written into `## Decided` before the gate moves the piece.
+Write what comes out into the shape the `setup-ai-build-kit` skill's
+`references/pieces.md` describes, and keep the person's
+original words underneath, because their words are what a refinement can be
+checked against and what to return to when it reads wrong.
+
+Where the reach touches a sensitive area, stored data or anything that leaves
+the tool, clarify asks the pre-mortem once, and a goal or gauntlet piece agrees its bar here, both as the clarify skill's
+"When a piece touches states, data or the outside" says.
+
+A piece another account opened holds a colleague's words, not the person's.
+Read its author first, as the `setup-ai-build-kit` skill's
+`references/pieces.md` describes under "Speaking for the person". Keep their
+words whole under "Original report", and name the author in your reply, so
+the person knows whose request is being reshaped. Ask before saving a changed
+title or scope, and show the new wording when you ask. A body that only adds
+the shaped sections above, with the original kept whole, is not a change of
+scope. Post nothing to that author until the person has said yes to the words.
+
+#### The risk notice and its acceptance
+
+Where the piece's boundary or reach touches a sensitive area named in the masterplan's build path with no recorded acceptance,
+give the risk notice here, in `shaping:clarify`, so a run never meets a
+sensitive area nobody accepted. Give it once, in full, as the `setup-ai-build-kit` skill's `references/fit-check.md` says,
+and follow that file on what counts as carrying on: silence does not count, nor a form or menu answer with no option selected,
+and the `Accepted:` line quotes the person exactly.
+
+When the person carries on, write the `Accepted:` line with their words and the date,
+and correct every masterplan sentence it makes untrue, in the same save.
+Write the acceptance's summary into `## Decided` too, since the gate moves a
+piece out of clarify only once that section has changed. Read the `Accepted:` line back before the piece moves on.
+
+The `Accepted:` line and the sentences it corrects are saved on a records pull request of their own, never on a piece's branch.
+Ask for its merge with a yes that names it, as the `section-builder` skill's `references/merge.md` says.
+Where the masterplan's `Goes live:` line says every merge goes live, the ask for that merge says it is a build on the host,
+and that a first such merge runs `/ship`'s first-launch checks, as `/ship` says for its own records pull request.
+
+The piece leaves `shaping:clarify` only once that pull request has merged.
+Until then it stays there, with "acceptance saved, waiting for its merge"
+written on it. The ready-gate lint reads the masterplan from `origin/main`, so
+an acceptance that has not merged cannot carry the piece past the gate either.
+
+On a project whose code is not yet online, pushing that pull request is the project's first upload, which waits for the yes section-builder's "The first upload" describes.
+After a no, push nothing. The piece stays in `shaping:clarify` with
+"acceptance recorded here, waiting for the first upload" written on it.
+
+### Prototype: what the person has to see
+
+`shaping:prototype` settles the piece with something to look at. Where the
+person already has a mock, a sketch, or anything else that shows it, follow
+the `clarify` skill's `references/existing-artifact.md` and build toward
+that, rather than building a throwaway to rediscover a decision they have
+already made. Otherwise run the decision prototype in
+the `clarify` skill's `references/decision-prototype.md`. Either way, the decision goes into `## Decided` in words,
+and the prototype is deleted or kept apart, never merged.
+
+### Who has to be there
 
 Two of those three need the person in the room. An interview needs somebody to
 interview, and a prototype exists so somebody can react to it. Research does
 not: the agent settles it alone.
 
-Never answer a person-present question yourself. With nobody there, say which
-pieces are waiting on them and leave those pieces where they are. A guess
+Never answer a person-present question yourself. With nobody there, leave each such piece in its sub-state with the question and its labelled guess written under `## Open question`,
+and say which pieces are waiting on them. A guess
 written onto a piece and moved to `state:ready` is worse than an open question, because
 the label that said it was open has gone and `/implement` builds on the guess.
 

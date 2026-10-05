@@ -25,11 +25,12 @@ BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
 SETUP="$ROOT/.agents/skills/setup-ai-build-kit/SKILL.md"
 SYNC="$ROOT/.agents/skills/sync/SKILL.md"
 SHIP="$ROOT/.agents/skills/ship/SKILL.md"
+SHAPE="$ROOT/.agents/skills/shape/SKILL.md"
 BLOCKED="$ROOT/.agents/skills/setup-ai-build-kit/references/blocked-commands.md"
 WORKFLOW="$ROOT/WORKFLOW.md"
 
 rs_init "First upload checks"
-rs_exists "$BUILDER" "$SETUP" "$SYNC" "$SHIP" "$BLOCKED" "$WORKFLOW"
+rs_exists "$BUILDER" "$SETUP" "$SYNC" "$SHIP" "$SHAPE" "$BLOCKED" "$WORKFLOW"
 
 # The ask, and when it is due.
 rs_rule "the first push waits for a yes" 'the first push of the project.s code waits for their yes'
@@ -75,6 +76,10 @@ rs_require_load_bearing "the save step points back at the ask" "$BUILDER" 'the p
 # The other commands that push follow the same rule.
 rs_require_load_bearing "sync's save follows the first upload rule" "$SYNC" 'the project.s first upload waits for the yes section-builder.s "the first upload" describes'
 rs_require_load_bearing "ship's records follow the first upload rule" "$SHIP" 'the project.s first upload waits for the yes section-builder.s "the first upload" describes'
+# An acceptance saved in shaping travels on a records pull request, which can be
+# the first thing a project ever pushes.
+rs_require_load_bearing "shape's acceptance pull request follows the first upload rule" "$SHAPE" \
+  'pushing that pull request is the project.s first upload, which waits for the yes section-builder.s "the first upload" describes'
 rs_require_load_bearing "the push-to-main rule names its one narrow exception" "$BLOCKED" 'the one exception is the project.s first upload: after the person.s yes, and only when the remote lists no branch, `main` is created through the github api at the commit the piece.s branch was cut from'
 rs_require_load_bearing "and main is never written by a git push" "$BLOCKED" 'it is never written by a `git push`'
 

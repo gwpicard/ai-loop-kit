@@ -38,6 +38,11 @@ rs_rule "because asking again is the same question twice" 'asks the same questio
 rs_rule "a routed question starts its step" 'start the step the route names'
 rs_rule "a sitting is named in one line and then started" 'takes a sitting, so say so in one line and start'
 rs_rule "the person can say later mid-step" 'can say "later" at any point in a step'
+# A piece already waiting in research, clarify or prototype has nowhere to be
+# filed: it stays where it is, holding what was agreed, and is not asked again.
+rs_rule "a piece already in a sub-state stays in it on later" \
+  'a piece already in a sub-state stays in it when the person says "later", with what was agreed so far written on it'
+rs_rule "and nothing more is asked in that session" 'nothing more is asked in that session'
 rs_rule "what the step agreed goes onto the filed piece" 'anything the step has already agreed written onto it'
 rs_rule "filing can be asked for outright" 'note this for later'
 rs_rule "a note starts no step" 'file it without starting any step'

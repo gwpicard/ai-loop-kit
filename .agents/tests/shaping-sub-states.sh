@@ -13,6 +13,13 @@
 # as if it were the bar would pass the ready-gate lint as a decided loop
 # module. And a bug with a reproduction a person can follow that is still sent
 # round the questions makes the person answer what they already said.
+#
+# The second part guards research, clarify and prototype, the three sub-states
+# that settle a question. Research finds facts and never decides, so a finding
+# that needs a choice goes to the person. Clarify asks the person, once, the
+# questions only they can answer: the pre-mortem when the reach touches
+# something that hurts when it breaks, and the bar for a goal or a gauntlet.
+# Prototype shows them something and keeps the throwaway out of the build.
 
 set -eu
 
@@ -21,9 +28,10 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 
 TRIAGE="$ROOT/.agents/skills/change-triage/SKILL.md"
 SHAPE="$ROOT/.agents/skills/shape/SKILL.md"
+CLARIFY="$ROOT/.agents/skills/clarify/SKILL.md"
 
 rs_init "Shaping sub-state checks"
-rs_exists "$TRIAGE" "$SHAPE"
+rs_exists "$TRIAGE" "$SHAPE" "$CLARIFY"
 
 # --- triage in raw, in change-triage ------------------------------------------
 
@@ -94,5 +102,82 @@ rs_rule "and the person's words are repeated back" \
 rs_guard "$SHAPE" "the /shape skill"
 rs_require_absent "/shape no longer takes the lowest-numbered piece in shaping" \
   "$SHAPE" 'take the lowest-numbered piece still in shaping'
+
+# --- research, clarify and prototype, in /shape ------------------------------
+
+rs_reset
+rs_rule "the three asking sub-states have no fixed order" \
+  'there is no fixed order between research, clarify and prototype'
+rs_rule "a sub-state with nothing to do is skipped" \
+  'a sub-state with nothing to do is skipped'
+# Research finds facts. A research step that chose would hand the person a
+# decision already made, written up as if it were a fact.
+rs_rule "research answers what is true and never decides" \
+  '`shaping:research` answers what is true and never decides'
+rs_rule "on a project with code research runs the reach check on origin/main" \
+  'run the reach check in the `section-builder` skill.s `references/reach-check\.md` on `origin/main`'
+rs_rule "it adds one query of saved history" \
+  'add one query of saved history for files that change together'
+rs_rule "through the shipped history script" \
+  'the `section-builder` skill.s `scripts/co-change\.sh`'
+rs_rule "each hit is mapped to a named area" \
+  'map each hit to a named area of the project'
+rs_rule "research says which engine it used" \
+  'say which reach-check engine you used'
+rs_rule "each claim names its source" \
+  'one list item for each claim, each naming its source'
+rs_rule "research ends with a recommendation" \
+  'end with one line that is not a list item, `recommendation:`'
+rs_rule "the recommendation decides nothing" \
+  'research itself decides nothing'
+rs_rule "a finding that needs a choice goes to clarify as its question" \
+  'a finding that needs a choice moves the piece to `shaping:clarify` with the choice as its question'
+# Clarify asks the person what they want, and the answer is on the piece
+# before the gate moves it.
+rs_rule "clarify answers what the person wants, one question at a time" \
+  '`shaping:clarify` answers what the person wants, through the clarify skill, one question at a time'
+rs_rule "each answer is written into Decided before the gate moves the piece" \
+  'each answer is written into `## decided` before the gate moves the piece'
+rs_rule "clarify asks the pre-mortem and agrees a goal's or gauntlet's bar" \
+  'asks the pre-mortem once, and a goal or gauntlet piece agrees its bar here'
+# Prototype shows the person something, and the throwaway never ships.
+rs_rule "prototype runs the decision prototype or builds toward their mock" \
+  '`shaping:prototype` settles the piece with something to look at'
+rs_rule "the decision goes into Decided in words" \
+  'the decision goes into `## decided` in words'
+rs_guard "$SHAPE" "the /shape sub-state sections"
+
+for heading in '^### Research: what is true$' '^### Clarify: what the person wants$' \
+  '^### Prototype: what the person has to see$'; do
+  rs_require_order "/shape gives each asking sub-state a section of its own" "$SHAPE" \
+    '^## When a piece is waiting on a question$' "$heading"
+done
+
+# --- the pre-mortem and the bars, in clarify ---------------------------------
+
+# Asked everywhere it becomes noise; asked nowhere and the If it breaks: line is
+# written from a guess. So the trigger and the words are both held.
+rs_reset
+rs_rule "the pre-mortem's trigger" \
+  'where the reach touches a sensitive area, stored data or anything that leaves the tool, ask once'
+rs_rule "the pre-mortem's words" \
+  '"say this went live and went wrong\. who noticed, and what did they see\?"'
+rs_rule "the answer becomes the If it breaks line" \
+  'the answer becomes the piece.s `if it breaks:` line'
+rs_rule "a change that cannot be undone is marked not reversible" \
+  'a data change that cannot be undone is marked there with the words `not reversible`'
+rs_rule "it is skipped where the reach touches none of the three" \
+  'skip it where the reach touches none of the three'
+rs_rule "a goal's metric, command, target and budget are agreed" \
+  'for a goal piece, the person names or approves what is measured, the command that measures it, the target and a budget'
+rs_rule "and written under Loop with the date" \
+  'write all four under `## loop` with the date'
+rs_rule "a gauntlet's reference and budget are agreed" \
+  'for a gauntlet piece, the person names or approves a reference, a web address or a file in the project, and a budget'
+rs_rule "and written under Loop with the date too" \
+  'write both under `## loop` with the date'
+rs_rule "a guess at the bar is written only once approved" \
+  'written only once the person approves it'
+rs_guard "$CLARIFY" "the clarify skill"
 
 rs_done

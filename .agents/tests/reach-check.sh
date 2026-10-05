@@ -35,6 +35,10 @@ rs_guard "$REACH" "the shared reach-check reference"
 rs_require "section-builder runs it before save" "$BUILDER" 'references/reach-check\.md'
 rs_require "section-builder runs covered tests first" "$BUILDER" 'run those tests first'
 rs_require "shape uses it for under-the-hood notes" "$SHAPE" 'references/reach-check\.md'
+# Research works out what a piece reaches before the person is asked anything,
+# so the pre-mortem and the risk notice rest on the code rather than a guess.
+rs_require_load_bearing "shaping's research calls the reach check on origin/main" "$SHAPE" \
+  'on a project with code, research also works out what the piece reaches'
 rs_require_order "fix uses it before ranking causes" "$FIX" \
   'references/reach-check\.md' '^## 4\. Rank causes$'
 rs_require "the capability check records the engine" "$CAPABILITY" 'a reach-check engine is recorded'

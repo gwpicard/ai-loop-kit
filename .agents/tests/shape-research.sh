@@ -42,6 +42,15 @@ rs_require "/shape runs the existing-work search for a question about existing w
 # without the person ever learning which was run.
 rs_require_load_bearing "/shape names which step it ran, and why" \
   "$SHAPE" 'say which step you ran'
+# Both steps belong to the research sub-state's own section. Left loose in
+# /shape, they could be run from clarify, where a step that finds facts would
+# sit beside the questions only the person answers.
+rs_require_order "the source check sits in the research sub-state's section" "$SHAPE" \
+  '^### Research: what is true$' 'the `change-triage` skill.s `references/source-check\.md`'
+rs_require_order "the existing-work search sits in the research sub-state's section" "$SHAPE" \
+  '^### Research: what is true$' 'the `change-triage` skill.s `references/existing-work\.md`'
+rs_require_order "and both come before the clarify section" "$SHAPE" \
+  'the `change-triage` skill.s `references/existing-work\.md`' '^### Clarify: what the person wants$'
 
 rs_require "change-triage routes both steps under one sub-state" \
   "$TRIAGE" '`research` for a source check or a search for existing work'

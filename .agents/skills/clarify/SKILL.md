@@ -10,9 +10,19 @@ You interview people who know their work and do not know software. Your job is t
 
 ## How to ask
 
-One question at a time. Attach your best guess to each, because correcting a guess is easier than answering a blank: "When a task has no owner, my guess is it sits in a backlog until someone claims it. Right?" Plain language only, no stacked questions, no jargon.
+One question at a time, in one short sentence. Background is at most two short sentences and appears only when it is needed to answer. Label the best guess as a guess, because correcting it is easier than answering a blank: "My guess: it sits in a backlog until someone claims it. Where does a task with no owner go?" When first offering choices, say once: "Choose an answer or write your own; the first suggestion is my guess." Plain language only, no stacked questions, no jargon.
 
-Match the question to the shape of its answer. When the real answers are a short and complete list, you may offer them as choices, with your best guess marked as the likely one. A question that asks the person to describe, name, explain, or narrate is asked in plain words, with the answer left open. If you cannot write the list of possible answers without adding "something else", the question is open. Most of an interview is open questions, so plain words are the normal case.
+Match the question to the shape of its answer. When the real answers are a short and complete list, offer them as choices and put the guess first, clearly marked as the likely one. A question that asks the person to describe, name, explain, or narrate is asked in plain words, with the answer left open. If you cannot write the list of possible answers without adding "something else", the question is open. Most of an interview is open questions, so plain words are the normal case. Preserve free-text answers even where choices are offered.
+
+Read the session's role and the tools it actually exposes before choosing where to ask. A terminal alone does not prove a person is present. A background agent in a run asks through the session that started the run, even if a local question tool is exposed. With a person present, use the actual exposed question tool when its supported schema can reach that person. Follow the actual tool cardinality while sending only one question. If the tool supports free text without choices, use that for an open question. Never invent choices to satisfy a minimum option count.
+
+If no supported question tool is available, or its schema cannot express this question, ask in concise plain words. Keep the same question and clearly labelled guess in the fallback: "My guess: the team. Who uses it?" An empty submission, a cancellation, or a preselected option never submitted is no answer, and neither is silence. Never invent a human answer or consent.
+
+A background agent sends the exact question and labelled guess to the session that started the run, through the channel the run provides. Delivery alone is not an answer: settle the question only from the answer that comes back, keeping the person's words or choice. While it waits, it carries on with work that does not depend on the answer. Never open a human question box in an unattended run.
+
+When the person is not there to answer, or the question cannot reach them, leave the exact question and the labelled guess on the piece under `## Open question`, and the piece stays in its sub-state, `shaping:clarify` or `shaping:prototype`. `/shape` names it as waiting for the person. No guess is ever written as an answer, whether into `## Decided` or as a reason to move the piece on. Where the piece cannot be updated, report the exact question to the session that started the run, and never claim it was saved.
+
+A headless replay with a scripted plain-text interlocutor uses the plain-words route. Leave the question in the reply text so the scripted turn gate can see it. This routing does not turn a founding non-gate into a required answer: founding still records an unneeded answer as an open question and carries on. Earned-acceptance rules still apply, so a guess, silence or an empty form cannot stand for the person's acceptance.
 
 ## What to cover
 
@@ -71,6 +81,25 @@ tool, ask what goes, to whom, and whether the recipient is new. Skip each
 subject the piece does not touch, so a colour change hears none of them. The
 answers fill the piece's `### When it is not the normal case`, `## Data` and
 `## Leaves the tool`.
+
+Two more things are settled here when they apply.
+
+The pre-mortem. Where the reach touches a sensitive area, stored data or
+anything that leaves the tool, ask once: "Say this went live and went wrong.
+Who noticed, and what did they see?" The answer becomes the piece's
+`If it breaks:` line under `## Reach`. A data change that cannot be undone is
+marked there with the words `not reversible`, so whoever merges it knows a
+rollback will not bring the data back. Skip it where the reach touches none of
+the three, and never ask it twice for one piece.
+
+The bar for a goal or a gauntlet. For a goal piece, the person names or
+approves what is measured, the command that measures it, the target and a
+budget. Write all four under `## Loop` with the date, as `Metric:`,
+`Measured by:`, `Target:` and `Budget:`. For a gauntlet piece, the person names
+or approves a reference, a web address or a file in the project, and a budget.
+Write both under `## Loop` with the date, as `Reference:` and `Budget:`. Offer
+your own suggestion for any of these as a labelled guess; it is written only
+once the person approves it.
 
 ## When conversation cannot settle it
 
