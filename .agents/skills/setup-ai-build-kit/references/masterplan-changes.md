@@ -50,8 +50,8 @@ out, including the commit that saved the mark. Do not include unmerged work.
 
 Read the changed code to count which of those changes touched the subjects of
 the masterplan's data, permissions or connections sections. Follow renamed
-paths. Use a sensitive-area map where one exists, but do not require one on the
-other build paths. Count a change once for each subject it touched, even when
+paths. Run `python3 .agents/tools/area-map.py which` on a change's paths to
+name the areas it touched, rather than reading the map by hand. Count a change once for each subject it touched, even when
 several files cover that subject. A section's heading changing is not evidence
 that its subject changed, and a code change alone does not prove the page is
 wrong.

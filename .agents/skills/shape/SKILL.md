@@ -323,9 +323,12 @@ the result describes the code the piece will be built on.
 
 Then add one query of saved history for files that change together:
 run the `section-builder` skill's `scripts/co-change.sh` from the project
-folder, with the files the reach check found. Map each hit to a named area of the project, taken from the
-masterplan and the sensitive-area map where one exists, never a bare file
-path. Say which reach-check engine you used, including the fallback that reads
+folder, with the files the reach check found. Map each hit to a named area of the project with `python3 .agents/tools/area-map.py which`,
+given every file the reach check and the history query found. Write the
+reach in area names, and name only areas `area-map.py areas` prints, never a
+bare file path. A file `which` calls `unclaimed` sits in a folder the map is
+missing: name it under `## Research`, since the project check goes red on it.
+Say which reach-check engine you used, including the fallback that reads
 imports and callers directly when no engine is there.
 
 Write what research found under `## Research`, one list item for each claim, each naming its source: a web address, or

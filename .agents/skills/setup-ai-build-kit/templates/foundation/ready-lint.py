@@ -113,7 +113,7 @@ PATH_FIELDS = ["Reaches", "Check", "Reproduction", "Measured by", "Guard checks"
 MARKER = re.compile(r"^<!-- loop:gate .* -->\s*$")
 # The area map script beside this one. The lint reads area names through it, so
 # a piece's areas are matched against exactly what `area-map.py areas` prints.
-AREA_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "area-map.py")
+AREA_MAP = "area-map.py"
 DATE = r"\d{4}-\d{2}-\d{2}"
 
 
@@ -438,9 +438,10 @@ class Project:
 
 def load_area_map() -> Any:
     """The area map script beside the lint, loaded as a module, or None."""
-    if not os.path.isfile(AREA_MAP):
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), AREA_MAP)
+    if not os.path.isfile(path):
         return None
-    spec = importlib.util.spec_from_file_location("area_map", AREA_MAP)
+    spec = importlib.util.spec_from_file_location("area_map", path)
     if spec is None or spec.loader is None:
         return None
     module = importlib.util.module_from_spec(spec)

@@ -169,11 +169,12 @@ body:
       label: Reach
       description: >
         Five lines: Boundary:, Reaches:, If it breaks:, Depends on: and Reach
-        derived at:. Areas are named by skill, record or document name, never
-        a file path.
+        derived at:. Areas are the names in the Areas section of
+        docs/working-rules.md, never a file path. Each Reaches entry starts
+        with its area and a colon.
       placeholder: |
         Boundary: bookings
-        Reaches: availability calendar, guarded by the calendar tests
+        Reaches: availability calendar: guarded by the calendar tests
         If it breaks: freelancers cannot book, and a rollback undoes it.
         Depends on: nothing
         Reach derived at: 4f2a9c1

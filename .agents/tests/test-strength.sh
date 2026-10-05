@@ -40,7 +40,8 @@ rs_rule "keeps tool words out of the report" 'keep runner names and the word "mu
 rs_rule "keeps the fixed report shape" 'the tests were checked by breaking the code on purpose <tried> times\. they caught <caught>\. the <missed> they missed are listed on the piece'
 rs_rule "handles no misses honestly" 'with no misses, end with "they missed none\."'
 rs_rule "lists the missed behaviour on the piece" 'list each miss on the piece in plain words'
-rs_rule "reads the sensitive-area map" "compare its location with the masterplan's sensitive-area map"
+rs_rule "reads the area map through the script" \
+  'compare its location with the area map: run `python3 \.agents/tools/area-map\.py which <path>`'
 rs_rule "sorts sensitive misses as worth stopping for" 'a miss inside a named sensitive area goes under "worth stopping for", with the area named'
 rs_rule "sorts other misses as worth knowing" 'a miss elsewhere goes under "worth knowing"'
 rs_rule "explains changes without an observable effect" 'explain a change with no observable effect as such'

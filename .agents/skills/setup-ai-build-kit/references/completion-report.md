@@ -22,7 +22,7 @@ Internal facts recorded for later agents, and what the user hears instead:
 - the recipe's tool report, on the same line -> "This computer has the tools those checks use." or "Before the first launch this computer needs [each missing tool, in plain words]; that is on the plan as a setup task."
 - `Recipe: none` in AGENTS.md -> "The tool runs on a stack the kit has no recipe for, so it cannot check the launch steps a recipe would."
 - `Project check:` names a workflow of the project's own -> "Your project's own automatic check stays the one that runs on every change, and the kit added no check beside it."
-- that line ends `; kit steps not added` -> "Your own check does not count the length of the project's instructions or check the sensitive-area map, so /maintain measures both each month instead."
+- that line ends `; kit steps not added` -> "Your own check does not count the length of the project's instructions or check the area map, so /maintain measures both each month instead."
 - an adopted project keeps its own AGENTS.md, and it is above 200 lines -> "Your project's instructions are [the count] lines, above the 200 its automatic check allows, so that check will show red until you type /maintain, which moves the detail to where it belongs."
 
 These commands and states stay wherever agents already keep them (AGENTS.md,

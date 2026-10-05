@@ -185,7 +185,12 @@ attribution line, not the word.
   naming the folder, and founding carries on, since the running skill is whole.
   Founding leaves each piece it opens in `shaping:clarify` or `shaping:spec`
   and takes none further, since only `/shape` writes the whole contract the
-  ready gate asks for.
+  ready gate asks for. A founded project holds `.agents/tools/area-map.py` and
+  a `docs/working-rules.md` whose Areas section passes the check. An `app`
+  folder the stand-up makes is named by the check once Git's index holds a
+  file in it, and passes once founding claims it. A whole copy of the kit
+  founded in place claims `docs/` and `agent-plugin/`, the second with the
+  area line the setup skill gives.
 - `.agents/tests/release-publication.sh` rehearses first and later publication
   against a disposable local destination.
 - `.agents/tests/pre-release-run.sh` guards the written run in
@@ -484,8 +489,11 @@ attribution line, not the word.
   minutes and never tokens, a gauntlet reference that is a dated link, a field
   the module does not use, the five reach lines with their tests on
   `origin/main`, a reach commit `origin/main` holds, `Depends on` matching the
-  blocked-by links with no cycle, a sensitive area whose caution is neither
-  done nor accepted, the crew's steps, caps and reason and the refusal of two
+  blocked-by links with no cycle, an area the project's area map does not
+  hold, read through `area-map.py` beside the lint and matched whole whatever
+  its capitals and spaces, a `Reaches:` entry with no colon after its area, a
+  map with no Areas section, an area whose `sensitive:` line points at a
+  caution neither done nor accepted, the crew's steps, caps and reason and the refusal of two
   writers, each refused phrase read from the lint's own list, a line number or
   tracked file path outside `## Relies on` and the lines naming a check, a
   numbered list of build steps, and the length limit for each type. Under the
@@ -525,9 +533,9 @@ attribution line, not the word.
   a founded project or a helper path that is a link. The gate script travels
   the same way, so every route ends with a runnable copy identical to the
   template, and the step adds it, replaces an older copy, changes nothing the
-  second time and refuses a link. The ready-gate lint travels beside the gate
-  script the same way, and the step adds it, changes nothing the second time
-  and replaces an older copy. The state guard hook does the same, and a
+  second time and refuses a link. The ready-gate lint and the area map script
+  travel beside the gate script the same way, and the step adds each, changes
+  nothing the second time and replaces an older copy. The state guard hook does the same, and a
   folder or a link in its place is refused with nothing placed. On the same six layouts
   it opens every pointer the founded AGENTS.md, the masterplan and the skills
   name to a file inside a skill. A pointer names the skill and the path inside
@@ -925,7 +933,8 @@ attribution line, not the word.
   from saved history.
 - `.agents/tests/test-strength.sh` guards the optional check that breaks changed
   code to see whether tests notice. It holds the Build with care boundary,
-  local scope, plain report, sorting of misses, the offer during repair, and
+  local scope, plain report, sorting of misses by the area `area-map.py which`
+  names, the offer during repair, and
   the rule against adding tests just to raise a count.
 - `.agents/tests/test-strength-rehearsal.sh` runs weak tests in a throwaway
   JavaScript project. They catch one deliberate breakage and miss a boundary
@@ -967,11 +976,12 @@ attribution line, not the word.
   the language the web app recipes build in, with the tools installed as that
   project's own dependencies. It does not run the Next.js starter, since a
   project the starter made keeps the starter's own lint settings. Both
-  projects carry the gate script and the ready-gate lint where founding places
-  them and stay green. In the Python project an unused import added to either
-  copy turns the linter red, which proves the green counts, and the type check
-  passes on each by name, since `mypy .` leaves folders starting with a dot
-  out.
+  projects carry the gate script, the ready-gate lint and the area map script
+  where founding places them, with an area map that claims their folders, and
+  stay green with the `Check the area map` step running. In the Python project
+  an unused import added to any of the three copies turns the linter red,
+  which proves the green counts, and the type check passes on each by name,
+  since `mypy .` leaves folders starting with a dot out.
 - `.agents/tests/waste-read.sh` guards the quarterly read for copied code,
   unused code and unused dependencies: that it stays off Explore privately,
   keeps the settings chosen on purpose, drops a name found anywhere else in
@@ -995,14 +1005,14 @@ attribution line, not the word.
   imports the other, the project's working tree is unchanged, and a second
   read after the next visit says nothing.
 - `.agents/tests/boundary-rules.sh` guards the offer to hold a sensitive
-  area's boundary in the project check: only for a boundary the masterplan
+  area's boundary in the project check: only for a boundary the area map
   already names, offered and never imposed, added or removed only on a yes,
   green on the day it is added, withdrawn plainly where the language has no
   tool, and worded in the person's own sentence. A rule that turned the tick
   red for a boundary nobody agreed would teach people to ignore red.
   `.agents/tests/boundary-rules-rehearsal.sh` founds a throwaway Build with
   care project, fills the shipped configuration template from the boundary
-  line the masterplan records, and watches the check go red at the `Boundary
+  line its area map records under the area, and watches the check go red at the `Boundary
   rules` step on a crossing import, carrying the person's sentence word for
   word, and green once the import is gone.
 - `.agents/tests/document-read.sh` guards the read in `/sync` that checks a

@@ -22,3 +22,9 @@ not save the reach result in a file. Derive it again for each change.
 When the check finds another part of the tool, say exactly: "This change also
 reaches <part>, and the <count> tests that cover it passed." Say nothing when
 nothing else is reached.
+
+Name each part the check finds by its area. Run
+`python3 .agents/tools/area-map.py which` with the files it found, and use the
+area each line gives, so a part is always named the way the map and the
+piece's `Reaches:` line name it. A file it calls `unclaimed` sits in a folder
+the map is missing; the build adds that folder's area in the same save.

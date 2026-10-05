@@ -4,7 +4,7 @@
 #
 # boundary-rules-rehearsal.sh proves a held boundary turns the check red. This
 # half reads back the rules that keep it from becoming a red check nobody
-# trusts: it is offered and never imposed, only for a boundary the masterplan
+# trusts: it is offered and never imposed, only for a boundary the area map
 # already names, added and removed only on a yes, green on the day it is added,
 # withdrawn plainly where the language has no tool, and worded in the person's
 # own sentence rather than the tool's.
@@ -26,7 +26,7 @@ rs_exists "$RULES" "$SETUP" "$MAINTAIN" "$FIT" "$WORKFLOW"
 rs_rule "it follows the shared rules" 'the rules in `whole-project-reads\.md` apply'
 rs_rule "only on Build with care, for a named boundary" 'on build with care, for an area that already has a `boundary:` line'
 rs_rule "offered, never imposed" 'offer it, never impose it'
-rs_rule "no invented boundary" 'never invent a boundary the masterplan does not name'
+rs_rule "no invented boundary" 'never invent a boundary the map does not name'
 rs_rule "the rule is in the person's words" 'ask the person to say the rule in their own words'
 rs_rule "added and removed only on a yes" 'add no rule without a yes, and take one away only with a yes too'
 rs_rule "the yes is recorded on the line" 'record the yes on the area.s boundary line'

@@ -438,13 +438,16 @@ person's try, and take the next piece.
 Before deciding which review applies, load `references/reach-check.md`. Check
 what else the finished change reaches and which existing tests cover it, then
 run those tests first. Use what the change actually reaches when applying the
-review triggers below. On Build with care, compare the reached paths and crossed
-boundaries with the sensitive-area map in the masterplan. A match starts the
-review and says exactly: "This change reaches <area>, so a review is running."
-Check a boundary with sentrux or dependency-cruiser where either is already
-present, and by reading the changed imports where neither is present.
-Update that map in the same save as any code move that changes it. Keep the full
-project check for the pull-request gate.
+review triggers below. Then run `python3 .agents/tools/area-map.py which` on the changed paths
+and on the paths the reach check found, rather than reading the map by hand.
+On Build with care, an area it names whose `sensitive:` line points at a named
+sensitive area starts the review and says exactly: "This change reaches
+<area>, so a review is running." Check an area's boundary with sentrux or
+dependency-cruiser where either is already present, and by reading the changed
+imports where neither is present. A
+changed path `which` calls `unclaimed` sits in a folder the map is missing;
+add that folder's area before the save. Keep the full project check for the
+pull-request gate.
 
 Compare the finished structure with the baseline from step 4, using the same
 engine. Say one line only when it got worse: "This change added a loop between
@@ -478,6 +481,12 @@ own commit. Put each listed file back as it was, `git checkout <base> --
 guard says a listed file was moved, remove the moved copy too. Then run the
 checks again. Where the piece cannot pass without that change, step 4 says what
 to report.
+
+A code move and its map change share one save. Where the piece made, moved or
+removed a folder, change the area lines in `docs/working-rules.md` in this
+same save, then run `python3 .agents/tools/area-map.py check` before saving.
+Where it names a folder, claim it and run it again; two pieces adding a folder
+each may meet on that file, and the merge resolves it like any other line.
 
 Before saving on any route, apply the piece's `## Masterplan change` and update
 the trued-against mark as

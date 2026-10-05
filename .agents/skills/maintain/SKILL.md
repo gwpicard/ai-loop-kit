@@ -117,10 +117,14 @@ Small regular maintenance is what keeps the rare big problem from arriving. Repo
    harness and project can use now. Keep the same preference order as
    the `section-builder` skill's `references/reach-check.md`, and update the
    profile when a better engine has appeared or the recorded one has gone.
-7. Run the sensitive-area check installed during founding. It is silent outside
-   Build with care. Where it names a missing path or an unassigned source folder,
-   ask which sensitive area it belongs to, or whether it belongs under `none`,
-   then update the map only after the person answers.
+7. Run `python3 .agents/tools/area-map.py check` on every visit, on every build path.
+   Where it names a folder no area claims, ask which area each named folder
+   belongs to, and change the map only after the person answers. Where it names
+   a line, such as a listed path that has gone, say what the line says and ask
+   where the code moved. Where the computer has no `python3`, give the project
+   check's own line, "Check the area map needs Python 3, which this runner does
+   not have. Add a step that installs Python 3 before this one.", and carry on
+   with the visit.
 8. If the normal route is unavailable, use the latest published Release, the
    one step 1 read, as the fallback source. A shared installation may replace
    only the thirteen AI Build Kit skill folders after the same approval and
@@ -230,7 +234,8 @@ On the clean checkpoint from step 2, and after the update where the person
 approved one, run `sh <installed setup-ai-build-kit skill>/scripts/place-plan-helper.sh`
 from the project root. It places the helper, and beside it the gate script, `.agents/tools/gate.py`, and the state guard hook, `.agents/hooks/state-guard.sh`,
 since an update brings none of them. The ready-gate lint the gate calls,
-`.agents/tools/ready-lint.py`, is placed beside the gate script the same way. It adds each one when it is missing,
+`.agents/tools/ready-lint.py`, and the area map script the project check runs,
+`.agents/tools/area-map.py`, are placed beside the gate script the same way. It adds each one when it is missing,
 replaces a copy that differs from the installed one, and changes nothing when
 the copy is current, so it is safe on every visit. It refuses a link or a
 folder where one of them belongs.

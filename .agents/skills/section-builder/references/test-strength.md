@@ -45,7 +45,9 @@ purpose 40 times. They caught 37. The three they missed are listed on the piece.
 
 List each miss on the piece in plain words: what changed, what the tests let
 through, and which promised behaviour that could affect. Compare its location
-with the masterplan's sensitive-area map. A miss inside a named sensitive area
+with the area map: run `python3 .agents/tools/area-map.py which <path>`, and a
+miss in an area whose `sensitive:` line names a sensitive area is inside that
+area. A miss inside a named sensitive area
 goes under "Worth stopping for", with the area named; a miss elsewhere goes
 under "Worth knowing". Explain a change with no observable effect as such.
 The person decides whether a miss matters and whether to strengthen the

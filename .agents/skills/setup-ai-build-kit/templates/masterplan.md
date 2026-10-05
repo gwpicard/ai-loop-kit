@@ -26,10 +26,11 @@ first, every session. -->
 Path:
 Why:
 Sensitive areas:
-<!-- Build with care only. Under each area, add an indented `paths:` line and
-at most one `boundary:` line. List every other top-level source folder on an
-indented `none:` line. Update the map in the same save as a code move. Omit the
-map on Explore privately and Build and run it. -->
+<!-- Build with care only. One line for each sensitive area, indented two
+spaces, with its caution and where the caution stands. The line names no
+folders: where each area lives is in the Areas section of
+`docs/working-rules.md`, and an area there points back with `sensitive:
+<name>`. -->
 Accepted:
 Recheck when:
 Last checked:
