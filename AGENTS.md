@@ -1409,7 +1409,27 @@ attribution line, not the word.
   that the three labels each say who can answer, that /shape never answers a
   person-present question itself, that it can be pointed at one piece and can
   clear the research alone, and that /what-now stops calling that research the
-  person's errand.
+  person's errand. Typed alone, /shape takes `shaping:research`, which needs
+  nobody, before the questions that need the person.
+- `.agents/tests/shaping-sub-states.sh` guards the one route every piece takes
+  through shaping. For now it holds triage in raw and the bug fast path. When
+  /shape takes up a raw piece, change-triage writes four things on it before
+  it moves: its `type:` label, a guess at its loop module, any piece it
+  repeats or overlaps, and its first open question. The type comes from the
+  masterplan: behaviour it promised is a repair, `type:bug`, and anything it
+  never promised is a wish, `type:feature`, however it is worded. That is the
+  report check `/fix` made first. The guess is written as `Loop module:
+  <module> (guess, <why>)`, so the ready-gate lint never reads it as the bar,
+  and spec replaces it and writes the `loop:` label. The piece then moves to
+  the sub-state of its question, or to `shaping:spec` with none, and a change
+  to what kind of project this is stops for the fit check first. A bug with
+  steps, expected result and actual result goes straight to `shaping:spec`
+  with `loop:fix`, and /shape offers `/implement` once it is ready. A bug with
+  no clear reproduction goes to `shaping:clarify` with the missing step as its
+  question. Typed alone, /shape takes a kicked-back piece first, then one in
+  `shaping:check`, then research, then clarify and prototype when the person
+  is there, then spec, then the oldest raw note. Where GitHub cannot be
+  reached, nothing is filed and the person's words are repeated back.
 - `.agents/tests/shape-later.sh` guards when /shape shapes now and when it
   files a piece for later. Typed with words it starts the step with no offer
   first, since typing it was already the choice, and it says in one line when
@@ -1417,7 +1437,9 @@ attribution line, not the word.
   for a note in the first place. A piece deferred part-way is filed with its
   question, their words and the sub-state that names it, with nothing started,
   and a note asked for outright is captured through the gate as a
-  `shaping:raw` piece in their own words. It also holds that
+  `shaping:raw` piece in their own words. A note that matches an open piece,
+  or a closed one whether completed or not planned, goes onto that piece as a
+  comment. It also holds that
   the old every-time offer stays gone, that change-triage recognises a request
   to file, that pieces.md says roughly what each waiting label costs to settle,
   and that /what-now calls a planning session when more pieces are waiting
