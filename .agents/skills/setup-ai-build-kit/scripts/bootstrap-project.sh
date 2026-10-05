@@ -153,6 +153,19 @@ env.example|.env.example
 gitignore|.gitignore
 FOUNDATION_FILES
 
+# The bar guard and the test guard it wraps ship in the section-builder skill,
+# beside this one, so their paths climb out of the foundation folder to it.
+# Every installation carries that skill. Where it is missing anyway, founding
+# carries on without the two and says so once, and /maintain places them once
+# the skill is there.
+GUARD_FILES=
+for guard_name in bar-guard.sh test-guard.sh; do
+  guard_source="../../../section-builder/scripts/$guard_name"
+  [ -e "$FOUNDATION/$guard_source" ] || continue
+  validate_foundation_file "$guard_source" ".agents/tools/$guard_name"
+  GUARD_FILES="$GUARD_FILES $guard_name"
+done
+
 # The area map lives in docs/working-rules.md. Its template sits beside the
 # masterplan's rather than in the foundation folder, since founding fills it in,
 # so it is checked and copied on its own, with the same rules.
@@ -244,6 +257,12 @@ state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
 gitignore|.gitignore
 FOUNDATION_FILES
+
+for guard_name in $GUARD_FILES; do
+  copy_foundation_file "../../../section-builder/scripts/$guard_name" ".agents/tools/$guard_name"
+done
+[ "$GUARD_FILES" = " bar-guard.sh test-guard.sh" ] || \
+  note "the section-builder skill is not installed beside this one, so the bar guard and the test guard were not placed in .agents/tools/. Founding carries on; /maintain places them once the skill is installed."
 
 # The area map's file is copied with the same rule: a file already there is
 # kept.

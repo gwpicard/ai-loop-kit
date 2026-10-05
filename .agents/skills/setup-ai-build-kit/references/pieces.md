@@ -228,6 +228,21 @@ resource it cannot share with another piece.
 `Under the hood` holds the build approach, and the existing tests this piece
 may change, with the reason.
 
+`Under the hood` also holds a `Changes the bar:` line for each guarded change
+the piece needs, one path to a line, written as `Changes the bar: <path>,
+because <reason>` with the whole path. A guarded change is one the bar guard,
+the `section-builder` skill's `scripts/bar-guard.sh`, lists: a lint or type
+suppression, a skip or focus marker in a test, a line added to a test, lint,
+type-check or coverage tool's settings, an updated snapshot, or a change to a
+workflow, a hook, the gate's scripts or the Claude Code settings.
+
+A guarded change counts as named only on a `Changes the bar:` line under `Under the hood`,
+and the gate refuses to send a piece to review with one the piece did not name.
+A named one still goes to the person's review. The ready-gate lint lets a path
+stand on that line. Write it while the piece is shaped: once the piece is ready
+its contract is fixed, and a change to it during the build sends the piece back
+to spec.
+
 `## Evidence` names the kind of proof, summarising the checks on the Done when
 lines.
 
@@ -248,7 +263,8 @@ shaping conversation. Three rules keep it usable that way:
   `Under the hood` is the one further place, and only for a test file. The
   test guard in the `section-builder` skill's `scripts/test-guard.sh` lets an
   existing test change only when `Under the hood` names it by its whole path.
-  A line number there is still refused, and so is any other path.
+  A line number there is still refused, and so is any other path, except on a
+  `Changes the bar:` line.
 - Each acceptance criterion checkable on its own. Every Works line names its
   own check, and no line passes only because another one does.
 

@@ -19,6 +19,7 @@ Commands:
   gate.py capture <number>
   gate.py move <number> <target> [--run <name>] [--assignee <login>]
                                  [--reason <text>] [--withdrawn-by <number>]
+  gate.py check-contract <number> [--run <name>]
   gate.py drop <number> --reason <text>
   gate.py tidy
   gate.py report
@@ -29,6 +30,25 @@ state (shaping, ready, building, in-review), with or without its prefix.
 A move from shaping:check to state:ready also needs one loop: label and the
 ready-gate lint beside this script, .agents/tools/ready-lint.py, to pass. The
 refusal prints the lint's gaps as it gave them.
+
+The move to state:ready posts the contract's hash on the issue first, as
+<!-- loop:contract sha256=<hash> commit=<spec commit> -->, where the spec
+commit is the tip of the piece's Acceptance branch, or none without one. The
+hash covers the body with the sections the system writes later left out
+(Kickback, Readiness and Learned) and every <!-- loop:... --> marker line, each
+line's trailing spaces dropped. check-contract reads the newest such comment
+and works the hash out again. A piece being built whose contract changed goes
+back to shaping:spec with a Kickback section saying so, and its branch stays. A
+piece with no hash comment has one recorded then. section-builder runs it at
+the start of every attempt, and the move to state:in-review runs it again.
+
+The move to state:in-review also runs the bar guard beside this script,
+.agents/tools/bar-guard.sh, on the pull request's branch. A change to the bar
+the piece did not name refuses the move and names each file to put back. A
+named one, and a changed path outside the piece's Boundary in the area map at
+the base, forces the person's review: each reason is a line in
+.agents/pieces/<number>/forced.jsonl in the main folder, and the reasons are
+posted on the issue as one comment. Only this script writes that file.
 
 A move into a shaping sub-state writes a hidden marker holding a fingerprint
 of the sections that sub-state answers in, and the move out reads them again.
@@ -45,6 +65,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -155,6 +176,19 @@ KEPT_BRANCH = re.compile(r"^\s*(?:[-*]\s+)?Kept branch:", re.IGNORECASE)
 MARKER = re.compile(r"^<!-- loop:gate sub-state=([a-z-]+) since=(\S+) answer=([0-9a-f]*)"
                     r"(?: question=([0-9a-f]*))? -->\s*$")
 
+# The contract's hash, posted on the issue when the piece is made ready.
+CONTRACT = re.compile(r"<!-- loop:contract sha256=([0-9a-f]{64}) commit=(\S+) -->")
+# The sections the system writes after a piece is ready, which the hash leaves
+# out, and any hidden marker line.
+SYSTEM_SECTIONS = ("kickback", "readiness", "learned")
+ANY_MARKER = re.compile(r"^\s*<!-- loop:[a-z-]+.*-->\s*$")
+CHANGED = "The contract changed while it was being built."
+
+# The scripts beside this one that the move to state:in-review runs.
+BAR_GUARD = "bar-guard.sh"
+AREA_MAP = "area-map.py"
+MAP_FILE = "docs/working-rules.md"
+
 
 # --- how the gate speaks -------------------------------------------------
 
@@ -165,6 +199,15 @@ class Refused(Exception):
         super().__init__(what)
         self.what = what
         self.next_step = next_step
+
+
+class KickedBack(Exception):
+    """The gate sent the piece back to spec because its contract changed."""
+
+    def __init__(self, done: str, number: int) -> None:
+        super().__init__(done)
+        self.done = done
+        self.number = number
 
 
 class Unreachable(Exception):
@@ -534,7 +577,9 @@ def save_run(name: str, record: dict[str, Any], number: int, status: str) -> Non
 
 def check_condition(condition: str, number: int, origin: str, target: str,
                     issue: dict[str, Any], options: dict[str, str],
-                    record: dict[str, Any] | None) -> None:
+                    record: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Refuse when the move's condition fails. The pull request row returns the
+    pull request it found, which the move to review reads."""
     body = str(issue.get("body") or "")
     names = label_names(issue)
     move = f"gate.py move {number} {short(target)}"
@@ -643,12 +688,14 @@ def check_condition(condition: str, number: int, origin: str, target: str,
 
     if condition == "pull request":
         pulls = gh_json(["pr", "list", "--state", "open", "--limit", "200",
-                         "--json", "number,body"])
+                         "--json", "number,body,headRefName,baseRefName"])
         closing = re.compile(rf"\bcloses\s+#{number}\b", re.IGNORECASE)
-        if not any(closing.search(str(p.get("body") or "")) for p in pulls
-                   if isinstance(p, dict)):
+        found = [p for p in pulls if isinstance(p, dict)
+                 and closing.search(str(p.get("body") or ""))]
+        if not found:
             refuse(f"no open pull request says Closes #{number}",
                    f"open the pull request with Closes #{number} in its body, then run: {move}")
+        return found[0]
 
     if condition == "kickback":
         kickback = section(body, "Kickback")
@@ -693,6 +740,7 @@ def check_condition(condition: str, number: int, origin: str, target: str,
         else:
             refuse("a piece goes back to ready only with --run <name> or --withdrawn-by <number>",
                    f"gate.py move {number} ready --run <name>")
+    return None
 
 
 LINT = "ready-lint.py"
@@ -732,9 +780,288 @@ def number_from(text: str) -> int:
     return int(cleaned)
 
 
+# --- the frozen bar ------------------------------------------------------
+
+def git(folder: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", folder, *args], capture_output=True, text=True,
+                          check=False)
+
+
+def contract_hash(body: str) -> str:
+    """The hash of the contract: the body without the sections the system writes
+    after the piece is ready and without the marker lines. A heading inside a
+    fenced code block is not a heading."""
+    kept: list[str] = []
+    skipping = False
+    fence = False
+    for line in body.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        heading = None if fence else re.match(r"^(#{1,3})\s+(.*?)\s*$", line)
+        if heading:
+            skipping = heading.group(2).lower() in SYSTEM_SECTIONS
+        if skipping or ANY_MARKER.match(line):
+            continue
+        kept.append(line.rstrip())
+    return hashlib.sha256("\n".join(kept).strip("\n").encode("utf-8")).hexdigest()
+
+
+def acceptance_branch(body: str) -> str | None:
+    for line in (section(body, "Loop") or "").splitlines():
+        match = re.match(r"^\s*(?:[-*]\s+)?Acceptance branch:\s*(.*)$", line, re.IGNORECASE)
+        if match:
+            return match.group(1).strip().strip("`").strip() or None
+    return None
+
+
+def spec_commit(number: int, body: str) -> str:
+    """The commit at the tip of the piece's acceptance branch, or none without one."""
+    branch = acceptance_branch(body)
+    if not branch:
+        return "none"
+    root = main_folder()
+    for ref in (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"):
+        done = git(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}")
+        if done.returncode == 0 and done.stdout.strip():
+            return done.stdout.strip()
+    refuse(f"the acceptance branch {branch} that #{number} names is not on this computer",
+           f"git fetch origin {branch}, then run the same command again")
+
+
+def contract_on_record(number: int) -> tuple[str, str] | None:
+    """The hash and spec commit from the newest loop:contract comment, or None."""
+    comments = gh_json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}/comments",
+                        "--paginate"])
+    found = None
+    for comment in comments if isinstance(comments, list) else []:
+        if not isinstance(comment, dict):
+            continue
+        for match in CONTRACT.finditer(str(comment.get("body") or "")):
+            found = (match.group(1), match.group(2))
+    return found
+
+
+def post_contract(number: int, body: str, commit: str) -> None:
+    text = ("The contract this piece is built against, fixed when it was made ready.\n"
+            f"<!-- loop:contract sha256={contract_hash(body)} commit={commit} -->\n")
+    try:
+        gh(["issue", "comment", str(number), "--body-file", "-"], stdin=text)
+    except Unreachable as error:
+        raise Unreachable(f"the contract hash could not be posted on #{number}, so nothing "
+                          f"changed ({error.detail})", error.detail)
+
+
+def with_kickback(body: str, text: str) -> str:
+    """The body with a Kickback section holding text, unless one already does."""
+    if text in (section(body, "Kickback") or ""):
+        return body
+    return body.rstrip() + "\n\n## Kickback\n" + text + "\n"
+
+
+def kick_back(number: int, options: dict[str, str]) -> NoReturn:
+    run = {"run": options["run"]} if options.get("run") else {}
+    done = move_piece([str(number), "spec"], run,
+                      kickback=CHANGED + " It was read again before this attempt and its "
+                      "hash no longer matches the one posted when it was made ready, so "
+                      "the bar it would be built against is not the one that was checked. "
+                      "The branch is kept.")
+    raise KickedBack(done, number)
+
+
+def worktree_for(branch: str) -> str | None:
+    """The folder that has the branch checked out, if any does."""
+    done = git(os.getcwd(), "worktree", "list", "--porcelain")
+    folder = None
+    for line in done.stdout.splitlines():
+        if line.startswith("worktree "):
+            folder = line[len("worktree "):]
+        elif line == f"branch refs/heads/{branch}" and folder:
+            return folder
+    return None
+
+
+def load_area_map() -> Any:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), AREA_MAP)
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location("area_map", path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    writes = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = writes
+    return module
+
+
+def boundary_of(body: str) -> list[str]:
+    for line in (section(body, "Reach") or "").splitlines():
+        match = re.match(r"^\s*(?:[-*]\s+)?Boundary:\s*(.*)$", line, re.IGNORECASE)
+        if match:
+            return [a.strip().strip("`.").strip().lower() for a in match.group(1).split(",")
+                    if a.strip()]
+    return []
+
+
+def outside_boundary(folder: str, base: str, body: str) -> list[dict[str, str]]:
+    """A reason for each changed path the piece's Boundary does not hold.
+
+    The map is read from the base, so a branch cannot widen its own boundary. A
+    path the map calls exempt is inside every boundary.
+    """
+    changed = git(folder, "-c", "core.quotePath=false", "diff", "--no-renames",
+                  "--name-only", base).stdout.split("\n")
+    changed += git(folder, "-c", "core.quotePath=false", "ls-files", "--others",
+                   "--exclude-standard").stdout.split("\n")
+    paths = list(dict.fromkeys(p for p in changed if p))
+    if not paths:
+        return []
+    area_map = load_area_map()
+    shown = git(folder, "show", f"{base}:{MAP_FILE}")
+    problem = ""
+    areas: list[Any] = []
+    if area_map is None:
+        problem = f"the area map script, .agents/tools/{AREA_MAP}, is not beside the gate"
+    elif shown.returncode != 0:
+        problem = f"the base holds no {MAP_FILE}"
+    else:
+        try:
+            areas = area_map.read_map(shown.stdout)
+        except area_map.MapError as error:
+            problem = f"the area map at the base cannot be read ({error})"
+    if problem:
+        return [{"reason": "outside_boundary", "source": "move",
+                 "detail": f"{problem}, so no changed path could be placed in an area"}]
+    allowed = boundary_of(body)
+    folders = area_map.folders_of(area_map.tracked_files(folder))
+    reasons = []
+    for path in paths:
+        name = area_map.area_of(path, areas)
+        if name is None:
+            name = "exempt" if area_map.is_exempt(path, folders, folder) else "unclaimed"
+        if name == "exempt" or name.strip().lower() in allowed:
+            continue
+        where = "no area (unclaimed)" if name == "unclaimed" else f"the area {name}"
+        reasons.append({"reason": "outside_boundary", "source": "move",
+                        "detail": f"{path} is in {where}, outside the piece's Boundary"})
+    return reasons
+
+
+def guard_the_bar(number: int, body: str, pull: dict[str, Any], spec: str,
+                  move: str) -> list[dict[str, str]]:
+    """Run the bar guard and place the changed paths, on the pull request's branch.
+
+    Refuses on a change to the bar the piece did not name. Returns the reasons
+    that force the person's review.
+    """
+    guard = os.path.join(os.path.dirname(os.path.abspath(__file__)), BAR_GUARD)
+    if not os.path.isfile(guard):
+        refuse(f"the bar guard is missing beside the gate, at .agents/tools/{BAR_GUARD}, so "
+               f"#{number} cannot be checked", f"run /maintain, which puts it back, then run: "
+                                               f"{move}")
+    head = str(pull.get("headRefName") or "")
+    base_name = str(pull.get("baseRefName") or "main")
+    root = main_folder()
+    folder = worktree_for(head) if head else None
+    temp = ""
+    if folder is None:
+        ref = next((r for r in (f"refs/heads/{head}", f"refs/remotes/origin/{head}")
+                    if head and git(root, "rev-parse", "--verify", "--quiet",
+                                    r + "^{commit}").returncode == 0), None)
+        if ref is None:
+            refuse(f"the pull request's branch {head or '(none)'} is not on this computer, so "
+                   f"#{number} cannot be checked",
+                   f"git fetch origin {head}, then run: {move}")
+        temp = tempfile.mkdtemp(prefix="gate-")
+        folder = os.path.join(temp, "checkout")
+        added = git(root, "worktree", "add", "--quiet", "--detach", folder, ref)
+        if added.returncode != 0:
+            os.rmdir(temp)
+            refuse(f"a temporary checkout of {head} could not be made "
+                   f"({added.stderr.strip()})", f"check out {head}, then run: {move}")
+    try:
+        base_ref = next((r for r in (f"refs/remotes/origin/{base_name}",
+                                     f"refs/heads/{base_name}")
+                         if git(folder, "rev-parse", "--verify", "--quiet",
+                                r + "^{commit}").returncode == 0), None)
+        if base_ref is None:
+            refuse(f"the pull request's base {base_name} is not on this computer",
+                   f"git fetch origin {base_name}, then run: {move}")
+        base = git(folder, "merge-base", base_ref, "HEAD").stdout.strip()
+        if not base:
+            refuse(f"{head} shares no history with {base_name}", "gate.py report")
+        args = ["sh", guard, base, "-"] + ([spec] if spec != "none" else [])
+        try:
+            done = subprocess.run(args, cwd=folder, input=body, capture_output=True,
+                                  text=True, check=False)
+        except OSError as error:
+            refuse(f"the bar guard could not be started ({error})", move)
+        if done.returncode not in (0, 1):
+            said = " ".join(done.stderr.split()) or "no message"
+            refuse(f"the bar guard could not check #{number}: {said}",
+                   f"run the same move again once that is put right: {move}")
+        rows = [line.split("\t") for line in done.stdout.splitlines() if line.count("\t") == 2]
+        unnamed = [row for row in rows if row[2] == "not named"]
+        if unnamed:
+            listed = "\n".join(f"- {kind}: {path}" for kind, path, _ in unnamed)
+            moved = "".join(f"\n  {line}" for line in done.stderr.splitlines()
+                            if "was moved to" in line)
+            refuse(f"#{number} changes what it is measured against without naming it, so it "
+                   f"cannot go to review:\n{listed}{moved}",
+                   f"put each listed file back as it was at the base, with git checkout "
+                   f"{base[:12]} -- <file>, or an acceptance check as it was at "
+                   f"{spec[:12]}, then run: {move}")
+        reasons = [{"reason": "guard_change", "source": "move",
+                    "detail": f"{path} ({kind}) changes the bar, named on a Changes the bar "
+                              "line"} for kind, path, _ in rows]
+        return reasons + outside_boundary(folder, base, body)
+    finally:
+        if temp:
+            git(root, "worktree", "remove", folder)
+            git(root, "worktree", "prune")
+            if os.path.isdir(temp) and not os.listdir(temp):
+                os.rmdir(temp)
+
+
+def forced_path(number: int) -> str:
+    return os.path.join(main_folder(), ".agents", "pieces", str(number), "forced.jsonl")
+
+
+def record_forced(number: int, reasons: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Append each new reason to forced.jsonl, one line each, and return them all."""
+    path = forced_path(number)
+    held: list[dict[str, str]] = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    value = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(value, dict):
+                    held.append(value)
+    seen = {(h.get("reason"), h.get("detail")) for h in held}
+    fresh = [r for r in reasons if (r["reason"], r["detail"]) not in seen]
+    if fresh:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write("".join(json.dumps(r, sort_keys=True) + "\n" for r in fresh))
+    return held + fresh
+
+
 # --- the commands --------------------------------------------------------
 
 def command_move(arguments: list[str], options: dict[str, str]) -> None:
+    say(move_piece(arguments, options))
+
+
+def move_piece(arguments: list[str], options: dict[str, str],
+               kickback: str | None = None) -> str:
+    """Make one move and return the line that says so. With kickback, a Kickback
+    section holding that text is written in the same call as the labels."""
     if len(arguments) != 2:
         refuse("move needs a piece and a target", "gate.py move <number> <target>")
     number = number_from(arguments[0])
@@ -751,6 +1078,8 @@ def command_move(arguments: list[str], options: dict[str, str]) -> None:
     if open_parts(issue):
         refuse(f"#{number} has open parts, and its parts carry the states, not it",
                "gate.py report")
+    if kickback:
+        issue = dict(issue, body=with_kickback(str(issue.get("body") or ""), kickback))
     names = label_names(issue)
     origin = position(number, names)
 
@@ -765,11 +1094,28 @@ def command_move(arguments: list[str], options: dict[str, str]) -> None:
         allowed = [short(r[1]) for r in TRANSITIONS if r[0] == origin]
         refuse(f"the gate makes no move from {origin} to {target}",
                f'gate.py move {number} <{"|".join(allowed)}>')
-    check_condition(row[2], number, origin, target, issue, options, record)
+    pull = check_condition(row[2], number, origin, target, issue, options, record)
+
+    # The move to review reads the contract again and guards the bar first.
+    forced: list[dict[str, str]] = []
+    recorded_now = ""
+    if row[2] == "pull request" and pull is not None:
+        body_now = str(issue.get("body") or "")
+        on_record = contract_on_record(number)
+        if on_record is None:
+            spec = spec_commit(number, body_now)
+            recorded_now = spec
+        elif on_record[0] != contract_hash(body_now):
+            kick_back(number, options)
+        else:
+            spec = on_record[1]
+        forced = guard_the_bar(number, body_now, pull, spec, f"gate.py move {number} in-review")
 
     # Read the piece again just before writing. Another session may have moved
     # it since the first read, and a move on stale labels would undo theirs.
     again = read_issue(number)
+    if kickback:
+        again = dict(again, body=with_kickback(str(again.get("body") or ""), kickback))
     if kit_labels(label_names(again)) != kit_labels(names):
         carried = ", ".join(kit_labels(label_names(again))) or "no state"
         refuse(f"#{number} changed while this move was being checked: it now carries "
@@ -788,6 +1134,29 @@ def command_move(arguments: list[str], options: dict[str, str]) -> None:
     remove_assignees: list[str] = []
     if target == "state:ready" and origin in ("state:building", "state:in-review"):
         remove_assignees = assignee_logins(again)
+
+    # The hash goes on the issue before the labels move, so no piece is ever
+    # ready without one. A comment left by a move that then failed is harmless:
+    # the newest comment is the one read.
+    commit = ""
+    if row[2] == "readiness says ready":
+        again_body = str(again.get("body") or "")
+        commit = spec_commit(number, again_body)
+        post_contract(number, again_body, commit)
+    if recorded_now:
+        post_contract(number, str(again.get("body") or ""), recorded_now)
+    reasons: list[dict[str, str]] = []
+    if row[2] == "pull request":
+        reasons = record_forced(number, forced)
+        if reasons:
+            text = ("This piece goes to the person's review, for these reasons:\n"
+                    + "".join(f"- {r.get('detail', '')}\n" for r in reasons))
+            try:
+                gh(["issue", "comment", str(number), "--body-file", "-"], stdin=text)
+            except Unreachable as error:
+                raise Unreachable(f"the reasons for the person's review could not be posted "
+                                  f"on #{number}, so the labels did not move ({error.detail})",
+                                  error.detail)
     try:
         edit_issue(number, add, remove, body, add_assignee, remove_assignees)
     except Unreachable as error:
@@ -795,6 +1164,12 @@ def command_move(arguments: list[str], options: dict[str, str]) -> None:
                           f"changed ({error.detail})", error.detail)
 
     done = f"#{number} moved from {origin} to {target}"
+    if commit:
+        done += f", with its contract hash posted (spec commit {commit[:12]})"
+    if recorded_now:
+        done += ", with its contract hash recorded now, since it had none"
+    if reasons:
+        done += f", and {len(reasons)} reason(s) for the person's review recorded"
     if record is not None:
         status = RUN_STATUS["state:shaping" if target.startswith("shaping:") else target]
         try:
@@ -811,7 +1186,35 @@ def command_move(arguments: list[str], options: dict[str, str]) -> None:
                stdin="Back to building: {}\n".format(options["reason"].strip()))
         except Unreachable as error:
             done += f"; the comment naming the defect was not posted ({error.detail})"
-    say(done)
+    return done
+
+
+def command_check_contract(arguments: list[str], options: dict[str, str]) -> None:
+    if len(arguments) != 1:
+        refuse("check-contract takes one issue number", "gate.py check-contract <number>")
+    number = number_from(arguments[0])
+    issue = read_issue(number)
+    if not is_open(issue):
+        refuse(f"#{number} is closed", "gate.py report")
+    origin = position(number, label_names(issue))
+    if origin not in ("state:ready", "state:building", "state:in-review"):
+        refuse(f"#{number} is in {origin}, so its contract is not fixed yet",
+               f"shape it in /shape {number}")
+    body = str(issue.get("body") or "")
+    on_record = contract_on_record(number)
+    if on_record is None:
+        post_contract(number, body, spec_commit(number, body))
+        say(f"#{number} had no contract hash, so one was recorded now, from the contract as "
+            "it reads today")
+        return
+    if on_record[0] == contract_hash(body):
+        say(f"#{number}'s contract is unchanged since it was made ready")
+        return
+    if origin == "state:ready":
+        refuse(f"#{number}'s contract changed after it was made ready, so the readiness "
+               "check no longer covers it", f"gate.py move {number} spec, then shape it "
+                                            f"again in /shape {number}")
+    kick_back(number, options)
 
 
 def command_capture(arguments: list[str], options: dict[str, str]) -> None:
@@ -1032,7 +1435,8 @@ def command_labels(arguments: list[str], options: dict[str, str]) -> None:
 
 
 COMMANDS = {"move": command_move, "capture": command_capture, "drop": command_drop,
-            "tidy": command_tidy, "report": command_report, "labels": command_labels}
+            "tidy": command_tidy, "report": command_report, "labels": command_labels,
+            "check-contract": command_check_contract}
 OPTIONS = ("--run", "--assignee", "--reason", "--withdrawn-by", "--title", "--body-file")
 
 
@@ -1075,6 +1479,11 @@ def main(argv: list[str]) -> int:
     except Refused as refusal:
         print("gate.py {} refused: {}".format(" ".join(argv), refusal.what), file=sys.stderr)
         print("next: " + refusal.next_step, file=sys.stderr)
+        return 1
+    except KickedBack as kicked:
+        print(f"{kicked.done}, because the contract changed while it was being built; its "
+              "branch is kept")
+        print(f"next: read the change and write the contract again in /shape {kicked.number}")
         return 1
     except Unreachable as error:
         print(f"gate.py {argv[0]}: {error}", file=sys.stderr)

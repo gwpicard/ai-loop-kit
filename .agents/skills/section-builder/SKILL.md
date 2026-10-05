@@ -129,6 +129,15 @@ piece, and it costs one call. Where GitHub cannot be reached, the claim fails:
 say so, and do not start the piece. A piece already claimed carries on if
 GitHub drops out later, as the route note above says.
 
+At the start of every attempt, run `python3 .agents/tools/gate.py check-contract <number>`:
+once just after the claim, and again before each later attempt. The gate works
+out the contract's hash again and compares it with the one it posted on the
+issue when the piece was made ready. A contract that changed since the piece was made ready sends it back to spec, and the attempt stops there:
+the gate has already written the `## Kickback` section and moved the piece,
+and the branch stays. Where the piece has no hash yet, because it was made
+ready before the gate posted one, the gate records one now and the attempt
+carries on.
+
 Every move this skill makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
 Never write the label another way, as the `setup-ai-build-kit` skill's
 `references/blocked-commands.md` says.
@@ -531,6 +540,15 @@ merge it. Wait for the check as
 pull request as ready until the check is green; if it goes red,
 say so plainly, pull the failing output yourself, fix through the normal
 steps, and push again.
+
+That move reads the contract again and runs the bar guard, this skill's
+`scripts/bar-guard.sh`, which the gate keeps a copy of beside it. Where the
+build changed what the piece is measured against without the piece naming it
+on a `Changes the bar:` line, such as a check, a skipped test, a suppression or
+a tool's settings, the gate refuses the move and names each file. Put each one
+back as the refusal says and move the piece again. A named change, or a changed
+file outside the piece's `Boundary:`, goes to the person's review, and the gate
+posts the reasons on the issue.
 
 Once the check is green the piece is ready for review. Merge it only as
 `references/merge.md` says: on a yes that names it, or under the person's

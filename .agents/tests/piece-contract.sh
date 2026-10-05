@@ -200,6 +200,12 @@ rs_rule "a missed number is a fail" 'a missed number is a fail, stated at the to
 rs_rule "a wrong test is reported" 'report a wrong test or an impossible line\. never work round it'
 rs_rule "ready needs a Readiness section with no blocking gap" \
   'written by a session that did not shape it, names no blocking gap'
+# A change to what the piece is measured against counts as named only on its
+# own line, so the bar guard and the ready-gate lint read one place for it.
+rs_rule "a Changes the bar line names a guarded change by its whole path and a reason" \
+  '`changes the bar: <path>, because <reason>`'
+rs_rule "a guarded change counts as named only on that line" \
+  'a guarded change counts as named only on a `changes the bar:` line under `under the hood`'
 rs_guard "$PIECES" "pieces.md"
 
 rs_require_absent "pieces.md no longer says most pieces leave Decided out" \

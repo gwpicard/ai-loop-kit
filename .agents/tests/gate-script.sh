@@ -55,6 +55,10 @@ os.makedirs(PROJECT)
 subprocess.run(["git", "init", "-q", PROJECT], check=True)
 subprocess.run(["git", "-C", PROJECT, "-c", "user.name=R", "-c", "user.email=r@example.invalid",
                 "commit", "-q", "--allow-empty", "-m", "first"], check=True)
+# The move to review runs the bar guard on the pull request's branch against
+# its base, so both are on this computer. The branch changes nothing.
+subprocess.run(["git", "-C", PROJECT, "checkout", "-q", "-B", "main"], check=True)
+subprocess.run(["git", "-C", PROJECT, "branch", "refunds"], check=True)
 
 ENV = dict(os.environ)
 ENV["PATH"] = FAKE + os.pathsep + ENV["PATH"]
@@ -68,6 +72,11 @@ TOOLS = os.path.join(WORK, "tools")
 os.makedirs(TOOLS)
 RUN_GATE = os.path.join(TOOLS, "gate.py")
 shutil.copy(GATE, RUN_GATE)
+# The bar guard and the test guard it wraps sit beside the gate, as founding
+# places them.
+SCRIPTS = os.path.join(os.path.dirname(GATE), "..", "..", "..", "section-builder", "scripts")
+for name in ("bar-guard.sh", "test-guard.sh"):
+    shutil.copy(os.path.join(SCRIPTS, name), os.path.join(TOOLS, name))
 STUB = os.path.join(TOOLS, "ready-lint.py")
 LINT_ANSWER = os.path.join(WORK, "lint-answer.json")
 LINT_CALLS = os.path.join(WORK, "lint-calls")
@@ -812,7 +821,7 @@ pairs = [("state:ready", "building", ["--assignee", "@me"], "building"),
          ("state:in-review", "ready", [], "withdrawn")]
 for origin, target, more, status in pairs:
     fresh([issue(90, family(origin) + ["type:feature"], KICKBACK)],
-          pull_requests=[{"number": 3, "title": "x", "body": "Closes #%d" % 90, "head": "x",
+          pull_requests=[{"number": 3, "title": "x", "body": "Closes #%d" % 90, "head": "refunds",
                           "base": "main", "state": "OPEN"}])
     write_run("pairing", [(90, "building")])
     state_json = os.path.join(PROJECT, ".agents", "runs", "pairing", "state.json")

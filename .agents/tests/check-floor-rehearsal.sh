@@ -36,6 +36,10 @@ GATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/gate.py"
 # The ready-gate lint sits beside the gate script in every founded project, and
 # the same rule holds for it.
 READY_LINT="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
+# The bar guard and the test guard it wraps sit beside the gate in a founded
+# project, copied from the section-builder skill.
+BAR_GUARD="$ROOT/.agents/skills/section-builder/scripts/bar-guard.sh"
+TEST_GUARD="$ROOT/.agents/skills/section-builder/scripts/test-guard.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -45,6 +49,8 @@ fail() {
 [ -f "$GATE" ] || fail "the setup skill carries no gate script at templates/foundation/gate.py"
 [ -f "$READY_LINT" ] || fail "the setup skill carries no ready-gate lint at templates/foundation/ready-lint.py"
 [ -f "$AREA_MAP" ] || fail "the setup skill carries no area map script at templates/foundation/area-map.py"
+[ -f "$BAR_GUARD" ] || fail "the section-builder skill carries no bar guard at scripts/bar-guard.sh"
+[ -f "$TEST_GUARD" ] || fail "the section-builder skill carries no test guard at scripts/test-guard.sh"
 [ -f "$RULES_TEMPLATE" ] || fail "the setup skill carries no working rules template at templates/working-rules.md"
 
 WORK=$(mktemp -d)
@@ -81,6 +87,8 @@ mkdir -p "$PROJECT/.agents/tools" "$PROJECT/docs"
 cp "$GATE" "$PROJECT/.agents/tools/gate.py"
 cp "$READY_LINT" "$PROJECT/.agents/tools/ready-lint.py"
 cp "$AREA_MAP" "$PROJECT/.agents/tools/area-map.py"
+cp "$BAR_GUARD" "$PROJECT/.agents/tools/bar-guard.sh"
+cp "$TEST_GUARD" "$PROJECT/.agents/tools/test-guard.sh"
 cp "$RULES_TEMPLATE" "$PROJECT/docs/working-rules.md"
 
 # The edit founding makes: the placeholder step goes, and install, type check,
@@ -263,6 +271,8 @@ mkdir -p "$PROJECT/.agents/tools" "$PROJECT/docs"
 cp "$GATE" "$PROJECT/.agents/tools/gate.py"
 cp "$READY_LINT" "$PROJECT/.agents/tools/ready-lint.py"
 cp "$AREA_MAP" "$PROJECT/.agents/tools/area-map.py"
+cp "$BAR_GUARD" "$PROJECT/.agents/tools/bar-guard.sh"
+cp "$TEST_GUARD" "$PROJECT/.agents/tools/test-guard.sh"
 cp "$RULES_TEMPLATE" "$PROJECT/docs/working-rules.md"
 
 awk -v tc="$type_check" -v li="$lint" '
@@ -354,6 +364,8 @@ finished=$(date +%s)
 [ -f "$PROJECT/.agents/tools/gate.py" ] || fail "the TypeScript project lost its gate script"
 [ -f "$PROJECT/.agents/tools/ready-lint.py" ] || fail "the TypeScript project lost its ready-gate lint"
 [ -f "$PROJECT/.agents/tools/area-map.py" ] || fail "the TypeScript project lost its area map script"
+[ -f "$PROJECT/.agents/tools/bar-guard.sh" ] || fail "the TypeScript project lost its bar guard"
+[ -f "$PROJECT/.agents/tools/test-guard.sh" ] || fail "the TypeScript project lost its test guard"
 echo "  ok: the founded TypeScript project's check is green on day one ($((finished - started))s), with the gate script, the ready-gate lint and the area map script in place"
 
 # A type error in code no test reaches. It is exported, so the linter has no

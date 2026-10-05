@@ -1,15 +1,16 @@
 #!/usr/bin/env sh
 # place-plan-helper.sh: put the plan printout helper, the gate script, the
-# ready-gate lint the gate calls, the area map script and the state guard hook
-# into a founded project.
+# ready-gate lint the gate calls, the area map script, the bar guard and the
+# test guard it wraps, and the state guard hook into a founded project.
 #
-# Founding copies all five in. A project founded before one of them shipped
+# Founding copies all seven in. The two guards ship in the section-builder
+# skill, beside this one, and are copied from there. A project founded before one of them shipped
 # inside this skill has no copy, or holds the older copy a whole copy of the
 # kit carried, and an update only ever refreshes skills. So /maintain runs this
 # on every visit, and this is how they reach such a project.
 #
 # It is safe to run again. A copy that already matches is left alone. A copy
-# that differs is replaced, because all five are the kit's machinery rather than
+# that differs is replaced, because all seven are the kit's machinery rather than
 # the project's own work, and /maintain runs this only after its clean
 # checkpoint, so the older copy stays in the project's saved history.
 #
@@ -21,16 +22,18 @@ set -eu
 SKILL_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 FOUNDATION="$SKILL_ROOT/templates/foundation"
 
-# Each file this places: its name in the skill, where it goes in the project,
-# and what it is called when this says what it did.
+# Each file this places: its path from this skill's foundation templates, where
+# it goes in the project, and what it is called when this says what it did.
 PLACED='plan-refresh.sh|.agents/tools/plan-refresh.sh|plan helper
 gate.py|.agents/tools/gate.py|gate script
 ready-lint.py|.agents/tools/ready-lint.py|ready-gate lint
 area-map.py|.agents/tools/area-map.py|area map script
+../../../section-builder/scripts/bar-guard.sh|.agents/tools/bar-guard.sh|bar guard
+../../../section-builder/scripts/test-guard.sh|.agents/tools/test-guard.sh|test guard
 state-guard.sh|.agents/hooks/state-guard.sh|state guard hook'
 
 fail() {
-  echo "AI Build Kit could not place the plan helper, gate script, ready-gate lint, area map script and state guard hook: $1" >&2
+  echo "AI Build Kit could not place the plan helper, gate script, ready-gate lint, area map script, bar guard, test guard and state guard hook: $1" >&2
   exit 1
 }
 
@@ -54,11 +57,26 @@ for part in .agents .agents/tools .agents/hooks; do
     fail "project path is not a folder: $part"
 done
 
+# The two guards come from the section-builder skill beside this one. Where it
+# is not installed, they are left out and that is said, and the rest are placed.
+missing_sibling() {
+  [ "${1#../}" != "$1" ] && [ ! -e "$FOUNDATION/$1" ]
+}
+AVAILABLE=$(printf '%s\n' "$PLACED" | while IFS='|' read -r source target name; do
+  missing_sibling "$source" || printf '%s|%s|%s\n' "$source" "$target" "$name"
+done)
+printf '%s\n' "$PLACED" | while IFS='|' read -r source target name; do
+  if missing_sibling "$source"; then
+    echo "$name: not placed, since the section-builder skill is not installed beside this one"
+  fi
+done
+PLACED=$AVAILABLE
+
 # Every source and destination is checked before anything is written, so a
 # refusal for one never leaves the others placed.
 while IFS='|' read -r source target name; do
   [ -f "$FOUNDATION/$source" ] && [ ! -L "$FOUNDATION/$source" ] || \
-    fail "the installed setup-ai-build-kit skill carries no $name to copy"
+    fail "the installed skills carry no $name to copy"
   destination="$PROJECT_ROOT/$target"
   [ ! -L "$destination" ] || fail "$target is a link, so it was left alone"
   [ ! -e "$destination" ] || [ -f "$destination" ] || \

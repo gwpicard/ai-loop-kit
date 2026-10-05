@@ -301,7 +301,43 @@ attribution line, not the word.
   refuses the move too, and so does a lint missing from beside the gate. Most
   moves run a copy of the gate with a stand-in lint whose answer each case
   sets, and one runs the real gate beside the real lint on a piece carrying
-  only `Touches:`.
+  only `Touches:`. The move to review also runs the bar guard, so the gate's
+  copy sits beside the bar guard and the test guard, and the pull request's
+  branch is on this computer, changing nothing.
+- `.agents/tests/frozen-bar-rehearsal.sh` drives the gate against the same
+  stand-in, in throwaway projects with a bare repository as origin, and holds
+  the bar a piece is built against fixed from the moment it is ready. The move
+  to ready posts one `loop:contract` comment, before the labels move, with the
+  contract's hash and the tip of the acceptance branch as its commit, or
+  `commit=none` with no branch. The hash leaves out Kickback, Readiness,
+  Learned and the marker lines, so `gate.py check-contract` passes after any
+  of those changes and reads the newest of two comments. A contract changed
+  mid-build sends the piece to `shaping:spec` with a Kickback section, at
+  `check-contract` and again at the move to review, and its branch stays. A
+  piece with no hash has one recorded in one line, and with GitHub out of
+  reach the gate refuses rather than read a missing hash as unchanged. At the
+  move to review, an unnamed settings change, existing test edit or acceptance
+  check edit is refused by name, while a named one moves, forces the person's
+  review, writes a `guard_change` line to `.agents/pieces/<number>/forced.jsonl`
+  and posts the reason. A changelog file and a root file force nothing, while
+  a path in another area or in none, read from the map at the base, forces a
+  review and never refuses. A goal piece and a project whose `origin/main`
+  holds only its first upload are held too, and the founded gitignore keeps
+  `.agents/pieces/` out.
+- `.agents/tests/bar-guard-rehearsal.sh` runs section-builder's
+  `scripts/bar-guard.sh` in fresh copies of one throwaway repository whose
+  acceptance branch holds two commits. It makes each of the seven kinds alone
+  and reads its line back: an acceptance check edited or deleted, an existing
+  test edited, deleted or moved away, a skip or focus marker, a suppression, a
+  line added to a tool's settings, an updated snapshot, and a change to a
+  workflow, hook, gate file or the Claude Code settings. Each is then named on
+  a `Changes the bar:` line and read as named, except an acceptance check,
+  which is never named. A line with no reason, the path elsewhere in Under the
+  hood and the line outside it name nothing. A clean copy, a source change, a
+  suppression or settings line taken out, a new snapshot, a new test and the
+  acceptance branch's own suppression list nothing. Called with no spec commit
+  it lists no acceptance check, it exits 2 when it cannot run, and it counts a
+  test file exactly as `test-guard.sh` does.
 - `.agents/tests/state-guard.sh` guards what stops the agent going round the
   gate. A founded project's Claude Code settings run a hook before each
   command and each GitHub tool call, and carry deny rules. Both refuse a direct
@@ -479,6 +515,8 @@ attribution line, not the word.
   written on the piece, and no `needs-` label is written. And it holds the one line the lint reads for the
   project's tests: the founded stack section asks for `Test command:
   <command>` or `Test command: none for <language>`, and founding writes it.
+  It also holds the `Changes the bar:` line in `pieces.md`: a guarded change
+  counts as named only there, written with its whole path and a reason.
 - `.agents/tests/ready-lint-rehearsal.sh` runs the ready-gate lint a founded
   project receives, `ready-lint.py`, against throwaway repositories, each with
   a bare one standing in for its remote, and the stand-in GitHub. A ready
@@ -502,7 +540,9 @@ attribution line, not the word.
   The written rule does not list it, and the lint says so. A test path there
   passes, in a collapsed block or under a heading, and the same path in a Works
   line's words is refused. So are a source path and a line number there, and a
-  copy of the lint without the exception refuses the test path. It drives
+  copy of the lint without the exception refuses the test path. A
+  `Changes the bar:` line in Under the hood may name any path, while the same
+  path elsewhere in Under the hood, or the line outside it, is refused. It drives
   pytest and Node's own runner: a check failing on its assertion passes, and
   one failing on a missing import, one passing today and a spec branch that
   changes source code are refused, while a spec branch cut before a later
@@ -543,7 +583,11 @@ attribution line, not the word.
   alone has no `.agents/skills/` and a plugin keeps its skills outside the
   project. The check fails on a pointer to a file no skill has, and on the old
   fixed form. On every layout the skills name the fix loop,
-  section-builder's `references/fix-loop.md`, and that pointer opens.
+  section-builder's `references/fix-loop.md`, and that pointer opens. The bar
+  guard and the test guard it wraps travel from the section-builder skill to
+  `.agents/tools/` beside the gate script, so every route ends with both
+  identical to that skill's, and the step adds them, leaves them alone the
+  next time and replaces an older bar guard.
 - `.agents/tests/queue-groups.sh` guards what `/queue` may call safe to build
   together, and the plan it prints. The rule that matters is that it reads the
   printout's grouping rather than working safety out again, since the printout
@@ -913,7 +957,8 @@ attribution line, not the word.
   `Acceptance branch:` is built on that branch, so its pull request comes
   from it, and step 4 confirms the checks `/shape` committed there still fail
   rather than writing them again. A piece with no such branch keeps step 4 as
-  it was.
+  it was. Every attempt starts with `gate.py check-contract`, and a contract
+  that changed since the piece was made ready stops it.
 - `.agents/tests/fix-history-first.sh` guards the repair steps in the fix loop,
   section-builder's `references/fix-loop.md`, that read prior
   work and existing tests before a new attempt, search saved history from a
@@ -981,7 +1026,8 @@ attribution line, not the word.
   stay green with the `Check the area map` step running. In the Python project
   an unused import added to any of the three copies turns the linter red,
   which proves the green counts, and the type check passes on each by name,
-  since `mypy .` leaves folders starting with a dot out.
+  since `mypy .` leaves folders starting with a dot out. Both projects also
+  carry the bar guard and the test guard beside the gate, and stay green.
 - `.agents/tests/waste-read.sh` guards the quarterly read for copied code,
   unused code and unused dependencies: that it stays off Explore privately,
   keeps the settings chosen on purpose, drops a name found anywhere else in
