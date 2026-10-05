@@ -35,6 +35,11 @@ HOOK_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/stat
 # piece turns ready. A route that left it out would refuse every ready move.
 LINT_TARGET=.agents/tools/ready-lint.py
 LINT_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
+# The area map script travels beside them too. The project check runs it on
+# every pull request and the ready-gate lint reads area names through it, so a
+# route that left it out would turn every project check red.
+AREA_TARGET=.agents/tools/area-map.py
+AREA_TEMPLATE="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/area-map.py"
 
 FAIL=0
 fail() {
@@ -141,6 +146,7 @@ founds_with_helper() {
   holds_the_gate "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/gate.py"
   holds_the_hook "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/state-guard.sh"
   holds_the_lint "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/ready-lint.py"
+  holds_the_area_map "$project" "$route" "${bootstrap%/scripts/*}/templates/foundation/area-map.py"
   prints_the_plan "$project" "$route" "$TARGET"
 }
 
@@ -158,6 +164,23 @@ holds_the_lint() {
     pass "$route: a runnable $LINT_TARGET identical to the template is in place"
   else
     fail "$route: no runnable $LINT_TARGET identical to the template"
+  fi
+}
+
+# A runnable area map script at the project's path, beside the gate script,
+# identical to the template the installed skill carries and to the one in this
+# repository.
+holds_the_area_map() {
+  project=$1
+  route=$2
+  installed=$3
+  area_map="$project/$AREA_TARGET"
+  if [ -f "$area_map" ] && [ ! -L "$area_map" ] && [ -x "$area_map" ] && \
+     cmp -s "$area_map" "$installed" && cmp -s "$area_map" "$AREA_TEMPLATE" && \
+     (cd "$project" && "./$AREA_TARGET" --help >/dev/null 2>&1); then
+    pass "$route: a runnable $AREA_TARGET identical to the template is in place"
+  else
+    fail "$route: no runnable $AREA_TARGET identical to the template"
   fi
 }
 
@@ -348,7 +371,7 @@ INSTALLED_HELPER="$CLAUDE_ONLY/.claude/skills/setup-ai-build-kit/templates/found
 # A project founded before this release: founded, with no helper and no gate.
 OLD="$SCRATCH/old"
 cp -R "$CLAUDE_ONLY" "$OLD"
-rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/$LINT_TARGET" "$OLD/plan.local.md"
+rm -f "$OLD/$TARGET" "$OLD/$GATE_TARGET" "$OLD/$HOOK_TARGET" "$OLD/$LINT_TARGET" "$OLD/$AREA_TARGET" "$OLD/plan.local.md"
 PLACE_OLD="$OLD/.claude/skills/setup-ai-build-kit/scripts/place-plan-helper.sh"
 printf '%s\n' "# Masterplan" > "$OLD/masterplan.md"
 
@@ -369,12 +392,15 @@ holds_the_hook "$OLD" "a project founded before the hook, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/state-guard.sh"
 holds_the_lint "$OLD" "a project founded before the lint, after the backfill" \
   "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/ready-lint.py"
+holds_the_area_map "$OLD" "a project founded before the area map script, after the backfill" \
+  "$OLD/.claude/skills/setup-ai-build-kit/templates/foundation/area-map.py"
 
 # Run again, it changes nothing and says so. /maintain runs it on every visit.
 before=$(cksum < "$OLD/$TARGET")
 gate_before=$(cksum < "$OLD/$GATE_TARGET" 2>/dev/null || echo missing)
 hook_before=$(cksum < "$OLD/$HOOK_TARGET" 2>/dev/null || echo missing)
 lint_before=$(cksum < "$OLD/$LINT_TARGET" 2>/dev/null || echo missing)
+area_before=$(cksum < "$OLD/$AREA_TARGET" 2>/dev/null || echo missing)
 said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on its second run"
 case "$said" in
   *"already current"*) pass "a second run changes nothing and says the copy is current" ;;
@@ -402,6 +428,20 @@ if [ "$(cksum < "$OLD/$LINT_TARGET" 2>/dev/null || echo missing)" = "$lint_befor
 else
   fail "a second run changed the ready-gate lint or did not say it was current: $said"
 fi
+if [ "$(cksum < "$OLD/$AREA_TARGET" 2>/dev/null || echo missing)" = "$area_before" ] && \
+   [ "$area_before" != missing ] && \
+   [ "$(printf '%s\n' "$said" | grep -c "already current")" -ge 5 ]; then
+  pass "a second run leaves the area map script as it was and says it is current"
+else
+  fail "a second run changed the area map script or did not say it was current: $said"
+fi
+
+# An older area map script is replaced, as the lint is.
+printf '%s\n' "# an older area map" >> "$OLD/$AREA_TARGET"
+said=$(cd "$OLD" && sh "$PLACE_OLD" 2>&1) || fail "the backfill failed on an older area map script"
+cmp -s "$OLD/$AREA_TARGET" "$AREA_TEMPLATE" && [ -x "$OLD/$AREA_TARGET" ] && \
+  pass "an older area map script is replaced with the template and runnable" || \
+  fail "an older area map script was not replaced: $said"
 
 # An older lint is replaced, as the gate script is.
 printf '%s\n' "# an older lint" >> "$OLD/$LINT_TARGET"

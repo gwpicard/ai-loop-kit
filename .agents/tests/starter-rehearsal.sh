@@ -56,6 +56,10 @@ BOOTSTRAP="$PROJECT/.agents/skills/setup-ai-build-kit/scripts/bootstrap-project.
   fail "installed setup-ai-build-kit skill could not prepare a blank project"
 [ -x "$PROJECT/.agents/hooks/session-start.sh" ] || \
   fail "installed setup-ai-build-kit skill did not prepare an executable session hook"
+[ -x "$PROJECT/.agents/tools/area-map.py" ] || \
+  fail "installed setup-ai-build-kit skill did not place the area map script at .agents/tools/area-map.py"
+grep -qx '## Areas' "$PROJECT/docs/working-rules.md" 2>/dev/null || \
+  fail "installed setup-ai-build-kit skill did not write docs/working-rules.md with an Areas section"
 
 for record in masterplan.md CHANGELOG.md .ai-build-kit-maintenance; do
   [ ! -e "$PROJECT/$record" ] || \
@@ -250,6 +254,47 @@ git -C "$PROJECT" commit -q -m "Create founding project records"
   fail "disposable project did not save both expected checkpoints"
 [ -z "$(git -C "$PROJECT" status --short)" ] || \
   fail "disposable project is not clean after its founding records were saved"
+
+# The area map founding writes passes the check, and a folder the stand-up makes
+# is named until founding claims it. A folder counts once Git's index holds a
+# file in it, so the file is added before the check runs, as founding adds the
+# files its checkpoint will save.
+area_check() {
+  (cd "$1" && python3 .agents/tools/area-map.py check 2>&1)
+}
+said=$(area_check "$PROJECT") || \
+  fail "the area map founding wrote does not pass its check: $said"
+mkdir -p "$PROJECT/app"
+printf '%s\n' 'export const page = 1;' > "$PROJECT/app/page.ts"
+git -C "$PROJECT" add app/page.ts
+said=$(area_check "$PROJECT") && fail "the check passed with app/ claimed by no area"
+case "$said" in
+  *"app is a folder no area claims"*) ;;
+  *) fail "the check did not name the unclaimed app folder: $said" ;;
+esac
+printf '%s\n' '- app: app/' >> "$PROJECT/docs/working-rules.md"
+said=$(area_check "$PROJECT") || fail "the check stayed red once founding claimed app/: $said"
+git -C "$PROJECT" add docs/working-rules.md
+git -C "$PROJECT" commit -q -m "Claim the folder the stand-up made"
+
+# A whole copy of the kit founded in place carries docs/ and agent-plugin/.
+# Founding adds the area line its skill gives for agent-plugin/, and the
+# template already claims docs/.
+WHOLE="$SCRATCH/whole"
+cp -R "$PACK" "$WHOLE"
+git -C "$WHOLE" init -q
+git -C "$WHOLE" add -A
+(cd "$WHOLE" && .agents/skills/setup-ai-build-kit/scripts/bootstrap-project.sh >/dev/null) || \
+  fail "a whole copy of the kit could not prepare itself in place"
+kit_line=$(grep -o '`- kit installation: agent-plugin/`' \
+  "$WHOLE/.agents/skills/setup-ai-build-kit/SKILL.md" | head -n 1 | tr -d '`')
+[ -n "$kit_line" ] || fail "the setup skill gives no area line for agent-plugin/ in a whole copy"
+printf '%s\n' "$kit_line" >> "$WHOLE/docs/working-rules.md"
+git -C "$WHOLE" add -A
+said=$(area_check "$WHOLE") || fail "a whole copy founded in place fails the area check: $said"
+claimed=$(cd "$WHOLE" && python3 .agents/tools/area-map.py which docs agent-plugin)
+[ "$claimed" = "$(printf 'docs\tproject records\nagent-plugin\tkit installation')" ] || \
+  fail "a whole copy does not claim docs/ and agent-plugin/: $claimed"
 
 # Founding opens the pieces as issues. It replays here the commands the installed
 # setup skill names in its step for cutting the plan, against the replay

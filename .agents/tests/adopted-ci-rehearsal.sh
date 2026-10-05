@@ -76,7 +76,7 @@ grep -q '\.github/workflows/ci\.yml' "$P.out" || \
   fail "the bootstrap named the workflow on more than one line"
 ok "the bootstrap names the project's own workflow in one line"
 [ -f "$P/AGENTS.md" ] && [ -f "$P/.claude/settings.json" ] && \
-  [ -f "$P/.agents/hooks/check-sensitive-areas.sh" ] || \
+  [ -f "$P/.agents/tools/area-map.py" ] && [ -f "$P/docs/working-rules.md" ] || \
   fail "the other foundation files were not copied beside the project's own CI"
 ok "every other foundation file is still copied"
 grep -q 'npm test' "$P/.github/workflows/ci.yml" || \

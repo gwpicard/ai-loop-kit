@@ -843,10 +843,40 @@ attribution line, not the word.
   a person sees, and the calls from shaping, building, fixing, founding and the
   monthly visit. Shaping's research runs it on `origin/main` on a project with
   code, so the questions the person is asked later rest on the code.
-- `.agents/tests/sensitive-area-map.sh` guards the readable map between named
-  sensitive areas and code. It holds the Build with care boundary, the optional
-  local data scan, each skill that reads the map, and the shipped check that
-  fails on a moved path or an unassigned source folder.
+- `.agents/tests/area-map.sh` guards the area map, the `## Areas` section of
+  a founded project's `docs/working-rules.md`. A piece's `Boundary:` and
+  `Reaches:` name areas, and a run plans from them, so every folder belongs to
+  a named area on every build path, not only Build with care. It holds the
+  map's shape in the template and in the fit check, the masterplan's sensitive
+  areas carrying no paths and pointing into the map by name, and the founded
+  AGENTS.md's "Areas and sensitive areas" pointer. It holds the project
+  check's `Check the area map` step with its run line for a runner with no
+  Python, the bootstrap and the placement step carrying the script, and the
+  founding order: stand the project up, add the files to Git's index, claim
+  every folder, run the check, then save. It holds the piece syntax the lint
+  reads, research and the builder's review reading areas through
+  `area-map.py which`, the builder's save step moving the map with the code,
+  and `/maintain` running the check on every visit and asking before it
+  changes the map. It keeps the older map's rules: the optional data scan and
+  its licence, the plain read-back, the builder's fixed review line and the
+  boundary reader it names. Each rule is taken out in turn to prove it is
+  needed.
+- `.agents/tests/area-map-rehearsal.sh` runs the shipped `area-map.py` in
+  throwaway Git projects and reads its output byte for byte, since later
+  steps read it by machine. `which` prints one line per path in the order
+  given, the path as given and then its area, `unclaimed` or `exempt`, with
+  the more specific area winning, a new file placed by its listed folder and
+  a leading `./` dropped. `areas` prints each area with its sensitive name or
+  `-`, in file order. `check` passes on a map claiming every folder and goes
+  red, naming the folder or the line, on an unclaimed folder, a listed path
+  that has gone, a path under two areas, a `sensitive:` line and a masterplan
+  line that do not match, and an area name holding a comma or a colon. A
+  folder whose every child is claimed passes, and a staged file counts as
+  tracked. A line it cannot read, a missing file or section, and a folder
+  outside Git each exit 1 in one line with no traceback, for every action.
+  A piece's `changes/` file passes before and after the fold. It runs the
+  step's run line from the shipped `checks.yml`, which passes in one line, and
+  exits 2 with its own line on a PATH with no Python.
 - `.agents/tests/checks-first.sh` guards the checks written before the code and
   the walk-through that stands in for the person's try. A check written after
   the code can pass on today's code, and a builder working alone can weaken a
