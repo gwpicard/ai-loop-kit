@@ -5,7 +5,8 @@ A ready piece is built with nobody there. Before it turns ready, this reads the
 piece and the project and refuses it when the contract is not whole: a section
 is missing, the bar does not fit the loop module, an acceptance check passes
 on today's code or fails for a reason other than its assertion, or the piece
-does not say what it may change and what it reaches. The readiness check that
+does not say what it may change and what it reaches, or names an area the
+project's area map does not hold. The readiness check that
 follows is a session that reads the piece; this is the part a machine can
 judge, so a session never has to remember it.
 
@@ -27,6 +28,7 @@ limit; READY_LINT_TIME_LIMIT, in seconds, lowers it for a rehearsal.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -109,6 +111,9 @@ PATH_FIELDS = ["Reaches", "Check", "Reproduction", "Measured by", "Guard checks"
                "Held-out check", "Smoke"]
 
 MARKER = re.compile(r"^<!-- loop:gate .* -->\s*$")
+# The area map script beside this one. The lint reads area names through it, so
+# a piece's areas are matched against exactly what `area-map.py areas` prints.
+AREA_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "area-map.py")
 DATE = r"\d{4}-\d{2}-\d{2}"
 
 
@@ -429,6 +434,23 @@ class Project:
                 for n in range(1, len(parts)):
                     names.add("/".join(parts[:n]))
         return names
+
+
+def load_area_map() -> Any:
+    """The area map script beside the lint, loaded as a module, or None."""
+    if not os.path.isfile(AREA_MAP):
+        return None
+    spec = importlib.util.spec_from_file_location("area_map", AREA_MAP)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    writes = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = writes
+    return module
 
 
 # --- the temporary checkout --------------------------------------------------------
@@ -769,6 +791,11 @@ class Lint:
         main = self.project.main
         for entry in self.reach_entries(fields.get("Reaches", "")):
             plain = entry.replace("`", "")
+            if ":" not in plain:
+                self.gap(f'Reaches: "{entry}" does not begin with an area name and a colon',
+                         f"write it as `<area>: guarded by <tests>` in {self.shape}")
+                continue
+            plain = plain.split(":", 1)[1]
             if "no test covers it" in plain.lower():
                 if not any(check and check in plain for check in self.check_refs()):
                     self.gap(f'Reaches: "{entry}" says no test covers it, and names none of '
@@ -798,7 +825,7 @@ class Lint:
                          "contain", f"work the reach out again on origin/main in {self.shape}")
         if "Depends on" in fields:
             self.depends(clean(fields["Depends on"]))
-        self.sensitive(fields)
+        self.areas(fields)
 
     def reach_entries(self, value: str) -> list[str]:
         parts = re.split(r"\n|;|\s\|\s", value)
@@ -856,34 +883,46 @@ class Lint:
                 stack.append((after, path + [after]))
         return None
 
-    def sensitive(self, fields: dict[str, str]) -> None:
+    def areas(self, fields: dict[str, str]) -> None:
+        """Every area the reach names is in the map, and a sensitive one is settled."""
         masterplan = self.project.read("masterplan.md")
-        build_path = section(masterplan or "", "Build path")
-        if build_path is None:
+        if section(masterplan or "", "Build path") is None:
             self.gap("the masterplan has no build-path section (## Build path), so its "
                      "sensitive areas cannot be read",
                      "run the fit check, which writes the build path")
             return
-        areas: dict[str, bool] = {}
-        lines = build_path.splitlines()
-        for i, line in enumerate(lines):
-            if not line.startswith("Sensitive areas:"):
-                continue
-            for below in lines[i + 1:]:
-                if not below.startswith((" ", "\t")) or not below.strip():
-                    break
-                name = below.strip().split(":", 1)[0].strip().lower()
-                if name in ("paths", "boundary", "none"):
-                    continue
-                areas[name] = bool(re.search(rf"\b(done|accepted)\s+{DATE}\s*\.?\s*$",
-                                             below.strip()))
+        area_map = load_area_map()
+        if area_map is None:
+            self.gap("the area map script, .agents/tools/area-map.py, is not beside the lint, "
+                     "so the piece's areas cannot be read", "run /maintain, which places it")
+            return
+        try:
+            mapped = area_map.read_map(self.project.read("docs/working-rules.md") or "")
+        except area_map.MapError as error:
+            self.gap(f"the area map cannot be read: {error}",
+                     "run python3 .agents/tools/area-map.py check, and correct the map")
+            return
+        by_name = {area.name.strip().lower(): area for area in mapped}
         named = [clean(a) for a in clean(fields.get("Boundary", "")).split(",")]
-        named += [clean(e.replace("`", "").split(",")[0])
-                  for e in self.reach_entries(fields.get("Reaches", ""))]
-        for area in dict.fromkeys(a.lower() for a in named if a):
-            if area in areas and not areas[area]:
-                self.gap(f"{area} is a sensitive area in the masterplan's build path, and its "
-                         "caution is neither done nor accepted",
+        named += [clean(e.replace("`", "").split(":", 1)[0])
+                  for e in self.reach_entries(fields.get("Reaches", "")) if ":" in e]
+        lines = {name.lower(): line
+                 for name, _, line in area_map.sensitive_lines(masterplan or "")}
+        for name in dict.fromkeys(a for a in named if a):
+            area = by_name.get(name.strip().lower())
+            if area is None:
+                self.gap(f"{name} is not an area in docs/working-rules.md, which names "
+                         f"{', '.join(a.name for a in mapped) or 'none'}",
+                         f"name an area `area-map.py areas` prints, or add it to the map, in "
+                         f"{self.shape}")
+                continue
+            if area.sensitive is None:
+                continue
+            sensitive = area.sensitive[0]
+            line = lines.get(sensitive.strip().lower(), "")
+            if not re.search(rf"\b(done|accepted)\s+{DATE}\s*\.?\s*$", line):
+                self.gap(f"{area.name} is in the sensitive area {sensitive}, and its caution "
+                         "is neither done nor accepted in the masterplan's build path",
                          f"settle the caution, or record the person's acceptance, in "
                          f"{self.shape}")
 
