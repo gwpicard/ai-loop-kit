@@ -12,3 +12,7 @@ Thumbs.db
 plan.local.md
 .claude/settings.local.json
 .claude/worktrees/
+
+# Folders the loop kit creates while it works. They are local and never saved.
+.agents/worktrees/
+.agents/runs/
