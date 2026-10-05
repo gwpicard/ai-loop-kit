@@ -13,8 +13,10 @@
 #                branch of the piece it stacks on
 #   piece-file   the piece's text, or - to read it from standard input
 #   spec-commit  the commit at the tip of the piece's acceptance branch when it
-#                was made ready. Left out for a piece with no acceptance branch,
-#                and then no acceptance check is listed.
+#                was made ready. A build or fix piece with no acceptance branch
+#                gives the commit on its branch that first holds its checks
+#                instead. Left out for a goal or gauntlet piece, and then no
+#                acceptance check is listed.
 #
 # Run it from inside the project. It compares with the working tree, so a
 # change that is committed, staged or not yet staged all count, and so does a

@@ -857,6 +857,40 @@ expect(code == 0 and before and before[0]["commit"] == checks_commit and before[
        "a build piece with no acceptance branch runs its before check at the commit that "
        "holds the checks", "exit %s before %r out %r err %r" % (code, before, out, err))
 
+# The same piece, with its check edited after the commit that first holds it:
+# the gate gives the bar guard that commit, so the edit is refused as an
+# acceptance check edit, just as it would be on an acceptance branch.
+repo = project()
+git(repo, "checkout", "-q", "-b", "build/14-totals", "main")
+fresh([issue(14, ["state:shaping", "shaping:check", "type:feature", "loop:build"], no_branch)],
+      pulls=[{"number": 2, "title": "Totals", "body": "Closes #%d" % 14,
+              "head": "build/14-totals", "base": "main", "state": "OPEN"}])
+gate(repo, "move", "14", "ready")
+gate(repo, "move", "14", "building", "--assignee", "me")
+build(repo, {"tests/test_total.py": "from app.billing.refund import refund\n\n\n"
+                                    "def test_total():\n    assert refund() + 1 == 11\n"},
+      "the checks, first")
+build(repo, REFUND)
+build(repo, {"tests/test_total.py": "def test_total():\n    assert True\n"}, "loosen")
+code, out, err = gate(repo, "move", "14", "in-review")
+expect(code != 0 and labels_of(14) == BUILDING
+       and "acceptance-check: tests/test_total.py" in out + err,
+       "a build piece with no acceptance branch whose check is edited after the commit that "
+       "first holds it is refused as an acceptance check edit",
+       "exit %s labels %r out %r err %r" % (code, labels_of(14), out, err))
+
+# A goal piece is unaffected: the guard still runs without a spec commit, so a
+# test the build added and then changed is not an acceptance check.
+repo = project()
+made_ready(repo, piece_body(loop="Loop module: goal\nMeasured by: tests/test_speed.py"),
+           loop_label="loop:goal")
+build(repo, {"tests/test_speed.py": "def test_speed():\n    assert 1 + 1 == 2\n"}, "measure")
+build(repo, dict(REFUND, **{"tests/test_speed.py": "def test_speed():\n    assert True\n"}))
+code, out, err = gate(repo, "move", "12", "in-review")
+expect(code == 0 and "state:in-review" in labels_of(12),
+       "a goal piece whose test changed after its own commit still moves to review",
+       "exit %s labels %r out %r err %r" % (code, labels_of(12), out, err))
+
 # --- a breakage of the changed code, run through the gate -------------------------
 #
 # Once the checks pass, the build breaks the code it changed on purpose, saves
