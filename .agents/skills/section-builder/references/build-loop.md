@@ -102,6 +102,10 @@ result once the builder is known to have ended. A builder that may still be
 running has not failed. `needs_context` and `blocked` are kickbacks, and
 `environment_failed` does not count.
 
+A piece labelled `loop:fix` runs in these same attempts. Its builders follow
+the `section-builder` skill's `references/fix-loop.md`, which also says where a
+repair goes at its limit.
+
 ## Attempts and limits
 
 The loop stops at whichever comes first of three attempts and a piece budget

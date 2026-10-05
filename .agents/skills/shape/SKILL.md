@@ -433,7 +433,9 @@ shaping past it. A piece whose question is settled carries `state:ready` and no
 ## A piece that came back from a build
 
 A piece arriving in shaping with a `## Kickback` section came back from a build. Read that section first:
-what happened, what was tried, and what decision is needed. Then read the
+what happened, what was tried, and what decision is needed.
+Where the Kickback section carries a risk notice, as a repair's does after three failed fixes, give it to the person in your first reply on the piece, before any question,
+as the `section-builder` skill's `references/fix-loop.md` says. Then read the
 piece's comments: answers the person already left there are read before any question is asked again.
 A complete answer is reconciled into `## Decided` and the fields it changes,
 with the original words kept. An incomplete, unrelated or empty answer leaves the question open,

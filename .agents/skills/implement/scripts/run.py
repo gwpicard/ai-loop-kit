@@ -324,10 +324,14 @@ def write_request(run: str, record: dict[str, Any], entry: dict[str, Any], numbe
         "run": {"directory": f".agents/runs/{run}", "coordinator": "the session that ran run.py",
                 "attempts": notes_used(number)},
         "authorisation": {"scope": [folder],
-                          "steps": "the build steps of the section-builder skill's "
-                                   "references/build-loop.md, each check run through the gate, "
-                                   "and commits on this branch; never claim, push, review, open "
-                                   "a pull request or merge"},
+                          "steps": ("the repair steps of the section-builder skill's "
+                                    "references/fix-loop.md, inside the attempts its "
+                                    "references/build-loop.md describes" if module == "fix" else
+                                    "the build steps of the section-builder skill's "
+                                    "references/build-loop.md")
+                                   + ", each check run through the gate, and commits on this "
+                                     "branch; never claim, push, review, open a pull request "
+                                     "or merge"},
         "resources": {},
         "result": result,
         "loop": {"module": module or "build", "attempt": attempt, "retry": retry,

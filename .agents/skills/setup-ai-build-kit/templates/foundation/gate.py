@@ -21,6 +21,7 @@ Commands:
                                  [--reason <text>] [--withdrawn-by <number>]
   gate.py check-contract <number> [--run <name>]
   gate.py evidence <number> [--phase before] [--at <commit>] -- <command>
+  gate.py evidence <number> --phase guard -- <command>
   gate.py evidence <number> --breakage <patch> -- <command>
   gate.py result <number> <result file> [--at-limit] [--reason <text>]
   gate.py switch-module <number> <build|fix>
@@ -86,9 +87,13 @@ exit code, the commit, whether the tree was clean, the time and the phase,
 with what it printed kept in a file beside it. With --breakage the gate
 applies the patch in a temporary worktree at the commit the piece's branch
 holds, runs the command there, records it with phase breakage and the patch's
-hash, and removes the worktree with git worktree remove. Each line carries a hash
-chained to the line before it, and a record holding a line this script did not
-write is refused. Only this script writes that file.
+hash, and removes the worktree with git worktree remove. With --phase guard it
+runs a guard check at the piece's start commit, with the test files the branch
+has committed since laid over it, and records it with phase guard only when it
+passes there. Before review, and when it routes a builder's done, the gate runs
+every check recorded with phase guard again, and refuses when one fails. Each
+line carries a hash chained to the line before it, and a record holding a line
+this script did not write is refused. Only this script writes that file.
 
 A move into a shaping sub-state writes a hidden marker holding a fingerprint
 of the sections that sub-state answers in, and the move out reads them again.
@@ -113,6 +118,17 @@ the last result's needs hold an entry of kind spec naming one of the piece's
 acceptance checks. The Kickback section lists each attempt from its note on
 this computer, and no check output goes to GitHub. Each line the gate prints
 ends with one saying route: and where the piece went.
+
+A loop:fix piece is a repair, and it tests no cause before its reproduction
+exists. result and the move to state:in-review refuse it when a commit of the
+attempt that changes a file other than a test was made before this record first
+shows the Reproduction check failing at the start commit, and result counts that
+attempt as failed (exit 3). The start commit is the run record's start_commit,
+else the spec commit, else where the branch left main. At its limit a repair
+goes back to research with every attempt's causes in rank order, or to clarify
+when the reproduction was never shown failing at the start commit, and either
+Kickback section carries the risk notice, since nobody is in the loop to hear
+it.
 
 switch-module changes a building piece's loop: label between build and fix,
 only when the contract already holds the new module's bar: a Reproduction line
@@ -1538,6 +1554,23 @@ def fresh_evidence(number: int, body: str, names: Sequence[str], folder: str, ba
             elif failed_before(earlier, commit, path, exact=False):
                 problems.append(f"the {kind} {path} failed earlier on this same commit and "
                                 "passed only on a retry, which counts as a failure")
+        for command in recorded_guards(earlier):
+            code, output, late = lint.run_limited(command, folder)
+            entries.append(run_entry_for(number, "after", command, code, commit, True, output,
+                                         "move"))
+            if late or code != 0:
+                problems.append(f"the guard check `{command}` "
+                                + ("ran past the time limit" if late else "fails")
+                                + f" on the commit as it stands ({commit[:12]}), so what must "
+                                "not change has changed")
+            elif failed_before(earlier, commit, command, exact=True):
+                problems.append(f"the guard check `{command}` failed earlier on this same "
+                                "commit and passed only on a retry, which counts as a failure")
+        if module == "fix" and lint is not None:
+            _, entry = run_of_piece(number)
+            early = code_before_reproduction(number, body, lint, folder, entry)
+            if early:
+                problems.append(early)
         if runnable and lint is not None:
             code, output, late = lint.run_limited(str(test), folder)
             entries.append(run_entry_for(number, "after", str(test), code, commit, True,
@@ -1849,10 +1882,116 @@ def module_of(names: Sequence[str]) -> str:
     return loops[0].split(":", 1)[1] if len(loops) == 1 else ""
 
 
+# --- the fix loop ------------------------------------------------------------
+#
+# A repair tests no cause before its reproduction exists. The gate reads that
+# order from Git and its own record: a commit in the attempt that changes a file
+# other than a test, made before the record first shows the Reproduction check
+# failing at the start commit, refuses the attempt and the move to review. The
+# Must not change line is held by guard checks, each recorded with phase guard
+# only when it passes at the start commit and run again before review.
+
+
+def start_commit_of(number: int, body: str, entry: dict[str, Any] | None,
+                    folder: str) -> str:
+    """The commit the piece's first attempt started from: the run record's
+    start_commit, else the spec commit, else where the branch left main."""
+    recorded = str((entry or {}).get("start_commit") or "")
+    if recorded and git(folder, "cat-file", "-e", recorded + "^{commit}").returncode == 0:
+        return recorded
+    on_record = contract_on_record(number)
+    spec = on_record[1] if on_record else spec_commit(number, body)
+    if spec != "none" and git(folder, "cat-file", "-e", spec + "^{commit}").returncode == 0:
+        return spec
+    return base_of(folder)
+
+
+def attempt_floor(entry: dict[str, Any] | None, start: str) -> str:
+    """Where the attempt being judged began: the base its start request names,
+    since earlier attempts were judged and put back already, else the start."""
+    requests = (entry or {}).get("requests") or []
+    if requests and isinstance(requests[-1], dict) and requests[-1].get("base"):
+        return str(requests[-1]["base"])
+    return start
+
+
+def reproduction_of(body: str, lint: Any) -> str:
+    fields = lint.fields_in(section(body, "Loop") or "", ["Reproduction"])
+    value = lint.clean(str(fields.get("Reproduction") or "")).split()
+    return value[0].rstrip(".,;") if value else ""
+
+
+def when(stamp: str) -> datetime.datetime | None:
+    try:
+        moment = datetime.datetime.fromisoformat(stamp.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.astimezone()
+
+
+def reproduction_shown(lines: list[dict[str, Any]], start: str,
+                       path: str) -> datetime.datetime | None:
+    """When the record first shows the reproduction failing at the start
+    commit, or None when it never does."""
+    found: list[datetime.datetime] = []
+    for line in lines:
+        if line.get("commit") != start or line.get("phase") not in ("before", "after"):
+            continue
+        if line.get("exit") in (0, None) or not path or path not in str(line.get("command")):
+            continue
+        moment = when(str(line.get("time") or ""))
+        if moment is not None:
+            found.append(moment)
+    return min(found) if found else None
+
+
+def code_before_reproduction(number: int, body: str, lint: Any, folder: str,
+                             entry: dict[str, Any] | None) -> str | None:
+    """For a repair, the commit that changed the code before the reproduction
+    was shown failing at the start commit, said in one line, or None."""
+    start = start_commit_of(number, body, entry, folder)
+    floor = attempt_floor(entry, start)
+    if git(folder, "merge-base", "--is-ancestor", floor, "HEAD").returncode != 0:
+        floor = start
+    lines, _, _ = read_record(number)
+    shown = reproduction_shown(lines, start, reproduction_of(body, lint))
+    listed = git(folder, "rev-list", "--first-parent", "--no-merges", "--reverse",
+                 "--format=%H %cI", f"{floor}..HEAD").stdout.splitlines()
+    for row in listed:
+        parts = row.split()
+        if len(parts) != 2 or parts[0] == "commit":
+            continue
+        commit, stamp = parts
+        made = when(stamp)
+        if made is None or (shown is not None and made >= shown):
+            continue
+        changed = git(folder, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id",
+                      "--name-only", "-r", commit).stdout.split("\n")
+        code = [path for path in changed if path.strip() and not lint.is_test_file(path)]
+        if code:
+            said = ("before the gate's record showed the reproduction failing at the start "
+                    f"commit ({start[:12]})" if shown is not None else
+                    "and the gate's record never shows the reproduction failing at the start "
+                    f"commit ({start[:12]})")
+            return (f"#{number} is a repair, and commit {commit[:12]} changed "
+                    f"{', '.join(code[:4])} {said}, so a cause was tested before a "
+                    "reproduction existed")
+    return None
+
+
+def recorded_guards(lines: list[dict[str, Any]]) -> list[str]:
+    """The guard checks recorded with phase guard, each command once."""
+    found = [str(line["command"]) for line in lines if line.get("phase") == "guard"
+             and line.get("exit") == 0 and "command" in line]
+    return list(dict.fromkeys(found))
+
+
 def run_checks(number: int, folder: str, checks: list[str], guards: list[str],
-               with_test: bool, source: str, stop_early: bool) -> tuple[list[str], str]:
+               with_test: bool, source: str, stop_early: bool,
+               recorded: Sequence[str] = ()) -> tuple[list[str], str]:
     """Run the given checks on the folder as it stands, each within the time
-    limit, and record each run. Returns what did not hold, and the commit."""
+    limit, and record each run, with the guard checks recorded with phase
+    guard. Returns what did not hold, and the commit."""
     commit, dirty = folder_state(folder)
     problems: list[str] = []
     if dirty and with_test:
@@ -1890,6 +2029,14 @@ def run_checks(number: int, folder: str, checks: list[str], guards: list[str],
                     problems.append(f"the {kind} {path} fails (exit {code}) on {commit[:12]}")
             if problems and stop_early:
                 break
+        for command in recorded if not (problems and stop_early) else ():
+            code, output, late = lint.run_limited(command, folder)
+            entries.append(run_entry_for(number, "after", command, code, commit, not dirty,
+                                         output, source))
+            if late or code != 0:
+                problems.append(f"the guard check `{command}` "
+                                + ("ran past the time limit" if late else f"fails (exit {code})")
+                                + f" on {commit[:12]}, so what must not change has changed")
         if with_test and runnable and not problems:
             code, output, late = lint.run_limited(str(test), folder)
             entries.append(run_entry_for(number, "after", str(test), code, commit, not dirty,
@@ -1967,7 +2114,7 @@ def recovery_line(run: str, number: int) -> str:
 
 
 def kick(number: int, target: str, happened: str, needed: list[str], run: str,
-         entry: dict[str, Any] | None) -> None:
+         entry: dict[str, Any] | None, extra: str = "") -> None:
     """Send the piece back to a shaping sub-state with its Kickback section, its
     branch pushed and kept."""
     folder = folder_of(entry)
@@ -1975,10 +2122,79 @@ def kick(number: int, target: str, happened: str, needed: list[str], run: str,
     tried = attempts_tried(number) or ["- No attempt left a note."]
     text = (f"What happened: {happened}\n\nWhat was tried:\n" + "\n".join(tried)
             + "\n\nWhat is needed:\n" + "\n".join(needed)
+            + (f"\n\n{extra}" if extra else "")
             + f"\n\n{branch_line}{recovery_line(run, number)}")
     options = {"run": run} if run else {}
     say(move_piece([str(number), short(target)], options, kickback=text))
     say(f"route: kickback {short(target)}")
+
+
+FIX_NOTICE = ("Risk notice: whoever relies on the behaviour this piece repairs is still "
+              "relying on something that produces wrong results. Another attempt on a cause "
+              "nobody has established can hide the fault rather than remove it. Somebody who "
+              "knows this part of the tool would normally establish the cause first. The loop "
+              "has stopped, so what happens next is for the person to decide in /shape: have "
+              "the cause established first, change the piece, or carry on with another "
+              "attempt.")
+
+
+def causes_tried(run: str, number: int) -> list[str]:
+    """Each attempt's causes, from its result file, in the order the builder
+    ranked them. The builder's own words, never check output."""
+    if not run:
+        return []
+    folder = os.path.join(main_folder(), ".agents", "runs", run, "results")
+    found: list[tuple[int, list[str]]] = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        names = []
+    for name in names:
+        match = re.fullmatch(rf"{number}-attempt-(\d+)\.json", name)
+        if not match:
+            continue
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        causes = data.get("causes") if isinstance(data, dict) else None
+        rows = [f"  {rank}. {c.get('cause')}. Prediction: {c.get('prediction')}. Outcome: "
+                f"{c.get('outcome')}." for rank, c in
+                enumerate([c for c in causes or [] if isinstance(c, dict)], start=1)]
+        found.append((int(match.group(1)), rows or ["  No cause was listed."]))
+    lines: list[str] = []
+    for attempt, rows in sorted(found):
+        lines += [f"- Attempt {attempt}:"] + rows
+    return lines
+
+
+def fix_at_limit(number: int, body: str, run: str, entry: dict[str, Any] | None,
+                 reached: str) -> None:
+    """A repair at its limit: back to research with every attempt's causes,
+    since the architecture is in question, or to clarify when its reproduction
+    was never shown failing at the start commit. Both carry the notice."""
+    folder = folder_of(entry)
+    lint = need_lint(number, f"gate.py result {number} <result file> --at-limit")
+    start = start_commit_of(number, body, entry, folder)
+    lines, _, _ = read_record(number)
+    if reproduction_shown(lines, start, reproduction_of(body, lint)) is None:
+        happened = (f"The fix loop reached {reached}, and the gate's record never shows the "
+                    "reproduction failing at the start commit, so the fault could not be made "
+                    "to repeat.")
+        needed = [("- clarify: a way to make the fault repeat: the steps, data, access or "
+                   "permission the reproduction needs.")]
+        kick(number, "shaping:clarify", happened, needed, run, entry, FIX_NOTICE)
+        return
+    happened = (f"The fix loop reached {reached} with the fault still there. Fixes that keep "
+                "failing put the architecture in question, so it stopped rather than patch "
+                "again.")
+    needed = [("- research: why the fault survives, read from the causes below before any "
+               "new fix is shaped.")]
+    causes = causes_tried(run, number) or ["- No attempt listed its causes."]
+    extra = "Causes the attempts tested, in rank order:\n" + "\n".join(causes) \
+        + "\n\n" + FIX_NOTICE
+    kick(number, "shaping:research", happened, needed, run, entry, extra)
 
 
 def acceptance_paths(body: str, names: Sequence[str], number: int) -> list[str]:
@@ -2017,6 +2233,9 @@ def command_result(arguments: list[str], options: dict[str, str]) -> None:
         cannot = [n for n in data.get("needs", []) if n.get("kind") == "spec"
                   and str(n.get("check") or "").strip().strip("`").removeprefix("./") in checks]
         reached = options.get("reason") or "its limit"
+        if module_of(names) == "fix":
+            fix_at_limit(number, body, run, entry, reached)
+            return
         happened = (f"The build loop reached {reached} without every acceptance check "
                     "passing, so it stopped rather than try again on the same guess.")
         if cannot:
@@ -2051,7 +2270,16 @@ def command_result(arguments: list[str], options: dict[str, str]) -> None:
     checks = acceptance_paths(body, names, number)
     lint = need_lint(number, usage)
     guards = [g for g in guard_checks(body, lint) if g not in checks]
-    problems, commit = run_checks(number, folder, checks, guards, True, "result", False)
+    if module_of(names) == "fix":
+        early = code_before_reproduction(number, body, lint, folder, entry)
+        if early:
+            say(f"refused: {early}. A repair shows its reproduction failing through the "
+                "gate before any change to the code, so this attempt failed.")
+            say("route: failed")
+            raise SystemExit(FAILED_ATTEMPT)
+    lines, _, _ = read_record(number)
+    problems, commit = run_checks(number, folder, checks, guards, True, "result", False,
+                                  recorded_guards(lines))
     if problems:
         say(f"#{number}: the builder said {status}, and the gate ran the checks itself on "
             f"{commit[:12]}. They do not hold, so this attempt failed:")
@@ -2333,14 +2561,17 @@ def closing_pull(number: int) -> dict[str, Any] | None:
 
 def command_evidence(arguments: list[str], options: dict[str, str],
                      command: list[str]) -> None:
-    usage = ("gate.py evidence <number> [--phase before] [--at <commit>] -- <command>, or "
-             "gate.py evidence <number> --breakage <patch> -- <command>")
+    usage = ("gate.py evidence <number> [--phase before|guard] [--at <commit>] -- <command>, "
+             "or gate.py evidence <number> --breakage <patch> -- <command>")
     if len(arguments) != 1 or not command:
         refuse("evidence takes one issue number, then -- and the command to run", usage)
     number = number_from(arguments[0])
     phase = options.get("phase", "after")
-    if phase not in ("before", "after"):
-        refuse(f"'{phase}' is not a phase; a run is before or after", usage)
+    if phase not in ("before", "after", "guard"):
+        refuse(f"'{phase}' is not a phase; a run is before, after or guard", usage)
+    if phase == "guard" and "at" in options:
+        refuse("a guard check runs at the piece's start commit, so --phase guard takes no "
+               "--at", usage)
     if "breakage" in options:
         if "phase" in options or "at" in options:
             refuse("a breakage runs at the commit the piece's branch holds, so --breakage "
@@ -2370,6 +2601,9 @@ def command_evidence(arguments: list[str], options: dict[str, str],
         commit, dirty = folder_state(folder)
         code, output, late = lint.run_limited(text, folder)
         entry = run_entry_for(number, "after", text, code, commit, not dirty, output, "evidence")
+    elif phase == "guard":
+        entry = guard_run(number, body, lint, text, usage)
+        code, late = int(entry["exit"]), bool(entry.get("late"))
     else:
         at = options.get("at", "")
         if not at:
@@ -2401,10 +2635,61 @@ def command_evidence(arguments: list[str], options: dict[str, str],
     for note in write_record(number, [entry]):
         say(note)
     state = ("clean tree, with one breakage applied" if phase == "breakage" else
+             "the start commit, with the branch's tests" if phase == "guard" else
              "clean tree" if entry["clean"] else "a tree with changes nobody saved")
     said = "ran past the time limit and was stopped" if late else f"exited {code}"
     say(f"#{number} evidence recorded: `{text}` {said} at {entry['commit'][:12]} "
         f"({phase}, {state})")
+
+
+def guard_run(number: int, body: str, lint: Any, command: str, usage: str) -> dict[str, Any]:
+    """Run a guard check at the start commit, with the test files the branch has
+    committed since then laid over it, and return its record line. A guard
+    check that does not pass there holds nothing, so it is refused and not
+    recorded."""
+    folder = branch_folder(number, body)
+    head, _ = folder_state(folder)
+    _, entry = run_of_piece(number)
+    start = start_commit_of(number, body, entry, folder)
+    changed = git(folder, "-c", "core.quotePath=false", "diff", "--name-only", start,
+                  head).stdout.splitlines()
+    tests = [path for path in changed if path.strip() and lint.is_test_file(path)]
+    patch = git(folder, "diff", "--binary", start, head, "--", *tests).stdout if tests else ""
+    root = main_folder()
+    temp = tempfile.mkdtemp(prefix="gate-guard-")
+    patch_file = os.path.join(temp, "tests.patch")
+    with open(patch_file, "w", encoding="utf-8") as handle:
+        handle.write(patch)
+    checkout = lint.Checkout(types.SimpleNamespace(root=root), start)
+    try:
+        try:
+            checkout.open()
+        except lint.CannotRun as error:
+            refuse(f"the guard check could not be set up at the start commit ({error})", usage)
+        if patch and git(checkout.path, "apply", patch_file).returncode != 0:
+            refuse(f"the branch's test files do not apply at the start commit ({start[:12]}), "
+                   "so the guard check was not run", usage)
+        agents = git(root, "show", f"{start}:AGENTS.md").stdout
+        problem = install_in(lint, checkout.path, agents, start)
+        if problem:
+            refuse(f"{problem}, so the guard check did not run", usage)
+        code, output, late = lint.run_limited(command, checkout.path)
+        if patch:
+            git(checkout.path, "apply", "-R", patch_file)
+    finally:
+        checkout.clear()
+        os.remove(patch_file)
+        os.rmdir(temp)
+    if late or code != 0:
+        said = "ran past the time limit" if late else f"exited {code}"
+        refuse(f"the guard check `{command}` {said} at the start commit ({start[:12]}), with "
+               "the branch's tests laid over it, so it does not hold what must not change "
+               "today; the gate records a guard check only once it passes there",
+               f"write the guard check so it passes on the code as it was, then run: "
+               f"gate.py evidence {number} --phase guard -- <command>")
+    line = run_entry_for(number, "guard", command, code, start, True, output, "evidence")
+    line["tests_from"] = head
+    return line
 
 
 def branch_folder(number: int, body: str) -> str:

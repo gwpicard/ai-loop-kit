@@ -380,7 +380,15 @@ attribution line, not the word.
   asking for an acceptance. It holds section-builder's steps 4, 5 and 8
   pointing at the loop, WORKFLOW.md's five endings in its Day to day section,
   and the design note's three sentences: where a loop at its limit goes, a
-  budget of time alone, and the start request.
+  budget of time alone, and the start request. It also holds the fix loop,
+  section-builder's `references/fix-loop.md`, for a `loop:fix` piece: its
+  seven steps in order, a repair run in the build loop's attempts, no cause
+  tested before the reproduction fails at the start commit, causes ranked
+  with a prediction and an outcome in the result, the guard check that holds
+  the `Must not change:` line, and the two routes at the limit with the
+  notice in the Kickback section. Section-builder's steps 1, 4, 5 and 8 point
+  a repair there too, and WORKFLOW.md says three failed repairs go back to
+  shaping with a Kickback section.
 - `.agents/tests/builder-status-rehearsal.sh` drives the build loop with stub
   builders, new processes given only the brief, against the stand-in GitHub in
   throwaway projects with a bare repository as their remote. A single
@@ -402,7 +410,15 @@ attribution line, not the word.
   said once, and a broken one starts nothing and names the key. A result
   GitHub could not take is routed on resume with no new claim, a locked run
   refuses a second resume, and `switch-module` changes only the label and
-  keeps the contract hash.
+  keeps the contract hash. A repair's brief points at the fix loop. The gate
+  refuses a repair whose code changed before its record showed the
+  reproduction failing at the start commit, at the result and at the move to
+  review, and lets the same work through in the right order. A guard check
+  failing at the start commit is refused and not recorded, one passing there
+  is recorded with phase `guard`, and the move to review runs it and refuses
+  when it fails. Three failed fixes go back to research with every attempt's
+  causes in rank order and the notice, and a repair whose reproduction was
+  never shown failing goes back to clarify.
 - `.agents/tests/attempt-note-rehearsal.sh` runs the implement skill's
   `scripts/attempt-note.py` on a throwaway attempt and compares the note with
   `.agents/tests/fixtures/attempt-note.md`: each check that failed in the
@@ -575,8 +591,9 @@ attribution line, not the word.
   move stops, in each command and in `blocked-commands.md`. The fix loop in
   section-builder's `references/fix-loop.md` claims nothing of its own, since
   section-builder claimed the piece first, and no longer checks the report
-  against the masterplan. It sends a piece back through the gate after three
-  attempts, keeping its `type:bug` label. It and
+  against the masterplan. A piece it sends back at its limit goes through the
+  gate's result route, which the run script calls, keeping its `type:bug`
+  label. It and
   `/what-now` read `type:bug` rather than `broken`, `/what-now` names a piece
   waiting in review for the person as theirs, and WORKFLOW.md's section 5
   tells the moves.
@@ -1087,7 +1104,9 @@ attribution line, not the word.
   section-builder's `references/fix-loop.md`, that read prior
   work and existing tests before a new attempt, search saved history from a
   known-good point, remove temporary instrumentation, and refuse to call a
-  retry-only test green.
+  retry-only test green. A reproduction that passes only sometimes is recorded
+  as unreliable, ranked as a cause of its own and never counted as fixed on a
+  retry.
 - `.agents/tests/masterplan-changes.sh` guards the change each piece carries
   for the masterplan, its application during save and recovery, the saved state
   the page was checked against, and the monthly count that offers /sync when
@@ -1318,7 +1337,10 @@ attribution line, not the word.
   count, because being right about the count is no reason to withhold the
   notice. It also holds that stopping there is a pause for the person rather
   than a refusal: if they carry on after the notice, the next attempt goes
-  ahead on the record. Both are written rules rather than rates, since the
+  ahead on the record. A repair is now built with nobody there, so the gate
+  writes the notice into the Kickback section that declines, and `/shape`
+  gives it in its first reply on the piece, before any question. An
+  acceptance already on the record stands, and the kickback still happens. Both are written rules rather than rates, since the
   same scenario comes out differently on `sonnet` and on `opus`. The runs
   behind them are recorded in `.agents/tests/replay/baseline.md`.
 - `.agents/tests/shared-route-adds.sh` guards the shared installer route. The
@@ -1651,14 +1673,16 @@ attribution line, not the word.
   flagged work is built. The kit gives the risk notice once, in full, and a
   person who carries on after it has accepted: the kit writes the `Accepted:`
   line with their words and the date, and the work goes ahead. It guards that
-  definition in the fix loop, fit-check.md, `/ship`, founding and the
-  project's own AGENTS.md, and that none of them drifts back to a stop. The
+  definition in fit-check.md, `/ship`, founding and the project's own
+  AGENTS.md, and that none of them drifts back to a stop. The
   build never asks: section-builder, the build loop and `/implement` never
   ask for an acceptance or write an `Accepted:` line, and a piece that meets
   an unaccepted sensitive area is kicked back to clarify with the area named.
   A reader goes through every sentence of section-builder, its references, the
-  implement skill and the queue skill, leaving out the fix loop until its own
-  rewrite, and a copy with one asking sentence planted is caught. An unattended run still stops at a sensitive area, because
+  fix loop included, the implement skill and the queue skill, and a copy with
+  one asking sentence planted is caught. The fix loop says it never asks, that
+  the acceptance is written only in `/shape`'s clarify step, and that one
+  already on the record stands. An unattended run still stops at a sensitive area, because
   nobody is there to carry on, and it never accepts on the person's behalf. It also guards what
   still earns the acceptance: the notice came first, silence and an
   instruction given before the notice do not count, and the line is read back

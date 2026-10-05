@@ -261,7 +261,7 @@ If the request would change what kind of project this is, by bringing in outside
 
 A bug is shaped like any other piece and built by the fix loop. When something that should work doesn't, tell /shape what broke: "/shape the board duplicates cards when I drag them". Paste the whole error if there is one.
 
-Once the piece is ready, /implement builds it with the fix loop. The loop builds the tightest repeatable check it can find for the exact symptom and works out the cause before touching code, driving the app in a browser or adding temporary logging when it needs to see what is actually going wrong. It resets failed attempts rather than stacking them, and finishes with evidence that keeps the bug from coming back.
+Once the piece is ready, /implement builds it with the fix loop. The loop builds the tightest repeatable check it can find for the exact symptom and works out the cause before touching code, driving the app in a browser or adding temporary logging when it needs to see what is actually going wrong. It resets failed attempts rather than stacking them, and finishes with evidence that keeps the bug from coming back. The gate holds the order: a change to the code made before the fault was shown repeating is refused. What the piece says must not change gets a check of its own, and the gate runs it again before review.
 
 Before repairing, the loop reads the changelog and finished pieces for the same part
 of the tool. That keeps a failed repair from being tried as if it were new, and
@@ -274,7 +274,7 @@ After launch, the fix loop also reads the tool's own record of what each request
 alongside your report, so it can trace the failed step. You do not need to read
 that record yourself.
 
-If the same piece fails three rounds in a row, it stops patching and routes by what the failures revealed. That may mean another interview, a rebuild from the masterplan, a stop for missing access, or naming the area as sensitive so somebody who does that work for a living looks at it.
+If a repair fails three attempts, the loop stops patching and the piece goes back to shaping with a `## Kickback` section: to research, with every cause the attempts tested, or to clarify when the fault could never be made to repeat. That section also says who is still exposed to the fault, and /shape tells you before it asks anything. Whether to rebuild the area, have someone who does that work for a living look at it, or try again is then your call.
 
 ## 6. Evidence
 

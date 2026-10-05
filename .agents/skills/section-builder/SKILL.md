@@ -120,6 +120,7 @@ run nobody is there to say yes, so never upload on the person's behalf: keep
 the work local and note it on the piece.
 
 For a `loop:build` piece, the run script makes this claim in a run of one, as `references/build-loop.md` says.
+For a `loop:fix` piece the run script makes the claim the same way, as `references/fix-loop.md` says.
 Claim the piece before changing anything. Label the piece `building` and assign it to whoever is building it
 through the gate, which writes `state:building` and the assignee in one call, `python3 .agents/tools/gate.py move <number> building --assignee <login>`,
 adding `--run <run name>` in a run. That is what stops two people starting the same
@@ -207,7 +208,9 @@ For a piece labelled `loop:build`, load `references/build-loop.md`. It shows the
 acceptance checks failing through the gate's before evidence, then runs the
 attempts that build the piece, and it uses this step's rules for the checks.
 Load `references/task-handoff.md` too, for the brief each attempt's fresh
-builder is started with.
+builder is started with. For a piece labelled `loop:fix`, load `references/fix-loop.md` as well as `references/build-loop.md`:
+its builders show the reproduction failing through the gate before any change
+to the code, and write the guard check its `Must not change:` line needs.
 
 Before any code, write each check a machine can run that the Done when lines
 name, under both `### Works` and `### When it is not the normal case`. Then run
@@ -283,6 +286,11 @@ otherwise. A builder that needs a decision, a fact or a rewritten contract ends
 its attempt saying so, and the gate kicks the piece back to the sub-state that
 settles it. `/shape` picks it up from there. Never let a fourth attempt run on
 the same guess.
+
+A `loop:fix` piece is built in the same attempts, each builder following `references/fix-loop.md`.
+The gate refuses a repair whose code changed before its reproduction was shown
+failing, and after three failed fixes the gate sends it to `shaping:research`, or to `shaping:clarify` when its reproduction was never shown failing, with
+a risk notice in its `## Kickback` section.
 
 A build may reach a service the tool uses, for example to read its keys or set
 it up. Use only what a tool offers through its own commands, and the keys the
@@ -496,6 +504,7 @@ proves the behaviour, and the review exists for what the check cannot see.
 ## 8. Save
 
 A `loop:build` piece reaches this step only once the gate has routed its builder's `done`, as `references/build-loop.md` says, and the gate's own run of its checks held.
+A `loop:fix` piece reaches this step the same way, once the gate has routed its builder's `done`.
 
 Before anything is saved, the bar is checked: the bar guard, this skill's
 `scripts/bar-guard.sh`, which wraps `scripts/test-guard.sh`, lists every change

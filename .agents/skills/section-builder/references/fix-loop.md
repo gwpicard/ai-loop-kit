@@ -2,13 +2,19 @@
 
 A piece labelled `loop:fix` is a repair of behaviour the masterplan promised.
 change-triage told it from a wish when the piece was shaped, and `/shape` wrote
-its reproduction and the check that fails today. section-builder loads this
-file for such a piece and builds it by these steps in place of its own steps 2
-to 5. The fix loop claims nothing of its own: section-builder's step 1 claimed the piece before it loaded this file.
+its reproduction, the check that fails today, and its `Must not change:` line.
+section-builder loads this file for such a piece and builds it by these steps in
+place of its own steps 2 to 5. The fix loop claims nothing of its own: section-builder's step 1 claimed the piece before it loaded this file.
+
+A repair runs in the same loop as a build. The run script, the fresh builder for each attempt, the five statuses, the limits and the kept work are as the `section-builder` skill's `references/build-loop.md` says. Each builder of a
+repair follows the steps below inside its attempt, lists the causes it tested
+in its result, and ends with one status. Where a repair goes at its limit is
+the last section here.
 
 You restore promised behaviour. The discipline is the order: never change
 code before the problem repeats reliably and the cause is understood and
-explained.
+explained. No cause is tested before a reproduction exists, and the gate holds
+that order. `gate.py result` and the move to review refuse a repair when a commit that changes a file other than a test was made, in the attempt, before the gate's record showed the reproduction failing at the start commit. So run the `Reproduction:` check through the gate, `python3 .agents/tools/gate.py evidence <number> -- <command>`, on the start commit, before the first change to the code.
 
 Every move this loop makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
 Never write the label another way, as the `setup-ai-build-kit` skill's
@@ -30,7 +36,8 @@ is absent or cannot be reached, say what evidence is missing and continue with
 the other sources below; never ask the person to read logs. The project's
 Secrets and Confidential files rules still apply to anything read or reported.
 A step that needs a secret reads where it lives from the masterplan first, as
-the Secrets rule says, and asks once when that is unknown.
+the Secrets rule says, and asks once when that is unknown. With nobody there,
+that question ends the attempt as `needs_context`, naming `clarify`.
 
 Before ranking causes, read `CHANGELOG.md` and closed pieces for the same area,
 with the entries in `changes/` not yet folded into it.
@@ -44,31 +51,34 @@ reach check now. Run the existing tests it finds before writing a new focused
 test. Prefer the existing test when it catches the exact symptom; add the new
 regression test after the cause is known.
 
-Find one repeatable check that catches the exact symptom. Prefer, in order:
-an existing failing test; a new focused automated test; a request or command
-script; browser automation; replayed input; a small throwaway harness;
-structured human-in-the-loop steps, when nothing else can reach the bug.
+Find one repeatable check that catches the exact symptom. The piece's
+`Reproduction:` check comes first. Where it does not catch the symptom, prefer,
+in order: an existing failing test; a new focused automated test; a request or
+command script; browser automation; replayed input; a small throwaway harness.
 
-The user never needs to know which technique this was. The report states how
-the bug is triggered, what result marks failure, how long the check takes,
-and whether it's reliable.
+The person never needs to know which technique this was. The result and the
+hand-over state how the bug is triggered, what result marks failure, how long
+the check takes, and whether it's reliable.
 
-When no loop can be built, stop and ask for the missing artifact, access, or
-permission. Do not begin speculative patching without one.
+When no loop can be built, the reproduction cannot be built: end the attempt as `blocked`, naming `clarify` and the missing artifact, access or permission. Do not begin speculative patching without one.
 
 ## 3. Reproduce and minimise
 
-Run the check, confirm it actually catches the user's bug, then remove
-irrelevant steps or inputs one at a time until only the smallest case that
-still fails remains.
+Run the check through the gate on the start commit, confirm it actually
+catches the person's bug, then remove irrelevant steps or inputs one at a time
+until only the smallest case that still fails remains.
+
+A reproduction that passes only sometimes is recorded as unreliable, in the
+result's `concerns`. It is ranked as a cause of its own, and the fault is never
+counted as fixed on a retry: a pass after a failure on the same commit is the
+same unreliable check passing by chance.
 
 ## 4. Rank causes
 
-List two to five plausible causes internally, each with a falsifiable
-prediction. Show the list to the user only when their domain knowledge could
-change the ranking; otherwise it stays internal.
+List two to five plausible causes, each with a falsifiable prediction, most likely first, and write them in the result's `causes` list in that rank order, each with its outcome: `ruled out`, `confirmed` or `not tested`. The next attempt reads them in
+the note, and a piece sent back to shaping carries them all.
 
-When the person or changelog identifies a time the behaviour worked, use the
+When the piece or the changelog names a time the behaviour worked, use the
 tight reproduction to bisect the saved history before testing the ranked
 causes. Report the result as: "It broke in the change called <piece title> on
 <date>." Do not bisect when there is no known-good point.
@@ -78,8 +88,10 @@ causes. Report the result as: "It broke in the change called <piece title> on
 Change one variable, and keep any temporary instrumentation targeted and clearly
 labelled: name the file you write a temporary log to and read it back while
 testing the cause, so the evidence sits somewhere you can point at rather than
-scroll past. Reset to the last saved state after any failed attempt before trying
-differently. Failed fixes never stack; stacked fixes are how clean projects rot.
+scroll past. Announce a reset to the last saved state after a cause that did
+not hold, before trying differently. Between attempts the run script puts the
+branch back for you. Failed fixes never stack; stacked fixes are how clean
+projects rot.
 
 ## 6. Fix and lock it down
 
@@ -88,6 +100,11 @@ watch it fail, apply the smallest fix that addresses the actual cause, watch
 it pass, then rerun the original, unminimised case. When no credible
 automated boundary exists, record that as a maintainability finding and use
 the strongest manual or operational evidence available instead.
+
+Each fix adds the cheapest check that would have caught the fault. Usually that
+is the reproduction itself, kept as the regression check.
+
+The `Must not change:` line is held by a guard check. Where `Reaches:` already names a test guarding that behaviour, that test is the guard check. Otherwise write one as a new test file in the attempt's first commit, before any other change, and record it with `python3 .agents/tools/gate.py evidence <number> --phase guard -- <command>`. The gate accepts it only when it passes at the start commit, with the branch's tests laid over the code as it was. Then, before the move to review it runs every check recorded with phase `guard` alongside the others, and refuses when one fails.
 
 The checks-first and test rules in section-builder's step 4 apply to a repair
 too. Commit the failing regression check on its own before the fix, so the saved
@@ -122,132 +139,83 @@ the symptom is gone and the pull request merges, and the merge step's
 `gate.py tidy` takes its state labels off. Its `type:bug` label stays, since it
 says what kind of work it was, and a closed issue never reaches the board.
 
-## Escalation
+## At the limit
 
-After three unsuccessful attempts, stop patching. Do not treat a rebuild as
-the automatic fourth attempt; route by what the failures actually revealed,
-one of:
+The loop stops on its own, and the gate takes the route, not the builder. A
+repair has two routes back to shaping:
 
-- an unclear requirement goes back to clarify;
-- missing access, environment, or artifact means stopping to ask for it;
-- a clear requirement whose failing implementation the project owns and can
-  see gets rebuilt from the masterplan;
-- repeated failure in one technical area names that area as sensitive, with a
-  look by somebody who does that work for a living as its caution;
-- being unable to establish any testable boundary is a maintenance finding,
-  not a fourth patch;
-- a piece that has been rebuilt and still fails has hit a real limit, and that
-  one area is worth handing over for somebody else to own.
+- Three failed fixes: the gate kicks the piece back to `shaping:research`, with the `causes` list of every attempt written into its `## Kickback` section in rank order, because the architecture is in question.
+- A reproduction that cannot be built: back to `shaping:clarify`, where the
+  person can give the steps, data, access or permission it needs. At the
+  limit, the gate sends a repair whose reproduction was never shown failing at
+  the start commit there too.
+
+Both go through `python3 .agents/tools/gate.py result <number> <result file>`, which the run script calls, with `--at-limit` once the attempts or the time
+are spent. Its `type:bug` label stays on it, because the fault is still there.
+A rebuild is never the automatic fourth attempt. Rebuilding the area from the
+masterplan, naming it as sensitive, or handing it to somebody else are choices
+for the person in `/shape`, and the loop makes none of them.
 
 ### What counts as three
 
 Count the fault surviving, not your own tally of the attempts you think should
-count. A person saying the fault is still there after three goes has reached this
-point, whether or not each attempt was merged, deployed, or tried the way you
-would have tried it. Whose code it was, and whether it ever shipped, are facts
-about the work. What decides is that the fault is still there and the next thing
-asked for is another go at it.
+count. The run script counts an attempt as failed when the gate ran its checks
+and the fault was still there, whether or not each attempt was merged, deployed, or tried the way you
+would have tried it. A person saying the fault is still there after three goes
+has reached this point too. Whose code it was, and whether it ever shipped, are
+facts about the work. What decides is that the fault is still there and the next
+thing asked for is another go at it.
 
-You may disagree with the count, and saying so can be the right thing to do.
-Correcting it does not postpone the notice and is not a reason to wait for a
-cleaner three. Say what you think actually happened and give the notice in the
-same reply, because either way the person is relying on something that produces
-wrong results and is asking for another patch on a cause nobody has established.
-A correction on its own leaves them where the notice exists to take them out of:
-told they are wrong, with nothing to decide.
+A builder may disagree with the count, and saying so in its result's
+`concerns` can be the right thing to do. Correcting it does not postpone the
+notice or the kickback, and is not a reason to wait for a cleaner three. In
+`/shape`, say what you think actually happened and give the notice in the same
+reply, because either way the person is relying on something that produces
+wrong results and is asking for another patch on a cause nobody has
+established. A correction on its own leaves them where the notice exists to
+take them out of: told they are wrong, with nothing to decide.
 
-Naming an area as sensitive is a tightening, so it happens on your own
-judgement without asking, and pressure to just fix it does not lift the flag or
-turn it back into a rebuild. A component the project does not own or cannot see
-is never the rebuild-from-the-masterplan route, however unreliable it looks.
-Rebuilding it yourself takes on a new sensitive area rather than repairing a
-known one, so it waits behind the notice below.
+### The notice
 
-Declining the fourth attempt is what owes the notice, not the route you pick
-after it. Give it in the same reply that declines, in the shape
-the `setup-ai-build-kit` skill's `references/fit-check.md` sets out: name who is
-exposed, which here is whoever relies on the broken behaviour, say they are still
-relying on something that is producing wrong results, say that another attempt on
-a cause nobody has established can hide the fault rather than remove it, and say
-who would normally establish it first. Stopping here is a pause for the person to
-decide. The notice also says what they can do, and if they carry on after it,
-the next attempt goes ahead on the record.
+Declining the fourth attempt is what owes the notice, not the route chosen
+after it. In the loop nobody is there to hear it, so the gate writes it into the same `## Kickback` section that declines, in the shape the
+`setup-ai-build-kit` skill's `references/fit-check.md` sets out. It names who is
+exposed, which here is whoever relies on the broken behaviour, and says they are
+still relying on something that is producing wrong results. It says that another
+attempt on a cause nobody has established can hide the fault rather than remove
+it, and that somebody who knows that part of the tool would normally establish
+the cause first. `/shape` reads that section first and passes the notice on in the same reply that declines another patch, its first reply on the piece.
+
+Stopping here is a pause for the person to decide. The notice also says what
+they can do, and if they carry on after it, the next attempt goes ahead on the
+record: the acceptance is written in `/shape`'s clarify step, never in the loop, and the piece is shaped and built again.
 
 Every route owes it, including the ones that sound like good news. Concluding
 that the cause is established after all, that the requirement was unclear, or
 that no testable boundary exists changes what happens next and changes nothing
 about what the person is told. Three failed attempts is the least reliable moment
 to trust your own conclusion that you finally understand the fault, and it is the
-moment that conclusion is most tempting. A refusal with no notice attached leaves
-the person a refusal and no reason, which reads as the kit being difficult rather
-than as a risk that is now theirs to decide about.
+moment that conclusion is most tempting. So a builder at its third attempt never patches a fourth time on that conclusion. It ends the attempt, and the
+kickback carries the notice. A refusal with no notice attached leaves the person
+a refusal and no reason, which reads as the kit being difficult rather than as a
+risk that is now theirs to decide about.
 
-Not early and not late. Naming who is exposed earlier in the conversation, as a
-general worry about the bug, is not this notice and does not discharge it. Giving
-it after the person has asked again for the work is too late, because by then
-they have decided without it. It belongs in the reply that declines the fourth
-attempt, which is the last moment it can still change what they choose.
+Not early and not late. Naming who is exposed earlier, as a general worry about
+the bug, is not this notice and does not discharge it. Giving it after the
+person has asked again for the work is too late, because by then they have
+decided without it. It belongs in the reply that declines the fourth attempt,
+which is the last moment it can still change what they choose.
 
 Then hold that notice. Refusing the cost of a specialist, having no budget, and
 asking for one more go are all reasons the person may decide differently, and
 none of them is a reason the fault is now understood. Asking for one more go
-after hearing the notice is the person carrying on, which is theirs to choose:
-record the acceptance as below, then make the attempt.
+after hearing the notice is the person carrying on, which is theirs to choose
+in `/shape`.
 
-Where the person does not carry on, write a `## Kickback` section on the
-repair's piece with one line on what the three attempts revealed and the route
-you chose, and move it back to shaping through the gate: to `shaping:spec`,
-`python3 .agents/tools/gate.py move <number> spec`, when an attempt showed a
-check that cannot be met as written, and to `shaping:research`,
-`python3 .agents/tools/gate.py move <number> research`, otherwise. Its
-`type:bug` label stays on it, because the fault is still there.
+### Nobody accepts in the loop
 
-### Before the next attempt
-
-Another patch after three, or rebuilding the failing area yourself, is the same
-decision whatever it is called, so it needs the same notice. Work through these
-four in order. Do not start the work until all four are behind you.
-
-1. **Name the risk yourself, before anything is built.** For a rebuild the
-   notice covers the replacement rather than the fault: a replacement nobody
-   who understands the original failure has looked at can fail the same silent
-   way, and your own version passing its own tests is not evidence otherwise,
-   because the thing that keeps breaking was never understood. Describing the
-   fault accurately while saying nothing about what replaces it is the same
-   failure as saying nothing.
-2. **Give the notice once, in full, in one reply,** and let the person decide.
-3. **Take carrying on as the acceptance.** Any instruction to go on with the
-   work after the notice counts: "just rebuild it", "try it anyway", "patch it
-   again". Silence does not, and neither does a question or an instruction
-   given before the notice, or a form or menu answer with no option selected.
-   Somebody who described the risk before you named it has still not been told
-   by you, so name it yourself.
-4. **Record the acceptance, then build.** The `Accepted:` line goes into the
-   masterplan's build-path section before the replacement starts, with the date
-   and the person's own words. Those are quoted exactly as typed, in quotation
-   marks, and the line names only people the person named and says so when the
-   answer was a selected option. Correct every masterplan sentence the
-   acceptance makes untrue in the same save, such as one saying the area is
-   still waiting for the caution, and name those sentences in one line.
-   fit-check.md has the rest of these rules.
-
-The order carries this. An acceptance collected once the replacement exists is
-not an acceptance, it is a note about something that already happened.
-
-Read the masterplan back before the replacement starts, and let the `Accepted:`
-line being there decide whether it does. Where it is not there, the acceptance
-was not recorded whatever was said in the conversation, and the work waits
-until it is written. Doing the steps in order is what a run believes it did;
-reading the line back is what tells it whether it did.
-
-Carrying on after the notice is the acceptance, and the line quotes the
-person's words after hearing who is exposed. Do not ask again for a cleaner yes.
-Write the line, read it back and start the replacement in the reply that
-answers them, and keep no lock that only waits for the skipped caution;
-fit-check.md says why a further question is a stop.
-Do not read an acceptance into a reply that does not ask for the work either:
-silence, a question, or "I am not sure" leaves the work waiting and the notice
-standing.
+The loop never asks for an acceptance and never writes an `Accepted:` line. An acceptance already on the record stands. Where the person carried on after an earlier notice and the fault survives three more attempts, that record stays as
+it was, and the kickback still happens, since nobody is present in the loop to carry on.
 
 ## Done when
 
