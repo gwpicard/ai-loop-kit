@@ -74,14 +74,14 @@ describe() {
   case "$1" in
     manifest-drop) echo "a document named in both manifests is dropped from the release allowlist" ;;
     manifest-drop-unpaired) echo "a file named only in the release allowlist is dropped, with no second manifest to cross-check it" ;;
-    humanizer-leak) echo "the maintainer's writing skill is put back beside the fourteen and allowed into the release" ;;
-    review-issues-leak) echo "the maintainer's issue review, the skill nobody wrote a check for by name, is put beside the fourteen and allowed into the release" ;;
+    humanizer-leak) echo "the maintainer's writing skill is put back beside the thirteen and allowed into the release" ;;
+    review-issues-leak) echo "the maintainer's issue review, the skill nobody wrote a check for by name, is put beside the thirteen and allowed into the release" ;;
     bootstrap-overwrite) echo "project bootstrap overwrites a file the project already had" ;;
     bootstrap-escape) echo "project bootstrap follows a link and writes outside the project" ;;
     maintainer-name-leak) echo "the private source repository is named in the public README" ;;
     adapter-stale) echo "a skill changes without its adapters being regenerated" ;;
     skill-missing) echo "one skill folder disappears, leaving ten" ;;
-    skill-duplicate) echo "one skill is replaced by a copy of another, leaving the wrong fourteen" ;;
+    skill-duplicate) echo "one skill is replaced by a copy of another, leaving the wrong thirteen" ;;
     publish-writes-a-tree) echo "a workflow gains the power to replace this repository's tree" ;;
     gate-widened) echo "a workflow gate names a repository the kit no longer lives in" ;;
     discipline-user-invocable) echo "a background skill loses the setting that keeps it out of the person's hands" ;;

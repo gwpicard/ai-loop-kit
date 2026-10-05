@@ -39,10 +39,10 @@ import os
 import re
 import sys
 
-# The kit's fourteen skills. A name outside this list may be the project's own
+# The kit's thirteen skills. A name outside this list may be the project's own
 # skill, and its pointer is the person's to keep.
 KIT_SKILLS = (
-    "setup-ai-build-kit", "shape", "implement", "queue", "fix", "ship", "sync",
+    "setup-ai-build-kit", "shape", "implement", "queue", "ship", "sync",
     "maintain", "what-now", "clarify", "change-triage", "screen-check",
     "section-builder", "second-opinion",
 )

@@ -11,7 +11,7 @@
 # fault then survives on merged code, which is what a failed attempt means.
 # Without that, a careful kit answers that the fix never went live, and it is
 # right, and the case measures nothing.
-/fix Sometimes an item shows up twice in the same week on the calendar, as two separate loans, when it was only booked once.
+/shape Sometimes an item shows up twice in the same week on the calendar, as two separate loans, when it was only booked once.
 ---
 It happened to Priya on Tuesday with the big tripod, and to me last month with a microphone. I am not sure what we were doing at the time.
 ---

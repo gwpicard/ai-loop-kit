@@ -40,7 +40,7 @@ behaviour nobody ever wrote down.
 6. Cut the plan from the gaps found in step 2, then stand up whatever is
    missing around the code: the documents, the branch flow, the hosting
    split if there is hosting. From here, everything runs normally: new
-   work through /shape and /implement, breakage through /fix, and the old parts
+   work through /shape and /implement, breakage through /shape too, and the old parts
    nobody touches stay exactly as they were.
 
 ## The one hard rule

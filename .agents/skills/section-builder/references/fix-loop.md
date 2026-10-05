@@ -1,43 +1,16 @@
----
-name: fix
-description: Bring the tool back to doing what it already should. Use when the user says something is broken, failing, wrong, regressed, or not behaving as intended. Input is evidence, an error, a wrong output, a screenshot. Do not use for behaviour the masterplan never promised; that is build.
----
+# The fix loop
 
-# Fix
+A piece labelled `loop:fix` is a repair of behaviour the masterplan promised.
+change-triage told it from a wish when the piece was shaped, and `/shape` wrote
+its reproduction and the check that fails today. section-builder loads this
+file for such a piece and builds it by these steps in place of its own steps 2
+to 5. The fix loop claims nothing of its own: section-builder's step 1 claimed the piece before it loaded this file.
 
 You restore promised behaviour. The discipline is the order: never change
 code before the problem repeats reliably and the cause is understood and
 explained.
 
-## 0. Check the report
-
-When `/fix` arrives with no bug described, look for the repair already on the
-board before asking the person to describe one. Refresh the printout with
-`sh .agents/tools/plan-refresh.sh` and read the pieces it marks `(bug)`, the open issues labelled `type:bug`
-that `/what-now` surfaces first. Where the project has no copy
-of the helper, the `setup-ai-build-kit` skill's `references/pieces.md` says what
-to run instead. If no open piece carries `type:bug`,
-ask for the symptom, as step 1 sets out. If exactly one is, name it and use it as
-the report. If more than one is, list them and ask which to take.
-
-Read masterplan.md, build-path section first. If the behaviour being asked
-for was never promised there, say so kindly and hand the request to `/shape`,
-which shapes new work; a new wish treated as a repair ends up in the wrong
-procedure. Nobody
-can misfile work by picking the wrong command; catching that is this step's
-whole job.
-
-Only once the repair is confirmed as promised behaviour, and where it has an
-issue, claim it the way section-builder's step 1 claims a piece. Claim it before step 1 only when the repair is in `state:ready`: `python3 .agents/tools/gate.py move <number> building --assignee @me`.
-A repair in `state:shaping` is not claimed. Nor is an issue with no state, which `/fix` first takes in with `python3 .agents/tools/gate.py capture <number>` and `gh issue edit <number> --add-label type:bug`.
-For either, say in one line that the repair is shaped first, and hand it to `/shape`.
-Where GitHub cannot be reached, say so and do
-not start on it, since a repair nobody could claim may be claimed by somebody
-else. A repair `/fix` claimed that turns out to belong to `/shape` goes back with a `## Kickback` section saying why, `python3 .agents/tools/gate.py move <number> clarify`,
-so nothing is left in `state:building` that nobody is building. A repair with no issue is built without a claim.
-The save then moves a claimed repair on as section-builder's step 8 says.
-
-Every move this command makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
+Every move this loop makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
 Never write the label another way, as the `setup-ai-build-kit` skill's
 `references/blocked-commands.md` says.
 

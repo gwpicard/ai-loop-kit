@@ -52,7 +52,7 @@ Git, branches and pull requests are familiar, so it uses those words without
 defining them. It assumes nothing about reading the code itself.
 
 The kit rests on one rule: the workflow never requires reading code. None of the
-nine commands asks anyone to open a file of code, and every check is something a
+eight commands asks anyone to open a file of code, and every check is something a
 person sees or tries. The rule describes the process and leaves the person
 alone. A developer can read every diff if they like. The kit never depends on
 it, because a process that only works while somebody reads the code stops
@@ -89,17 +89,23 @@ rather than patched a fourth time, often ending in a rebuild from the
 documents, and why a disappointing autonomous run is answered by sharpening
 the plan instead of hand-editing whatever it produced.
 
-The vocabulary stays small and grows only by deliberate redesign. Nine commands,
+The vocabulary stays small and grows only by deliberate redesign. Eight commands,
 each named after a moment a person actually reaches for, and every new
 capability arrives as behaviour of an existing command wherever it can. A
 capability that genuinely needs its own command is a sign a command was carrying
 two jobs at once, and splitting it is a redesign conversation, not a casual
-addition. The count has moved twice, both times for that reason. Seven became
-eight when `/build` was found to be both planning and building, and the planning
-half became its own command, now `/shape`. Eight became nine when `/what-now`
-was found to be both orientation and overview: it names at most three things
-because somebody lost cannot use more, and somebody taking on several pieces at
-once needs the whole list, so that half became `/queue`.
+addition. The count has moved three times. Twice a command was carrying two
+jobs. Seven became eight when `/build` was found to be both planning and
+building, and the planning half became its own command, now `/shape`. Eight
+became nine when `/what-now` was found to be both orientation and overview: it
+names at most three things because somebody lost cannot use more, and somebody
+taking on several pieces at once needs the whole list, so that half became
+`/queue`.
+
+The third time went the other way. Nine became eight when `/fix` was found to
+be a shaping route plus a loop module. A bug is shaped like any other piece, starting from the person's report, and
+built by the fix loop. Nothing was left that the command did on its own, so
+the person now tells `/shape` what broke.
 
 A name can also be forced from outside. Where the coding agent the kit runs inside takes a command
 name for itself, the person either cannot reach the kit's command or loses the
@@ -269,8 +275,8 @@ all five, do not add it.
    wrong version of it.
 
 4. **What does the person do when it goes wrong?** Stated as an action they can
-   take without reading anything technical. "Type /fix" is an answer. "Check the
-   logs" is not.
+   take without reading anything technical. "Tell /shape what broke" is an
+   answer. "Check the logs" is not.
 
 5. **What can they never need to learn?** Name it explicitly. That is the value
    of the feature, so it should be easy to state.
@@ -295,8 +301,8 @@ cannot use.
 
 Automatic tests on every pull request, added. It fits under /implement. The person
 sees a green tick or a red cross beside the merge button. The sentence is "green
-means the tests really passed; red means don't merge". When it is red they type
-/fix. They never need to know GitHub Actions exists.
+means the tests really passed; red means don't merge". When it is red they tell
+/shape what broke. They never need to know GitHub Actions exists.
 
 Review reports split into "worth stopping for" and "worth knowing", added. The
 same findings as before, sorted, so the decision becomes one question: is the
@@ -336,9 +342,9 @@ project, and the kit clears it away". When something goes wrong with a copy,
 such as one left behind, they type /maintain, which offers to remove it. They
 never need to track which copy holds which piece.
 
-Tight bug reproduction before a fix, added. It fits under /fix; the user sees
-the exact failing case and the evidence that it stopped failing; they never
-need to learn instrumentation or bisection.
+Tight bug reproduction before a fix, added. It fits under /shape and the fix
+loop; the user sees the exact failing case and the evidence that it stopped
+failing; they never need to learn instrumentation or bisection.
 
 Disposable decision prototype, added. It fits under /setup-ai-build-kit or /shape;
 the user tries a rough artifact to settle one question. What they get is chosen
@@ -384,7 +390,7 @@ the change. Checks only a person can make are exempt, which is why the universal
 practice stays rejected.
 
 The loop, added: `/queue` plans and `/implement` runs. It fits under those two
-commands, so the count stays at nine. The person types /queue and sees the plan:
+commands, so the count did not move. The person types /queue and sees the plan:
 the ready pieces in order, which can be built together because they share no
 area, and the command that runs them. They run that command, leave, and come
 back to one report: each piece, its pull request, its state, the choices
@@ -392,7 +398,7 @@ flagged for them to confirm, and the order to merge.
 
 The sentence is "/queue shows what a run would do, and /implement does it".
 When a piece goes wrong three times, it is parked with the reason and the run
-moves on, and the person takes that piece to /fix or /shape. They never need to
+moves on, and the person takes that piece to /shape. They never need to
 write down the rules of a run themselves, which is what the real project did
 four times before the kit held them.
 
@@ -450,7 +456,7 @@ looking. It fits under /setup-ai-build-kit, which offers a short menu with one
 recommended, and under /ship, which works through the recipe's checks. The person sees the menu once, at
 founding, and after that a launch that says what it checked. The sentence is
 "this is a stack the kit has run for real, so it can check your launch as well
-as warn about it". When a check fails they type /fix. A person who wants their
+as warn about it". When a check fails they tell /shape what broke. A person who wants their
 own stack says so, and the kit carries on with fewer promises.
 
 They never need to learn how the place they run on does a rollback or where its

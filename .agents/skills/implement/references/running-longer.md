@@ -429,7 +429,7 @@ works in.
 - **Two pieces that change one file.** Two pieces of one group can change the
   same file although their `Boundary:` lines differ. The second merge's check
   against the latest `main` then finds the conflict, and the
-  `section-builder` skill's `references/merge.md` takes it to `/fix`.
+  `section-builder` skill's `references/merge.md` takes it to `/shape` with what broke.
 - **The browser.** Where a walk-through cannot get the browser because another
   agent holds it, it records that it could not look, and the piece goes to
   `to check` for the person, as section-builder's step 6 says for a

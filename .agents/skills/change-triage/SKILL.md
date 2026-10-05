@@ -1,6 +1,6 @@
 ---
 name: change-triage
-description: Classify a request written in plain words before any work happens. Used by shape when the user typed a request, and by fix to check a report before repairing. Decides whether the request is new work, a repair, too vague to size, or a change that needs the masterplan or the fit check first.
+description: Classify a request written in plain words before any work happens. Used by shape when the user typed a request, a report of something broken included. Decides whether the request is new work, a repair, too vague to size, or a change that needs the masterplan or the fit check first.
 user-invocable: false
 ---
 
@@ -28,6 +28,9 @@ Behaviour the masterplan never promised is a wish, however it is worded, and bec
 A wish handled as a repair goes into the wrong loop, which then hunts for a
 fault nobody made. Nobody can misfile work by how they word it, because
 catching that is this step's job.
+
+A request that names `/fix` is a repair report typed from habit: there is no such command, so
+say in one line that `/shape` takes it, and run `/shape` with the words that follow.
 
 ## Capture: a note for later
 
@@ -165,7 +168,8 @@ A `type:bug` piece with a reproduction a person can follow has no question
 left for the person. A reproduction a person can follow means the steps, the expected result and the actual result.
 With all three, it goes from `shaping:raw` straight to `shaping:spec` and
 takes `loop:fix`: write `Loop module: fix` under `## Loop` with no guess mark,
-and add the label with `gh issue edit <number> --add-label loop:fix`. Write the
+and add the label with `gh issue edit <number> --add-label loop:fix`. Once ready, it is
+built by the fix loop, the `section-builder` skill's `references/fix-loop.md`. Write the
 three under `## Steps to reproduce`, in the person's words where they gave
 them, so spec can turn them into the failing check.
 
@@ -180,7 +184,7 @@ A request that becomes a piece is a new issue. Take it in through the gate with 
 so it starts in `state:shaping` and `shaping:raw`. Then
 give it exactly one `type:` label before its first move, `gh issue edit <number> --add-label type:<feature|bug|chore>`.
 A repair of behaviour the masterplan promised is `type:bug`, which is what
-points `/what-now` and `/fix` at it. Upkeep that changes nothing a person sees in the tool is `type:chore`.
+points `/what-now` at it and, through `loop:fix`, section-builder's fix loop. Upkeep that changes nothing a person sees in the tool is `type:chore`.
 Anything else is `type:feature`. The `type:` label is not a state, so `gh`
 adds it directly.
 
@@ -275,7 +279,7 @@ request. Never on a branch that is left unpushed, since its
 changelog entry would never reach `main`.
 
 Where the content shows a problem in the tool, because it fails or the output
-is wrong, say so in one line, and it becomes a repair through `/fix` or a new
+is wrong, say so in one line, and it becomes a bug piece or a new
 piece through this triage. The content run itself is not a repair. A request
 that changes the tool so it can handle the content is not content work either,
 and is triaged as usual.

@@ -62,7 +62,7 @@ words, and point at `/sync`, which asks the person how to put it right.
 
 An open piece labelled `type:bug` comes next, before the counts. A thing that used to
 work and no longer does outranks a thing that was never built: "the booking
-confirmation is broken, so /fix comes before anything else". Name what is broken
+confirmation is broken, so it goes to /shape before anything else". Name what is broken
 rather than saying a piece is labelled.
 
 A failing check is named next, after anything broken and before the counts. Say
@@ -127,7 +127,7 @@ cannot start until card payments are set up", never "blocked by #9". Name at
 most three things; if more apply, say how many and name the nearest. More than
 three stops being orientation and becomes a report. When the person asks what
 else can be worked on, still name at most three, and offer /queue for the rest:
-it prints the plan a run would follow and ends on the command that runs it. Match where the project is in its life. Still building toward the first launch: the answer is usually /implement for the next ready piece, /shape to shape a new one, or /ship when the plan has run dry. Live and running: the answer is usually "say what you want to /shape", /fix for the thing that broke, or the /maintain that the check-up reminder shows is due.
+it prints the plan a run would follow and ends on the command that runs it. Match where the project is in its life. Still building toward the first launch: the answer is usually /implement for the next ready piece, /shape to shape a new one, or /ship when the plan has run dry. Live and running: the answer is usually "say what you want to /shape", /shape with what broke for the thing that broke, or the /maintain that the check-up reminder shows is due.
 
 End with a short recap of where the tool has got to, in the words a person would
 use. Say what the last stretch of work was about, and whether anything is on the
@@ -188,8 +188,8 @@ be pasted into a message.
 
 Name the check that is failing and what it is there to catch, in plain words,
 for example the test that stops a booking being taken twice. Say that a red check
-means the tool is not doing something it is meant to, and that /fix is where that
-goes. Do not show the check's output or its logs.
+means the tool is not doing something it is meant to, and that /shape, told what
+broke, is where that goes. Do not show the check's output or its logs.
 
 ### Open review finding
 

@@ -1,7 +1,7 @@
 # Merging a pull request
 
-The one merge step for every route. section-builder, `/implement`, `/fix`,
-`/ship` and `/sync` load it whenever a pull request is ready to merge, and none
+The one merge step for every route. section-builder, `/implement`, `/ship`
+and `/sync` load it whenever a pull request is ready to merge, and none
 of them keeps its own copy of the rule. It covers the merge, and the wait for
 the project check that the merge and section-builder's step 8 share. The save
 that opened the pull request is section-builder's step 8, and what happens to
@@ -50,7 +50,7 @@ Three cases end without a green check:
 ## Before any merge
 
 Merge only a pull request whose project check is green. Never merge over a red
-check: say it is red, and take it to `/fix`.
+check: say it is red, and take it to `/shape` with what broke.
 
 A green check says the pull request passed against the `main` it was cut from.
 Once another pull request merges, that answer is out of date, and two pieces
@@ -73,14 +73,14 @@ When the update stops the merge, nothing merges:
 - Where the merge from `main` conflicts, the script exits 1 and names each
   conflicting file. Name the files in the reply, add one comment to the pull
   request naming them with `gh pr comment <number>`, and take the piece to
-  `/fix`, as a red check is.
+  `/shape` with what broke, as a red check is.
 - Where the check turns red only after `main` was taken in, say that the piece
   passed alone and fails with what merged since. Name the pieces merged since
   the branch's last green check, read with
   `git log --first-parent --oneline <old base>..origin/main`, where the old base
   is `git merge-base <head before the update> origin/main`. Name each by its pull
   request's title, from the merge commit's subject, or from its body where the
-  subject names only the branch. Take it to `/fix`.
+  subject names only the branch. Take it to `/shape` with what broke.
 - Where `origin` cannot be reached, the script exits 2 and nothing changed.
   Give the one line "How the merge is made" gives.
 
@@ -105,7 +105,7 @@ pre-approval, and before `gh pr merge`:
 3. Commit the fold as `Fold the changelog`, push the branch, and wait for the
    project check on that new commit, as "Waiting for the check" says.
 4. Merge only when that check is green. Red means nothing merges: say so and
-   take it to `/fix`, as the rule above says.
+   take it to `/shape` with what broke, as the rule above says.
 
 Where the check has not reported, because it is queued or GitHub is slow, the
 merge waits: say so once in the reply, and never merge on an unfinished check.
@@ -130,7 +130,7 @@ decides the reply:
 - 0: wait for the check on that commit.
 - 1: the merge from `main` conflicted. The branch is left exactly as it was, and
   the script names each conflicting file. Nothing merges: name the files and
-  take it to `/fix`.
+  take it to `/shape` with what broke.
 - 2: `origin` could not be reached, or the folder is not on a branch or holds
   uncommitted work. Nothing changed. Where GitHub could not be reached, give
   the one line "How the merge is made" gives.

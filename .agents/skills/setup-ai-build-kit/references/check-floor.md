@@ -6,7 +6,7 @@ the job the capability profile's `Project check:` line records
 (`.github/workflows/checks.yml`, job `project-check`, where that line names no
 file), beside install and test, so they turn the same tick red.
 The person meets no new idea. Green still means the checks that exist really
-passed, and red still means don't merge and tell /fix.
+passed, and red still means don't merge and tell /shape what broke.
 
 This is a whole-project read, so the rules in `whole-project-reads.md` apply.
 

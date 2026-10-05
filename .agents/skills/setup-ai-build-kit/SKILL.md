@@ -1,6 +1,6 @@
 ---
 name: setup-ai-build-kit
-description: Begin a new project, or resume a beginning that was interrupted. Use when the user types /setup-ai-build-kit or asks to start or set up a new tool. Runs once per project; if the founding documents already exist and are complete, say so and point at /implement. Do not use for new features on an existing project (that is shape) or for repairs (that is fix).
+description: Begin a new project, or resume a beginning that was interrupted. Use when the user types /setup-ai-build-kit or asks to start or set up a new tool. Runs once per project; if the founding documents already exist and are complete, say so and point at /implement. Do not use for new features or repairs on an existing project (that is shape).
 ---
 
 # Start
@@ -657,7 +657,7 @@ placeholder step, or add the steps `references/project-check.md` offers, unless
 the project genuinely requires a broader workflow change.
 
 Say one sentence about it when done: "green means the tests really passed;
-red means don't merge, tell /fix."
+red means don't merge, tell /shape what broke."
 
 Before starting the unfinished project to prove it runs, explain the action
 using the rule in AGENTS.md, close to: "I'm going to start the unfinished

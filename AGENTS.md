@@ -16,21 +16,21 @@ here by design. They are created inside a user's project by `/setup-ai-build-kit
 ## Before any work
 
 Read `docs/MAINTAINING.md`. Read `docs/PHILOSOPHY.md` before changing what one
-of the fourteen canonical skills does, or adding a capability. Check the current
+of the thirteen canonical skills does, or adding a capability. Check the current
 branch and unsaved work
 before editing. Never run the project-founding `/setup-ai-build-kit` process in this
 repository.
 
 ## Source and starter boundary
 
-- `.agents/skills/` is the single source of truth for the nine commands and
+- `.agents/skills/` is the single source of truth for the eight commands and
   five internal background skills. Nothing else belongs in it.
 - `.agents/maintainer-skills/` holds the skills only the kit's own maintainers
   use. There are three: the Humanizer writing skill; `review-issues`, which
   reads the open issues, groups them by theme and names the next piece worth
   picking up; and `stack-research`, which reads what changed upstream for the
   products the recipes name and writes a dated note proposing changes, or
-  none. They sit there rather than beside the fourteen because a shared
+  none. They sit there rather than beside the thirteen because a shared
   skills installer reads `.agents/skills/` and `.claude/skills/` and offers
   whatever it finds in either, so a folder in one of those is a skill somebody
   installs. Being outside both is the whole boundary, and a maintainer skill
@@ -49,7 +49,7 @@ repository.
   before running any of them.
 - `.claude/`, `.cursor/`, and `.gemini/` are generated adapters. Change the
   canonical skill, then run `.agents/tools/build-adapters.sh`. The Claude
-  plugin exposes the nine generated command files and five hidden background
+  plugin exposes the eight generated command files and five hidden background
   skills. Shared installations use the adapters their coding agents need.
 - `.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.md` creates a project's
   root instructions.
@@ -61,7 +61,7 @@ repository.
 - `.claude-plugin/` is the Claude plugin and marketplace metadata. It selects
   generated adapters rather than duplicating a skill.
 - `agent-plugin/plugin.json` is the Agent Plugins manifest. The release
-  allowlist rebases the fourteen canonical skills under `agent-plugin/skills/`,
+  allowlist rebases the thirteen canonical skills under `agent-plugin/skills/`,
   so the plugin folder is assembled at release time and this repository keeps
   one copy of each skill.
 - `release-manifest.txt` is the full allowlist for the public kit. A file absent
@@ -90,7 +90,7 @@ thing, trust the check. It tests the real work, and an instruction can fall out
 of date. Follow the check, and say plainly that the two disagree rather than
 following the stale instruction in silence.
 
-When one of the fourteen canonical skills changes, answer the five questions in
+When one of the thirteen canonical skills changes, answer the five questions in
 `docs/PHILOSOPHY.md`, record any borrowed idea in `docs/SOURCES.md`, update the
 owned explanation where needed, regenerate adapters, and run the kit validator.
 Generated files are committed with their canonical change.
@@ -175,6 +175,8 @@ attribution line, not the word.
   again and reaches its own copy again, so the run hangs rather than
   fails, and a hosted job is billed for every minute of it.
 - `.agents/tests/release-builder.sh` checks the assembled public release boundary.
+  It counts thirteen skills on each route, and refuses a release that still
+  carries the removed `fix` skill or any of its command files.
 - `.agents/tests/starter-rehearsal.sh` checks that installed skills can prepare
   a clean, independently saved project with founding records. It also holds
   what founding does with the other skill folder. A link that leads nowhere
@@ -212,7 +214,7 @@ attribution line, not the word.
   the tools would otherwise surface on release day.
 - `.agents/tests/claude-plugin.sh` rehearses the Claude command boundary, an
   isolated install, project bootstrap, failed and successful updates, and
-  removal.
+  removal. The installed plugin offers the eight commands and no `fix`.
 - `.agents/tests/agent-plugin.sh` checks the assembled Agent Plugins folder
   against the standard and rehearses a project stand-up from it.
 - `.agents/tests/session-start.sh` rehearses the check-up cadence and proves
@@ -409,11 +411,15 @@ attribution line, not the word.
   first move, every move in `/shape`, the claim in section-builder and in a
   run, the move to review when a pull request opens, a run's kickbacks and its
   give-back to `state:ready`, which a copy sending it to `gate.py drop` fails,
-  `/fix`'s claim of a ready repair only, and `/sync`'s report followed by the
+  and `/sync`'s report followed by the
   person's choice and then `gate.py tidy`. The checkpoint route closes a
   piece on save and runs the tidy, in section-builder and in a run, and the
   merge step tidies after a merge. A refused gate call is reported and that
-  move stops, in each command and in `blocked-commands.md`. `/fix` and
+  move stops, in each command and in `blocked-commands.md`. The fix loop in
+  section-builder's `references/fix-loop.md` claims nothing of its own, since
+  section-builder claimed the piece first, and no longer checks the report
+  against the masterplan. It sends a piece back through the gate after three
+  attempts, keeping its `type:bug` label. It and
   `/what-now` read `type:bug` rather than `broken`, `/what-now` names a piece
   waiting in review for the person as theirs, and WORKFLOW.md's section 5
   tells the moves.
@@ -528,7 +534,8 @@ attribution line, not the word.
   it, never a fixed project folder, because a project installed for Claude Code
   alone has no `.agents/skills/` and a plugin keeps its skills outside the
   project. The check fails on a pointer to a file no skill has, and on the old
-  fixed form.
+  fixed form. On every layout the skills name the fix loop,
+  section-builder's `references/fix-loop.md`, and that pointer opens.
 - `.agents/tests/queue-groups.sh` guards what `/queue` may call safe to build
   together, and the plan it prints. The rule that matters is that it reads the
   printout's grouping rather than working safety out again, since the printout
@@ -863,12 +870,14 @@ attribution line, not the word.
   Either opt-in gives one address a request reached and up to three numbered
   things to try, with nothing saved before the reply, and an unattended run
   opens the pull request saying it waits for the try. It also holds founding's
-  offer of sample data and the same rules in `/fix`. A piece that names an
+  offer of sample data and the same rules in the fix loop,
+  section-builder's `references/fix-loop.md`. A piece that names an
   `Acceptance branch:` is built on that branch, so its pull request comes
   from it, and step 4 confirms the checks `/shape` committed there still fail
   rather than writing them again. A piece with no such branch keeps step 4 as
   it was.
-- `.agents/tests/fix-history-first.sh` guards the repair steps that read prior
+- `.agents/tests/fix-history-first.sh` guards the repair steps in the fix loop,
+  section-builder's `references/fix-loop.md`, that read prior
   work and existing tests before a new attempt, search saved history from a
   known-good point, remove temporary instrumentation, and refuse to call a
   retry-only test green.
@@ -1095,7 +1104,7 @@ attribution line, not the word.
   other name in silence. The version file said the project was up to date,
   since the same update rewrote it. So the check holds that the route is the
   installer's `add` command, that the monthly pass counts the lockfile against
-  fourteen, and that each rename migration fires on what is on disk and has a
+  thirteen, and that each rename migration fires on what is on disk and has a
   branch for the state where the old skill is gone and the new one never
   came. It also holds that a rename rewrites the command list in the project's
   own AGENTS.md with approval, because a person left to do that by hand after
@@ -1139,7 +1148,7 @@ attribution line, not the word.
   only on a run of the same mark at least as long as its opener.
   A project founded from today's templates gets no offer. A placeholder, a
   mention of the folder, and a project's own skill in the same folder are
-  never found. The script's list of skills is the kit's fourteen, so a rename
+  never found. The script's list of skills is the kit's thirteen, so a rename
   cannot slip past it. A visit asked to leave kit updates alone does not
   copy in the reminder script, still says the visit was recorded, and says the
   reminder was left out. The visit no longer offers to move a project onto
@@ -1300,7 +1309,7 @@ attribution line, not the word.
   writes and the fold that gathers them. Every piece used to add its entry at
   the top of `CHANGELOG.md`, so two pieces built at the same time changed the
   same lines, and in a real project nearly every merge in a batch conflicted
-  there. So section-builder and `/fix` write one file per piece in `changes/`,
+  there. So section-builder, a repair included, writes one file per piece in `changes/`,
   after the pull request opens so it can carry the link, and the merge folds
   the files in with the shipped `fold-changes.py`, with `/sync` and `/ship`
   folding any a merge made by hand left behind. It holds those
@@ -1356,7 +1365,7 @@ attribution line, not the word.
   So every merge, fold or no fold, brings the branch up to date and waits for
   the check on GitHub on the commit the script prints. Where `main` has not
   moved and nothing waits to fold, there is no commit and no second wait. A
-  conflict gets one comment naming the files and goes to `/fix`, and so does a
+  conflict gets one comment naming the files and goes to `/shape` as a bug, and so does a
   check that turns red only after the update, naming what merged since. A
   stacked pull request is re-aimed, then brought up to date. The run's sweep
   finishes each merge before the next piece is brought up to date, leaves a
@@ -1409,7 +1418,7 @@ attribution line, not the word.
   flagged work is built. The kit gives the risk notice once, in full, and a
   person who carries on after it has accepted: the kit writes the `Accepted:`
   line with their words and the date, and the work goes ahead. It guards that
-  definition in `/fix`, fit-check.md, `/ship`, founding, section-builder,
+  definition in the fix loop, fit-check.md, `/ship`, founding, section-builder,
   `/implement` and the project's own AGENTS.md, and that none of them drifts
   back to a stop. An unattended run still stops at a sensitive area, because
   nobody is there to carry on, and it never accepts on the person's behalf. It also guards what
@@ -1452,7 +1461,7 @@ attribution line, not the word.
   repeats or overlaps, and its first open question. The type comes from the
   masterplan: behaviour it promised is a repair, `type:bug`, and anything it
   never promised is a wish, `type:feature`, however it is worded. That is the
-  report check `/fix` made first. The guess is written as `Loop module:
+  report check the removed repair command made first. The guess is written as `Loop module:
   <module> (guess, <why>)`, so the ready-gate lint never reads it as the bar,
   and spec replaces it and writes the `loop:` label. The piece then moves to
   the sub-state of its question, or to `shaping:spec` with none, and a change
@@ -1496,7 +1505,14 @@ attribution line, not the word.
   comments included, before anybody is asked again, and keeps its branch. It
   also holds the skill's description, which names the sub-states and the bug
   route, and WORKFLOW.md telling the sub-states, the bug route, the
-  pre-mortem question and what a kicked-back piece looks like.
+  pre-mortem question and what a kicked-back piece looks like. Last, it holds
+  the removal of the repair command. section-builder loads the fix loop,
+  `references/fix-loop.md`, for a `loop:fix` piece. No file under
+  `.agents/skills/` names the command, except change-triage's one sentence that
+  takes it, typed from habit, as a repair report for `/shape`, and a copy with
+  one planted is caught. The README's broken row and WORKFLOW.md's point at
+  `/shape`, and WORKFLOW.md says a bug is shaped like any other piece and
+  built by the fix loop.
 - `.agents/tests/co-change-rehearsal.sh` runs the history query research uses,
   the section-builder skill's `scripts/co-change.sh`, in throwaway
   repositories. It reads back that the file changed most often with the given
@@ -1723,7 +1739,7 @@ attribution line, not the word.
   when it is missing, the ask that says "this goes live now" where every merge
   goes live, and the first such merge running `/ship`'s first-launch checks
   before it. It fails on section-builder,
-  `/implement`, `/fix`, `/ship` or `/sync` restating the rule rather than
+  `/implement`, the fix loop, `/ship` or `/sync` restating the rule rather than
   pointing at it, and holds `/ship`'s promote from a preview to live on a yes
   that names it. It replaces the validator's string that held section-builder
   short of a merge. It also holds how the kit waits for a project check, with
@@ -2035,7 +2051,11 @@ attribution line, not the word.
   the old worktree rejection and the old promise to shrink as often as it grows
   back on a copy, and proves each is noticed. It also holds the audience phrase
   in the README and WORKFLOW.md, and the Claude Code first line on the
-  compatibility page.
+  compatibility page. It holds the count of commands too: eight, with the
+  paragraph saying nine became eight when the repair command was found to be
+  a shaping route plus a loop module, the bug reproduction example under
+  `/shape` and the fix loop, and no worked example that sends the person to
+  the removed command.
 - The checks that guard a rule written as prose share
   `.agents/tests/lib/rule-shape.sh`: declare the rules, and it asserts each one
   and proves it is load-bearing by removing it and requiring the check to fail.
