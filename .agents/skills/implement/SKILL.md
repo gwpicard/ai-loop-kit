@@ -1,6 +1,6 @@
 ---
 name: implement
-description: The everyday command for building a piece that has already been shaped and marked ready. Typed alone it takes the next ready piece from the plan. Given an issue number, or a request that matches a ready piece, it builds that one. A request that is not yet a ready piece goes to shape first; implement builds, it does not shape. Given several issue numbers, or "queue", it runs them as a plan with nobody watching. Do not use for repairs of promised behaviour; that is fix.
+description: The everyday command for building a piece that has already been shaped and marked ready. Typed alone it takes the next ready piece from the plan. Given an issue number, or a request that matches a ready piece, it builds that one. A request that is not yet a ready piece goes to shape first; implement builds, it does not shape. Given several issue numbers, or "queue", it runs them as a plan with nobody watching. A repair of promised behaviour is a piece like any other: shape it first, and implement builds it with the fix loop.
 ---
 
 # Implement

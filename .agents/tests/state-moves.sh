@@ -29,7 +29,7 @@ IMPLEMENT="$SKILLS/implement/SKILL.md"
 LONGER="$SKILLS/implement/references/running-longer.md"
 BUILDER="$SKILLS/section-builder/SKILL.md"
 MERGE="$SKILLS/section-builder/references/merge.md"
-FIX="$SKILLS/fix/SKILL.md"
+FIX="$SKILLS/section-builder/references/fix-loop.md"
 WHATNOW="$SKILLS/what-now/SKILL.md"
 QUEUE="$SKILLS/queue/SKILL.md"
 SYNC="$SKILLS/sync/SKILL.md"
@@ -84,7 +84,7 @@ rs_report "a copy with one direct state-label write planted fails" \
 rm -rf "$rs_dir/planted"
 cp -R "$SKILLS" "$rs_dir/planted"
 printf '\n`gh issue edit <number> --add-label building --remove-label ready`\n' \
-  >> "$rs_dir/planted/fix/SKILL.md"
+  >> "$rs_dir/planted/section-builder/references/fix-loop.md"
 rs_report "a copy with one old-label write planted fails" \
   "$([ -n "$(direct_writes "$rs_dir/planted")" ] && echo yes || echo no)"
 rm -rf "$rs_dir/planted"
@@ -245,27 +245,30 @@ else
   rs_report "a copy of running-longer.md that sends a run stop to gate.py drop fails" yes
 fi
 
-# --- /fix -----------------------------------------------------------------------
+# --- the fix loop -------------------------------------------------------------
 
+# There is no /fix command. A repair is shaped like any other piece and built by
+# section-builder, which claims it in its step 1 and only then loads the fix
+# loop. So the loop claims nothing, and the masterplan check that once opened
+# /fix now lives in change-triage alone, where shaping-sub-states.sh holds it.
+# What the loop still moves is the piece it sends back after three attempts.
 rs_reset
-rs_rule "/fix claims only a repair in ready, through the gate" \
-  'claim it before step 1 only when the repair is in `state:ready`: `python3 \.agents/tools/gate\.py move <number> building --assignee .me`'
-rs_rule "a repair in shaping is not claimed" 'a repair in `state:shaping` is not claimed'
-rs_rule "an issue with no state is captured with type:bug" \
-  'nor is an issue with no state, which `/fix` first takes in with `python3 \.agents/tools/gate\.py capture <number>` and `gh issue edit <number> --add-label type:bug`'
-rs_rule "either goes to /shape first" \
-  'for either, say in one line that the repair is shaped first, and hand it to `/shape`'
-rs_rule "a claim that belongs to /shape goes back through the gate" \
-  'goes back with a `## kickback` section saying why, `python3 \.agents/tools/gate\.py move <number> clarify`'
-rs_rule "a repair with no issue is built without a claim" 'a repair with no issue is built without a claim'
-rs_rule "/fix reads the bug pieces" 'the open issues labelled `type:bug`'
+rs_rule "the fix loop claims nothing of its own" \
+  'the fix loop claims nothing of its own: section-builder.s step 1 claimed the piece before it loaded this file'
 rs_rule "a refused gate call is reported and that move stops" \
   'where the gate refuses a move, tell the person its line in plain words and stop that move'
-rs_guard "$FIX" "the /fix skill"
-rs_require_order "/fix claims after the promise check" "$FIX" \
-  'never promised there' 'the repair is confirmed as promised'
-rs_require_absent "/fix no longer reads broken" "$FIX" '`broken`'
-rs_require_absent "/fix no longer calls a repair labelled broken" "$FIX" 'labelled broken'
+rs_rule "an unmeetable check sends the piece back to spec" \
+  '`python3 \.agents/tools/gate\.py move <number> spec`, when an attempt showed a check that cannot be met as written'
+rs_rule "anything else sends it back to research" \
+  '`python3 \.agents/tools/gate\.py move <number> research`, otherwise'
+rs_rule "the bug label stays on a piece sent back" \
+  'its `type:bug` label stays on it, because the fault is still there'
+rs_guard "$FIX" "the fix loop"
+rs_require_absent "the fix loop no longer checks the report against the masterplan" \
+  "$FIX" 'never promised there'
+rs_require_absent "the fix loop no longer claims a repair itself" "$FIX" 'gate\.py move <number> building'
+rs_require_absent "the fix loop no longer reads broken" "$FIX" '`broken`'
+rs_require_absent "the fix loop no longer calls a repair labelled broken" "$FIX" 'labelled broken'
 
 # --- /what-now --------------------------------------------------------------
 
@@ -330,7 +333,7 @@ rs_require_load_bearing "WORKFLOW.md says the open pull request moves it to revi
   "$WORKFLOW" 'moves it to `state:in-review` with `review:person` when its pull request opens'
 rs_require_load_bearing "WORKFLOW.md says an unreachable GitHub starts nothing" \
   "$WORKFLOW" 'does not start a piece it could not claim'
-rs_require_load_bearing "WORKFLOW.md says /fix starts no repair it could not claim" \
+rs_require_absent "WORKFLOW.md no longer names a repair command that claims" \
   "$WORKFLOW" 'does not start a repair it could not claim'
 rs_require_load_bearing "WORKFLOW.md says a failed or stopped piece goes back to shaping" \
   "$WORKFLOW" 'goes back to shaping with a `## kickback` section'

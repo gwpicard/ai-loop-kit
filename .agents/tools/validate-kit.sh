@@ -33,13 +33,12 @@ pass() {
 
 SKILLS="$ROOT/.agents/skills"
 # A skill only the kit's own maintainers use lives here rather than beside the
-# fourteen. A shared skills installer reads .agents/skills/ and .claude/skills/
+# thirteen. A shared skills installer reads .agents/skills/ and .claude/skills/
 # and merges what it finds by the name in its frontmatter, so a folder in
 # either one is a skill somebody installs. This folder is in neither.
 MAINTAINER_SKILLS="$ROOT/.agents/maintainer-skills"
 
-expected_commands="fix
-implement
+expected_commands="implement
 maintain
 queue
 setup-ai-build-kit
@@ -186,16 +185,16 @@ actual=$(find "$SKILLS" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | s
 expected=$(printf '%s\n%s\n' "$expected_commands" "$expected_disciplines" | sort)
 
 if [ "$actual" != "$expected" ]; then
-  fail "skill inventory does not match the canonical nine commands and five disciplines"
+  fail "skill inventory does not match the canonical eight commands and five disciplines"
   echo "  expected:" >&2
   echo "$expected" | sed 's/^/    /' >&2
   echo "  found:" >&2
   echo "$actual" | sed 's/^/    /' >&2
 else
-  pass "exactly nine commands and five disciplines, named exactly"
+  pass "exactly eight commands and five disciplines, named exactly"
 fi
 
-# Each of the fourteen has a SKILL.md. Which of them are commands and which
+# Each of the thirteen has a SKILL.md. Which of them are commands and which
 # are background skills is settled by one setting, and the trigger contract
 # further down checks that. Here the question is only that the file exists.
 while IFS= read -r name; do
@@ -269,7 +268,7 @@ else
 fi
 
 # Claude Code: the five generated background skills are hidden from the user
-# command menu. The nine generated commands carry neither setting. A command
+# command menu. The eight generated commands carry neither setting. A command
 # used to carry disable-model-invocation, and a regenerate from a stale builder
 # would put it back, so its absence is checked rather than assumed.
 while IFS= read -r name; do
@@ -373,7 +372,7 @@ else
   expected_command_files=$(printf '%s\n' "$expected_commands" | sed 's/$/.md/' | sort)
   actual_command_files=$(find "$ROOT/.claude/commands" -mindepth 1 -maxdepth 1 -exec basename {} \; | sort)
   if [ "$actual_command_files" != "$expected_command_files" ]; then
-    fail ".claude/commands/ must hold exactly the nine generated command files"
+    fail ".claude/commands/ must hold exactly the eight generated command files"
     echo "  expected:" >&2
     echo "$expected_command_files" | sed 's/^/    /' >&2
     echo "  found:" >&2
@@ -398,7 +397,7 @@ else
   fi
 fi
 
-# The Cursor and Gemini trees carry the same nine commands and were covered
+# The Cursor and Gemini trees carry the same eight commands and were covered
 # only by the drift comparison, which asks whether the committed adapters match
 # what the source generates. A source mistake that generates a wrong but
 # self-consistent tree satisfies that and reaches a project. These anchor both
@@ -416,7 +415,7 @@ for adapter in ".cursor/commands:.md:Cursor" ".gemini/commands:.toml:Gemini CLI"
   expected_files=$(printf '%s\n' "$expected_commands" | sed "s/\$/$ext/" | sort)
   actual_files=$(find "$ROOT/$dir" -mindepth 1 -maxdepth 1 -exec basename {} \; | sort)
   if [ "$actual_files" != "$expected_files" ]; then
-    fail "$dir/ must hold exactly the nine generated $tool command files"
+    fail "$dir/ must hold exactly the eight generated $tool command files"
     echo "  expected:" >&2
     echo "$expected_files" | sed 's/^/    /' >&2
     echo "  found:" >&2
@@ -1654,7 +1653,7 @@ if [ ! -x "$claude_plugin_check" ]; then
   fail ".agents/tests/claude-plugin.sh is missing or not executable"
 elif command -v claude >/dev/null 2>&1; then
   if "$claude_plugin_check"; then
-    pass "Claude plugin exposes the nine commands, prepares a project, recovers, updates, and uninstalls in isolation"
+    pass "Claude plugin exposes the eight commands, prepares a project, recovers, updates, and uninstalls in isolation"
   else
     fail "Claude plugin rehearsal failed"
   fi
@@ -1717,7 +1716,6 @@ plugin_marketplace="$ROOT/.claude-plugin/marketplace.json"
 plugin_contract_ok=yes
 for literal in \
   '"name": "ai-build-kit"' \
-  '"./.claude/commands/fix.md"' \
   '"./.claude/commands/implement.md"' \
   '"./.claude/commands/maintain.md"' \
   '"./.claude/commands/shape.md"' \
@@ -1735,6 +1733,13 @@ for literal in \
     plugin_contract_ok=no
   fi
 done
+# There is no /fix command: a repair is shaped like any other piece and built by
+# the fix loop. A manifest still naming its command file would offer a command
+# the kit no longer has.
+if grep -qF '"./.claude/commands/fix.md"' "$plugin_manifest"; then
+  fail "Claude plugin manifest still offers the removed fix command"
+  plugin_contract_ok=no
+fi
 for literal in \
   '"name": "ai-build-kit"' \
   '"source": "./"'; do
@@ -2284,8 +2289,14 @@ check_claim "seven skills" "seven skills"
 # The command count is written out in words in a dozen documents. The inventory
 # check above knows how many commands there really are; nothing else did, so a
 # document could keep the old number after the count moved and no check would
-# say so.
-check_claim "eight commands" "eight commands"
+# say so. The count went from eight to nine and back to eight when /fix became a
+# shaping route and a loop module, so nine is the stale number now, and with it
+# the fourteen skills it came with.
+check_claim "nine commands" "nine commands"
+check_claim "fourteen canonical skills" "fourteen canonical skills"
+check_claim "fourteen skills" "fourteen skills"
+check_claim "fourteen AI Build Kit skills" "fourteen AI Build Kit skills"
+check_claim "fourteen installed" "fourteen installed"
 check_claim "four project documents" "four project documents"
 check_claim "four project records" "four project records"
 check_claim "four documents" "four documents hold"

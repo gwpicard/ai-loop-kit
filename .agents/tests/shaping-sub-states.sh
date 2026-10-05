@@ -28,6 +28,12 @@
 # close it. A kicked-back piece is read before anybody is asked anything, and
 # its branch is never lost. The words a person reads, in WORKFLOW.md and the
 # skill's description, are held here too.
+#
+# The fourth part guards the removal of /fix. A bug is shaped like any other
+# piece and built by the fix loop, which section-builder loads for a `loop:fix`
+# piece. No skill may send the person to a command that is gone, so every
+# `/fix` left under .agents/skills/ fails, except the one sentence in
+# change-triage that takes a `/fix` typed from habit as a repair report.
 
 set -eu
 
@@ -358,5 +364,79 @@ rs_require_order "WORKFLOW gives the bug route in section 5" "$WORKFLOW" \
   '^## 5\. ' 'it goes straight from raw to spec'
 rs_require_order "and the kickback before section 6" "$WORKFLOW" \
   'carries a Kickback section saying what happened' '^## 6\. '
+
+# --- removing /fix --------------------------------------------------------
+
+BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
+FIXLOOP="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
+README="$ROOT/README.md"
+SKILLS="$ROOT/.agents/skills"
+rs_exists "$BUILDER" "$FIXLOOP" "$README"
+
+# A person used to the old command still types it. There is no such command, so
+# the words that follow are a repair report and /shape takes them.
+rs_reset
+rs_rule "a request naming /fix is a repair report" \
+  'a request that names `/fix` is a repair report'
+rs_rule "there is no such command" 'typed from habit: there is no such command'
+rs_rule "so /shape takes it and runs" \
+  'say in one line that `/shape` takes it, and run `/shape` with the words that follow'
+rs_rule "the fast path names the loop that builds a bug" \
+  'built by the fix loop, the `section-builder` skill.s `references/fix-loop\.md`'
+rs_guard "$TRIAGE" "change-triage's route for a bug"
+
+# The repair discipline moved, unchanged in substance, into a reference
+# section-builder loads. Without the load a bug piece is built like a feature,
+# with no reproduction first and no limit on attempts.
+rs_require_load_bearing "section-builder loads the fix loop for a loop:fix piece" \
+  "$BUILDER" 'a piece labelled `loop:fix` is a repair: load `references/fix-loop\.md`'
+
+# fix_left <dir>: each file under the folder that still names /fix, once the one
+# habit sentence in change-triage is taken out. A path such as
+# `references/fix-loop.md` is not the command, so a letter, dot, dash or
+# underscore on either side rules a match out.
+HABIT='a request that names `/fix` is a repair report'
+FIX_COMMAND='(^|[^a-z0-9_.-])/fix([^a-z0-9_-]|$)'
+fix_left() {
+  find "$1" -type f | sort | while IFS= read -r f; do
+    folded=$(rs_fold "$f")
+    case "$f" in
+      */change-triage/SKILL.md) folded=$(printf '%s' "$folded" | sed -E "s@$HABIT@@") ;;
+    esac
+    if printf '%s' "$folded" | grep -qE "$FIX_COMMAND"; then
+      echo "$f"
+    fi
+  done
+}
+
+if [ -z "${RS_LIST:-}" ]; then
+  left=$(fix_left "$SKILLS")
+  [ -z "$left" ] || printf '  still names /fix: %s\n' $left >&2
+  rs_report "no skill, reference or template sends the person to /fix" \
+    "$([ -z "$left" ] && echo yes || echo no)"
+  cp -R "$SKILLS" "$rs_dir/planted-fix"
+  printf '\nIf it is broken, type /fix.\n' >> "$rs_dir/planted-fix/what-now/SKILL.md"
+  rs_report "a copy with one /fix planted fails" \
+    "$([ -n "$(fix_left "$rs_dir/planted-fix")" ] && echo yes || echo no)"
+  rm -rf "$rs_dir/planted-fix"
+  cp -R "$SKILLS" "$rs_dir/planted-fix"
+  printf '\nOr type /fix for a repair.\n' >> "$rs_dir/planted-fix/change-triage/SKILL.md"
+  rs_report "a second /fix beside the habit sentence still fails" \
+    "$([ -n "$(fix_left "$rs_dir/planted-fix")" ] && echo yes || echo no)"
+  rm -rf "$rs_dir/planted-fix"
+fi
+
+# The README a person reads first, and WORKFLOW.md, send a broken tool to /shape.
+rs_require_load_bearing "the README's broken row points at /shape" \
+  "$README" '\| it.s broken \| `/shape` \|'
+rs_require_absent "the README names no /fix, in the table, the diagram or the questions" \
+  "$README" "$FIX_COMMAND"
+rs_require_load_bearing "WORKFLOW's broken row points at /shape" \
+  "$WORKFLOW" '\| it.s broken \| /shape \|'
+rs_require_load_bearing "WORKFLOW section 1 has one command that changes the tool" \
+  "$WORKFLOW" 'one of them changes the tool\. /implement builds a ready piece, whether it makes the tool do something new or brings it back to doing what it already should'
+rs_require_load_bearing "WORKFLOW says a bug is shaped and built by the fix loop" \
+  "$WORKFLOW" 'a bug is shaped like any other piece and built by the fix loop'
+rs_require_absent "WORKFLOW names no /fix" "$WORKFLOW" "$FIX_COMMAND"
 
 rs_done

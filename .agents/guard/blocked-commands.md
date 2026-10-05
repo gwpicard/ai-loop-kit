@@ -16,7 +16,7 @@ mechanical enforcement:
 
 When you change this file, update `.claude/settings.json` to match. Two
 entries below are left out of the mechanical deny on purpose: `git checkout .`
-/ `git restore .` are allowed inside fix's announced reset step, and database
+/ `git restore .` are allowed inside the fix loop's announced reset step, and database
 drops are too varied to pattern-match, so they remain instruction-only along
 with the standing-restriction entries below, none of which reduce to a single
 shell pattern.

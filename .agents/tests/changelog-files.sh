@@ -24,7 +24,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$ROOT/.agents/tests/lib/rule-shape.sh"
 
 BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 SYNC="$ROOT/.agents/skills/sync/SKILL.md"
 SHIP="$ROOT/.agents/skills/ship/SKILL.md"
 MAINTAIN="$ROOT/.agents/skills/maintain/SKILL.md"
@@ -64,11 +64,11 @@ rs_require_load_bearing "section-builder opens the pull request before writing t
 rs_require_absent "section-builder no longer writes a changelog line itself" \
   "$BUILDER" 'write the changelog line from'
 
-rs_require_load_bearing "/fix writes the cause into the repair's file" \
+rs_require_load_bearing "the fix loop writes the cause into the repair's file" \
   "$FIX" 'the repair.s file in `changes/`'
-rs_require_absent "/fix no longer records the cause in the changelog itself" \
+rs_require_absent "the fix loop no longer records the cause in the changelog itself" \
   "$FIX" 'record the cause in the changelog'
-rs_require_load_bearing "/fix reads the unfolded entries too" \
+rs_require_load_bearing "the fix loop reads the unfolded entries too" \
   "$FIX" 'the entries in `changes/` not yet folded'
 
 # --- /sync and /ship fold -----------------------------------------------------
@@ -81,7 +81,7 @@ rs_rule "only the branch being saved is folded" 'only files on the branch being 
 rs_rule "so an unmerged piece never enters the history" 'never puts an unmerged piece into the history'
 rs_rule "a file nobody committed is left alone" 'a file nobody has committed stays where it is'
 rs_rule "the direct writers are named" 'founding, /ship, /maintain and /sync write `changelog\.md` directly'
-rs_rule "only pieces write the folder" 'only section-builder and /fix write to `changes/`'
+rs_rule "only pieces write the folder" 'only section-builder writes to `changes/`, a repair included'
 # Without these, /sync reads a waiting file as work the changelog missed and
 # writes the entry a second time, or folds files a records pull request still
 # open has already folded.

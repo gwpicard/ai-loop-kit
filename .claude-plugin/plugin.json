@@ -16,7 +16,6 @@
     "workflow"
   ],
   "commands": [
-    "./.claude/commands/fix.md",
     "./.claude/commands/implement.md",
     "./.claude/commands/maintain.md",
     "./.claude/commands/shape.md",

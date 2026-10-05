@@ -16,7 +16,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 
 TRIM="$ROOT/.agents/skills/section-builder/references/trim.md"
 BUILDER="$ROOT/.agents/skills/section-builder/SKILL.md"
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 WORKFLOW="$ROOT/WORKFLOW.md"
 SOURCES="$ROOT/docs/SOURCES.md"
 
@@ -82,7 +82,7 @@ rs_require_order "the trim runs after the type check and linter" "$BUILDER" \
 rs_require_order "the trim runs before the hand-over" "$BUILDER" \
   'references/trim\.md' '^Then walk through the piece\.'
 
-rs_require_load_bearing "/fix runs the trim on a repair" "$FIX" \
+rs_require_load_bearing "the fix loop runs the trim on a repair" "$FIX" \
   'run the trim in the `section-builder` skill.s `references/trim\.md`'
 rs_require "WORKFLOW says what the trim takes out" "$WORKFLOW" \
   'takes out anything the change added that nothing needs'

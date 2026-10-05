@@ -24,7 +24,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$ROOT/.agents/tests/lib/rule-shape.sh"
 
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 FIT="$ROOT/.agents/skills/setup-ai-build-kit/references/fit-check.md"
 
 rs_init "Acceptance checks"
@@ -76,7 +76,7 @@ rs_rule "untrue masterplan sentences are corrected in the same save" \
   'correct every masterplan sentence the acceptance makes untrue in the same save'
 rs_rule "the reply names the corrected sentences" \
   'name those sentences in one line'
-rs_guard "$FIX" "the fix skill"
+rs_guard "$FIX" "the fix loop"
 
 # fit-check.md is where every skill reads the rule from, so the definition has
 # to hold there too.

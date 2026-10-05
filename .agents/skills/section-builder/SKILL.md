@@ -1,6 +1,6 @@
 ---
 name: section-builder
-description: Build one piece from the plan to a confirmed, saved change. Used by implement for every piece and by fix once the cause is known. Refuses to start on top of uncommitted work. One piece per pass, always.
+description: Build one piece from the plan to a confirmed, saved change. Used by implement for every piece, a repair included, which it builds by the fix loop. Refuses to start on top of uncommitted work. One piece per pass, always.
 user-invocable: false
 ---
 
@@ -132,6 +132,11 @@ GitHub drops out later, as the route note above says.
 Every move this skill makes goes through the gate. Where the gate refuses a move, tell the person its line in plain words and stop that move.
 Never write the label another way, as the `setup-ai-build-kit` skill's
 `references/blocked-commands.md` says.
+
+A piece labelled `loop:fix` is a repair: load `references/fix-loop.md` once the
+piece is claimed, and build it by that loop's steps in place of steps 2 to 5.
+Step 4's checks-first rules apply to it as that file says, and steps 6 to 9
+follow as for any other piece.
 
 ## 2. Agree the visible result
 
@@ -281,7 +286,7 @@ When the piece carries `visual`, or the change touches a screen file whatever
 subject the piece carries, load and follow `screen-check`. A screen file is one
 that renders a page, view, component, template, style, or native interface.
 Apply it before the screen's guided manual check, so the person judges the first
-result rather than describing a redo. When this build came from `/fix`, use the
+result rather than describing a redo. When this build is a repair, use the
 same boundary: a fault on a screen gets the rules and any other fault does not.
 
 When filing a new piece for work this build uncovers, follow the rule for work

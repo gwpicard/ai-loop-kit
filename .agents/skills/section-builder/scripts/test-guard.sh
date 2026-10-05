@@ -6,7 +6,7 @@
 # A builder working alone can otherwise weaken a test until it passes, and a
 # green check then proves nothing. Telling it not to does not change how often
 # it happens, so a script holds the rule. section-builder runs this before it
-# saves a piece, and /fix before it saves a repair.
+# saves a piece, and the fix loop before it saves a repair.
 #
 # Usage: test-guard.sh <base> <piece-file> [checks-commit]
 #   base           the commit the piece's branch was cut from: main, or the

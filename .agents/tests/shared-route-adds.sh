@@ -12,7 +12,7 @@
 #
 # Three rules close that. The route is the installer's `add` command, which
 # refreshes an installed skill and adds a missing one. The monthly pass counts
-# the lockfile against fourteen, since the count is the only sign a skill is
+# the lockfile against thirteen, since the count is the only sign a skill is
 # missing. And each rename migration fires on what is on disk rather than on
 # which update this is, with a branch for the state where the old skill is
 # gone and the new one never came. The maintain skill carries the rules and
@@ -33,8 +33,8 @@ rs_init "Shared-route-adds checks"
 rs_exists "$MAINTAIN" "$COMPAT" "$WORKFLOW" "$SCENARIOS"
 
 # The count, and why the version file cannot stand in for it.
-rs_rule "the lockfile is counted against the fourteen names" \
-  'count its entries against the fourteen names'
+rs_rule "the lockfile is counted against the thirteen names" \
+  'count its entries against the thirteen names'
 rs_rule "because the update that drops a skill also rewrites the version" \
   'the same update that drops a skill rewrites the version'
 rs_rule "a matching version alone is not proof" \

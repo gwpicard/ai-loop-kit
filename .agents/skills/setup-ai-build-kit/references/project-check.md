@@ -81,6 +81,6 @@ tools report.
 Both steps need only `sh` and `awk`, and both read files from the project
 root. A job on a container image without those tools, or one whose
 `defaults.run.working-directory` points below the root, turns red on the first
-pull request after a yes, and `/fix` then names the step. Where the job sets
+pull request after a yes, and the fix loop then names the step. Where the job sets
 such a folder, give each added step `working-directory: .` so it runs from the
 root.

@@ -9,7 +9,6 @@
 .agents/skills/shape|
 .agents/skills/queue|
 .agents/skills/change-triage|
-.agents/skills/fix|
 .agents/skills/clarify|
 .agents/skills/maintain|
 .agents/skills/screen-check|
@@ -51,7 +50,6 @@ agent-plugin|
 .agents/skills/shape|agent-plugin/skills/shape
 .agents/skills/queue|agent-plugin/skills/queue
 .agents/skills/change-triage|agent-plugin/skills/change-triage
-.agents/skills/fix|agent-plugin/skills/fix
 .agents/skills/clarify|agent-plugin/skills/clarify
 .agents/skills/maintain|agent-plugin/skills/maintain
 .agents/skills/screen-check|agent-plugin/skills/screen-check

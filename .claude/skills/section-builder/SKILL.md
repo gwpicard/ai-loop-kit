@@ -1,6 +1,6 @@
 ---
 name: section-builder
-description: Build one piece from the plan to a confirmed, saved change. Used by implement for every piece and by fix once the cause is known. Refuses to start on top of uncommitted work. One piece per pass, always.
+description: Build one piece from the plan to a confirmed, saved change. Used by implement for every piece, a repair included, which it builds by the fix loop. Refuses to start on top of uncommitted work. One piece per pass, always.
 user-invocable: false
 ---
 <!-- GENERATED from .agents/skills/section-builder/. Do not edit here; regenerate with .agents/tools/build-adapters.sh -->

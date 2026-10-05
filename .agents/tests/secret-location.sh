@@ -19,7 +19,7 @@ FOUNDATION="$ROOT/.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.
 FIT="$ROOT/.agents/skills/setup-ai-build-kit/references/fit-check.md"
 MASTERPLAN="$ROOT/.agents/skills/setup-ai-build-kit/templates/masterplan.md"
 SHIP="$ROOT/.agents/skills/ship/SKILL.md"
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 MAINTAIN="$ROOT/.agents/skills/maintain/SKILL.md"
 WORKFLOW="$ROOT/WORKFLOW.md"
 
@@ -69,8 +69,8 @@ rs_rule "the masterplan section takes a location" 'where a secret lives outside 
 rs_rule "the masterplan section names the kinds of location, never a value" 'a file path, a password manager entry.s name, or an environment variable.s name\. never a value'
 rs_guard "$MASTERPLAN" "the masterplan's running section"
 
-rs_require_load_bearing "fix reads the location first" "$FIX" 'a step that needs a secret reads where it lives from the masterplan first'
-rs_require_load_bearing "fix asks once when it is unknown" "$FIX" 'asks once when that is unknown'
+rs_require_load_bearing "the fix loop reads the location first" "$FIX" 'a step that needs a secret reads where it lives from the masterplan first'
+rs_require_load_bearing "the fix loop asks once when it is unknown" "$FIX" 'asks once when that is unknown'
 rs_require_load_bearing "maintain reads the location before a backup check" "$MAINTAIN" 'a check that needs a secret reads where it lives from the masterplan first, asks once when that is unknown, and never calls the secret absent'
 rs_require_load_bearing "WORKFLOW says where the location is written" "$WORKFLOW" 'it writes down where, never the secret itself, in the masterplan.s "how it stays running" section'
 rs_require_load_bearing "WORKFLOW says a later ship reads it" "$WORKFLOW" 'a later /ship reads that line before the backup, restore or database check'

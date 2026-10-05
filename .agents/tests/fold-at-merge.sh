@@ -46,7 +46,7 @@ rs_rule "the piece's own and any left behind" "the piece.s own, and any a merge 
 rs_rule "step 3: commit, push and wait on the new commit" \
   '3\. commit the fold as `fold the changelog`, push the branch, and wait for the project check on that new commit, as "waiting for the check" says'
 rs_rule "step 4: merge only on green" '4\. merge only when that check is green'
-rs_rule "red merges nothing and goes to /fix" 'red means nothing merges: say so and take it to `/fix`'
+rs_rule "red merges nothing and goes to /shape" 'red means nothing merges: say so and take it to `/shape` with what broke'
 rs_rule "an unfinished check makes the merge wait, said once" \
   'because it is queued or github is slow, the merge waits: say so once'
 rs_rule "never on an unfinished check" 'never merge on an unfinished check'

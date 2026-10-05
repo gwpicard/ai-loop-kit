@@ -24,15 +24,15 @@ Command names say when to use them.
 | I want it to... (a new idea) | /shape |
 | Build the next ready piece | /implement |
 | I'm taking on several things | /queue |
-| It's broken | /fix |
+| It's broken | /shape |
 | I think it's ready | /ship |
 | I'm done for today | /sync |
 | It's been a while | /maintain |
 | I'm lost | /what-now |
 
-Two of them change the tool. /implement makes it do something new or different, and /fix brings it back to doing what it already should. /shape decides what to change next and turns it into a ready piece, without touching the tool yet. The other six are housekeeping around those.
+One of them changes the tool. /implement builds a ready piece, whether it makes the tool do something new or brings it back to doing what it already should. /shape decides what to change next, a repair included, and turns it into a ready piece without touching the tool yet. The other six are housekeeping around those.
 
-You run /setup-ai-build-kit once. After that, start wherever you actually are. You can open a session with /fix as readily as with /implement, and neither needs the other to have run first. If you pick the wrong one it costs you nothing, because each checks what you typed against the masterplan and sends it down the right route.
+You run /setup-ai-build-kit once. After that, start wherever you actually are. You can open a session with /shape as readily as with /implement, and neither needs the other to have run first. If you pick the wrong one it costs you nothing, because each checks what you typed against the masterplan and sends it down the right route.
 
 You never choose the method either. The agent decides whether the request needs an interview, a prototype, research, a test, a review, or a person to look at one area.
 
@@ -168,7 +168,7 @@ Every command moves a piece through the gate script and takes the old state off 
 
 /shape takes a new piece in as `shaping:raw` and moves it through the shaping sub-states to `state:ready`. /implement claims a ready piece as `state:building` before it changes anything, and moves it to `state:in-review` with `review:person` when its pull request opens. From there the piece is yours to try and merge, and /what-now names it as yours. Once it merges, the kit takes its state labels off the closed piece.
 
-A piece that fails three attempts, or stops at a sensitive area before your acceptance is on the record, goes back to shaping with a `## Kickback` section saying why, and /shape picks it up from there. An idea you leave out is closed as not planned. If GitHub cannot be reached, /implement says so and does not start a piece it could not claim, and /fix does not start a repair it could not claim either. /sync runs the gate's report, names any piece carrying two states, or none, and asks you which it should be.
+A piece that fails three attempts, or stops at a sensitive area before your acceptance is on the record, goes back to shaping with a `## Kickback` section saying why, and /shape picks it up from there. An idea you leave out is closed as not planned. If GitHub cannot be reached, /implement says so and does not start a piece it could not claim. /sync runs the gate's report, names any piece carrying two states, or none, and asks you which it should be.
 
 A piece that comes back from a build carries a Kickback section saying what happened, what was tried and what decision is needed. /shape reads it first, and reads any answer you left as a comment, before asking you again. It keeps the branch, settles the question, rewrites the contract and runs the check again. The earlier branch is never deleted: the piece names it as a kept branch, so nothing a run did is lost.
 
@@ -194,7 +194,7 @@ for you to decide instead.
 You hear one line, such as "I took out two things this change did not need.
 They are listed on the piece.", or nothing when there was nothing to take out.
 The removals are saved as their own step, so asking for one back undoes only
-that step. /fix does the same for a repair.
+that step. A repair gets the same pass.
 
 If a build uncovers another piece of work, that new piece says "Found while
 building the invoice list", using the title of the piece that surfaced it.
@@ -209,7 +209,7 @@ tables, states, actions, words, keyboard use, contrast, and the familiar visual
 defaults that coding agents reach for. The report says which rules were applied
 and what still needs your eyes. It never claims the screen is accessible,
 compliant, or good, and a piece with no screen sees none of this. If the result
-is wrong, describe what happened and type /fix.
+is wrong, tell /shape what happened.
 
 If the change touched an area the build path flags, the best independent method available reviews it first. It reports in plain language, sorted into what's worth stopping for and what's worth knowing.
 
@@ -246,20 +246,22 @@ Anything touching data, access, or money gets written into the masterplan first.
 
 Work on your own computer rather than on the tool, such as installing or repairing a program, is kept apart from the project. Nothing is installed, replaced or removed outside the project's folder until you have said yes to what it is, where it goes and how to undo it, and nothing about your computer is written into the project. You hear what was done in the reply instead.
 
-Using the tool on your own material, such as running a document through it to see what it makes, needs no piece, since nothing about the tool changes. The output goes to a folder the project does not save, and the reply says where. Ask to keep it and it is saved like any other change, with its own changelog entry. If the run shows the tool getting something wrong, that becomes a /fix or a new piece.
+Using the tool on your own material, such as running a document through it to see what it makes, needs no piece, since nothing about the tool changes. The output goes to a folder the project does not save, and the reply says where. Ask to keep it and it is saved like any other change, with its own changelog entry. If the run shows the tool getting something wrong, that becomes a bug or a new piece for /shape.
 
 If the request would change what kind of project this is, by bringing in outside users or real money or a promise to someone, the agent re-runs the fit check with you before building. A different build path needs different care before people rely on it.
 
-/fix is for when something that should work doesn't: "/fix the board duplicates cards when I drag them". Paste the whole error if there is one. It builds the tightest repeatable check it can find for the exact symptom and works out the cause before touching code, driving the app in a browser or adding temporary logging when it needs to see what is actually going wrong. It resets failed attempts rather than stacking them, and finishes with evidence that keeps the bug from coming back.
+A bug is shaped like any other piece and built by the fix loop. When something that should work doesn't, tell /shape what broke: "/shape the board duplicates cards when I drag them". Paste the whole error if there is one.
 
-Before repairing, it reads the changelog and finished pieces for the same part
+Once the piece is ready, /implement builds it with the fix loop. The loop builds the tightest repeatable check it can find for the exact symptom and works out the cause before touching code, driving the app in a browser or adding temporary logging when it needs to see what is actually going wrong. It resets failed attempts rather than stacking them, and finishes with evidence that keeps the bug from coming back.
+
+Before repairing, the loop reads the changelog and finished pieces for the same part
 of the tool. That keeps a failed repair from being tried as if it were new, and
 lets an earlier cause lead the search. Existing covering tests run before a new
-one is written. When there is a known time the behaviour worked, /fix searches
+one is written. When there is a known time the behaviour worked, it searches
 the saved changes for where it broke, then removes every temporary log before
 the repair is saved.
 
-After launch, /fix also reads the tool's own record of what each request did
+After launch, the fix loop also reads the tool's own record of what each request did
 alongside your report, so it can trace the failed step. You do not need to read
 that record yourself.
 
@@ -324,7 +326,7 @@ goes to to check with a pull request saying it waits for your try before it is
 merged.
 
 On Build with care, /implement can offer to break the changed code on purpose
-to check whether its tests notice. /fix offers the same check for the test
+to check whether its tests notice. The fix loop offers the same check for the test
 that keeps a repaired fault from returning. It runs locally when the language
 has a suitable tool, covers only the changed code, and is optional.
 
@@ -340,13 +342,13 @@ Every piece saves through one of three routes. The checkpoint route commits, and
 
 On either route, the first time anything pushes your project's code online, the agent asks you first, naming the repository and whether it is public or private. It asks once for each project: once the code is on GitHub, it does not ask again. If you say no, or nobody is there to answer, the piece is still built and checked, and it waits on its own branch on your computer until you say yes. If the repository already holds something that is not your project, or still points at the kit's own repository, nothing is pushed and the agent asks you what to do.
 
-Next to the merge button sits that check. It re-runs the project's real commands on a clean machine, so the pull request's claims get verified rather than trusted. Those commands include the mechanical checks your project's language offers, a type check and a linter wherever it has them, which catch a whole class of mistakes before anyone tries the tool. They use each tool's own default rules, so a red tick points at a real mistake rather than a matter of taste. The agent runs the same checks before it hands any work over. Green means the checks that exist really passed, which is a smaller promise than nothing being wrong: it covers the behaviour somebody thought to check and nothing else. Red means don't merge; say it to /fix, and the agent reads what failed itself. You never read the machine's logs, and you never merge over a red check. The agent waits for the check with one command your coding agent allows, and a check that has not finished, or that it could not read, is never called green.
+Next to the merge button sits that check. It re-runs the project's real commands on a clean machine, so the pull request's claims get verified rather than trusted. Those commands include the mechanical checks your project's language offers, a type check and a linter wherever it has them, which catch a whole class of mistakes before anyone tries the tool. They use each tool's own default rules, so a red tick points at a real mistake rather than a matter of taste. The agent runs the same checks before it hands any work over. Green means the checks that exist really passed, which is a smaller promise than nothing being wrong: it covers the behaviour somebody thought to check and nothing else. Red means don't merge; tell /shape what broke, and the agent reads what failed itself. You never read the machine's logs, and you never merge over a red check. The agent waits for the check with one command your coding agent allows, and a check that has not finished, or that it could not read, is never called green.
 
-No command merges a pull request you have not agreed to. The same merge step serves /implement, /fix, /ship and /sync, so the rule holds on every route. The agent names each pull request and what it changes, then asks for a yes that names the merge, and a reply such as "merge 1, 2 and 4" covers each one it names. Saying "put it live" before any merge was named is not that yes, so it asks again. Each merge is made on the pull request itself, never by merging on your computer and pushing `main`, and a pull request stacked on another is merged after it. If GitHub cannot be reached, the merge waits, and you can merge it on GitHub yourself.
+No command merges a pull request you have not agreed to. The same merge step serves /implement, /ship and /sync, so the rule holds on every route. The agent names each pull request and what it changes, then asks for a yes that names the merge, and a reply such as "merge 1, 2 and 4" covers each one it names. Saying "put it live" before any merge was named is not that yes, so it asks again. Each merge is made on the pull request itself, never by merging on your computer and pushing `main`, and a pull request stacked on another is merged after it. If GitHub cannot be reached, the merge waits, and you can merge it on GitHub yourself.
 
 A green check only says the pull request passed against the `main` it started from, and two pieces that each pass alone can break `main` together. So just before the merge, the agent brings the pull request up to date with `main`, on every merge whether or not there is anything to fold, and folds the waiting changelog files into CHANGELOG.md, as one more commit on the pull request. It then waits for the project check on GitHub on that commit and merges only when it is green, so each merge takes one more run of the check. When `main` has not moved and nothing waits to fold, there is no new commit and the green check already there stands. Merges happen one at a time, so two pieces built side by side never conflict over the changelog, and nobody has to type a command for the history to stay whole.
 
-If `main` changed the same lines as the piece, nothing merges: the agent names the files, leaves one comment on the pull request saying so, and takes it to /fix. If the check turns red only once `main` is taken in, nothing merges either. The agent tells you the piece passed alone and fails with what merged since, names those pieces, and takes it to /fix.
+If `main` changed the same lines as the piece, nothing merges: the agent names the files, leaves one comment on the pull request saying so, and takes it to /shape as a bug. If the check turns red only once `main` is taken in, nothing merges either. The agent tells you the piece passed alone and fails with what merged since, names those pieces, and takes it to /shape as a bug too.
 
 Before a run, you can say that pieces which pass may be merged. That covers merges that reach a preview: nothing goes live without your yes naming it, or /ship. The agent then merges a piece only when its check is green, its review found nothing worth stopping for, it flags nothing for you to confirm, it touches no sensitive area, you have not asked to try it yourself, and its merge would not go live. Anything else waits for you in to check, and the report says which condition it missed. That permission ends with the run.
 
@@ -513,7 +515,7 @@ The agent posts under your account, so a colleague reads its comments as you. No
 
 ## 12. Sync and maintenance
 
-Normal /implement and /fix completion updates the records directly; you don't need /sync after a piece that finished cleanly. /sync exists for interrupted work, work done outside the workflow, long sessions whose context went foggy, and handovers. A report-only reminder can optionally run at session end, where the tool supports it, but nothing writes to the records without a skill deciding to. /sync also re-reads the masterplan against your pieces, and says if a promise has lost the piece that builds it. /sync reads the newest check on `main` first: if it is red, perhaps because a pull request was merged on GitHub by hand without the re-check, it says so before anything else, names what merged since it was last green, and points you to /fix. Its corrections are saved the way a piece is saved, through the route your build path requires, so on a shared project they arrive as a pull request you decide to merge, and uncommitted work it finds on arrival is reported and left alone. It also folds any files still waiting in `changes/` into CHANGELOG.md, the way /ship does when it launches. Each merge folds its own piece's file, so these are the ones a merge made on GitHub by hand left behind, and only files already on `main` are folded.
+Normal /implement completion updates the records directly; you don't need /sync after a piece that finished cleanly. /sync exists for interrupted work, work done outside the workflow, long sessions whose context went foggy, and handovers. A report-only reminder can optionally run at session end, where the tool supports it, but nothing writes to the records without a skill deciding to. /sync also re-reads the masterplan against your pieces, and says if a promise has lost the piece that builds it. /sync reads the newest check on `main` first: if it is red, perhaps because a pull request was merged on GitHub by hand without the re-check, it says so before anything else, names what merged since it was last green, and points you to /shape with what broke. Its corrections are saved the way a piece is saved, through the route your build path requires, so on a shared project they arrive as a pull request you decide to merge, and uncommitted work it finds on arrival is reported and left alone. It also folds any files still waiting in `changes/` into CHANGELOG.md, the way /ship does when it launches. Each merge folds its own piece's file, so these are the ones a merge made on GitHub by hand left behind, and only files already on `main` are folded.
 
 /sync also picks up changes a finished piece was meant to make to the
 masterplan but never did. It checks what actually landed, applies what is still
@@ -552,10 +554,10 @@ names two numbers, the version your project holds and the latest published AI
 Build Kit, and says plainly when they differ. An update gives you that
 published release and never work nobody has released yet. When a newer
 kit is available, the agent shows the version and what changed, then waits for
-approval. An update refreshes only the fourteen AI Build Kit skills and leaves
+approval. An update refreshes only the thirteen AI Build Kit skills and leaves
 your tool, its records, and its own checks alone. It also adds any skill the
 kit has renamed or added since, and says if the installation is short of the
-fourteen. When the kit has renamed a command, the update also rewrites the
+thirteen. When the kit has renamed a command, the update also rewrites the
 command list in your AGENTS.md, with your approval, so you are not left to
 edit it by hand. A project founded from a whole copy of the kit also carries
 the kit's own command files, which make each command show twice; the visit

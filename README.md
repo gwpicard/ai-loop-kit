@@ -9,7 +9,7 @@ discipline of a real process, without the ceremony, and without having to read
 the code. You shape the work; the kit builds it in loops and checks it against a
 bar fixed before the build.
 
-None of the nine commands asks you to open a file of code. You say what should
+None of the eight commands asks you to open a file of code. You say what should
 happen, decide what merges and what goes live, and make the product and risk
 decisions the agent cannot make for you. The agent walks through each piece
 before it is saved, and you try anything you want to see for yourself.
@@ -18,7 +18,7 @@ before it is saved, and you try anything you want to see for yourself.
 
 | | |
 |---|---|
-| What it is | Nine commands you type into your coding agent, the process behind them, and three records that hold your project's memory. |
+| What it is | Eight commands you type into your coding agent, the process behind them, and three records that hold your project's memory. |
 | Who it is for | Technical builders who direct agents and want what they build to keep working, whether they came to software from engineering or from another job. You should be at home with Git, branches and pull requests. You never need to read the code. |
 | Works with | Claude Code, which is tested. Codex is expected to work. Cursor, Gemini CLI, and any other agent that can read and edit project files, run shell commands, and use Git are experimental. [How much is proved on each](docs/COMPATIBILITY.md#how-much-has-been-proved-on-each-agent). |
 | You need | A coding agent, Git, and Node for the `npx` route. |
@@ -53,7 +53,7 @@ more than one agent, run this from the project folder:
 npx skills add gwpicard/ai-build-kit
 ```
 
-Choose the agents you use and install all fourteen AI Build Kit skills. Then ask
+Choose the agents you use and install all thirteen AI Build Kit skills. Then ask
 the agent: "Run the setup-ai-build-kit skill."
 
 Whichever route you choose, answer one question at a time. The agent prepares
@@ -70,7 +70,7 @@ copy its `.agents/skills` folder into the project, and ask the agent: "Open
 `.agents/skills/setup-ai-build-kit/SKILL.md` and run the setup-ai-build-kit skill." This manual route
 keeps the same workflow, but later updates also need to be copied manually.
 
-The nine commands are the interface. Some coding agents also list the five
+The eight commands are the interface. Some coding agents also list the five
 background skills in a skill picker, but you never need to pick one.
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) explains the installation paths
 and fallback.
@@ -79,7 +79,7 @@ and fallback.
 
 Coding agents can write working software. They will not stop you skipping the steps that make it trustworthy: agreeing what a thing should do before building it, proving it works before saving it, checking the risky parts before anyone relies on them, and keeping records so next month you can still tell what happened.
 
-This kit is those steps, packaged as skills the agent follows and commands you type. Nine commands, and no more: a new ability arrives inside a command that already exists, so the vocabulary you learn on day one is the vocabulary you use in month six. Three records hold the project's memory, because the agent forgets everything between sessions and the records don't. A build path, set at the start and rechecked as the project changes, decides how much of the process applies right now.
+This kit is those steps, packaged as skills the agent follows and commands you type. Eight commands, and no more: a new ability arrives inside a command that already exists, so the vocabulary you learn on day one is the vocabulary you use in month six. Three records hold the project's memory, because the agent forgets everything between sessions and the records don't. A build path, set at the start and rechecked as the project changes, decides how much of the process applies right now.
 
 The workflow is opinionated so that you do not have to be. Whether you are an engineer makes no difference to it. What makes a difference is that the behaviour is agreed before the code, the evidence is shown before the save, and what happened gets written down. A developer can read every diff if they like. The kit never asks.
 
@@ -93,19 +93,19 @@ Command names say when to use them.
 | I want it to... (a new idea) | `/shape` | Turns your idea into a ready piece. |
 | Build the next ready piece | `/implement` | Builds a ready piece to confirmed and saved. |
 | I'm taking on several things | `/queue` | Everything ready to build, what is waiting on what, and the command that runs it. |
-| It's broken | `/fix` | Cause before code, and evidence that keeps it fixed. |
+| It's broken | `/shape` | Tell it what broke. The fix loop finds the cause before the code, and evidence keeps it fixed. |
 | I think it's ready | `/ship` | Checks everything, then takes it live, one path at a time. |
 | I'm done for today | `/sync` | Documents caught up with reality. |
 | It's been a while | `/maintain` | The service visit. |
 | I'm lost | `/what-now` | Where the project stands and what to do next. |
 
-You never choose the method and never sort your own request: each command checks what you typed against the masterplan and sends it down the right route, so picking the wrong one costs you nothing. [WORKFLOW.md](WORKFLOW.md) is the day-to-day manual for all nine.
+You never choose the method and never sort your own request: each command checks what you typed against the masterplan and sends it down the right route, so picking the wrong one costs you nothing. [WORKFLOW.md](WORKFLOW.md) is the day-to-day manual for all eight.
 
 ## How a project flows
 
 ```mermaid
 flowchart LR
-  S["/setup-ai-build-kit<br/>once"] --> L["/shape · /implement · /fix<br/>day to day"]
+  S["/setup-ai-build-kit<br/>once"] --> L["/shape · /implement<br/>day to day"]
   L --> P["/ship<br/>whenever a batch is ready"]
   P --> L
 ```
@@ -184,7 +184,7 @@ Two simpler protections sit underneath. Destructive commands are on a blocked li
 | Bare agent tools (Claude Code, Cursor, Codex) | An agent's full power, with no process around it. | Anyone. | Nothing up front, everything by experience. | Nothing. You choose when to plan, test, review and save, every time. |
 | Developer skill packs (GitHub Spec Kit, Superpowers, agent-skills, Waza) | A discipline the agent applies, written by engineers for engineers. | People who read code and already have the habits. | A dozen or more skills and the order they run in. | The order of work, once you have learned it. |
 | Books and guides on agentic engineering | A way of thinking about working with agents. No tooling. | Developers and tech leads. | A book. | Nothing on your machine. |
-| AI Build Kit | Nine commands, three records, one build path. The least process that keeps agent-built software reliable. | Technical builders who direct agents, from engineering or from another job. | Nine command names, each named after the moment you need it. | Which route a request takes, what evidence it needs, how it is saved, and when a piece touches something sensitive enough to stop and tell you. |
+| AI Build Kit | Eight commands, three records, one build path. The least process that keeps agent-built software reliable. | Technical builders who direct agents, from engineering or from another job. | Eight command names, each named after the moment you need it. | Which route a request takes, what evidence it needs, how it is saved, and when a piece touches something sensitive enough to stop and tell you. |
 
 Each is good at something. The builders are the fastest start. The bare agent is the most powerful. The skill packs are the strongest guarantee that an engineer's agent behaves. The kit is the shortest path from an idea to a tool that still works in six weeks, for somebody who does not want to run a process by hand.
 
@@ -193,7 +193,7 @@ Much of what the kit does was borrowed from people working in the open. [docs/SO
 ## FAQ
 
 **Do I need to know how to code?**
-No. The nine commands are the whole interface, and the kit is built so that
+No. The eight commands are the whole interface, and the kit is built so that
 none of them needs you to read the code or the logs. If you can, nothing
 stops you. You do have to say what should happen, decide what merges and what
 goes live, and make the product and risk decisions. The agent walks through each
@@ -302,7 +302,7 @@ lists the six areas and their cautions.
 **How is this different from Spec Kit, Superpowers, or agent-skills?**
 Those carry a similar discipline and are written for people who read code and
 already have the habits. This kit carries the discipline for you, keeps the
-vocabulary to nine commands, and says plainly when a piece touches something
+vocabulary to eight commands, and says plainly when a piece touches something
 sensitive and what has to happen there.
 
 ## What it does not promise
@@ -336,14 +336,14 @@ marketplace. Each folder under `.agents/skills/` contains one skill and all of
 the references, templates, or scripts it needs, and every installation route
 carries the same skills. The shared installer records the source in
 `skills-lock.json`. The Claude plugin keeps its copy in Claude's plugin cache,
-where the nine commands use the `ai-build-kit:` prefix and the five background
+where the eight commands use the `ai-build-kit:` prefix and the five background
 skills stay out of the menu until a command needs them.
 
 Agent Plugins is the newest route, for a client that reads that open format. The
 `agent-plugin` folder holds the manifest in this repository and gains its
 `skills` folder only when a numbered version is packaged, so the route is served
 by the release archive rather than by cloning. Keeping that packaged copy out of
-the repository is deliberate: committing it would hold the same fourteen skills
+the repository is deliberate: committing it would hold the same thirteen skills
 twice, and one of the two would drift. Such a client is also free to skip a skill
 it judges non-standard, so the shared installer is the safer choice.
 

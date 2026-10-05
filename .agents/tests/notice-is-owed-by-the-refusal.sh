@@ -47,7 +47,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$ROOT/.agents/tests/lib/rule-shape.sh"
 
-FIX="$ROOT/.agents/skills/fix/SKILL.md"
+FIX="$ROOT/.agents/skills/section-builder/references/fix-loop.md"
 
 rs_init "Notice trigger checks"
 rs_exists "$FIX"
@@ -91,7 +91,7 @@ rs_rule "carrying on after the notice lets the next attempt go ahead" \
 rs_rule "one more go after the notice is carrying on" \
   'asking for one more go after hearing the notice is the person carrying on'
 
-rs_guard "$FIX" "the fix skill's escalation notice"
+rs_guard "$FIX" "the fix loop's escalation notice"
 
 # The notice is worth nothing if it is withdrawn the moment somebody objects, so
 # the paragraph that holds it has to survive beside the one above.

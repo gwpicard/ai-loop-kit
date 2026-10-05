@@ -7,7 +7,7 @@ shell commands, and use Git. Native skill pickers, slash commands, hooks,
 subagents, and command deny lists can improve the experience, but the workflow
 does not depend on them.
 
-The fourteen skills use the open Agent Skills folder format. Each skill keeps its
+The thirteen skills use the open Agent Skills folder format. Each skill keeps its
 own instructions and supporting files together. A command that needs a
 background skill loads it by name.
 
@@ -153,7 +153,7 @@ and leaves the previous printout intact.
 - Nobody has recorded a run, and the replay harness cannot drive these agents.
 - The kit's release carries generated command files for Cursor and Gemini CLI.
   A check confirms each file is there and well formed. Nothing has confirmed
-  that the agent lists the nine commands, or that it loads a background skill
+  that the agent lists the eight commands, or that it loads a background skill
   when a command asks for one.
 - Setup creates the file that points Gemini CLI at `AGENTS.md`,
   and the one that points GitHub Copilot at it. Nobody has confirmed that
@@ -167,9 +167,9 @@ and leaves the previous printout intact.
 
 ## Choose one installation route
 
-Every route installs the same fourteen AI Build Kit skills. Nine are commands
-you type: `setup-ai-build-kit`, `shape`, `implement`, `queue`, `fix`, `ship`,
-`sync`, `maintain`, and `what-now`.
+Every route installs the same thirteen AI Build Kit skills. Eight are commands
+you type: `setup-ai-build-kit`, `shape`, `implement`, `queue`, `ship`, `sync`,
+`maintain`, and `what-now`.
 Five run in the background when a command needs them: `clarify`,
 `change-triage`, `screen-check`, `section-builder`, and `second-opinion`. The routes differ in
 how the skills reach the project, not in what arrives.
@@ -183,7 +183,7 @@ claude plugin install ai-build-kit@ai-build-kit --scope local
 ```
 
 The plugin uses local project scope, so it does not replace the project's
-shared Claude settings. It exposes the nine commands and the five
+shared Claude settings. It exposes the eight commands and the five
 background skills. The commands use the `ai-build-kit:` prefix, so start with
 `/ai-build-kit:setup-ai-build-kit`.
 
@@ -206,7 +206,7 @@ A coding agent that installs plugins in the open
 folder. That folder gains its skills when a numbered version is packaged, so
 take it from the release archive rather than from a clone of the repository,
 and point the agent's own plugin installer at it. It holds a `plugin.json`
-manifest and a `skills` folder with the same fourteen skills, each carrying its
+manifest and a `skills` folder with the same thirteen skills, each carrying its
 own supporting files. This is the newest route, and a client may skip a skill
 it judges non-standard, so prefer the shared installer when the project has a
 choice.
@@ -251,7 +251,7 @@ any other name without a word, so a project that updated across the rename of
 `plan` to `shape` lost one skill and never received the other.
 
 That command replaces the installed skill files outright. Anyone who has edited
-one of the fourteen skills in their own project loses that edit, without being
+one of the thirteen skills in their own project loses that edit, without being
 asked and without being told. This is why `maintain` looks for local edits
 before it updates anything, and why a project rule belongs in `AGENTS.md`, which
 no update touches. The one edit the kit makes there is to the line naming the
@@ -278,7 +278,7 @@ paths are:
 | Harness | Project skill location | Standing instructions |
 |---|---|---|
 | Claude Code, shared installer | `.claude/skills/` | `CLAUDE.md` points to `AGENTS.md` |
-| Claude Code, plugin | Claude's plugin cache | the nine commands use the `ai-build-kit:` prefix; the five background skills stay out of the menu |
+| Claude Code, plugin | Claude's plugin cache | the eight commands use the `ai-build-kit:` prefix; the five background skills stay out of the menu |
 | Codex | `.agents/skills/` | reads `AGENTS.md` |
 | Cursor | `.agents/skills/` | reads `AGENTS.md` |
 | Gemini CLI | `.agents/skills/` | `GEMINI.md` points to `AGENTS.md` |
@@ -296,7 +296,7 @@ follow it.
 
 ## Who may start a command
 
-You can type one of the nine commands, name it anywhere in a message, or just
+You can type one of the eight commands, name it anywhere in a message, or just
 say what you want done in your own words. The agent starts the right command
 and says which one it is running. It never starts one you did not ask for.
 
@@ -311,7 +311,7 @@ Then ask the agent:
 
 > Open `.agents/skills/setup-ai-build-kit/SKILL.md` and run the setup-ai-build-kit skill.
 
-A later manual update replaces only the fourteen AI Build Kit skill folders,
+A later manual update replaces only the thirteen AI Build Kit skill folders,
 after a clean checkpoint and explicit approval.
 
 ## Optional harness features

@@ -29,7 +29,7 @@ deny list, mirror these entries there as mechanical enforcement:
 The following restrictions do not reduce to one reliable command pattern and
 still apply:
 
-- `git checkout .` and `git restore .` are allowed only inside the fix skill's
+- `git checkout .` and `git restore .` are allowed only inside the fix loop's
   announced reset step;
 - never remove a worktree by force, with `git worktree remove --force` or
   `-f`, and never delete a worktree's folder by hand; one holding unsaved work
