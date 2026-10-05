@@ -17,7 +17,8 @@ helper = root / '.agents/skills/implement/scripts/recovery.py'
 fixture = Path(tempfile.mkdtemp(prefix='kit-failure-recovery-'))
 
 def run(*args, cwd=None, code=0):
-    result = subprocess.run([str(a) for a in args], cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    result = subprocess.run([str(a) for a in args], cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                            env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
     assert result.returncode == code, (args, result.returncode, result.stdout, result.stderr)
     return result.stdout.strip()
 
@@ -504,7 +505,7 @@ def per_attempt():
     second_head = git(p,'rev-parse','HEAD')
     call(state,'preserve','--source',p,'--base',base,'--evidence',evidence,'--attempt','2')
     second = load(state)['pieces'][0]['recovery']
-    folder = p/'.agents/recovery/test-1'
+    folder = (p/'.agents/recovery/test-1').resolve()
     assert Path(first['archive']).parent == folder/'attempt-1', first['archive']
     assert Path(second['archive']).parent == folder/'attempt-2', second['archive']
     assert Path(first['archive']).exists()
@@ -525,9 +526,8 @@ def no_result():
     import loop_project as lp
     lab = lp.Lab('no-result')
     repo = lab.project()
-    os.makedirs(os.path.join(repo, '.agents'), exist_ok=True)
-    with open(os.path.join(repo, '.agents', 'loop-settings.json'), 'w') as handle:
-        json.dump({'attempts': 3, 'piece_budget_minutes': 120}, handle)
+    lab.commit(repo, {'.agents/loop-settings.json':
+                      json.dumps({'attempts': 3, 'piece_budget_minutes': 120})}, 'settings')
     lab.ready_piece(repo)
     code, out, err = lab.runpy(repo, 'start', '12')
     name = lab.run_name_of(out)

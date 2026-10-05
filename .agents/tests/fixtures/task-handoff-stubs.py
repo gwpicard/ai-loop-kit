@@ -1,15 +1,17 @@
 """Offline contract rehearsal, not an agent implementation or context measurement."""
 import copy
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 # The same bounded brief shown to installed builders supplies the fixture.
 text = Path(sys.argv[1]).read_text()
-brief = json.loads(re.search(r"```json\n(.*?)\n```", text, re.S).group(1))
+found = re.search(r"```json\n(.*?)\n```", text, re.DOTALL)
+assert found is not None, "the task handoff shows no brief"
+brief = json.loads(found.group(1))
 required = {"task", "handoff", "requirements", "baseline", "records", "artifacts", "run",
             "authorisation", "resources", "result"}
 assert required <= brief.keys()
@@ -80,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix="task-handoff-") as temp:
 
     def invoke(value):
         return subprocess.run([sys.executable, '-c', stub], input=json.dumps(value),
-                              text=True, cwd=task, capture_output=True)
+                              text=True, cwd=task, capture_output=True, check=False)
 
     first = invoke(current)
     assert first.returncode == 0, first.stderr
@@ -127,7 +129,7 @@ with tempfile.TemporaryDirectory(prefix="task-handoff-") as temp:
     # Interrupt after a saved brief, before a result: there is no completion.
     Path(current['result']).unlink()
     (run / 'brief.json').write_text(json.dumps(current))
-    failed = subprocess.run([sys.executable, '-c', 'raise SystemExit(7)'], cwd=task)
+    failed = subprocess.run([sys.executable, '-c', 'raise SystemExit(7)'], cwd=task, check=False)
     assert failed.returncode == 7 and not Path(current['result']).exists()
     assert (run / 'state.json').read_bytes() == original_state['state.json']
     # Resume in another new process from the durable brief, attempts intact.

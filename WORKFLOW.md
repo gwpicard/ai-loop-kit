@@ -171,7 +171,13 @@ Every command moves a piece through the gate script and takes the old state off 
 
 /shape takes a new piece in as `shaping:raw` and moves it through the shaping sub-states to `state:ready`. /implement claims a ready piece as `state:building` before it changes anything, and moves it to `state:in-review` with `review:person` when its pull request opens. From there the piece is yours to try and merge, and /what-now names it as yours. Once it merges, the kit takes its state labels off the closed piece.
 
-A piece that fails three attempts, or stops at a sensitive area before your acceptance is on the record, goes back to shaping with a `## Kickback` section saying why, and /shape picks it up from there. An idea you leave out is closed as not planned. If GitHub cannot be reached, /implement says so and does not start a piece it could not claim. /sync runs the gate's report, names any piece carrying two states, or none, and asks you which it should be.
+A ready piece is built without you. Each try at it, an attempt, is made by a fresh copy of the agent, given the piece and a short note on what failed last time, and nothing of any earlier conversation. Every attempt ends in one of five ways. Done goes on to the gate's own run of the checks, then the review. Done with concerns does the same, and the piece then waits for your review. Needs context and blocked send the piece back to shaping, to the step that settles what was missing, with a note saying what happened.
+
+Environment failed is tried once more, and if it fails again the build stops and tells you what failed. The piece stays where it is, so once your computer is put right, type /implement with its number and the build carries on. A failure of your computer never sends a piece back to shaping.
+
+After three failed attempts, or two hours, the piece goes back to shaping with a `## Kickback` section listing each attempt, and /shape picks it up from there. You can change both limits in `.agents/loop-settings.json`. Each failed attempt's work is kept on your computer, and the Kickback section names the folder and how to delete it. A piece that reaches a sensitive area before your acceptance is on the record goes back to shaping too, since you accept a risk in /shape and never during a build.
+
+An idea you leave out is closed as not planned. If GitHub cannot be reached, /implement says so and does not start a piece it could not claim. /sync runs the gate's report, names any piece carrying two states, or none, and asks you which it should be.
 
 A piece that comes back from a build carries a Kickback section saying what happened, what was tried and what decision is needed. /shape reads it first, and reads any answer you left as a comment, before asking you again. It keeps the branch, settles the question, rewrites the contract and runs the check again. The earlier branch is never deleted: the piece names it as a kept branch, so nothing a run did is lost.
 

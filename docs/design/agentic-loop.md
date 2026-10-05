@@ -275,11 +275,16 @@ and logs the switch, only when the new module's bar comes from the spec with no
 new decision. Otherwise the piece is kicked back. Two needs that call for two
 modules become two pieces joined by a blocked-by link.
 
-A loop stops at a limit on attempts or at a budget of time or tokens, whichever
-comes first. An attempt is a fresh context carrying a note the run script
-builds from what failed: the failing checks, their exit codes and the files
-touched. A model does not summarise it. Within those limits the builder may research and repair by itself,
-provided what it learns does not change the spec.
+A loop stops at a limit on attempts or at a budget of time, whichever comes
+first. Usage is left to Computer resources. An attempt is a fresh context
+carrying a note the run script builds from what failed: the failing checks,
+their exit codes and the files touched. A model does not summarise it. The run
+script writes a start request for each fresh builder, and the coordinating
+session starts it with its subagent tool, so the run script never starts a
+model session itself. Within those limits the builder may research and repair
+by itself, provided what it learns does not change the spec. A build loop at
+its limit goes back to `research`, or to `spec` when a check cannot be met as
+written, since a clear bar the attempts could not meet is a missing fact.
 
 A goal that spends its budget without reaching the target goes to review as
 `review:person`, carrying its best result that passed the guard checks and the

@@ -40,19 +40,16 @@ Choose the save route before changing anything:
    permissions, an external integration or service, an operational change, or
    any change the build path requires it for.
 3. **Flagged route.** The work touches a named sensitive area whose caution
-   is neither done nor accepted. Before building inside the area, give the
-   risk notice once, in full, as
-   the `setup-ai-build-kit` skill's `references/fit-check.md` describes. If
-   the person carries on after it, write the `Accepted:` line with their
-   words and the date, read it back, and build and save the piece on the
-   pull-request route. Do this in the reply that answers them, and do not
-   ask a further question before the build. A lock whose only purpose is to
-   wait for this caution opens with the acceptance, unless the person asks
-   to keep it. If they do not carry on, build only up to the recorded
-   condition. In an unattended run nobody is there to carry on, so never
-   write an acceptance on the person's behalf: stop at the condition.
-   Stopping there, safely prepared and kicked back to shaping with the caution
-   named, is one of section-builder's two successful outcomes; see step 8.
+   is neither done nor accepted. Never ask for an acceptance here and never
+   write an `Accepted:` line. An acceptance is asked for and recorded only in
+   `/shape`'s clarify step, where the person is present, as
+   the `setup-ai-build-kit` skill's `references/fit-check.md` describes. The
+   gate refuses the claim of a piece whose reach touches a sensitive area with
+   no recorded acceptance. Where the build finds such an area anyway, stop
+   there: kick the piece back to `shaping:clarify` through the gate, with a
+   `## Kickback` section naming the area, as step 8 says. Stopping there,
+   safely prepared and kicked back to shaping with the caution named, is one
+   of section-builder's two successful outcomes.
 
 A piece whose `## Loop` names an `Acceptance branch:` is built on that branch itself, so the build's pull request comes from it.
 `/shape` cut it from `origin/main` and committed the acceptance checks there.
@@ -122,6 +119,7 @@ one-line note, and the next piece that pushes asks again. In an unattended
 run nobody is there to say yes, so never upload on the person's behalf: keep
 the work local and note it on the piece.
 
+For a `loop:build` piece, the run script makes this claim in a run of one, as `references/build-loop.md` says.
 Claim the piece before changing anything. Label the piece `building` and assign it to whoever is building it
 through the gate, which writes `state:building` and the assignee in one call, `python3 .agents/tools/gate.py move <number> building --assignee <login>`,
 adding `--run <run name>` in a run. That is what stops two people starting the same
@@ -205,6 +203,12 @@ on the piece. This offer adds no gate to saving the work.
 
 ## 4. Write the checks first
 
+For a piece labelled `loop:build`, load `references/build-loop.md`. It shows the
+acceptance checks failing through the gate's before evidence, then runs the
+attempts that build the piece, and it uses this step's rules for the checks.
+Load `references/task-handoff.md` too, for the brief each attempt's fresh
+builder is started with.
+
 Before any code, write each check a machine can run that the Done when lines
 name, under both `### Works` and `### When it is not the normal case`. Then run
 each one on today's code and record that it fails: the Done when line, the
@@ -270,13 +274,15 @@ reasonable change. Run focused checks as you go. Avoid speculative
 abstraction; prefer managed services and the project's existing conventions.
 Stop and say so if the change is expanding past what was agreed.
 
-A piece whose build fails three attempts stops there. Write a `## Kickback`
-section on it with one line on what kept failing, and move it back to shaping
-through the gate:
-to `shaping:spec`, `python3 .agents/tools/gate.py move <number> spec`, when an attempt showed a check that cannot be met as written,
-and to `shaping:research`, `python3 .agents/tools/gate.py move <number> research`, otherwise.
-`/shape` picks it up from there. Never let a fourth attempt run on the same
-guess.
+A `loop:build` piece is built in the attempts `references/build-loop.md` runs,
+each by a fresh builder that ends with one of five statuses. The gate takes the
+route for each status, `python3 .agents/tools/gate.py result <number> <result file>`,
+so a piece that fails its attempts goes back to shaping through the gate: to
+`shaping:spec` when a check cannot be met as written, and to `shaping:research`
+otherwise. A builder that needs a decision, a fact or a rewritten contract ends
+its attempt saying so, and the gate kicks the piece back to the sub-state that
+settles it. `/shape` picks it up from there. Never let a fourth attempt run on
+the same guess.
 
 A build may reach a service the tool uses, for example to read its keys or set
 it up. Use only what a tool offers through its own commands, and the keys the
@@ -489,6 +495,8 @@ proves the behaviour, and the review exists for what the check cannot see.
 
 ## 8. Save
 
+A `loop:build` piece reaches this step only once the gate has routed its builder's `done`, as `references/build-loop.md` says, and the gate's own run of its checks held.
+
 Before anything is saved, the bar is checked: the bar guard, this skill's
 `scripts/bar-guard.sh`, which wraps `scripts/test-guard.sh`, lists every change
 the build made to what the piece is measured against. On the pull-request route the gate does it when the piece moves to `to check`, as below, and
@@ -575,8 +583,8 @@ pre-approval of a run when the piece meets all six of its conditions.
 Otherwise the pass stops there. Report the piece as ready for review, not as
 done.
 
-Flagged route: where the person carried on and the acceptance is recorded,
-this is the pull-request route and nothing below applies. Otherwise do the
+Flagged route: where the acceptance was already recorded in `/shape`, this is
+the pull-request route and nothing below applies. Otherwise do the
 pull-request route for everything up to the condition, then:
 
 - record the exact condition that must be met, and say that /ship prepares a

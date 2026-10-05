@@ -140,7 +140,7 @@ for event in ("Stop", "SubagentStop"):
            "the settings template runs gate.py stop-check on %s with a timeout above ten "
            "minutes" % event, repr(entries))
     if entries:
-        lab.write(worktree, {"app/billing/refund.py": lp.REFUND_WRONG})
+        lab.write(worktree, {"app/billing/refund.py": lp.REFUND_WRONG + "# %s\n" % event})
         lab.git(worktree, "add", "-A")
         lab.git(worktree, "commit", "-q", "-m", "wrong again")
         env = dict(lab.env, CLAUDE_PROJECT_DIR=repo)

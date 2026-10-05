@@ -22,6 +22,9 @@ Commands:
   gate.py check-contract <number> [--run <name>]
   gate.py evidence <number> [--phase before] [--at <commit>] -- <command>
   gate.py evidence <number> --breakage <patch> -- <command>
+  gate.py result <number> <result file> [--at-limit] [--reason <text>]
+  gate.py switch-module <number> <build|fix>
+  gate.py stop-check
   gate.py drop <number> --reason <text>
   gate.py tidy
   gate.py report
@@ -92,6 +95,42 @@ of the sections that sub-state answers in, and the move out reads them again.
 Leaving spec for check needs Loop and Reach changed, leaving spec to ask again
 needs an Open question the piece did not carry in, and leaving check for
 another sub-state needs Readiness changed.
+
+result routes what a builder ended an attempt of the build loop with. The
+builder writes its result to .agents/runs/<run name>/results/<number>-attempt-
+<n>.json in the main folder, with one status of five. done and
+done_with_concerns go to checking: the gate runs the piece's checks itself on
+the commit the builder left, and a check that does not hold makes the attempt a
+failed one (exit 3). done_with_concerns also writes a builder_concerns reason
+to forced.jsonl, which forces the person's review. needs_context and blocked
+are a kickback to the first of clarify, research and spec the result's needs
+name, with a Kickback section, and the piece's branch is pushed and kept.
+environment_failed changes nothing on GitHub and is never a kickback (exit 4).
+A result with no status, an unknown one, or a need of another kind is refused
+(exit 5). With --at-limit, sent by the run script once the attempts or the time
+budget are spent, the gate kicks the piece back to research, or to spec when
+the last result's needs hold an entry of kind spec naming one of the piece's
+acceptance checks. The Kickback section lists each attempt from its note on
+this computer, and no check output goes to GitHub. Each line the gate prints
+ends with one saying route: and where the piece went.
+
+switch-module changes a building piece's loop: label between build and fix,
+only when the contract already holds the new module's bar: a Reproduction line
+for fix, acceptance checks for build. It leaves the body alone, so the contract
+hash still matches, and writes the switch into the evidence record.
+
+stop-check runs from Claude Code's Stop and SubagentStop hooks, reading the
+hook's input on standard input. In a folder whose branch belongs to a piece a
+run record holds as building, where the builder's result says done and
+stop_hook_active is not set, it runs the piece's acceptance checks through the
+evidence record and exits 2 with one line naming the first that fails, so the
+builder carries on once. Anywhere else it prints nothing and exits 0. It never
+asks GitHub.
+
+The move to state:building also reads the area map and the masterplan's
+sensitive areas on main, as the ready-gate lint does, and refuses a piece whose
+reach touches a sensitive area with no caution done or accepted, since an
+acceptance is recorded only in /shape's clarify step.
 
 It talks to GitHub through the GitHub command-line tool already signed in on
 this computer, and writes a run's piece status into
@@ -240,6 +279,10 @@ class Refused(Exception):
         super().__init__(what)
         self.what = what
         self.next_step = next_step
+
+
+class Malformed(Refused):
+    """The builder's result file cannot be routed as it stands."""
 
 
 class KickedBack(Exception):
@@ -711,6 +754,15 @@ def check_condition(condition: str, number: int, origin: str, target: str,
         if not options.get("assignee") and not options.get("run"):
             refuse("a claim needs an assignee or a run",
                    f"gate.py move {number} building --assignee @me")
+        unsettled = unsettled_areas(body)
+        if unsettled:
+            area, sensitive = unsettled[0]
+            refuse(f"#{number} reaches {area}, in the sensitive area {sensitive}, whose caution "
+                   "is neither done nor accepted in the masterplan's build path, so it cannot "
+                   "be built: an acceptance is recorded only in /shape's clarify step, with "
+                   "the person there",
+                   f"write a ## Kickback section naming {sensitive}, then run: "
+                   f"gate.py move {number} clarify")
         earlier = set()
         if record is not None:
             earlier = {p.get("number") for p in record["pieces"] if p.get("number") != number}
@@ -1614,6 +1666,524 @@ def judge_failure(lint: Any, runner: str, report: str, output: str) -> str | Non
     return None
 
 
+# --- sensitive areas at the claim --------------------------------------------
+
+# A masterplan line that says the area's caution is settled ends with done or
+# accepted and a date, as the ready-gate lint reads it.
+SETTLED = re.compile(r"\b(done|accepted)\s+\d{4}-\d{2}-\d{2}\s*\.?\s*$")
+
+
+def on_main(path: str) -> str | None:
+    """A file as main holds it, from origin/main where there is one, else the
+    project's own copy."""
+    root = main_folder()
+    for ref in ("refs/remotes/origin/main", "refs/heads/main"):
+        if git(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}").returncode == 0:
+            done = git(root, "show", f"{ref}:{path}")
+            return done.stdout if done.returncode == 0 else None
+    try:
+        with open(os.path.join(root, path), encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def areas_named(body: str) -> list[str]:
+    """The areas a piece's reach names: its Boundary, then each Reaches entry."""
+    named = boundary_of(body)
+    for line in (section(body, "Reach") or "").splitlines():
+        match = re.match(r"^\s*(?:[-*]\s+)?Reaches:\s*(.*)$", line, re.IGNORECASE)
+        if not match:
+            continue
+        for entry in re.split(r";|\s\|\s", match.group(1)):
+            if ":" in entry:
+                named.append(entry.replace("`", "").split(":", 1)[0].strip().strip(".").lower())
+    return list(dict.fromkeys(n for n in named if n))
+
+
+def unsettled_areas(body: str) -> list[tuple[str, str]]:
+    """Each area the piece reaches whose sensitive area has no caution done or
+    accepted in the masterplan's build path, as (area, sensitive area). A map or
+    a masterplan that cannot be read gives none: the ready-gate lint already
+    refused that piece at ready."""
+    area_map = load_area_map()
+    if area_map is None:
+        return []
+    masterplan = on_main("masterplan.md")
+    rules = on_main(MAP_FILE)
+    if not masterplan or not rules:
+        return []
+    try:
+        mapped = area_map.read_map(rules)
+    except area_map.MapError:
+        return []
+    by_name = {area.name.strip().lower(): area for area in mapped}
+    lines = {name.strip().lower(): line
+             for name, _, line in area_map.sensitive_lines(masterplan)}
+    found: list[tuple[str, str]] = []
+    for name in areas_named(body):
+        area = by_name.get(name)
+        if area is None or area.sensitive is None:
+            continue
+        sensitive = str(area.sensitive[0])
+        if not SETTLED.search(lines.get(sensitive.strip().lower(), "")):
+            found.append((str(area.name), sensitive))
+    return found
+
+
+# --- the build loop ------------------------------------------------------------
+#
+# A builder ends each attempt with one status, written to a result file in the
+# run's folder. The gate takes the one route each status has. The run script,
+# the implement skill's scripts/run.py, decides each attempt and hands the
+# result here; the gate only checks and writes state, and never starts an agent.
+
+STATUSES = ("done", "done_with_concerns", "needs_context", "blocked", "environment_failed")
+# The sub-states a builder may send a piece back to, in the order the first
+# one a result names wins.
+NEED_KINDS = ("clarify", "research", "spec")
+OUTCOMES = ("ruled out", "confirmed", "not tested")
+RESULT_PATH = re.compile(r"/\.agents/runs/([A-Za-z0-9][A-Za-z0-9._-]*)/results/"
+                         r"(\d+)-attempt-(\d+)(?:-[a-z]+)?\.json$")
+FAILED_ATTEMPT = 3
+ENVIRONMENT = 4
+MALFORMED = 5
+
+
+def read_result(path: str, number: int) -> dict[str, Any]:
+    """The builder's result, or a refusal saying why it cannot be routed."""
+    shown = os.path.relpath(path, main_folder())
+    fix = (f"the builder writes its result again at {shown}, then run: gate.py result "
+           f"{number} {shown}")
+    if not os.path.isfile(path):
+        raise Malformed(f"there is no result file at {shown}", fix)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as error:
+        raise Malformed(f"{shown} is not valid JSON ({error})", fix)
+    if not isinstance(data, dict):
+        raise Malformed(f"{shown} does not hold one result", fix)
+    status = data.get("status")
+    if not status:
+        raise Malformed(f"{shown} names no status; a result says one of "
+                        f"{', '.join(STATUSES)}", fix)
+    if status not in STATUSES:
+        raise Malformed(f"{shown} says the status {status!r}, which is not one of "
+                        f"{', '.join(STATUSES)}", fix)
+    for key in ("concerns", "needs", "could_not_check", "causes"):
+        if key in data and not isinstance(data[key], list):
+            raise Malformed(f"{shown}'s {key} is not a list", fix)
+    for need in data.get("needs", []):
+        if (not isinstance(need, dict) or need.get("kind") not in NEED_KINDS
+                or not str(need.get("what") or "").strip()):
+            raise Malformed(f"{shown} has a need that is not one of the kinds "
+                            f"{', '.join(NEED_KINDS)} with what is needed", fix)
+    for cause in data.get("causes", []):
+        if (not isinstance(cause, dict)
+                or not all(str(cause.get(key) or "").strip() for key in ("cause", "prediction"))
+                or cause.get("outcome") not in OUTCOMES):
+            raise Malformed(f"{shown} has a cause without its prediction and an outcome of "
+                            f"{', '.join(OUTCOMES)}", fix)
+    if status in ("needs_context", "blocked") and not data.get("needs"):
+        raise Malformed(f"{shown} says {status} and names no sub-state under needs, so the "
+                        "piece has nowhere to go back to", fix)
+    return data
+
+
+def run_records() -> list[tuple[str, dict[str, Any]]]:
+    """Each run record in the main folder that can be read, by its run name."""
+    folder = os.path.join(main_folder(), ".agents", "runs")
+    found: list[tuple[str, dict[str, Any]]] = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return found
+    for name in names:
+        try:
+            with open(os.path.join(folder, name, "run.json"), encoding="utf-8") as handle:
+                record = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and isinstance(record.get("pieces"), list):
+            found.append((name, record))
+    return found
+
+
+def run_of_piece(number: int, result: str = "") -> tuple[str, dict[str, Any] | None]:
+    """The run building the piece, and its entry in that run's record. The
+    result file's own path names the run where it can; otherwise the newest run
+    record that holds the piece as building does."""
+    match = RESULT_PATH.search(os.path.abspath(result).replace(os.sep, "/")) if result else None
+    if match and int(match.group(2)) == number:
+        record = load_run(match.group(1))
+        return match.group(1), run_entry(record, number)
+    for name, record in reversed(run_records()):
+        entry = run_entry(record, number)
+        if entry is not None and entry.get("status") == "building":
+            return name, entry
+    return "", None
+
+
+def folder_of(entry: dict[str, Any] | None) -> str:
+    """The folder the piece is built in: its worktree, or the folder here."""
+    worktree = str((entry or {}).get("worktree") or "")
+    if worktree and os.path.isdir(worktree):
+        return worktree
+    top = git(os.getcwd(), "rev-parse", "--show-toplevel").stdout.strip()
+    return top or os.getcwd()
+
+
+def base_of(folder: str) -> str:
+    """Where the piece's branch left main, read from origin/main where there is one."""
+    for ref in ("refs/remotes/origin/main", "refs/heads/main"):
+        if git(folder, "rev-parse", "--verify", "--quiet", ref + "^{commit}").returncode == 0:
+            base = git(folder, "merge-base", ref, "HEAD").stdout.strip()
+            if base:
+                return base
+    return git(folder, "rev-parse", "HEAD").stdout.strip()
+
+
+def module_of(names: Sequence[str]) -> str:
+    loops = [n for n in names if n.startswith("loop:")]
+    return loops[0].split(":", 1)[1] if len(loops) == 1 else ""
+
+
+def run_checks(number: int, folder: str, checks: list[str], guards: list[str],
+               with_test: bool, source: str, stop_early: bool) -> tuple[list[str], str]:
+    """Run the given checks on the folder as it stands, each within the time
+    limit, and record each run. Returns what did not hold, and the commit."""
+    commit, dirty = folder_state(folder)
+    problems: list[str] = []
+    if dirty and with_test:
+        shown = ", ".join(dirty[:8]) + (" and more" if len(dirty) > 8 else "")
+        problems.append(f"the folder holds changes nobody saved ({shown}), so the checks did "
+                        "not run on a saved commit")
+    base = base_of(folder)
+    agents = git(folder, "show", f"{base}:AGENTS.md").stdout
+    lint = need_lint(number, f"gate.py result {number} <result file>")
+    test = lint.test_command(lint.stack_section(agents)) if agents.strip() else None
+    runnable = bool(test) and not re.match(r"^none for\b", test or "", re.IGNORECASE)
+    to_run = [p for p in checks + guards if p and " " not in p.strip()]
+    if to_run and not runnable:
+        problems.append("AGENTS.md's stack section on main gives no Test command that runs, "
+                        f"so the checks could not run: {', '.join(to_run)}")
+        return problems, commit
+    entries: list[dict[str, Any]] = []
+    temp = tempfile.mkdtemp(prefix="gate-reports-")
+    try:
+        runner = lint.detect_runner(test, folder) if runnable else None
+        for count, path in enumerate(to_run):
+            kind = "acceptance check" if path in checks else "guard check"
+            if not os.path.exists(os.path.join(folder, path)):
+                problems.append(f"the {kind} {path} is missing from the folder")
+            else:
+                report = os.path.join(temp, f"result-{count}")
+                command = lint.check_command(test, runner, path, report)
+                code, output, late = lint.run_limited(command, folder)
+                entries.append(run_entry_for(number, "after", command, code, commit, not dirty,
+                                             output, source))
+                if late:
+                    problems.append(f"the {kind} {path} ran past the limit of "
+                                    f"{lint.time_limit()} seconds and was stopped")
+                elif code != 0:
+                    problems.append(f"the {kind} {path} fails (exit {code}) on {commit[:12]}")
+            if problems and stop_early:
+                break
+        if with_test and runnable and not problems:
+            code, output, late = lint.run_limited(str(test), folder)
+            entries.append(run_entry_for(number, "after", str(test), code, commit, not dirty,
+                                         output, source))
+            if late or code != 0:
+                problems.append(f"the project's Test command, `{test}`, "
+                                + ("ran past the time limit" if late else f"fails (exit {code})")
+                                + f" on {commit[:12]}")
+    finally:
+        for name in os.listdir(temp):
+            os.remove(os.path.join(temp, name))
+        os.rmdir(temp)
+    for note in write_record(number, entries):
+        say(note)
+    return problems, commit
+
+
+def attempts_tried(number: int) -> list[str]:
+    """One line for each attempt, read from the short record beside its note on
+    this computer: its number, status, failing checks and exit codes, and where
+    its note is. No check output."""
+    folder = pieces_folder(number)
+    found: list[tuple[int, str]] = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        names = []
+    for name in names:
+        match = re.fullmatch(r"attempt-(\d+)\.json", name)
+        if not match:
+            continue
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as handle:
+                summary = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        failing = [f"`{f.get('command')}` exit {f.get('exit')}"
+                   for f in summary.get("failing", []) if isinstance(f, dict)]
+        found.append((int(match.group(1)),
+                      f"- Attempt {match.group(1)}: {summary.get('status', 'unknown')}; "
+                      + (f"failing: {', '.join(failing)}" if failing
+                         else "no failing check recorded")
+                      + f"; its note on this computer: {summary.get('note', '')}"))
+    return [line for _, line in sorted(found)]
+
+
+def keep_branch(folder: str, entry: dict[str, Any] | None) -> str:
+    """Push the piece's branch, never forcing it, where the project's code is
+    online. Returns the line that says where the branch is."""
+    branch = str((entry or {}).get("branch") or "") or \
+        git(folder, "branch", "--show-current").stdout.strip()
+    if not branch:
+        return "The work is kept in its folder on this computer."
+    if git(folder, "rev-parse", "--verify", "--quiet",
+           "refs/remotes/origin/main^{commit}").returncode != 0:
+        return (f"The branch {branch} is kept on this computer, since the project's code is "
+                "not online yet.")
+    pushed = git(folder, "push", "--quiet", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+    if pushed.returncode != 0:
+        first = next((line.strip() for line in pushed.stderr.splitlines() if line.strip()),
+                     "no message")
+        raise Unreachable(f"the branch {branch} could not be pushed, so nothing changed "
+                          f"({first})", first)
+    return f"The branch {branch} is kept, and pushed."
+
+
+def recovery_line(run: str, number: int) -> str:
+    if not run:
+        return ""
+    folder = f".agents/recovery/{run}-{number}"
+    if not os.path.isdir(os.path.join(main_folder(), *folder.split("/"))):
+        return ""
+    return (f"\nEach failed attempt's work is kept on this computer in `{folder}/`. To delete "
+            f"it once nobody needs it: `rm -r {folder}`")
+
+
+def kick(number: int, target: str, happened: str, needed: list[str], run: str,
+         entry: dict[str, Any] | None) -> None:
+    """Send the piece back to a shaping sub-state with its Kickback section, its
+    branch pushed and kept."""
+    folder = folder_of(entry)
+    branch_line = keep_branch(folder, entry)
+    tried = attempts_tried(number) or ["- No attempt left a note."]
+    text = (f"What happened: {happened}\n\nWhat was tried:\n" + "\n".join(tried)
+            + "\n\nWhat is needed:\n" + "\n".join(needed)
+            + f"\n\n{branch_line}{recovery_line(run, number)}")
+    options = {"run": run} if run else {}
+    say(move_piece([str(number), short(target)], options, kickback=text))
+    say(f"route: kickback {short(target)}")
+
+
+def acceptance_paths(body: str, names: Sequence[str], number: int) -> list[str]:
+    lint = need_lint(number, f"gate.py result {number} <result file>")
+    module = module_of(names) or "build"
+    return [p for p in acceptance_checks(body, module, lint) if " " not in p.strip()]
+
+
+def command_result(arguments: list[str], options: dict[str, str]) -> None:
+    usage = "gate.py result <number> <result file> [--at-limit] [--reason <text>]"
+    if len(arguments) != 2:
+        refuse("result takes one issue number and the builder's result file", usage)
+    number = number_from(arguments[0])
+    path = os.path.abspath(arguments[1])
+    issue = read_issue(number)
+    if not is_open(issue):
+        refuse(f"#{number} is closed", "gate.py report")
+    names = label_names(issue)
+    origin = position(number, names)
+    if origin != "state:building":
+        refuse(f"#{number} is in {origin}, and a builder's result is routed only while the "
+               "piece is in state:building", "gate.py report")
+    body = str(issue.get("body") or "")
+    run, entry = run_of_piece(number, path)
+    match = RESULT_PATH.search(path.replace(os.sep, "/"))
+    attempt = match.group(3) if match else "?"
+
+    if "at-limit" in options:
+        data: dict[str, Any] = {}
+        if os.path.isfile(path):
+            try:
+                data = read_result(path, number)
+            except Malformed:
+                data = {}
+        checks = acceptance_paths(body, names, number)
+        cannot = [n for n in data.get("needs", []) if n.get("kind") == "spec"
+                  and str(n.get("check") or "").strip().strip("`").removeprefix("./") in checks]
+        reached = options.get("reason") or "its limit"
+        happened = (f"The build loop reached {reached} without every acceptance check "
+                    "passing, so it stopped rather than try again on the same guess.")
+        if cannot:
+            needed = [f"- spec: {n.get('check')} cannot be met as written: {n.get('what')}"
+                      for n in cannot]
+            kick(number, "shaping:spec", happened, needed, run, entry)
+        else:
+            needed = [("- research: the fact the attempts were missing. No check was shown "
+                       "to be wrong as written, so the bar stands.")]
+            kick(number, "shaping:research", happened, needed, run, entry)
+        return
+
+    data = read_result(path, number)
+    status = str(data["status"])
+    concerns = [str(c) for c in data.get("concerns", []) if str(c).strip()]
+    if status in ("needs_context", "blocked"):
+        kinds = [str(n["kind"]) for n in data["needs"]]
+        target = "shaping:" + next(k for k in NEED_KINDS if k in kinds)
+        happened = (f"The builder ended attempt {attempt} as {status}: "
+                    + "; ".join(str(n["what"]) for n in data["needs"]))
+        needed = [f"- {n['kind']}: {n['what']}" for n in data["needs"]]
+        kick(number, target, happened, needed, run, entry)
+        return
+    if status == "environment_failed":
+        said = "; ".join(concerns) or "it named nothing more"
+        say(f"#{number}: the builder says the environment failed ({said}). This attempt does "
+            "not count, it is never a kickback, and the piece stays in state:building.")
+        say("route: environment")
+        raise SystemExit(ENVIRONMENT)
+
+    folder = folder_of(entry)
+    checks = acceptance_paths(body, names, number)
+    lint = need_lint(number, usage)
+    guards = [g for g in guard_checks(body, lint) if g not in checks]
+    problems, commit = run_checks(number, folder, checks, guards, True, "result", False)
+    if problems:
+        say(f"#{number}: the builder said {status}, and the gate ran the checks itself on "
+            f"{commit[:12]}. They do not hold, so this attempt failed:")
+        for problem in problems:
+            say(f"- {problem}")
+        say("route: failed")
+        raise SystemExit(FAILED_ATTEMPT)
+    if status == "done_with_concerns":
+        record_forced(number, [{"reason": "builder_concerns", "source": "gate.py result",
+                                "detail": "; ".join(concerns)
+                                or "the builder ended with concerns it did not name"}])
+    say(f"#{number}: the builder said {status}, and every check holds on {commit[:12]}; next: "
+        "the review, section-builder's step 7"
+        + (", which goes to the person for the builder's concerns"
+           if status == "done_with_concerns" else ""))
+    say("route: review")
+
+
+def command_switch_module(arguments: list[str], options: dict[str, str]) -> None:
+    usage = "gate.py switch-module <number> <build|fix>"
+    if len(arguments) != 2:
+        refuse("switch-module takes one issue number and the loop module to switch to", usage)
+    number = number_from(arguments[0])
+    wanted = arguments[1].strip().removeprefix("loop:")
+    end_it = (f"end the attempt with needs_context, naming spec, so the contract is shaped "
+              f"again in /shape {number}")
+    issue = read_issue(number)
+    if not is_open(issue):
+        refuse(f"#{number} is closed", "gate.py report")
+    names = label_names(issue)
+    origin = position(number, names)
+    if origin != "state:building":
+        refuse(f"#{number} is in {origin}, and a loop module switches only while the piece is "
+               "being built", "gate.py report")
+    loops = [n for n in names if n.startswith("loop:")]
+    current = module_of(names)
+    if wanted not in ("build", "fix"):
+        refuse(f"a build switches only between the build and fix loop modules, and '{wanted}' "
+               "is neither", end_it)
+    if current not in ("build", "fix"):
+        refuse(f"#{number} carries {' and '.join(loops) or 'no loop: label'}, not one of "
+               "loop:build or loop:fix", end_it)
+    if wanted == current:
+        refuse(f"#{number} is already in the {wanted} loop module", end_it)
+    body = str(issue.get("body") or "")
+    lint = need_lint(number, f"gate.py switch-module {number} {wanted}")
+    if wanted == "fix":
+        fields = lint.fields_in(section(body, "Loop") or "", ["Reproduction"])
+        if not str(fields.get("Reproduction") or "").strip():
+            refuse(f"#{number}'s contract holds no Reproduction: line under ## Loop, the bar the "
+                   "fix loop needs, so switching would need a new decision", end_it)
+    elif not acceptance_checks(body, "build", lint):
+        refuse(f"#{number}'s contract names no acceptance check under Done when, the bar the "
+               "build loop needs, so switching would need a new decision", end_it)
+    try:
+        edit_issue(number, ["loop:" + wanted], loops)
+    except Unreachable as error:
+        raise Unreachable(f"the loop: label on #{number} could not be written, so nothing "
+                          f"changed ({error.detail})", error.detail)
+    commit = git(os.getcwd(), "rev-parse", "HEAD").stdout.strip()
+    for note in write_record(number, [{"note": f"loop module switched from {current} to "
+                                       f"{wanted}; the contract is unchanged", "commit": commit,
+                                       "time": now_stamp(), "phase": "switch",
+                                       "source": "switch-module"}]):
+        say(note)
+    say(f"#{number} switched from loop:{current} to loop:{wanted}, with its contract unchanged")
+
+
+def stop_check_failure(data: dict[str, Any]) -> str | None:
+    """The one line that sends a builder back, or None to let it stop."""
+    if data.get("stop_hook_active"):
+        return None
+    folder = str(data.get("cwd") or os.getcwd())
+    if not os.path.isdir(folder):
+        return None
+    top = git(folder, "rev-parse", "--show-toplevel")
+    if top.returncode != 0 or not top.stdout.strip():
+        return None
+    folder = top.stdout.strip()
+    os.chdir(folder)
+    branch = git(folder, "branch", "--show-current").stdout.strip()
+    if not branch:
+        return None
+    entry = None
+    for _, record in reversed(run_records()):
+        entry = next((p for p in record["pieces"] if isinstance(p, dict)
+                      and p.get("status") == "building" and p.get("branch") == branch), None)
+        if entry is not None:
+            break
+    if entry is None or not isinstance(entry.get("number"), int):
+        return None
+    requests = entry.get("requests") or []
+    if not requests or not isinstance(requests[-1], dict):
+        return None
+    request = requests[-1]
+    result = os.path.join(main_folder(), str(request.get("result") or "-"))
+    try:
+        with open(result, encoding="utf-8") as handle:
+            status = json.load(handle).get("status")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if status != "done":
+        return None
+    checks = [c for c in request.get("checks") or [] if isinstance(c, str)]
+    if not checks:
+        return None
+    problems, _ = run_checks(int(entry["number"]), folder, checks, [], False, "stop-check", True)
+    if not problems:
+        return None
+    return (f"{problems[0][0].upper()}{problems[0][1:]}, so this attempt is not done: make it "
+            f"pass, or end the attempt with another status in {request.get('result')}.")
+
+
+def command_stop_check(arguments: list[str], options: dict[str, str]) -> None:
+    raw = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+    try:
+        data = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    # A hook that cannot read its own setting never stops a session.
+    try:
+        failing = stop_check_failure(data)
+    except (Refused, Unreachable, OSError, ValueError, KeyError, TypeError, AttributeError,
+            RuntimeError, subprocess.SubprocessError):
+        return
+    if failing:
+        print(failing, file=sys.stderr)
+        raise SystemExit(2)
+
+
 # --- the commands --------------------------------------------------------
 
 def command_move(arguments: list[str], options: dict[str, str]) -> None:
@@ -2139,9 +2709,12 @@ def command_labels(arguments: list[str], options: dict[str, str]) -> None:
 COMMANDS = {"move": command_move, "capture": command_capture, "drop": command_drop,
             "tidy": command_tidy, "report": command_report, "labels": command_labels,
             "evidence": lambda arguments, options: command_evidence(arguments, options, []),
-            "check-contract": command_check_contract}
+            "check-contract": command_check_contract, "result": command_result,
+            "switch-module": command_switch_module, "stop-check": command_stop_check}
 OPTIONS = ("--run", "--assignee", "--reason", "--withdrawn-by", "--title", "--body-file",
            "--phase", "--at", "--breakage")
+# Options that stand alone, with no value after them.
+FLAGS = ("--at-limit",)
 
 
 def parse(argv: list[str]) -> tuple[list[str], dict[str, str]]:
@@ -2151,6 +2724,10 @@ def parse(argv: list[str]) -> tuple[list[str], dict[str, str]]:
     while i < len(argv):
         word = argv[i]
         name = word.split("=", 1)[0]
+        if word in FLAGS:
+            options[word[2:]] = "yes"
+            i += 1
+            continue
         if name in OPTIONS:
             if "=" in word:
                 options[name[2:]] = word.split("=", 1)[1]
@@ -2190,7 +2767,7 @@ def main(argv: list[str]) -> int:
     except Refused as refusal:
         print("gate.py {} refused: {}".format(" ".join(argv), refusal.what), file=sys.stderr)
         print("next: " + refusal.next_step, file=sys.stderr)
-        return 1
+        return MALFORMED if isinstance(refusal, Malformed) else 1
     except KickedBack as kicked:
         print(f"{kicked.done}, because the contract changed while it was being built; its "
               "branch is kept")

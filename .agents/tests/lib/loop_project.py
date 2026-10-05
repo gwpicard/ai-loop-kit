@@ -56,11 +56,11 @@ def piece_body(loop: str = "Loop module: build\nAcceptance branch: spec/12-refun
                works: str = "A refund returns the whole amount. Check: tests/test_refund.py",
                boundary: str = "billing, tests", reaches: str = "none") -> str:
     return ("## So that\nA shop owner can refund an order.\n\n"
-            "## Done when\n### Works\n- %s\n\n"
-            "## Loop\n%s\n\n"
-            "## Reach\nBoundary: %s\nReaches: %s\n\n"
+            f"## Done when\n### Works\n- {works}\n\n"
+            f"## Loop\n{loop}\n\n"
+            f"## Reach\nBoundary: {boundary}\nReaches: {reaches}\n\n"
             "<details><summary>Under the hood</summary>\n\nBuild the refund.\n\n</details>\n\n"
-            "%s" % (works, loop, boundary, reaches, READY))
+            f"{READY}")
 
 
 class Lab:
@@ -81,8 +81,7 @@ class Lab:
         for tool in ("claude", "codex", "gemini", "cursor-agent"):
             path = os.path.join(bin_folder, tool)
             with open(path, "w") as handle:
-                handle.write("#!/bin/sh\necho \"%s $*\" >> \"%s\"\nexit 1\n"
-                             % (tool, self.model_log))
+                handle.write(f"#!/bin/sh\necho \"{tool} $*\" >> \"{self.model_log}\"\nexit 1\n")
             os.chmod(path, 0o755)
         env = dict(os.environ, GIT_AUTHOR_NAME="R", GIT_AUTHOR_EMAIL="r@example.invalid",
                    GIT_COMMITTER_NAME="R", GIT_COMMITTER_EMAIL="r@example.invalid",
@@ -91,7 +90,7 @@ class Lab:
         env.pop("CLAUDE_PROJECT_DIR", None)
         paths = [FAKE, bin_folder]
         if subprocess.run([sys.executable, "-m", "pytest", "--version"], capture_output=True,
-                          env=env).returncode != 0:
+                          env=env, check=False).returncode != 0:
             print("  pytest is not here, installing it into a throwaway environment")
             venv = os.path.join(self.work, "venv")
             subprocess.run([sys.executable, "-m", "venv", venv], check=True)
@@ -114,17 +113,17 @@ class Lab:
     def finish(self, name: str) -> None:
         shutil.rmtree(self.work, ignore_errors=True)
         if self.failures:
-            print("%s: %d check(s) failed" % (name, len(self.failures)), file=sys.stderr)
+            print(f"{name}: {len(self.failures)} check(s) failed", file=sys.stderr)
             sys.exit(1)
-        print("%s: every check passed" % name)
+        print(f"{name}: every check passed")
 
     # --- Git and files ---------------------------------------------------------
 
     def git(self, repo: str, *args: str, check: bool = True) -> str:
         done = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True,
-                              env=self.env)
+                              env=self.env, check=False)
         if check and done.returncode != 0:
-            raise SystemExit("git %s failed: %s" % (" ".join(args), done.stderr))
+            raise SystemExit("git {} failed: {}".format(" ".join(args), done.stderr))
         return done.stdout.strip()
 
     @staticmethod
@@ -183,7 +182,7 @@ class Lab:
     def project(self) -> str:
         """A copy of the seed with a bare remote of its own."""
         self.copies += 1
-        repo = os.path.join(self.work, "project-%d" % self.copies)
+        repo = os.path.join(self.work, f"project-{self.copies}")
         remote = repo + ".git"
         shutil.copytree(self.seed, repo, symlinks=True)
         shutil.copytree(self.seed + ".git", remote, symlinks=True)
@@ -209,7 +208,7 @@ class Lab:
 
     @staticmethod
     def issue(number: int, labels: list[str], body: str) -> dict[str, Any]:
-        return {"number": number, "title": "Refunds %d" % number, "body": body,
+        return {"number": number, "title": f"Refunds {number}", "body": body,
                 "state": "open", "labels": list(labels), "assignees": [], "blocked_by": [],
                 "sub_issues": [], "comments": []}
 
@@ -252,7 +251,7 @@ class Lab:
     def run(self, cwd: str, *args: str, stdin: str | None = None,
             env: dict[str, str] | None = None) -> tuple[int, str, str]:
         done = subprocess.run(list(args), cwd=cwd, env=env or self.env, input=stdin,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, check=False)
         return done.returncode, done.stdout, done.stderr
 
     def gate(self, repo: str, *args: str, stdin: str | None = None) -> tuple[int, str, str]:
@@ -269,7 +268,7 @@ class Lab:
         self.fresh([self.issue(number, labels, body or piece_body())])
         code, out, err = self.gate(repo, "move", str(number), "ready")
         if code != 0:
-            raise SystemExit("the piece could not be made ready: %s %s" % (out, err))
+            raise SystemExit(f"the piece could not be made ready: {out} {err}")
 
     # --- reading a run ---------------------------------------------------------
 
@@ -324,7 +323,7 @@ class Lab:
         brief = os.path.join(repo, request["brief"])
         done = subprocess.run([sys.executable, "-c", script, brief, json.dumps(files or {}),
                                "commit" if commit else "keep"],
-                              cwd=self.work, env=self.env, capture_output=True, text=True)
+                              cwd=self.work, env=self.env, capture_output=True, text=True, check=False)
         if done.returncode != 0:
             raise SystemExit("the stub builder failed: " + done.stderr)
         if result is not None:

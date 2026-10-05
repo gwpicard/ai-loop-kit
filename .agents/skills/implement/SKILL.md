@@ -50,7 +50,13 @@ Claim the piece before any work, through the gate, which moves it from
 `state:ready` to `state:building` and assigns it in one call:
 `python3 .agents/tools/gate.py move <number> building --assignee @me`.
 section-builder's step 1 makes that move, so two sessions never start the same
-piece. Where GitHub cannot be reached the claim cannot be made, so say so and do
+piece. For a `loop:build` piece, the run script beside this file,
+`scripts/run.py start <number>`, makes it in a run of one, as section-builder's
+build loop says. Given the number of a piece that a run record under
+`.agents/runs/` still holds as building, such as one stopped when the computer
+failed twice or GitHub could not be reached, `/implement` resumes that run
+through the same script with no new claim: it routes any result already saved
+first, and counts the attempts from the notes already on disk. Where GitHub cannot be reached the claim cannot be made, so say so and do
 not start the piece: a piece nobody could claim may be claimed by somebody else.
 Where the gate refuses a move, tell the person its line in plain words and stop that move.
 Never write the label another way, as the `setup-ai-build-kit` skill's

@@ -67,7 +67,7 @@ rs_guard "$COMPAT" "COMPATIBILITY.md"
 # that owns the evidence, and the optional features say the Stop hook that
 # sends a done builder back is Claude Code's alone for now.
 rs_require_load_bearing "the harness map says which agents start a fresh builder" "$COMPAT" \
-  '\| coding agent \| starts a fresh builder itself \|'
+  '\| harness \| starts a fresh builder itself \|'
 rs_require_load_bearing "Claude Code starts one as a subagent that does not fork" "$COMPAT" \
   '\| claude code \| yes, as a subagent that does not fork the conversation \|'
 rs_require_load_bearing "an agent with no route stops the run for a new session" "$COMPAT" \

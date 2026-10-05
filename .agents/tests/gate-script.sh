@@ -238,6 +238,9 @@ def kit_family(labels):
 
 # --- the transition table, read from the gate itself ------------------------
 
+# Read without writing bytecode beside the skill, where a later check reads
+# every file in the skills folder.
+sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("gate", GATE)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

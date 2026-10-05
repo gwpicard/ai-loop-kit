@@ -396,8 +396,10 @@ works in.
   piece's worktree with `worktree.sh open` and takes its port with
   `worktree.sh port`, before it starts that piece's background agent, and
   records both.
-- **What an agent does.** It is given the piece's number, its worktree path,
-  its port and the run name. It loads section-builder and does steps 3 to 6 of
+- **What an agent does.** It is a fresh builder, started on the run script's
+  start request with the brief the `section-builder` skill's
+  `references/task-handoff.md` describes. It is given the piece's number, its
+  worktree path, its port and the run name. It loads section-builder and does steps 3 to 6 of
   "For each piece" inside its worktree: the start ritual, the checks first, the
   build and the walk-through. It commits its work on the piece's branch and
   reports back what it built, the commit that holds the checks, the choices it
@@ -483,11 +485,31 @@ Either way the run moves on to the next unblocked piece.
 
 ## When a piece fails
 
-Retry within the piece, up to three attempts, the same number fix uses. After
-the third, kick it back: write a `## Kickback` section on the piece with one
-line on what kept failing, push its branch and keep it, and move it back to
-shaping through the gate, to `shaping:spec` with `python3 .agents/tools/gate.py move <number> spec --run <run name>` when an attempt showed a check that cannot be met as written,
-and to `shaping:research` with `python3 .agents/tools/gate.py move <number> research --run <run name>` otherwise.
+Each piece is built in the build loop the `section-builder` skill's
+`references/build-loop.md` describes, and the run script, `scripts/run.py`,
+writes each attempt's start request into `run.json` with `--run <run name>`.
+Every attempt is a fresh builder that ends with one of five statuses, and the
+gate takes the route for each, `python3 .agents/tools/gate.py result <number> <result file>`:
+
+- `done` goes on to the gate's own run of the checks, then the review in step 7.
+  Where a check does not hold, the attempt failed.
+- `done_with_concerns` goes the same way, and its concerns force the person's
+  review.
+- `needs_context` and `blocked` are a kickback to the sub-state the builder
+  named: `shaping:clarify` for a decision, `shaping:research` for a fact, or
+  `shaping:spec` for a contract that needs rewriting. The gate writes the
+  `## Kickback` section and pushes the piece's branch, which stays.
+- `environment_failed` is tried once more as a fresh attempt that does not
+  count. A second one stops the piece in `state:building`, with its records
+  kept, and the run pauses: say in one line what failed, and that the person
+  types `/implement <number>` once it is put right. It is never a kickback,
+  since a failure of the computer is not a gap in the shaping.
+
+A failed attempt is a `done` whose checks fail when the gate runs them, or no
+result once its builder is known to have ended. The run keeps its work and
+tries again, up to the attempts and the time budget in
+`.agents/loop-settings.json`: three and 120 minutes unless the person changed
+them. At the limit the gate kicks the piece back to `shaping:research`, or to `shaping:spec` when the last result names a check that cannot be met as written.
 Then take the run's assignee off as a piece sent back does, and take the next
 piece. Never let one piece consume the run. `/shape` picks the piece up from
 its kickback, which settles a missing decision, chases a missing external
@@ -505,8 +527,9 @@ A blocking failure never stops the whole run unless it touches something every
 later piece relies on: the smoke check on `main`, a GitHub that cannot be
 reached, so no piece can be claimed, or anything that would change the build
 path. A piece stops at any touch of a named sensitive area that carries no
-recorded acceptance, even one the plan did not expect: section-builder's
-flagged route kicks it back to `shaping:clarify` at the condition, and the run takes the next piece. The
+recorded acceptance, even one the plan did not expect: the gate refuses its
+claim, or section-builder's flagged route kicks it back to `shaping:clarify`
+at the condition, and the run takes the next piece. The
 run goes on; only that piece stops. Never guess to keep a run going.
 
 ## Resuming

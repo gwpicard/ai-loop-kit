@@ -49,15 +49,17 @@ def setup(body=None, settings=True, number=12, loop_label="loop:build"):
     """A project with the piece made ready, its settings in place and a run of one claimed."""
     repo = lab.project()
     if settings:
-        os.makedirs(os.path.join(repo, ".agents"), exist_ok=True)
         with open(SETTINGS) as handle:
-            text = handle.read()
-        with open(os.path.join(repo, ".agents", "loop-settings.json"), "w") as handle:
-            handle.write(text)
+            set_limits(repo, handle.read())
     lab.ready_piece(repo, number, body, loop_label)
     code, out, err = lab.runpy(repo, "start", str(number))
     run = lab.run_name_of(out)
     return repo, run, code, out, err
+
+
+def set_limits(repo, text):
+    """The project's settings file, saved as founding saves it."""
+    lab.commit(repo, {".agents/loop-settings.json": text}, "settings")
 
 
 def next_request(repo, run, number=12):
@@ -273,9 +275,7 @@ expect(not any(refused in driver for refused in ("reset --hard", "\"reset\", \"-
 # --- the limit decided from needs: spec when a check cannot be met as written -------
 
 repo, run, code, out, err = setup(settings=False)
-os.makedirs(os.path.join(repo, ".agents"), exist_ok=True)
-with open(os.path.join(repo, ".agents", "loop-settings.json"), "w") as handle:
-    json.dump({"attempts": 1, "piece_budget_minutes": 120}, handle)
+set_limits(repo, json.dumps({"attempts": 1, "piece_budget_minutes": 120}))
 request, code, out, err = next_request(repo, run)
 lab.stub_builder(repo, request, {"app/billing/refund.py": lp.REFUND_WRONG},
                  {"status": "done", "concerns": [], "could_not_check": [],
@@ -286,9 +286,7 @@ expect(lab.labels_of(12) == ["loop:build", "shaping:spec", "state:shaping", "typ
        "at the limit, a needs entry of kind spec naming an acceptance check sends the piece "
        "to spec", out + err)
 repo, run, code, out, err = setup(settings=False)
-os.makedirs(os.path.join(repo, ".agents"), exist_ok=True)
-with open(os.path.join(repo, ".agents", "loop-settings.json"), "w") as handle:
-    json.dump({"attempts": 1, "piece_budget_minutes": 120}, handle)
+set_limits(repo, json.dumps({"attempts": 1, "piece_budget_minutes": 120}))
 request, code, out, err = next_request(repo, run)
 lab.stub_builder(repo, request, {"app/billing/refund.py": lp.REFUND_WRONG},
                  {"status": "done", "concerns": [], "could_not_check": [],
@@ -380,10 +378,7 @@ expect(request is not None and request.get("attempt") == 1 and not request.get("
 # Two environment failures in a row on different pieces pause the run at once.
 repo = lab.project()
 with open(SETTINGS) as handle:
-    text = handle.read()
-os.makedirs(os.path.join(repo, ".agents"), exist_ok=True)
-with open(os.path.join(repo, ".agents", "loop-settings.json"), "w") as handle:
-    handle.write(text)
+    set_limits(repo, handle.read())
 lab.fresh([lab.issue(12, ["state:shaping", "shaping:check", "type:feature", "loop:build"],
                      lp.piece_body()),
            lab.issue(14, ["state:shaping", "shaping:check", "type:feature", "loop:build"],
@@ -420,8 +415,7 @@ for text, key in (("{attempts: 3", "not valid JSON"),
                    "piece_budget_minutes"),
                   (json.dumps({"attempts": 2.5, "piece_budget_minutes": 120}), "attempts")):
     repo, run, code, out, err = setup(settings=False)
-    with open(os.path.join(repo, ".agents", "loop-settings.json"), "w") as handle:
-        handle.write(text)
+    set_limits(repo, text)
     request, code, out, err = next_request(repo, run)
     said = out + err
     expect(code == 1 and request is None and ".agents/loop-settings.json" in said and key in said
