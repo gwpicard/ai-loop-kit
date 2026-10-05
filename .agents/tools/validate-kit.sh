@@ -2112,6 +2112,11 @@ Bash(rm -rf:*)"
 # `state:ready`. The doubled star keeps the colon as written. This
 # repository's own issues keep today's labels until the release, so its own
 # settings carry none of these.
+# A founded project also refuses the file tools on the gate's record,
+# .agents/pieces/, which only the gate writes. Claude Code reads a file tool
+# against Edit rules, and an Edit rule covers Write too. The rule starts at the
+# filesystem root, so a session started in a run's worktree, whose rules are
+# read from the worktree, still reaches the main folder's record.
 expected_deny_project="$expected_deny
 Bash(rm -r:*)
 Bash(rm -R:*)
@@ -2147,7 +2152,8 @@ Bash(gh issue create * --label review:**)
 Bash(gh label create review:**)
 Bash(gh label edit review:**)
 Bash(gh label delete review:**)
-Bash(gh api *issues/*/labels*)"
+Bash(gh api *issues/*/labels*)
+Edit(//**/.agents/pieces/**)"
 deny_ok=1
 if command -v python3 >/dev/null 2>&1; then
   py_script=/tmp/validate-kit-deny.$$

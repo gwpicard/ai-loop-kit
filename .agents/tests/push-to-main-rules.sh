@@ -29,6 +29,10 @@
 # its section. A written list of commands that must still run, such as deleting
 # one file or a plain `git gc`, stops a rule from growing past its purpose.
 #
+# The rule that keeps the agent out of the gate's record, .agents/pieces/, is
+# a file rule rather than a command rule, so it goes through the matcher's file
+# half, from a session in the main folder and from one in a run's worktree.
+#
 # The second half guards prose: the monthly offer in /maintain that brings the
 # rules to a project founded before them, and the written gap itself.
 
@@ -227,14 +231,16 @@ def offered(rule):
     return body.startswith("git reflog expire") or (body.startswith("git gc") and "--prune" in body)
 
 
-# The state guard's rules on gh are left out too. They guard the labels of a
-# project founded with this kit, and a project founded before them keeps its
-# older labels, which those rules do not name.
+# The state guard's rules on gh are left out too, and so is the rule on the
+# gate's record, .agents/pieces/, which only a project founded with this kit
+# keeps. The gh rules guard the labels of a project founded with this kit,
+# and a project founded before them keeps its older labels, which those rules
+# do not name.
 left_out = [r for r in rules if not offered(r)]
 for rule in left_out:
     if not any(rule.startswith(p) for p in ("Bash(git push --force", "Bash(git push -f",
                                             "Bash(git reset", "Bash(git clean",
-                                            "Bash(gh ")):
+                                            "Bash(gh ", "Edit(")):
         print("the monthly offer would leave out %s, which step 2 names no kind for" % rule)
         sys.exit(1)
 for rule in expected_delete:
@@ -256,6 +262,66 @@ if not any("main-fix" in p or "feature" in p for p in evaluate(rules + ["Bash(gi
     print("an over-broad rule that refuses main-fix went unnoticed")
     sys.exit(1)
 print("  ok: an over-broad rule that refuses a branch named main-fix is caught")
+
+# The record only the gate writes. A piece's evidence and the reasons it goes
+# to the person sit in .agents/pieces/<number>/ in the project's main folder.
+# The settings refuse the file tools there, for a session started in the main
+# folder and for one started in a run's worktree, whose own folder is the
+# anchor its rules are read from. Claude Code consults a file tool against Edit
+# and Read rules only, and an Edit rule covers the Write tool too.
+MAIN = "/work/shop"
+TREE = MAIN + "/.agents/worktrees/12-refunds"
+HOME = "/home/someone"
+RECORDS = [MAIN + "/.agents/pieces/12/evidence.jsonl", MAIN + "/.agents/pieces/12/forced.jsonl",
+           MAIN + "/.agents/pieces/12/new.txt", MAIN + "/.agents/pieces/7/output/1.txt",
+           TREE + "/.agents/pieces/12/evidence.jsonl"]
+file_refused = [(tool, path, cwd) for tool in ("Write", "Edit") for cwd in (MAIN, TREE)
+                for path in RECORDS]
+file_allowed = [("Edit", MAIN + "/app/billing/refund.py", MAIN),
+                ("Write", MAIN + "/docs/pieces.md", MAIN),
+                ("Edit", MAIN + "/.agents/piecesx/a.txt", MAIN),
+                ("Write", MAIN + "/.agents/runs/r1/run.json", MAIN),
+                ("Edit", TREE + "/app/billing/refund.py", TREE),
+                ("Write", TREE + "/tests/test_refund.py", TREE),
+                ("Read", MAIN + "/.agents/pieces/12/evidence.jsonl", MAIN),
+                ("Read", MAIN + "/.agents/pieces/12/evidence.jsonl", TREE)]
+
+
+def file_problems(rules):
+    found = []
+    for tool, path, cwd in file_refused:
+        if not matcher.file_denied(rules, tool, path, cwd, cwd, HOME):
+            found.append("%s on %s from a session in %s is not refused" % (tool, path, cwd))
+    for tool, path, cwd in file_allowed:
+        if matcher.file_denied(rules, tool, path, cwd, cwd, HOME):
+            found.append("%s on %s from a session in %s is refused" % (tool, path, cwd))
+    return found
+
+
+pieces_rules = [r for r in rules if not r.startswith("Bash(") and ".agents/pieces" in r]
+if not pieces_rules:
+    print("the settings template holds no rule refusing the file tools on .agents/pieces/")
+    sys.exit(1)
+found = file_problems(rules)
+if found:
+    print("\n".join(found))
+    sys.exit(1)
+print("  ok: Write and Edit on .agents/pieces/ are refused from the main folder and from a "
+      "worktree, and other files still edit")
+for rule in pieces_rules:
+    if not file_problems([r for r in rules if r != rule]):
+        print("taking out %s changes nothing, so the check does not need it" % rule)
+        sys.exit(1)
+print("  ok: taking out any one of the %d rules on .agents/pieces/ is caught" % len(pieces_rules))
+# A path rule for Write is never consulted, and a rule read from the session's
+# own folder misses the main folder from a worktree, so neither would do.
+if not file_problems(["Write(//**/.agents/pieces/**)"]):
+    print("a Write path rule refuses the record, though Claude Code never consults one")
+    sys.exit(1)
+if not any(TREE in p for p in file_problems(["Edit(.agents/pieces/**)"])):
+    print("a rule read from the session's own folder reaches the main folder from a worktree")
+    sys.exit(1)
+print("  ok: a Write path rule, or a rule read from the session's own folder, is caught")
 PY
     cat "$rs_dir/matcher.out"
     rs_fail "the deny rules and the written gap disagree"
