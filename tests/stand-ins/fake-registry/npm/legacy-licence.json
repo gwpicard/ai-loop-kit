@@ -1,0 +1,5 @@
+{
+  "name": "legacy-licence",
+  "time": {"created": "2018-01-01T10:00:00.000Z", "1.0.0": "2018-01-01T10:00:00.000Z"},
+  "versions": {"1.0.0": {"name": "legacy-licence", "version": "1.0.0", "licenses": [{"type": "ISC", "url": "x"}]}}
+}
