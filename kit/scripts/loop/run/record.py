@@ -300,12 +300,12 @@ def acquire_lock(paths: Paths, name: str, *, pid: int | None = None) -> Lock:
                 raise LockHeld(
                     f"the lock {path} holds no process number, so it cannot be told from a "
                     "live one", f"look at {path}; when no run is live, move it aside, then "
-                    f"{again}")
+                    f"{again}") from None
             other = int(held[0])
             if other == mine or _alive(other):
                 raise LockHeld(f"the run {name} is live: process {other} holds {path}",
                                "wait for that run to finish, or stop it by its process "
-                               f"number, then {again}")
+                               f"number, then {again}") from None
             # A stale lock: move it aside under a new name, and try again.
             stale = path.with_name(f"lock.stale-{other}-{int(time.time())}")
             with contextlib.suppress(OSError):

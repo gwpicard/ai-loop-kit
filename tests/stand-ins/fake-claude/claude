@@ -12,6 +12,19 @@ a JSON file with four optional parts:
            uses this to run the hand-off script. A command that fails ends the
            session with exit code 1.
 
+A script may also hold these, which a run test uses:
+
+  sleep      seconds to wait before anything else; a stop signal ends the wait
+  cost_usd   the cost to report as total_cost_usd, in the shape of `claude -p` output
+  exit_code  the exit code to end with, after the rest of the script ran
+  sequence   a list of scripts; the Nth session in the same folder replays the Nth one
+             (the last one repeats)
+
+With FAKE_CLAUDE_DIR set and no FAKE_CLAUDE_SCRIPT, the script is a file in that folder,
+chosen by the name of the folder the session runs in (a piece's worktree is `<n>-<name>`):
+`<name>.json`, then `trim.json` for a folder ending in `-trim`, else `<n>.json`, then
+`default.json`. `claude --version` answers with FAKE_CLAUDE_VERSION (default 2.1.219).
+
 It writes one JSON line for each call to FAKE_CLAUDE_LOG (the arguments, the
 folder, the names of the environment variables, never their values, and whether
 a script was set), and prints a result in the shape of
@@ -24,8 +37,10 @@ Every sandbox claim needs its own smoke test with the real `claude`.
 
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -93,9 +108,46 @@ def replay(project: Path, script: dict[str, Any]) -> list[str]:
     return done
 
 
+def pick_script() -> str | None:
+    """The script for this call: FAKE_CLAUDE_SCRIPT, else a file in FAKE_CLAUDE_DIR."""
+    path = os.environ.get("FAKE_CLAUDE_SCRIPT")
+    if path:
+        return path
+    folder = os.environ.get("FAKE_CLAUDE_DIR")
+    if not folder:
+        return None
+    name = Path.cwd().name
+    leading = re.match(r"(\d+)(-.*)?$", name)
+    wanted = [f"{name}.json"]
+    if re.search(r"-trim(-\d+)?$", name):
+        wanted.append("trim.json")
+    elif leading:
+        wanted.append(f"{leading.group(1)}.json")
+    wanted.append("default.json")
+    for candidate in wanted:
+        if (Path(folder) / candidate).is_file():
+            return str(Path(folder) / candidate)
+    return None
+
+
+def choose(script: dict[str, Any], path: str) -> dict[str, Any]:
+    """The Nth script of a sequence, counted for the folder the session runs in."""
+    sequence = script.get("sequence")
+    if not sequence:
+        return script
+    counter = Path(path).with_name(f".calls-{Path(path).stem}-{Path.cwd().name}")
+    count = int(counter.read_text()) if counter.exists() else 0
+    counter.write_text(str(count + 1))
+    chosen: dict[str, Any] = sequence[min(count, len(sequence) - 1)]
+    return chosen
+
+
 def main() -> int:
     argv = sys.argv[1:]
-    path = os.environ.get("FAKE_CLAUDE_SCRIPT")
+    if argv == ["--version"]:
+        print(f"{os.environ.get('FAKE_CLAUDE_VERSION', '2.1.219')} (Claude Code)")
+        return 0
+    path = pick_script()
     log(argv, path)
     if not path or not os.path.isfile(path):
         sys.stderr.write(
@@ -104,7 +156,9 @@ def main() -> int:
         )
         return 2
     with open(path, encoding="utf-8") as handle:
-        script = json.load(handle)
+        script = choose(json.load(handle), path)
+    if script.get("sleep"):
+        time.sleep(float(script["sleep"]))
     try:
         done = replay(Path.cwd(), script)
     except PermissionError as exc:
@@ -116,18 +170,18 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         sys.stderr.write(f"claude (stand-in): git failed: {exc.stderr.decode(errors='replace')}\n")
         return 1
-    print(
-        json.dumps(
-            {
-                "type": "result",
-                "subtype": "success",
-                "is_error": False,
-                "result": "; ".join(done) or "nothing to do",
-                "session_id": "stand-in-session",
-            }
-        )
-    )
-    return 0
+    result: dict[str, Any] = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": "; ".join(done) or "nothing to do",
+        "session_id": "stand-in-session",
+    }
+    if "cost_usd" in script:
+        result["total_cost_usd"] = script["cost_usd"]
+        result["usage"] = {"input_tokens": 100, "output_tokens": 50}
+    print(json.dumps(result))
+    return int(script.get("exit_code", 0))
 
 
 if __name__ == "__main__":

@@ -85,7 +85,8 @@ def route_handoff(handoff: Mapping[str, Any] | None, exit_code: int) -> Route:
     if outcome == "gave-up":
         return Route("judge", 5, reason=f"the builder gave up: {detail}")
     if outcome == "bar-is-wrong":
-        return Route("send-back", 6, "shaping", reason=f"The builder says the bar is wrong: {detail}")
+        return Route("send-back", 6, "shaping",
+                     reason=f"The builder says the bar is wrong: {detail}")
     if outcome == "needs-the-person":
         return Route("park-person", None, reason=detail)
     return Route(
