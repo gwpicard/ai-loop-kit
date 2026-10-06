@@ -32,7 +32,7 @@ url=$(tp_issue "Export a month's invoices as one CSV file" "$(cat "$FIX/example-
 number=${url##*/}
 
 out=$("$SPEC" show "$number" --json) || fail "show failed on the example issue"
-echo "$out" > "$TP_BASE/show.json"
+printf '%s\n' "$out" > "$TP_BASE/show.json"
 
 check() {
   # check <label> <python expression over d>

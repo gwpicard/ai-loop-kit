@@ -6,11 +6,11 @@ import sys
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "kit" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kit" / "scripts"))
 
 from loop import spec
 
+ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "specs"
 
 
@@ -45,7 +45,8 @@ class FullSpec(unittest.TestCase):
         self.assertEqual(self.s["missing"], [])
 
     def test_fields_hold_their_text(self) -> None:
-        self.assertEqual(self.s["fields"]["goal"], "A user can rename a saved report from its menu.")
+        goal = "A user can rename a saved report from its menu."
+        self.assertEqual(self.s["fields"]["goal"], goal)
         self.assertIn("Opening a report", self.s["fields"]["must_stay_the_same"])
 
     def test_flow_and_edge_case_ids(self) -> None:
@@ -108,7 +109,8 @@ class RouteOpenSpec(unittest.TestCase):
         s = parse("route-open.md")
         self.assertTrue(s["route_open"])
         self.assertEqual(s["judge"]["hypotheses"], ["add an index", "cache the last query"])
-        self.assertEqual(s["judge"]["held_out"], "fingerprint 77aa11b (stored outside git; gate only)")
+        held_out = "fingerprint 77aa11b (stored outside git; gate only)"
+        self.assertEqual(s["judge"]["held_out"], held_out)
 
 
 class SpecWithNoMarkers(unittest.TestCase):
@@ -128,7 +130,7 @@ class RefusedSpecs(unittest.TestCase):
         with self.assertRaises(spec.SpecError) as caught:
             spec.parse((FIXTURES / "unknown-version.md").read_text(encoding="utf-8"))
         self.assertIn("version 7", str(caught.exception))
-        self.assertTrue(caught.exception.next_command.startswith("spec.py"))
+        self.assertIn("kit/spec-format.md", caught.exception.next_command)
         self.assertTrue(caught.exception.refused)
 
     def test_a_block_that_never_ends_is_a_fault(self) -> None:
