@@ -152,6 +152,11 @@ class Paths:
         return self.agents_dir / "loop" / "policy.json"
 
     @property
+    def area_map(self) -> Path:
+        """The project's area map: one `<pattern> <area>` line each, last match wins."""
+        return self.root / "docs" / "area-map"
+
+    @property
     def local_settings(self) -> Path:
         """Machine-local settings. Git ignores this file."""
         return self.agents_dir / "loop" / "local.json"

@@ -312,7 +312,11 @@ class OutsideTheTable(Base):
         self.assertIn("gate.py capture", caught.exception.next_command)
 
     def test_a_check_module_not_installed_yet_refuses_with_a_next_line(self) -> None:
-        gate = moves.Gate(self.paths, self.hub, today=lambda: TODAY, env={})
+        # Only the capture checks are installed here, whatever later pieces have added.
+        def only_capture(name: str) -> Callable[[CheckContext], CheckResult] | None:
+            return moves.load_checks(name) if name == "capture" else None
+
+        gate = moves.Gate(self.paths, self.hub, loader=only_capture, today=lambda: TODAY, env={})
         piece = int(gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
         with self.assertRaises(moves.MoveError) as caught:
             gate.move(piece, "ready")
@@ -491,6 +495,59 @@ class RepeatCounter(Base):
             self.gate.move(piece, "dropped", reason=f"drop {n}")
             self.gate.move(piece, "shaping", reason=f"reopen {n}")
         self.assertEqual(self.gate.piece(piece).state, "shaping")
+
+
+class MustLookRecord(Base):
+    """The ready gate's must-look reasons and extra entries reach the piece record."""
+
+    def test_the_reasons_sit_on_the_move_into_ready(self) -> None:
+        piece = self.capture()
+        self.loader.data["ready"] = {"must_look": ["a sensitive area", "a new dependency"]}
+        result = self.gate.move(piece, "ready")
+        self.assertEqual(result["must_look"], ["a sensitive area", "a new dependency"])
+        moved = [e for e in evidence.read(self.paths, piece) if e["kind"] == "move"][-1]
+        self.assertEqual(moved["must_look"], ["a sensitive area", "a new dependency"])
+        found = self.gate.piece(piece)
+        self.assertEqual(found.must_look, ["a sensitive area", "a new dependency"])
+        self.assertTrue(found.individual_review)
+
+    def test_a_piece_with_no_reason_gets_no_individual_review(self) -> None:
+        piece = self.capture()
+        self.gate.move(piece, "ready")
+        self.assertEqual(self.gate.piece(piece).must_look, [])
+        self.assertFalse(self.gate.piece(piece).individual_review)
+
+    def test_going_back_to_shaping_and_ready_again_replaces_the_reasons(self) -> None:
+        piece = self.capture()
+        self.loader.data["ready"] = {"must_look": ["a security change"]}
+        self.gate.move(piece, "ready")
+        self.gate.move(piece, "shaping", reason="the claim found something new")
+        self.loader.data["ready"] = {}
+        self.gate.move(piece, "ready")
+        self.assertEqual(self.gate.piece(piece).must_look, [])
+
+    def test_extra_entries_are_written_after_the_gates_own(self) -> None:
+        piece = self.capture()
+        entry = {"kind": "test-lists", "lists": [["FL-1"], ["FL-1"]]}
+        self.loader.data["ready"] = {"entries": [entry]}
+        self.gate.move(piece, "ready")
+        kinds = [e["kind"] for e in evidence.read(self.paths, piece)]
+        self.assertEqual(kinds[-1], "test-lists")
+        self.assertLess(kinds.index("move"), kinds.index("test-lists"))
+
+    def test_the_report_shows_the_reasons(self) -> None:
+        piece = self.capture()
+        self.loader.data["ready"] = {"must_look": ["the person's mark"]}
+        self.gate.move(piece, "ready")
+        row = self.gate.report(brief=True)["pieces"][0]
+        self.assertEqual(row["must_look"], ["the person's mark"])
+
+    def test_a_dry_run_writes_no_reason(self) -> None:
+        piece = self.capture()
+        self.loader.data["ready"] = {"must_look": ["a security change"]}
+        result = self.gate.move(piece, "ready", dry_run=True)
+        self.assertEqual(result["must_look"], ["a security change"])
+        self.assertEqual(self.gate.piece(piece).must_look, [])
 
 
 class Fingerprints(Base):

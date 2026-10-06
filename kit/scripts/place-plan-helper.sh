@@ -26,7 +26,6 @@ FOUNDATION="$SKILL_ROOT/templates/foundation"
 # it goes in the project, and what it is called when this says what it did.
 PLACED='plan-refresh.sh|.agents/tools/plan-refresh.sh|plan helper
 gate.py|.agents/tools/gate.py|gate script
-ready-lint.py|.agents/tools/ready-lint.py|ready-gate lint
 area-map.py|.agents/tools/area-map.py|area map script
 ../../../section-builder/scripts/bar-guard.sh|.agents/tools/bar-guard.sh|bar guard
 ../../../section-builder/scripts/test-guard.sh|.agents/tools/test-guard.sh|test guard

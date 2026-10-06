@@ -111,7 +111,19 @@ FLOW_LINE = re.compile(r"^(FL-\d+)\s+(.*)$")
 EDGE_LINE = re.compile(r"^(EC-\d+)\s+(.*)$")
 LIST_MARK = re.compile(r"^(?:[-*]\s+|\d+[.)]\s+)")
 KEY_LINE = re.compile(r"^([A-Za-z][A-Za-z -]*?):\s*(.*)$")
-CHANGE_LABELS = ("Added", "Changed", "Removed", "Docs", "New area")
+CHANGE_LABELS = (
+    "Added",
+    "Changed",
+    "Removed",
+    "Docs",
+    "New area",
+    "Not reversible",
+    "New dependency",
+    "Security",
+)
+# A mark with one of these as its text says "no", so it marks nothing.
+UNMARKED = re.compile(r"^(?:no|none|n/a|not applicable)\b[\s.]*$", re.IGNORECASE)
+CHECK_LINE = re.compile(r"^\s*(?:[-*]\s+)?Check:\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def section(body: str, heading: str, last: bool = False) -> str | None:
@@ -171,6 +183,7 @@ class Spec:
     header: str = ""
     block: str = ""  # the raw text between the markers; the fingerprint reads it, to_dict does not
     fields: dict[str, str] = field(default_factory=lambda: {k: "" for k, _ in FIELDS})
+    must_stay_checks: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     flow: list[dict[str, str]] = field(default_factory=list)
     flow_without_id: list[str] = field(default_factory=list)
@@ -190,6 +203,9 @@ class Spec:
             "removed": [],
             "docs": [],
             "new_area": [],
+            "not_reversible": [],
+            "new_dependency": [],
+            "security": [],
         }
     )
     sensitive_areas: list[str] = field(default_factory=list)
@@ -204,6 +220,7 @@ class Spec:
             "path": self.path,
             "header": self.header,
             "fields": self.fields,
+            "must_stay_checks": self.must_stay_checks,
             "missing": self.missing,
             "flow": self.flow,
             "flow_without_id": self.flow_without_id,
@@ -359,6 +376,22 @@ def _split_list(text: str, separator: str = ",") -> list[str]:
     return [part for part in parts if part]
 
 
+def _marked(text: str) -> list[str]:
+    """The text of a mark such as `Security:`, or nothing when it is empty or says no."""
+    text = text.strip()
+    return [] if not text or UNMARKED.match(text) else [text]
+
+
+def _checks(text: str) -> list[str]:
+    """The commands on `Check:` lines of Must stay the same."""
+    found: list[str] = []
+    for line in text.splitlines():
+        match = CHECK_LINE.match(line)
+        if match:
+            found.append(match.group(1).strip().strip("`").strip())
+    return [command for command in found if command]
+
+
 def _bullets(text: str) -> list[str]:
     items: list[list[str]] = []
     for raw in text.splitlines():
@@ -487,7 +520,11 @@ def parse(body: str) -> Spec:
         "removed": [changes["removed"]] if changes.get("removed") else [],
         "docs": _split_list(changes.get("docs", "")),
         "new_area": _split_list(changes.get("new area", "")),
+        "not_reversible": _marked(changes.get("not reversible", "")),
+        "new_dependency": _marked(changes.get("new dependency", "")),
+        "security": _marked(changes.get("security", "")),
     }
+    spec.must_stay_checks = _checks(spec.fields["must_stay_the_same"])
 
     spec.sensitive_areas = _bullets(spec.fields["sensitive_areas"])
     spec.decisions = _bullets(spec.fields["decisions"])
@@ -616,4 +653,39 @@ def remove_list_item(body: str, key: str, item: str) -> str:
     if not any(line.strip() for line in section):
         section = ["None.", *([""] if after < end else [])]
     new = [*lines[: first + 1], *section, *lines[after:]]
+    return "\n".join(new) + ("\n" if body.endswith("\n") else "")
+
+
+def set_judge_line(body: str, key: str, value: str) -> str:
+    """The body with the Judge field's `key: value` line written, made if missing.
+
+    The gate writes the `Fails today:` line this way. A line that continues the
+    old one goes with it.
+    """
+    lines, start, end = _need_block(body)
+    span = _section_span(lines, start, end, _heading_of("judge"))
+    if span is None:
+        raise SpecError(
+            "the spec has no Judge field, so the gate cannot write into it",
+            next_command="add the Judge field as kit/spec-format.md says, then run it again",
+        )
+    first, after = span
+    known = {name.lower() for name in JUDGE_KEYS}
+    wanted = key.lower()
+    keep: list[str] = []
+    skipping = False
+    for number in range(first + 1, after):
+        line = lines[number]
+        match = KEY_LINE.match(line.strip())
+        if match and match.group(1).strip().lower() in known:
+            skipping = match.group(1).strip().lower() == wanted
+        elif not line.strip():
+            skipping = False
+        if not skipping:
+            keep.append(line)
+    while keep and not keep[-1].strip():
+        keep.pop()
+    entry = f"{key}: {_collapse(value)}"
+    gap = [""] if after < end else []
+    new = [*lines[: first + 1], *keep, entry, *gap, *lines[after:]]
     return "\n".join(new) + ("\n" if body.endswith("\n") else "")

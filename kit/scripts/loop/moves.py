@@ -21,7 +21,9 @@ module is not installed yet is refused with a `next:` line.
 
 The piece record, `.agents/pieces/<n>/`, is the gate's truth for state. Only the
 gate writes it, through `loop.evidence`. Each entry has a `kind`: `capture`,
-`move`, `body`, `needs`, `fingerprint`, `answer`, `queue`, `synced`, `branch`.
+`move`, `body`, `needs`, `fingerprint`, `answer`, `queue`, `synced`, `branch`, and,
+from the ready gate, `judge-run` and `test-lists`. A move into ready carries the
+`must_look` reasons the ready gate wrote.
 
 With the GitHub App the gate writes the labels, the body and the comments as
 the App, then the record. A failed GitHub write leaves the record unchanged.
@@ -139,6 +141,7 @@ class Piece:
     needs: list[dict[str, Any]] = field(default_factory=list)
     needs_you: bool = False
     fingerprint_data: dict[str, Any] | None = None
+    must_look: list[str] = field(default_factory=list)  # the reasons the ready gate wrote
     queue: list[dict[str, Any]] = field(default_factory=list)
     counts: dict[int, int] = field(default_factory=dict)  # since it last left shaping
     totals: dict[int, int] = field(default_factory=dict)  # moves asked for, in all
@@ -153,6 +156,11 @@ class Piece:
         if self.fingerprint_data is None:
             return None
         return str(self.fingerprint_data.get("fingerprint"))
+
+    @property
+    def individual_review(self) -> bool:
+        """True when the ready gate wrote a must-look reason: the piece gets its own review."""
+        return bool(self.must_look)
 
     @property
     def reasons(self) -> list[str]:
@@ -203,6 +211,8 @@ def read_piece(paths: Paths, number: int) -> Piece | None:
                 piece.counts = {}
                 piece.recent = []
             piece.state = str(entry["to"])
+            if entry.get("from") == "shaping" and entry.get("to") == "ready":
+                piece.must_look = [str(r) for r in entry.get("must_look", [])]
             moved = int(entry["move"])
             asked = int(entry.get("asked") or moved)
             piece.counts[moved] = piece.counts.get(moved, 0) + 1
@@ -769,6 +779,8 @@ class Gate:
         final = self._write_below(new_body, found, print_)
         summary: dict[str, Any] = {"piece": number, "move": move.number, "asked": asked,
                                    "from": origin, "to": target, "needs_you": needs_you}
+        if result.data.get("must_look"):
+            summary["must_look"] = list(result.data["must_look"])
         if dry_run:
             return summary
         old_labels = issue["labels"] if issue is not None else piece.labels()
@@ -790,12 +802,16 @@ class Gate:
             {"kind": "move", "move": move.number, "asked": asked, "from": origin, "to": target,
              "reason": reason, "at": self.today()},
         ]
+        must_look = [str(r) for r in result.data.get("must_look", [])]
+        if must_look:
+            entries[0]["must_look"] = must_look
         if final != piece.body:
             why = "gate-made change" if final != body else "read from GitHub"
             entries.append({"kind": "body", "text": final, "sha": _sha(final), "why": why})
         entries.append({"kind": "needs", "needs": found, "needs_you": needs_you})
         if fp_entry:
             entries.append(fp_entry)
+        entries.extend(dict(extra_entry) for extra_entry in result.data.get("entries", []))
         written = self._commit(piece, issue, ops, entries)
         if fp_entry:
             summary["fingerprint"] = fp_entry["fingerprint"]["fingerprint"]
@@ -1060,7 +1076,7 @@ class Gate:
                 continue
             row: dict[str, Any] = {"piece": n, "issue": piece.issue, "state": piece.state,
                                    "needs_you": piece.needs_you, "waiting_for_sync":
-                                   bool(piece.queue)}
+                                   bool(piece.queue), "must_look": piece.must_look}
             if not brief:
                 row.update({"title": piece.title, "type": piece.issue_type,
                             "needs": piece.needs, "fingerprint": piece.fingerprint,

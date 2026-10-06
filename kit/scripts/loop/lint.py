@@ -22,9 +22,9 @@ The rules, each named by its `rule` key:
 - `build_steps`: a numbered list of build steps.
 - `length`: the spec is longer than its type allows.
 
-The refused phrases and the length limits come from `kit/scripts/ready-lint.py`
-(which this module reads and does not change). The masterplan reading and the
-no-code special case of that file are left out.
+The refused phrases and the length limits came from `ready-lint.py`, the
+borrowed lint that the ready gate retired. The masterplan reading and the
+no-code special case of that file were left out.
 
 The length counts the plain header and the spec block. Text the gate writes
 below the block is not counted. The count is worked out from the parsed fields,
@@ -39,7 +39,7 @@ from typing import Any
 
 from loop import spec as parser_module
 
-# From ready-lint.py: phrases that are never a settled choice.
+# From the retired ready-lint.py: phrases that are never a settled choice.
 REFUSED_PHRASES = (
     "decide during build",
     "consider",
@@ -56,7 +56,7 @@ REFUSED_PHRASES = (
     "several",
 )
 
-# From ready-lint.py, with the "type:" prefix removed.
+# From the retired ready-lint.py, with the "type:" prefix removed.
 LENGTH_LIMITS = {"chore": 80, "bug": 120, "feature": 250}
 DEFAULT_TYPE = "feature"
 

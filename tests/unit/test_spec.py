@@ -206,6 +206,67 @@ class DesignExampleIssue(unittest.TestCase):
         self.assertIn("-40.00", self.s["edge_cases"][1]["result"])
 
 
+class ReadyGateFields(unittest.TestCase):
+    """The marks and check lines the ready gate reads, and the line it writes."""
+
+    def body(self, changes: str = "", must: str = "Nothing breaks.") -> str:
+        text = (FIXTURES / "ready.md").read_text(encoding="utf-8")
+        text = text.replace("Opening a report still works (tests/reports.test.ts).", must)
+        return text.replace("Added:", changes + "\nAdded:", 1) if changes else text
+
+    def test_check_lines_under_must_stay_the_same_are_read(self) -> None:
+        body = self.body(must="Opens still work.\nCheck: pytest tests/a.py\n- Check: `sh b.sh`")
+        found = spec.parse(body).to_dict()
+        self.assertEqual(found["must_stay_checks"], ["pytest tests/a.py", "sh b.sh"])
+
+    def test_no_check_line_is_an_empty_list(self) -> None:
+        self.assertEqual(spec.parse(self.body()).to_dict()["must_stay_checks"], [])
+
+    def test_the_three_marks_are_read(self) -> None:
+        body = self.body("Not reversible: old names are lost.\nNew dependency: left-pad.\n"
+                         "Security: a login check.")
+        changes = spec.parse(body).to_dict()["changes"]
+        self.assertEqual(changes["not_reversible"], ["old names are lost."])
+        self.assertEqual(changes["new_dependency"], ["left-pad."])
+        self.assertEqual(changes["security"], ["a login check."])
+
+    def test_a_mark_that_says_no_is_empty(self) -> None:
+        body = self.body("Not reversible: no\nNew dependency: None.\nSecurity: n/a")
+        changes = spec.parse(body).to_dict()["changes"]
+        for key in ("not_reversible", "new_dependency", "security"):
+            self.assertEqual(changes[key], [], key)
+
+    def test_set_judge_line_adds_a_line_and_replaces_an_old_one(self) -> None:
+        body = (FIXTURES / "full.md").read_text(encoding="utf-8")
+        once = spec.set_judge_line(body, "Fails today", "3 of 3 fail; main at abc")
+        self.assertEqual(spec.parse(once).to_dict()["judge"]["fails_today"],
+                         "3 of 3 fail; main at abc")
+        twice = spec.set_judge_line(once, "Fails today", "2 of 3 fail")
+        self.assertEqual(spec.parse(twice).to_dict()["judge"]["fails_today"], "2 of 3 fail")
+        self.assertEqual(twice.count("Fails today:"), 1)
+        self.assertNotIn("3 of 3", twice)
+
+    def test_set_judge_line_leaves_the_other_judge_lines_alone(self) -> None:
+        body = (FIXTURES / "ready.md").read_text(encoding="utf-8")
+        new = spec.set_judge_line(body, "Fails today", "x")
+        before, after = spec.parse(body).to_dict()["judge"], spec.parse(new).to_dict()["judge"]
+        for key in ("kind", "command", "proves", "held_out"):
+            self.assertEqual(before[key], after[key], key)
+
+    def test_set_judge_line_does_not_touch_the_fingerprint_of_the_spec(self) -> None:
+        from loop import fingerprint
+
+        body = (FIXTURES / "ready.md").read_text(encoding="utf-8")
+        new = spec.set_judge_line(body, "Fails today", "something else entirely")
+        self.assertEqual(fingerprint.take(body, "c")["spec"], fingerprint.take(new, "c")["spec"])
+
+    def test_set_judge_line_with_no_judge_field_is_refused(self) -> None:
+        body = (FIXTURES / "ready.md").read_text(encoding="utf-8")
+        cut = body.replace("## Judge", "## Other")
+        with self.assertRaises(spec.SpecError):
+            spec.set_judge_line(cut, "Fails today", "x")
+
+
 class OneParser(unittest.TestCase):
     def test_no_other_script_reads_the_markers(self) -> None:
         """loop/spec.py is the only module under kit/scripts/ that names a marker."""
