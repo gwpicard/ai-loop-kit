@@ -10,16 +10,15 @@
 # case of `check` runs beside a passing control, so a check that went red on
 # everything would fail here as surely as one that went red on nothing.
 #
-# The step in the project check runs the command behind a guard for a runner with
-# no Python. That run line is read out of the shipped checks.yml and run as it
-# stands, once with Python and once on a PATH without it.
+# The project check runs the area map through records-check.py, which holds the
+# area map rule among the others. tests/records-check.sh runs the shipped
+# checks.yml and plants an area fault.
 
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SCRIPTS="$ROOT/kit/scripts"
 SCRIPT="$SCRIPTS/area-map.py"
-CHECKS="$ROOT/kit/templates/checks.yml"
 TEMPLATE="$ROOT/kit/templates/area-map"
 
 if [ ! -f "$SCRIPT" ]; then
@@ -32,14 +31,14 @@ WORK=$(mktemp -d)
 PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE
 
-python3 - "$SCRIPT" "$CHECKS" "$TEMPLATE" "$WORK" "$SCRIPTS" <<'PY'
+python3 - "$SCRIPT" "$TEMPLATE" "$WORK" "$SCRIPTS" <<'PY'
 import json
 import os
 import shutil
 import subprocess
 import sys
 
-SCRIPT, CHECKS, TEMPLATE, WORK, SCRIPTS = sys.argv[1:6]
+SCRIPT, TEMPLATE, WORK, SCRIPTS = sys.argv[1:5]
 GIT = shutil.which("git")
 GITID = ["-c", "user.name=R", "-c", "user.email=r@example.invalid", "-c", "commit.gpgsign=false"]
 failures = []
@@ -246,38 +245,6 @@ git(folded, "add", "-A")
 git(folded, "commit", "-q", "-m", "a piece with its changelog file")
 code, _, err = run(folded, "check")
 expect(code == 0, "a piece's branch carrying changes/<file> passes", repr(err))
-
-# --- the step in the project check ---------------------------------------------------------
-
-line = None
-with open(CHECKS, encoding="utf-8") as handle:
-    lines = handle.read().splitlines()
-for i, text in enumerate(lines):
-    if text.strip() == "- name: Check the area map" and i + 1 < len(lines):
-        following = lines[i + 1].strip()
-        if following.startswith("run: "):
-            line = following[len("run: "):]
-expect(line is not None, "checks.yml has a step named Check the area map with a run line")
-if line:
-    placed = project("placed-script")
-    tools = os.path.join(placed, ".agents", "tools")
-    os.makedirs(tools, exist_ok=True)
-    shutil.copy(SCRIPT, os.path.join(tools, "area-map.py"))
-    shutil.copytree(os.path.join(SCRIPTS, "loop"), os.path.join(tools, "loop"),
-                    ignore=shutil.ignore_patterns("__pycache__"))
-    done = subprocess.run(["/bin/sh", "-c", line], cwd=placed, capture_output=True, text=True)
-    expect(done.returncode == 0, "the step's run line passes",
-           "exit %s out=%r err=%r" % (done.returncode, done.stdout, done.stderr))
-    empty = os.path.join(WORK, "empty-path")
-    os.makedirs(empty)
-    done = subprocess.run(["/bin/sh", "-c", line], cwd=placed, capture_output=True, text=True,
-                          env={"PATH": empty})
-    said = [x for x in (done.stdout + done.stderr).splitlines() if x.strip()]
-    expect(done.returncode == 2 and said == [
-        "Check the area map needs Python 3, which this runner does not have. Add a step "
-        "that installs Python 3 before this one."],
-           "with no python3, the step prints its one line and exits 2",
-           "exit %s out=%r err=%r" % (done.returncode, done.stdout, done.stderr))
 
 if failures:
     print("\narea-map-rehearsal.sh: %d check(s) failed" % len(failures), file=sys.stderr)
