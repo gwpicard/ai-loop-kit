@@ -163,10 +163,12 @@ Each line may carry these labels, and several may share a line.
 
 ## Must stay the same
 
-Prose says what must not change. Each `Check:` line names a command that proves
-it, such as `Check: python3 -m pytest tests/test_old.py`. The ready gate runs
-each command on `main`, and it must pass there. The parser gives the commands
-in `must_stay_checks`.
+Prose says what must not change. At least one `Check:` line is required. Each
+`Check:` line names a command that proves it, such as
+`Check: python3 -m pytest tests/test_old.py`. The ready gate refuses a spec with
+no `Check:` line, except for the scaffold piece. It runs each command on
+`main`, and it must pass there. The parser gives the commands in
+`must_stay_checks`.
 
 ## Lists
 

@@ -130,6 +130,15 @@ def _git(root: Path, *args: str) -> tuple[int, str]:
     return done.returncode, done.stdout.strip()
 
 
+class GitError(Exception):
+    """A git step the gate depends on failed, so the gate cannot tell and refuses."""
+
+    def __init__(self, message: str, next_command: str = "") -> None:
+        super().__init__(message)
+        self.next_command = next_command or "check the project's git repository, then run the "\
+            "ready move again"
+
+
 def looks_like_test(path: str) -> bool:
     parts = path.split("/")
     if any(part.lower() in TEST_DIRS for part in parts[:-1]):
@@ -143,7 +152,8 @@ def has_test_runner(root: Path, ref: str, test_command: str = "") -> bool:
         return True
     code, listing = _git(root, "ls-tree", "-r", "--name-only", ref)
     if code != 0:
-        return False
+        raise GitError(f"git could not list the files of {ref}, so the gate cannot tell whether "
+                       "the project has a test runner")
     for path in listing.splitlines():
         name = path.rsplit("/", 1)[-1]
         if name in RUNNER_FILES or RUNNER_CONFIG.match(name) or looks_like_test(path):
@@ -336,6 +346,16 @@ def _judge_files(
         )
         return None
     first = commits[0]
+    _, parent = _git(root, "rev-parse", f"{first}^")
+    _, today = _git(root, "rev-parse", BASE)
+    if parent != today:
+        out.add(
+            f"the piece branch was cut from an older {BASE} ({parent[:7]}, and {BASE} is at "
+            f"{today[:7]}), so the judge would not be tried on today's {BASE}",
+            f"git rebase {BASE} {branch} (the judge files stay the first commit), then "
+            f"gate.py move {number} ready",
+        )
+        return None
     _, names = _git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", first)
     files = names.splitlines()
     try:
@@ -460,16 +480,31 @@ def dependency_problems(start: int, fetch: Fetch) -> list[str]:
                 visit(blocker, [*trail, blocker])
         done.add(number)
 
+    if get(start) is None:
+        note(f"issue {start} does not exist")
+        return problems
     visit(start, [start])
     return problems
 
 
-def _github_blockers(ctx: CheckContext) -> list[str]:
-    """The blocked-by problems, read as the App. Without the App nothing is read."""
-    hub = github.GitHub(ctx.paths)
+def _github_blockers(ctx: CheckContext, hub: Any = None) -> list[str]:
+    """The blocked-by problems, read as the App.
+
+    A piece with no issue yet has no link to read. A piece with an issue and no App is
+    refused: the gate never passes a check it did not run.
+    """
+    if hub is None:
+        hub = github.GitHub(ctx.paths)
     issue = _issue_number(ctx.record)
-    if issue is None or not hub.available:
+    if issue is None:
         return []
+    if not hub.available:
+        raise github.GitHubError(
+            "the blocked-by links cannot be read without the gate's App, so the piece waits",
+            next_command=f"{github.SETUP_NEXT}. The person's command: "
+            + github.sync_command(ctx.paths.root),
+            code=ExitCode.REFUSED,
+        )
 
     def fetch(number: int) -> dict[str, Any] | None:
         try:
@@ -485,9 +520,13 @@ def _github_blockers(ctx: CheckContext) -> list[str]:
                 f"repos/{{owner}}/{{repo}}/issues/{number}/dependencies/blocked_by"
             )
         except github.GitHubError as error:
-            if not error.not_found:
-                raise
-            linked = []
+            if error.not_found:
+                raise github.GitHubError(
+                    f"GitHub has no blocked-by answer for issue {number}",
+                    next_command=github.SETUP_NEXT,
+                    code=ExitCode.REFUSED,
+                ) from error
+            raise
         numbers = [int(item["number"]) for item in linked if isinstance(item, dict)]
         return {"labels": info["labels"], "blocked_by": numbers}
 
@@ -528,7 +567,11 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     paths, root, number = ctx.paths, ctx.paths.root, ctx.number
     _, test_command = _policy_limit(paths)
     scaffold = False
-    if not has_test_runner(root, BASE, test_command):
+    try:
+        runner = has_test_runner(root, BASE, test_command)
+    except GitError as error:
+        return refused([str(error)], error.next_command)
+    if not runner:
         if not _is_scaffold(sp):
             return refused(
                 ["the project has no test runner, so only a quick-path scaffold piece may become "
@@ -566,6 +609,12 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     for item in found:
         if item["kind"] not in skipped:
             out.add(item["text"], SHAPE.format(n=number))
+    if not scaffold and not sp["must_stay_checks"]:
+        out.add(
+            "the spec's Must stay the same holds no Check: line, so nothing proves it",
+            "add a Check: <command> line under Must stay the same, then "
+            + SHAPE.format(n=number),
+        )
     _sensitive(sp, out, number)
     _areas(sp, paths, out)
     _quick(sp, files.tests if files is not None else None, out)
@@ -629,10 +678,7 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
         fails = (f"{len(main_run['failures'])} test(s) fail on their assertion, naming "
                  f"{', '.join(failing)}; {BASE} at {main_at}; {deps.today()} "
                  "(written by the gate)")
-        checks = list(sp["must_stay_checks"])
-        if not checks:
-            notes.append("the spec has no Check: line, so no must stay the same check ran on main")
-        for check in checks:
+        for check in sp["must_stay_checks"]:
             try:
                 verdict = deps.run_judge(check, root, BASE)
             except judge.JudgeError as error:

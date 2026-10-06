@@ -14,11 +14,12 @@ import unittest
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
-from loop import fingerprint, heldout, spec, states  # noqa: E402
+from loop import fingerprint, github, heldout, spec, states  # noqa: E402
 from loop.gates import CheckContext, CheckResult, ready  # noqa: E402
 from loop.paths import Paths  # noqa: E402
 
@@ -90,7 +91,11 @@ class Stand:
 def base_body() -> str:
     body = (FIXTURES / "ready.md").read_text(encoding="utf-8")
     assert OLD_FAILS in body
-    return body.replace(OLD_FAILS, "")
+    old = "Opening a report still works (tests/reports.test.ts)."
+    assert old in body
+    return body.replace(OLD_FAILS, "").replace(
+        old, "Opening a report still works.\nCheck: pytest tests/test_old.py"
+    )
 
 
 class Case(unittest.TestCase):
@@ -278,6 +283,17 @@ class TheJudgeFiles(Case):
         result = self.refusal("piece-1")
         self.assertIn("gate.py branch", result.next_command)
 
+    def test_a_branch_cut_from_an_older_main_refuses(self) -> None:
+        (self.root / "src" / "later.py").write_text("Z = 3\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "Main moves on")
+        result = self.refusal("cut from an older main")
+        self.assertIn("git rebase main piece-1", result.next_command)
+        self.assertEqual(self.stand.judge_runs, [])
+
+    def test_a_branch_cut_from_todays_main_is_fine(self) -> None:
+        self.passing()
+
     def test_a_branch_with_no_commit_refuses(self) -> None:
         git(self.root, "branch", "-q", "-D", ready.branch_name(1))
         git(self.root, "branch", ready.branch_name(1), "main")
@@ -348,8 +364,7 @@ class TheJudgeOnMain(Case):
 
 class MustStayTheSame(Case):
     def checked(self) -> None:
-        self.respec("Opening a report still works (tests/reports.test.ts).",
-                    "Opening a report still works.\nCheck: pytest tests/test_old.py")
+        self.assertIn("Check: pytest tests/test_old.py", self.body)
 
     def test_a_check_that_passes_on_main_passes(self) -> None:
         self.checked()
@@ -367,9 +382,12 @@ class MustStayTheSame(Case):
         self.stand.must_stay = judge_result("errored")
         self.refusal("tests/test_old.py")
 
-    def test_a_spec_with_no_check_line_passes_with_a_note(self) -> None:
-        result = self.passing()
-        self.assertTrue(any("must stay the same" in n for n in result.data["notes"]))
+    def test_a_spec_with_no_check_line_refuses(self) -> None:
+        self.respec("\nCheck: pytest tests/test_old.py", "")
+        result = self.refusal("Must stay the same holds no Check: line")
+        self.assertIn("Check: <command>", result.next_command)
+        self.assertEqual(self.stand.judge_runs, [])
+        self.assertEqual(self.stand.list_runs, 0)
 
 
 class HeldOut(Case):
@@ -382,7 +400,7 @@ class HeldOut(Case):
 
     def test_a_fingerprint_missing_from_the_spec_refuses(self) -> None:
         self.body = base_body()
-        self.refusal("Held-out cases")
+        self.refusal("has no Held-out cases: line")
 
     def test_a_different_fingerprint_refuses(self) -> None:
         self.respec(self.print_, "0" * 64)
@@ -464,6 +482,82 @@ class Dependencies(Case):
             3: {"labels": ["state:done"], "blocked_by": []},
         }
         self.assertEqual(ready.dependency_problems(1, self.fetch_from(table)), [])
+
+
+class FakeHub:
+    """A stand-in for loop.github.GitHub, for the real blocked-by reader."""
+
+    def __init__(self, available: bool = True) -> None:
+        self.available = available
+        self.issues: dict[int, dict[str, Any]] = {
+            1: {"labels": ["state:shaping"]},
+        }
+        self.links: dict[int, Any] = {1: []}
+        self.reads: list[int] = []
+
+    def read_issue(self, number: int) -> dict[str, Any]:
+        self.reads.append(number)
+        if number not in self.issues:
+            raise github.GitHubError("no such issue", next_command="x", not_found=True)
+        return self.issues[number]
+
+    def api_json(self, path: str) -> Any:
+        number = int(path.split("/issues/")[1].split("/")[0])
+        found = self.links.get(number)
+        if found is None:
+            raise github.GitHubError("not found", next_command="x", not_found=True)
+        return found
+
+
+class TheRealBlockedByReader(Case):
+    def blockers(self, hub: FakeHub, issue: int | None = 1) -> list[str]:
+        if issue is not None:
+            self.record.append({"kind": "synced", "issue": issue})
+        return ready._github_blockers(self.context(), hub=hub)
+
+    def test_no_app_and_an_issue_refuses(self) -> None:
+        with self.assertRaises(github.GitHubError) as caught:
+            self.blockers(FakeHub(available=False))
+        self.assertIn("second half of /setup", caught.exception.next_command)
+        self.assertIn("sync", caught.exception.next_command)
+
+    def test_the_gate_turns_that_into_a_refusal(self) -> None:
+        self.record.append({"kind": "synced", "issue": 1})
+        hub = FakeHub(available=False)
+        original = ready._github_blockers
+        deps = ready.Deps(
+            run_judge=self.stand.run_judge, run_lists=self.stand.run_lists,
+            blockers=lambda ctx: original(ctx, hub=hub), today=lambda: TODAY,
+        )
+        result = ready.run(self.context(), deps)
+        self.assertFalse(result.ok)
+        self.assertIn("blocked-by links cannot be read", " ".join(result.failures))
+        self.assertIn("second half of /setup", result.next_command)
+
+    def test_no_app_and_no_issue_ever_made_passes(self) -> None:
+        self.assertEqual(self.blockers(FakeHub(available=False), issue=None), [])
+
+    def test_a_missing_start_issue_refuses(self) -> None:
+        hub = FakeHub()
+        del hub.issues[1]
+        found = self.blockers(hub)
+        self.assertEqual(len(found), 1)
+        self.assertIn("issue 1 does not exist", found[0])
+
+    def test_a_not_found_dependencies_answer_refuses(self) -> None:
+        hub = FakeHub()
+        del hub.links[1]
+        with self.assertRaises(github.GitHubError):
+            self.blockers(hub)
+
+    def test_a_clean_issue_passes(self) -> None:
+        self.assertEqual(self.blockers(FakeHub()), [])
+
+    def test_a_blocker_that_does_not_exist_is_found(self) -> None:
+        hub = FakeHub()
+        hub.links[1] = [{"number": 2}]
+        found = self.blockers(hub)
+        self.assertIn("issue 2 does not exist", found[0])
 
 
 class Areas(Case):
@@ -593,6 +687,17 @@ class NoTestRunner(Case):
     def test_the_empty_project_has_no_runner(self) -> None:
         self.empty_project()
         self.assertFalse(ready.has_test_runner(self.root, "main"))
+
+    def test_a_git_error_is_not_read_as_no_test_runner(self) -> None:
+        with self.assertRaises(ready.GitError):
+            ready.has_test_runner(self.root, "no-such-ref")
+
+    def test_a_git_error_refuses_the_piece(self) -> None:
+        def broken(*_args: Any, **_more: Any) -> bool:
+            raise ready.GitError("git could not list main")
+
+        with mock.patch.object(ready, "has_test_runner", broken):
+            self.refusal("git could not list main")
 
     def test_a_project_with_tests_has_a_runner(self) -> None:
         self.assertTrue(ready.has_test_runner(self.root, "main"))
