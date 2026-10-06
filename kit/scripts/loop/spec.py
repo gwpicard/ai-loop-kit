@@ -689,3 +689,55 @@ def set_judge_line(body: str, key: str, value: str) -> str:
     gap = [""] if after < end else []
     new = [*lines[: first + 1], *keep, entry, *gap, *lines[after:]]
     return "\n".join(new) + ("\n" if body.endswith("\n") else "")
+
+
+# --- one research finding -------------------------------------------------------------------
+#
+# A finding is a list item that holds three labelled parts: `Source:` (one word, a
+# path, an address or a package name), a date (`Checked <date>`, or any date) and
+# `Rests on:`, which is either `fingerprint <hex>` (an in-project file, named by
+# the source) or `version <text>` (an outside page or package). The claim gate
+# reads them through `parse_finding`, and the needs list reads them for gaps.
+
+_MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+_FINDING_DATE = re.compile(
+    r"\b(\d{4})-(\d{2})-(\d{2})\b|\b(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})\b"
+)
+_FINDING_SOURCE = re.compile(r"\bSource:\s*(\S+)", re.IGNORECASE)
+_FINDING_PRINT = re.compile(r"\bRests on:\s*fingerprint\s+([0-9a-fA-F]{7,64})\b", re.IGNORECASE)
+_FINDING_VERSION = re.compile(r"\bRests on:\s*version\s+(\S+)", re.IGNORECASE)
+
+
+def _finding_date(text: str) -> str | None:
+    """The first date in `text` as YYYY-MM-DD, or None."""
+    for found in _FINDING_DATE.finditer(text):
+        if found.group(1):
+            year, month, day = int(found.group(1)), int(found.group(2)), int(found.group(3))
+        elif found.group(5).lower() in _MONTHS:
+            year, month, day = (int(found.group(6)), _MONTHS.index(found.group(5).lower()) + 1,
+                                int(found.group(4)))
+        else:
+            continue
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d}"
+    return None
+
+
+def parse_finding(item: str) -> dict[str, Any]:
+    """One research finding as `source`, `date`, `kind`, `fingerprint` and `version`.
+
+    `kind` is `file` for a finding that rests on an in-project file, `outside` for one that
+    rests on an outside version, and None when it names no basis. A part that is missing is None.
+    """
+    source = _FINDING_SOURCE.search(item)
+    printed = _FINDING_PRINT.search(item)
+    versioned = _FINDING_VERSION.search(item)
+    kind = "file" if printed else "outside" if versioned else None
+    return {
+        "text": item,
+        "source": source.group(1).rstrip(".,;") if source else None,
+        "date": _finding_date(item),
+        "kind": kind,
+        "fingerprint": printed.group(1).lower() if printed else None,
+        "version": versioned.group(1).rstrip(".,;") if versioned and not printed else None,
+    }

@@ -56,6 +56,7 @@ from loop import (
     lint,
     needs,
     policy,
+    research,
     sessions,
     spec,
     states,
@@ -700,6 +701,14 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     except (spec.SpecError, fingerprint.FingerprintError) as error:
         return refused([str(error)], getattr(error, "next_command", SHAPE.format(n=number)))
     entries += [judge.evidence_entry(item, fingerprint=taken["fingerprint"]) for item in results]
+    try:
+        relied = research.relied_on(sp["links"]["relies_on"], root, BASE)
+    except OSError as error:
+        return refused([str(error)],
+                       "check the project's git repository, then " + SHAPE.format(n=number))
+    entries.append(
+        {"kind": "relied-on", "files": relied, "main": _git(root, "rev-parse", BASE)[1]}
+    )
     return passed(
         body=body,
         fingerprint=taken,
