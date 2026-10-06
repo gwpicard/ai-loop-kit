@@ -6,8 +6,10 @@
 - Every move back carries a written reason, posted on the issue.
 - The anti-circle rule, on moves back to shaping only: the reason must be new to
   the piece, and the gate writes it into the spec as a new open question.
-- Moves 7, 8 and 12 have a repeat counter. After 3 of the same move, the next
-  one sends the piece back to shaping from where it stands, with its history.
+- Moves 7, 8 and 12 have a repeat counter. It counts only the moves since the
+  piece last left shaping. After 3 of the same move, the next one sends the
+  piece back to shaping from where it stands, with its history. The gate's own
+  reason names the count in all, so the anti-circle rule never refuses it.
 - Every move reads the piece twice: once to check, once just before writing.
 - A change the gate makes to the spec takes a new fingerprint.
 - An issue with two `state:` labels is refused. A label that differs from the
@@ -38,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import re
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -136,8 +139,10 @@ class Piece:
     needs_you: bool = False
     fingerprint_data: dict[str, Any] | None = None
     queue: list[dict[str, Any]] = field(default_factory=list)
-    counts: dict[int, int] = field(default_factory=dict)
+    counts: dict[int, int] = field(default_factory=dict)  # since it last left shaping
+    totals: dict[int, int] = field(default_factory=dict)  # moves asked for, in all
     history: list[dict[str, Any]] = field(default_factory=list)
+    recent: list[dict[str, Any]] = field(default_factory=list)  # since it last left shaping
     entries: int = 0
     next_id: int = 1
     record: list[dict[str, Any]] = field(default_factory=list)
@@ -193,10 +198,16 @@ def read_piece(paths: Paths, number: int) -> Piece | None:
             piece.issue = entry.get("issue")
             piece.state = "shaping"
         elif kind == "move":
+            if entry.get("from") == "shaping":
+                piece.counts = {}
+                piece.recent = []
             piece.state = str(entry["to"])
             moved = int(entry["move"])
+            asked = int(entry.get("asked") or moved)
             piece.counts[moved] = piece.counts.get(moved, 0) + 1
+            piece.totals[asked] = piece.totals.get(asked, 0) + 1
             piece.history.append(entry)
+            piece.recent.append(entry)
         elif kind == "body":
             piece.body = str(entry["text"])
         elif kind == "needs":
@@ -215,6 +226,89 @@ def read_piece(paths: Paths, number: int) -> Piece | None:
     return piece
 
 
+def _at_a_terminal() -> bool:
+    """True when standard input and standard output are both a terminal: a person typing."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def find_piece(paths: Paths, number: int) -> Piece | None:
+    """The piece by its local number, or by the issue number `sync` gave it.
+
+    Refuses a number that is both one piece's local number and another's issue.
+    """
+    own = read_piece(paths, number)
+    folder = paths.pieces_dir
+    others = sorted(int(p.name) for p in folder.iterdir()
+                    if p.is_dir() and p.name.isdigit() and int(p.name) != number
+                    ) if folder.is_dir() else []
+    holders = [found for found in (read_piece(paths, n) for n in others)
+               if found is not None and found.issue == number]
+    if own is not None and holders and own.issue != number:
+        raise MoveError(
+            f"{number} is the local number of piece {number} and the issue number of piece "
+            f"{holders[0].number}, so the gate cannot tell which is meant",
+            next_command=f"gate.py report --json, then use the piece number "
+            f"({number} or {holders[0].number})",
+        )
+    if own is not None:
+        return own
+    return holders[0] if holders else None
+
+
+def _dropped_questions(before: str, after: str) -> list[str]:
+    """The open questions in `before` that `after` no longer holds."""
+    try:
+        old = spec.parse(before).open_questions
+    except spec.SpecError:
+        return []
+    try:
+        kept = {_norm(q) for q in spec.parse(after).open_questions}
+    except spec.SpecError:
+        kept = set()
+    return [q for q in old if _norm(q) not in kept]
+
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+_PERSON = re.compile(r"\b(person|user|owner|human|me|i|myself)\b")
+
+
+def _shown(op: Mapping[str, Any]) -> dict[str, Any]:
+    """A queued write as the person reads it before sync: everything but the hash."""
+    return {key: value for key, value in op.items() if key != "base"}
+
+
+def _listing(pieces: Sequence[Piece]) -> str:
+    """Every queued write in full, in plain words, for the person to read before sync."""
+    lines: list[str] = []
+    for piece in pieces:
+        where = f"issue {piece.issue}" if piece.issue is not None else "no issue yet"
+        lines.append(f"Piece {piece.number} ({where}), {len(piece.queue)} write(s) waiting:")
+        for index, op in enumerate(piece.queue, start=1):
+            kind = op["op"]
+            if kind == "issue":
+                lines.append(f"  {index}. open an issue titled {op['title']!r}, labels "
+                             f"{', '.join(op['labels']) or 'none'}, with this body:")
+                lines.extend(f"     | {line}" for line in str(op["body"]).splitlines())
+            elif kind == "body":
+                lines.append(f"  {index}. replace the issue body with:")
+                lines.extend(f"     | {line}" for line in str(op["text"]).splitlines())
+            elif kind == "comment":
+                lines.append(f"  {index}. post this comment in your name:")
+                lines.extend(f"     | {line}" for line in str(op["text"]).splitlines())
+            elif kind == "labels":
+                lines.append(f"  {index}. labels: add {', '.join(op['add']) or 'none'}; "
+                             f"remove {', '.join(op['remove']) or 'none'}")
+            elif kind == "close":
+                lines.append(f"  {index}. close the issue as {op['reason']}")
+            elif kind == "reopen":
+                lines.append(f"  {index}. reopen the issue")
+    return "\n".join(lines)
+
+
 class HandChange(Exception):
     """A label or a body on GitHub that differs from what the gate expects."""
 
@@ -230,8 +324,10 @@ class Gate:
         loader: Loader = load_checks,
         today: Callable[[], str] | None = None,
         env: Mapping[str, str] | None = None,
+        terminal: Callable[[], bool] | None = None,
     ) -> None:
         self.paths = paths
+        self.terminal = terminal or _at_a_terminal
         self.hub = hub
         self.loader = loader
         self.today = today or (lambda: date.today().isoformat())
@@ -240,7 +336,8 @@ class Gate:
     # --- reading -------------------------------------------------------------------
 
     def piece(self, number: int) -> Piece:
-        found = read_piece(self.paths, number)
+        """The piece by its local number or by its synced issue number."""
+        found = find_piece(self.paths, number)
         if found is None:
             raise MoveError(
                 f"piece {number} is not in the gate's record",
@@ -613,6 +710,7 @@ class Gate:
                 code=ExitCode.USAGE,
             )
         piece = self._sync_if_able(self.piece(number), dry_run)
+        number = piece.number
         issue = self._issue_now(piece)
         body = issue["body"] if issue is not None else piece.body
         origin = piece.state
@@ -634,11 +732,13 @@ class Gate:
         asked = move.number
         repeats = piece.counts.get(move.number, 0)
         if move.number in states.COUNTED and repeats >= states.REPEAT_LIMIT:
-            earlier = [str(m.get("reason")) for m in piece.history if m["move"] == move.number]
+            earlier = [str(m.get("reason")) for m in piece.recent if m["move"] == move.number]
+            in_all = piece.totals.get(asked, 0) + 1
             move = states.back_to_shaping(origin)
             target = "shaping"
             reason = (
-                f"Move {asked} was asked for a {len(earlier) + 1}th time, so the piece goes "
+                f"Move {asked} was asked for the {_ordinal(repeats + 1)} time since the piece "
+                f"last left shaping (the {_ordinal(in_all)} time in all), so the piece goes "
                 f"back to shaping with its history: {'; '.join([*earlier, str(reason)])}"
             )
         if states.anti_circle(move, target):
@@ -729,15 +829,30 @@ class Gate:
         *,
         question: str,
         answer: str,
-        by: str = "the person",
+        by: str,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Write a (late) answer under Decisions, drop the question and take a new fingerprint."""
-        if not answer.strip() or not question.strip():
-            raise MoveError("an answer needs the question and the answer",
+        """Write a (late) answer under Decisions, drop the question and take a new fingerprint.
+
+        `by` names who answered. An agent session cannot record the person: the
+        person records their own answer, in their own terminal.
+        """
+        if not answer.strip() or not question.strip() or not by.strip():
+            raise MoveError("an answer needs the question, the answer and who answered",
                             next_command=f'gate.py answer {number} --question "<q>" '
-                            '--answer "<a>"', code=ExitCode.USAGE)
+                            '--answer "<a>" --by "<who answered>"', code=ExitCode.USAGE)
+        agent = github.in_agent_session(self.env)
+        if agent and _PERSON.search(by.casefold()):
+            raise MoveError(
+                f"an agent session cannot record that {by.strip()!r} answered; only the person "
+                "records the person's answer, in their own terminal",
+                next_command="tell the person to run, in their own terminal: "
+                f"{github.gate_command(self.paths.root)} answer {number} --question "
+                '"<q>" --answer "<a>" --by "the person"; or record it --by "the agent"',
+            )
+        by = by.strip()
         piece = self._sync_if_able(self.piece(number), dry_run)
+        number = piece.number
         issue = self._issue_now(piece)
         body = issue["body"] if issue is not None else piece.body
         try:
@@ -772,7 +887,7 @@ class Gate:
         ops = self._ops(piece, old_labels, new_labels, body, final)
         entries: list[dict[str, Any]] = [
             {"kind": "answer", "question": match, "answer": answer.strip(), "by": by,
-             "at": self.today()},
+             "recorded_in": "an agent session" if agent else "a terminal", "at": self.today()},
             {"kind": "body", "text": final, "sha": _sha(final), "why": "gate-made change"},
             {"kind": "needs", "needs": found, "needs_you": needs_you},
         ]
@@ -783,6 +898,7 @@ class Gate:
     def set_spec(self, number: int, body: str, *, dry_run: bool = False) -> dict[str, Any]:
         """Hand the gate a new spec for a piece in shaping. It rewrites the needs."""
         piece = self._sync_if_able(self.piece(number), dry_run)
+        number = piece.number
         if piece.state != "shaping":
             raise MoveError(
                 f"piece {number} is {piece.state}; its spec changes only in shaping",
@@ -790,6 +906,15 @@ class Gate:
             )
         issue = self._issue_now(piece)
         current = issue["body"] if issue is not None else piece.body
+        dropped = _dropped_questions(current, body)
+        if dropped:
+            raise MoveError(
+                f"the new spec of piece {number} drops the open question {dropped[0]!r}; only "
+                "gate.py answer closes a question, and it writes the answer under Decisions",
+                next_command=f'gate.py answer {number} --question "<the question>" '
+                '--answer "<the answer>" --by "<who answered>", then gate.py spec again with '
+                "every open question kept",
+            )
         found = self._needs(body, "shaping", piece.issue_type)
         needs_you = needs.needs_you(found)
         final = self._write_below(body, found, piece.fingerprint)
@@ -812,6 +937,7 @@ class Gate:
             raise MoveError("the comment is empty", code=ExitCode.USAGE,
                             next_command=f"gate.py comment {number} --body-file <file>")
         piece = self._sync_if_able(self.piece(number), dry_run)
+        number = piece.number
         if dry_run:
             return {"piece": number, "comment": text}
         issue = self._issue_now(piece)
@@ -851,8 +977,20 @@ class Gate:
         pending = [p for p in (read_piece(self.paths, n) for n in self.numbers())
                    if p is not None and p.queue]
         if dry_run:
-            return {"pieces": [{"piece": p.number, "queued": len(p.queue)} for p in pending],
-                    "refused": []}
+            return {
+                "pieces": [{"piece": p.number, "issue": p.issue, "queued": len(p.queue),
+                            "writes": [_shown(op) for op in p.queue]} for p in pending],
+                "refused": [],
+                "listing": _listing(pending) or "Nothing is waiting.",
+                "next": "read every write above. Each is posted in your own name. If you want "
+                f"them all, run: {github.gate_command(self.paths.root)} sync",
+            }
+        if not self.terminal():
+            raise MoveError(
+                "gate.py sync posts in the person's name, so it runs only with a person at a "
+                "terminal: its standard input and output must both be a terminal",
+                next_command=github.sync_command(self.paths.root),
+            )
         try:
             if pending:
                 present = set(person.list_labels())
@@ -878,6 +1016,9 @@ class Gate:
         rows: list[dict[str, Any]] = []
         problems: list[dict[str, Any]] = []
         hand: list[dict[str, Any]] = []
+        if number is not None:
+            wanted = find_piece(self.paths, number)
+            number = wanted.number if wanted is not None else number
         chosen = [number] if number is not None else self.numbers()
         compare = self.hub.available and not brief
         for n in chosen:

@@ -11,19 +11,24 @@ Commands:
   gate.py capture [<number>] --title <title> --body-file <file> [--type feature|bug|chore]
   gate.py move <number> <state> [--reason <why>] [--option key=value ...]
   gate.py drop <number> --reason <why>
-  gate.py answer <number> --question <text> --answer <text> [--by <who>]
+  gate.py answer <number> --question <text> --answer <text> --by <who answered>
   gate.py spec <number> --body-file <file>
   gate.py comment <number> (--text <words> | --body-file <file>)
   gate.py report [<number>] [--brief]
   gate.py labels --create
   gate.py branch <number> [--push]
-  gate.py sync
+  gate.py sync [--dry-run]
+
+A <number> is the piece's local number or, once sync has opened its issue, the
+issue's number.
 
 The gate acts on GitHub only as its GitHub App, set up in the second half of
 /setup. Before the App exists it makes every move in the piece record
 (.agents/pieces/<n>/), queues the GitHub writes there, and its next: line names
-gate.py sync. Only the person runs gate.py sync, with their own sign-in; it
-refuses to run in an agent session, and the guard hook refuses it too.
+gate.py sync. Only the person runs gate.py sync, with their own sign-in. They
+run gate.py sync --dry-run first, which lists every queued write in full. Sync
+refuses unless a person is at a terminal (standard input and output both a
+terminal), it refuses in an agent session, and the guard hook refuses it too.
 
 Every command prints JSON when standard output is not a terminal, and takes
 --dry-run where it changes state.
@@ -95,7 +100,8 @@ def setup(parser: argparse.ArgumentParser) -> None:
     answer.add_argument("number", type=_number)
     answer.add_argument("--question", required=True, help="the open question it answers")
     answer.add_argument("--answer", required=True)
-    answer.add_argument("--by", default="the person", help="who decided")
+    answer.add_argument("--by", required=True,
+                        help="who answered; an agent session cannot record the person")
     _common(answer)
 
     spec_cmd = commands.add_parser("spec", help="hand the gate a new spec for a piece in shaping")
@@ -161,8 +167,8 @@ def _options(raw: list[str]) -> dict[str, str]:
 
 
 def _branch(gate: moves.Gate, paths: Paths, args: argparse.Namespace, dry: bool) -> dict[str, Any]:
-    gate.piece(args.number)
-    name = f"piece-{args.number}"
+    number = gate.piece(args.number).number
+    name = f"piece-{number}"
     root = str(paths.root)
     have = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q",
                            f"refs/heads/{name}"], capture_output=True, text=True, check=False)
@@ -174,7 +180,7 @@ def _branch(gate: moves.Gate, paths: Paths, args: argparse.Namespace, dry: bool)
             raise Failure(f"git could not make {name} from main ({done.stderr.strip()})",
                           next_command=f"git -C {root} branch --list", code=ExitCode.FAILURE)
         made = True
-    out: dict[str, Any] = {"piece": args.number, "branch": name, "made": made}
+    out: dict[str, Any] = {"piece": number, "branch": name, "made": made}
     if args.push and not dry:
         try:
             out.update(github.push(paths, name))

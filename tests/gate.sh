@@ -118,7 +118,7 @@ grep -q '^next: ' "$TP_BASE/refused.err" || fail "the refusal has no next: line"
 ok "a move outside the table is refused with a next: line"
 
 python3 "$GATE" answer 1 --question "Should a rename be undoable?" --answer "No, not now." \
-  --json > "$TP_BASE/answer.json" || fail "answer failed: $(cat "$TP_BASE/answer.json")"
+  --by "the person" --json > "$TP_BASE/answer.json" || fail "answer failed: $(cat "$TP_BASE/answer.json")"
 py_state 'issue(1)["body"]' > "$TP_BASE/body-after.txt"
 grep -q 'Should a rename be undoable?.*No, not now\.' "$TP_BASE/body-after.txt" \
   || fail "the answer is not under Decisions"
