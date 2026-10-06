@@ -181,6 +181,24 @@ grep -q 'HIDDEN' "$TP_BASE/heldout.json" && fail "the store printed a case"
 find "$TP_DATA" -name 'HO-1.case' | grep -q . || fail "the case is not in the gate-only store"
 ok "held-out cases land in the store, and only the fingerprint is printed"
 
+# The command the skill gives must work from a project root with no PYTHONPATH exported.
+STORE_CMD=$(grep -o 'PYTHONPATH=[^`]*loop\.heldout store[^`]*' "$SKILL" | head -1 || true)
+[ -n "$STORE_CMD" ] || STORE_CMD=$(grep -o 'python3 -m loop\.heldout store[^`]*' "$SKILL" | head -1)
+[ -n "$STORE_CMD" ] || fail "SKILL.md gives no loop.heldout store command"
+STORE_CMD=$(printf '%s' "$STORE_CMD" | sed -e 's/<n>/4/' -e "s|ID=FILE|HO-9=$CASE_A|")
+mkdir -p "$TP_ROOT/kit"
+ln -s "$ROOT/kit/scripts" "$TP_ROOT/kit/scripts"
+(
+  cd "$TP_ROOT"
+  unset PYTHONPATH
+  # shellcheck disable=SC2086
+  eval "$STORE_CMD --json"
+) > "$TP_BASE/heldout-skill.json" 2> "$TP_BASE/heldout-skill.err" \
+  || fail "the skill's store command fails from the project root: $(cat "$TP_BASE/heldout-skill.err")"
+js "$TP_BASE/heldout-skill.json" 'J["fingerprint"]' | grep -qE '^[0-9a-f]{64}$' \
+  || fail "the skill's store command printed no fingerprint"
+ok "the skill's own store command works from the project root with no PYTHONPATH"
+
 BODY="$TP_BASE/body.md"
 cat > "$BODY" <<BODYEOF
 A header that says what the piece is for.

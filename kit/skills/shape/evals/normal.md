@@ -23,7 +23,7 @@ The person answers every question by accepting the recommended answer.
    recommended answer.
 4. It writes each answer into the spec block. It does not settle a need that names the
    person by itself.
-5. It stores the held-out cases with `python3 -m loop.heldout store`. Only the
+5. It stores the held-out cases with `PYTHONPATH=kit/scripts python3 -m loop.heldout store`. Only the
    fingerprint that the command prints appears in the spec, in `Held-out cases:`. No
    case text appears in the issue, in a commit or in a tracked file.
 6. It fills `Touches:` from the area map and `co-change.sh`.
