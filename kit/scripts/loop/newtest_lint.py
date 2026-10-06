@@ -737,6 +737,30 @@ def _py_swallowed(tree: ast.AST, scope: Scope, add: Callable[[Rule, int], None])
                     add(Rule.SWALLOWED_ERROR, node.lineno)
 
 
+def _py_helpers(functions: list[ast.FunctionDef | ast.AsyncFunctionDef]) -> set[str]:
+    """Names of same-file helpers that reach an assertion, directly or through other helpers.
+
+    The search runs to a fixed point. A helper counts when its live body asserts, or when
+    it calls a helper that counts. A cycle adds nothing, so a recursive pair ends.
+    """
+    pool = [n for n in functions if not n.name.startswith("test")]
+    asserts: set[str] = set()
+    calls: dict[str, set[str]] = {}
+    for n in pool:
+        if _py_has_assertion(n):
+            asserts.add(n.name)
+        called = {_call_name(c) for c in _py_scope(n) if isinstance(c, ast.Call)}
+        calls.setdefault(n.name, set()).update(called)
+    changed = True
+    while changed:
+        changed = False
+        for name, called in calls.items():
+            if name not in asserts and called & asserts:
+                asserts.add(name)
+                changed = True
+    return asserts
+
+
 def _py_test(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     helpers: set[str],
@@ -805,7 +829,7 @@ def _py_lint(
     functions = [
         n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
-    helpers = {n.name for n in functions if not n.name.startswith("test") and _py_has_assertion(n)}
+    helpers = _py_helpers(functions)
     for func in functions:
         if func.name.startswith("test"):
             _py_test(func, helpers, scope, add)
@@ -880,12 +904,22 @@ def _ts_decl_span(masked: str, match: re.Match[str], pattern: re.Pattern[str]) -
 
 
 def _ts_helpers(masked: str) -> set[str]:
-    names: set[str] = set()
+    """Names of helpers that reach an assertion, directly or through other helpers."""
+    bodies: dict[str, list[str]] = {}
     for pattern in (TS_FUNCTION, TS_ARROW):
         for match in pattern.finditer(masked):
             _, last = _ts_decl_span(masked, match, pattern)
-            if TS_ASSERTION.search(masked[match.end() : last]):
-                names.add(match.group(1))
+            bodies.setdefault(match.group(1), []).append(masked[match.end() : last])
+    names = {n for n, parts in bodies.items() if any(TS_ASSERTION.search(b) for b in parts)}
+    changed = True
+    while changed:
+        changed = False
+        for name, parts in bodies.items():
+            if name in names:
+                continue
+            if any(re.search(rf"\b{re.escape(h)}\s*\(", b) for h in names for b in parts):
+                names.add(name)
+                changed = True
     return names
 
 

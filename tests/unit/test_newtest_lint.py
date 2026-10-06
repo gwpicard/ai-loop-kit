@@ -521,6 +521,65 @@ class CleanTestsPass(unittest.TestCase):
         self.assertEqual(nl.lint_text("test_a.py", py), [])
 
 
+class HelpersAreFollowedThroughTheChain(unittest.TestCase):
+    def test_a_two_level_chain_reaches_the_assertion(self) -> None:
+        text = (
+            "def inner(x):\n    assert x == 2\n\n\ndef outer(x):\n    inner(x)\n\n\n"
+            "def test_a():\n    outer(2)\n"
+        )
+        self.assertEqual(lint_py(text), set())
+
+    def test_a_three_level_chain_of_methods_reaches_the_assertion(self) -> None:
+        text = (
+            "import unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def expect(self, x):\n        self.assertEqual(x, 2)\n\n"
+            "    def check(self, x):\n        self.expect(x)\n\n"
+            "    def refused(self, x):\n        self.check(x)\n\n"
+            "    def test_a(self):\n        self.refused(2)\n"
+        )
+        self.assertEqual(lint_py(text), set())
+
+    def test_a_three_level_chain_passes_in_typescript(self) -> None:
+        text = (
+            "const c = (x) => { expect(x).toBe(2); };\n"
+            "const b = (x) => { c(x); };\n"
+            "function a(x) { b(x); }\n"
+            "it('a', () => {\n  a(2);\n});\n"
+        )
+        self.assertEqual(lint_ts(text), set())
+
+    def test_a_chain_that_ends_in_no_assertion_refuses(self) -> None:
+        text = (
+            "def inner(x):\n    return x\n\n\ndef outer(x):\n    inner(x)\n\n\n"
+            "def test_a():\n    outer(2)\n"
+        )
+        self.assertEqual(lint_py(text), {"no_assertion"})
+        ts = (
+            "const b = (x) => { log(x); };\nfunction a(x) { b(x); }\n"
+            "it('a', () => {\n  a(2);\n});\n"
+        )
+        self.assertEqual(lint_ts(ts), {"no_assertion"})
+
+    def test_a_helper_the_test_never_calls_does_not_count(self) -> None:
+        text = (
+            "def inner(x):\n    assert x == 2\n\n\ndef outer(x):\n    inner(x)\n\n\n"
+            "def test_a():\n    other(2)\n"
+        )
+        self.assertEqual(lint_py(text), {"no_assertion"})
+
+    def test_a_recursive_pair_with_no_assertion_refuses_without_looping(self) -> None:
+        text = (
+            "def ping(x):\n    pong(x)\n\n\ndef pong(x):\n    ping(x)\n\n\n"
+            "def test_a():\n    ping(2)\n"
+        )
+        self.assertEqual(lint_py(text), {"no_assertion"})
+        ts = (
+            "function ping(x) { pong(x); }\nfunction pong(x) { ping(x); }\n"
+            "it('a', () => {\n  ping(2);\n});\n"
+        )
+        self.assertEqual(lint_ts(ts), {"no_assertion"})
+
+
 class MoreShapes(unittest.TestCase):
     def test_a_bare_except_pass_is_swallowed(self) -> None:
         text = "def test_a():\n    try:\n        f()\n    except:\n        pass\n    assert f()\n"
