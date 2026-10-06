@@ -332,6 +332,8 @@ The must-look reasons are exactly five, and only the gate writes them: a sensiti
 
 **Files.**
 - New: `kit/scripts/loop/gates/claim.py`; `kit/scripts/loop/research.py` (the quick check of every finding); `tests/unit/test_claim.py`; `tests/claim-gate.sh`.
+- Changed: `loop/spec.py` gains `parse_finding`, which reads one research finding (source, date, what it rests on). `kit/spec-format.md` writes the finding shape in its Research section. The ready gate records a `relied-on` entry, the files that `Relies on:` names with their fingerprints, because it recorded nothing the claim could read. `loop/moves.py` makes move 3 itself when a claim refusal carries `send_back`, so the reason, the anti-circle rule and the open question are the gate's own. No lint rule is added: the needs list already holds a finding that lacks a source, a date or a basis. The slot count is `builder_cap` in the policy file, which exists already.
+- Settled alone: a fault of the spec or the code under it (fingerprint, lint, a research finding, a relied-on file, a judge that no longer fails) sends the piece back. A fault of the moment (a blocker, a piece already building, an area in use, no free slot, a must-stay-the-same check red on `main`) leaves it ready. The run lists the pieces it built earlier with `--option built_earlier=<issue numbers>`.
 
 **Held by:** the gate refusing move 4 unless every check passes; the fingerprint, checked again at every claim and at every attempt (P16).
 

@@ -141,7 +141,9 @@ It is null for any other command.
 
 ## Links
 
-- `Relies on:` code or services, by name, split by commas.
+- `Relies on:` code or services, by name, split by commas. A word that names a
+  file of the project is a relied-on file: the ready gate records its fingerprint,
+  and a change to it on `main` sends the piece back at the claim.
 - `Touches:` areas, split by commas. Each area is in the project's area map,
   `docs/area-map`, or is named under `New area:` in Changes to current
   behaviour. The ready gate refuses any other.
@@ -175,6 +177,34 @@ no `Check:` line, except for the scaffold piece. It runs each command on
 Sensitive areas, Decisions, Research and Open questions are lists. Each item
 starts with `- `. A line that continues an item is indented or follows it
 directly. "None." in a list field means an empty list.
+
+## Research
+
+Each finding is one list item. It records its source, its date and what it
+rests on, so the claim gate can check it again.
+
+```
+- The folder rename uses the same rule. Source: src/folders/rename.ts.
+  Checked 3 October 2026. Rests on: fingerprint 4c1e9a2b.
+- The package is small. Source: left-pad. Checked 2026-10-01.
+  Rests on: version 1.3.0.
+```
+
+- `Source:` is one word: a file path, an address or a package name.
+- The date is `YYYY-MM-DD` or `D Month YYYY`. `Checked` is the usual word.
+- `Rests on: fingerprint <hex>` is for an in-project file, the one `Source:`
+  names. The fingerprint is the first 7 to 64 hex digits of the SHA-256 of the
+  file at `main`. `python3 -m loop.research stamp --path <file>` prints it.
+- `Rests on: version <text>` is for an outside page or package. A package
+  version is compared with the one the project's manifest names
+  (`package.json` or `requirements.txt`). A page has no version the kit can read
+  offline, so its date is its check.
+
+The needs list holds a finding that lacks any of the three parts. At every
+claim the gate checks each finding: the fingerprint of a file, or the version
+and the age of an outside one (`research_age_days` in the policy file). A finding
+it cannot confirm sends the piece back to shaping. `loop.spec.parse_finding`
+reads one item.
 
 ## Decisions
 
