@@ -95,6 +95,20 @@ run lint3b "$SPEC" lint --file "$TP_BASE/broken.md" --type feature --json
 check "as a feature the same body is not too long" "$TP_BASE/lint3b.json" \
   '"length" not in {g["rule"] for g in d["gaps"]}'
 
+# Tests traced to the IDs: a test file that names three of the four IDs.
+mkdir "$TP_BASE/acceptance"
+cat > "$TP_BASE/acceptance/test_rename.py" <<'PY'
+def test_flow():
+    """FL-1 FL-2"""
+
+def test_empty_name():
+    """EC-1"""
+PY
+run lint4 "$SPEC" lint --file "$FIX/ready.md" --tests "$TP_BASE/acceptance" --json
+[ "$code_lint4" = 1 ] && pass "lint exits 1 when a test is missing for an ID" || fail "lint exited $code_lint4 with a missing test"
+check "the gap names EC-2" "$TP_BASE/lint4.json" \
+  'any("EC-2" in g["message"] and g["rule"] == "id_trace" for g in d["gaps"])'
+
 # --- the same answer from a file --------------------------------------------
 run needs1f "$SPEC" needs --file "$FIX/ready.md" --json
 check "the file route gives an empty list too" "$TP_BASE/needs1f.json" 'd["needs"] == []'
