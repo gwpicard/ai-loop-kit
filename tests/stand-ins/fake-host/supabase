@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# A stand-in for the Supabase CLI in a replayed launch: installed, and not
+# signed in on this computer. Every check that needs the hosted project then
+# cannot run, which is a warning the first launch already recorded, and no run
+# reaches a real project.
+. "$(dirname -- "$0")/_common.sh"
+stand_in_or_real supabase "$@"
+case "${1:-}" in
+  --version|-v) echo "2.117.0"; exit 0 ;;
+  --help|-h|help|"") printf 'Supabase CLI 2.117.0\n\nUsage:\n  supabase [command]\n'; exit 0 ;;
+  login)
+    echo "Cannot use automatic login flow inside non-TTY environments. Please provide --token flag or set the SUPABASE_ACCESS_TOKEN environment variable." >&2
+    exit 1 ;;
+  start|stop|status)
+    echo "failed to inspect service: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2
+    exit 1 ;;
+esac
+echo "Access token not provided. Supply an access token by running supabase login or setting the SUPABASE_ACCESS_TOKEN environment variable." >&2
+exit 1

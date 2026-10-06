@@ -1,6 +1,6 @@
 # Borrowed code
 
-Every file here was copied from the commit `fbdf054` of this repository, the last commit before AI Build Kit started to be removed. The originals stay in place until stage D deletes them. Stages C1 and C2 are in. Stage C3 adds rows below.
+Every file here was copied from the commit `fbdf054` of this repository, the last commit before AI Build Kit started to be removed. The originals stay in place until stage D deletes them. Stages C1, C2 and C3 are in.
 
 The source column gives a path inside that commit, written with the commit prefix. A verbatim row matches `git show fbdf054:<source> | cmp - <destination>`. An edited row says what changed.
 
@@ -53,10 +53,32 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054:.agents/tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script and the ignore template are found under `kit`. Removed the section "Walk-through pictures go to the main folder", which ran a lookup taken from the section-builder skill text. | Carries the old product name in one line. |
 | `tests/fold-at-merge-rehearsal.sh` | `fbdf054:.agents/tests/fold-at-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the scripts are found under `kit/scripts` and the changelog under `tests/fixtures`. | Nothing known. |
 | `tests/recheck-before-merge-rehearsal.sh` | `fbdf054:.agents/tests/recheck-before-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. | Nothing known. |
-| `tests/check-tooling.sh` | `fbdf054:.agents/tests/check-tooling.sh` | `fbdf054` | edited: The root is now the folder above the tests (it was `.agents`); the checker is found under `kit/scripts`; the recipe lookup reads `kit/recipes`. The fallback to `tests/recipes-awaiting-run` is gone. A recipe not yet in `kit/recipes` is skipped with a printed note instead of a failure, because the recipes arrive in stage C3. | Stage C3 must turn the skip back into a failure. Carries the old product name in seven lines. |
+| `tests/check-tooling.sh` | `fbdf054:.agents/tests/check-tooling.sh` | `fbdf054` | edited: The root is now the folder above the tests (it was `.agents`); the checker is found under `kit/scripts`; the recipe lookup reads `kit/recipes`. The fallback to `tests/recipes-awaiting-run` is gone. A recipe missing from `kit/recipes` is a failure again (stage C2 had skipped it with a note, until the recipes arrived). | Carries the old product name in seven lines. |
 | `tests/session-start.sh` | `fbdf054:.agents/tests/session-start.sh` | `fbdf054` | edited: Rewritten to drive the hook directly. Folder root now `..`; the hook under test is `kit/scripts/session-start.sh`. Removed the release build, the checks on this repository's own settings, and the sections on the released starter and the installer route. The founded project is written inline (a masterplan line and the three check-up lines). The cadence, the 20-changes rule and the silent cases are kept. | Carries the old product name in twelve lines, mostly the check-up file name and the date variable. |
 | `tests/document-read-rehearsal.sh` | `fbdf054:.agents/tests/document-read-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. Its throwaway project keeps its own `WORKFLOW.md`, which is a fixture. | Nothing known. |
 | `tests/document-bloat-rehearsal.sh` | `fbdf054:.agents/tests/document-bloat-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. Its throwaway project keeps its own `WORKFLOW.md`, which is a fixture. | Nothing known. |
+| `kit/recipes/nextjs-supabase-on-vercel.md` | `fbdf054:.agents/skills/ship/recipes/nextjs-supabase-on-vercel.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/recipes/nextjs-supabase-on-coolify.md` | `fbdf054:.agents/skills/ship/recipes/nextjs-supabase-on-coolify.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/recipes/parts/nextjs-container.md` | `fbdf054:.agents/skills/ship/recipes/parts/nextjs-container.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/recipes/parts/supabase-backup.md` | `fbdf054:.agents/skills/ship/recipes/parts/supabase-backup.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/recipes/parts/supabase-restore.md` | `fbdf054:.agents/skills/ship/recipes/parts/supabase-restore.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/recipes/parts/supabase-settings.md` | `fbdf054:.agents/skills/ship/recipes/parts/supabase-settings.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/templates/recipe.md` | `fbdf054:.agents/skills/ship/templates/recipe.md` | `fbdf054` | verbatim | Nothing known. |
+| `kit/templates/recipe-format.md` | `fbdf054:.agents/skills/ship/references/recipe-format.md` | `fbdf054` | verbatim; the format sits with the templates, not in `kit/recipes`, which holds recipes and parts only | Names the old `ship/recipes` home and the old skill layout in its rules, which `tests/recipes.sh` reads, so change both together. |
+| `kit/scripts/check-recipes.sh` | `fbdf054:.agents/tools/check-recipes.sh` | `fbdf054` | verbatim | A comment names the old path of the format file. |
+| `tests/stand-ins/fake-host/_common.sh` | `fbdf054:.agents/tests/replay/fake-host/_common.sh` | `fbdf054` | verbatim | Nothing known. |
+| `tests/stand-ins/fake-host/curl` | `fbdf054:.agents/tests/replay/fake-host/curl` | `fbdf054` | verbatim | Nothing known. |
+| `tests/stand-ins/fake-host/docker` | `fbdf054:.agents/tests/replay/fake-host/docker` | `fbdf054` | verbatim | Nothing known. |
+| `tests/stand-ins/fake-host/psql` | `fbdf054:.agents/tests/replay/fake-host/psql` | `fbdf054` | verbatim | Nothing known. |
+| `tests/stand-ins/fake-host/supabase` | `fbdf054:.agents/tests/replay/fake-host/supabase` | `fbdf054` | verbatim | Nothing known. |
+| `tests/stand-ins/fake-host/vercel` | `fbdf054:.agents/tests/replay/fake-host/vercel` | `fbdf054` | verbatim | Nothing known. |
+| `tests/stand-ins/prepare/live-on-vercel.sh` | `fbdf054:.agents/tests/replay/prepare/live-on-vercel.sh` | `fbdf054` | verbatim; a fixture builder, not the harness | Looks for the old placeholder sentence in `AGENTS.md`, needs the project to hold the recipe under `.agents/skills/ship/recipes/`, and carries the old product name in three lines. |
+| `tests/stand-ins/prepare/live-on-vercel.after-commit.sh` | `fbdf054:.agents/tests/replay/prepare/live-on-vercel.after-commit.sh` | `fbdf054` | verbatim; a fixture builder, not the harness | Looks for the old placeholder sentence in `AGENTS.md`, needs the project to hold the recipe under `.agents/skills/ship/recipes/`, and carries the old product name in three lines. |
+| `tests/lib/recipe-rehearsal.sh` | `fbdf054:.agents/tests/lib/recipe-rehearsal.sh` | `fbdf054` | edited: `RR_CHECKER`, `RR_MENU`, `RR_PARTS` and `RR_WAITING` point at `kit/scripts`, `kit/recipes`, `kit/recipes/parts` and `tests/recipes-awaiting-run` (a folder nobody creates here). | A comment still names the old waiting folder. |
+| `tests/recipes.sh` | `fbdf054:.agents/tests/recipes.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/templates` and `kit/scripts`. Removed the variables and checks that read the old validator, `docs/PHILOSOPHY.md`, `docs/MAINTAINING.md` and `docs/SOURCES.md`. Added a closing loop that runs `check-recipes.sh` over every recipe and its rehearsal, every part and the blank, which the old validator used to do. | Its rules on the format read the old `ship/recipes` wording. |
+| `tests/recipe-nextjs-supabase-on-vercel.sh` | `fbdf054:.agents/tests/recipe-nextjs-supabase-on-vercel.sh` | `fbdf054` | edited: Folder root now `..`; the helper libraries and the recipe are found under `tests/lib` and `kit/recipes`. | Nothing known. |
+| `tests/recipe-nextjs-supabase-on-coolify.sh` | `fbdf054:.agents/tests/recipe-nextjs-supabase-on-coolify.sh` | `fbdf054` | edited: Folder root now `..`; the helper libraries and the recipe are found under `tests/lib` and `kit/recipes`. | Nothing known. |
+| `tests/fake-host.sh` | `fbdf054:.agents/tests/fake-host.sh` | `fbdf054` | edited: Folder root now `..`; the stand-ins are found under `tests/stand-ins`; the throwaway project takes `AGENTS.md` from `tests/fixtures/AGENTS.md` and the recipe from `kit/recipes`. The project still holds the recipe under `.agents/skills/ship/recipes/`, because the fixture builder insists on it. | Carries the old project layout in two lines. |
 
 ## New files, not borrowed
 
@@ -64,6 +86,7 @@ The source column gives a path inside that commit, written with the commit prefi
 |---|---|
 | `tests/house-rules.sh` | The number, attribution, stray-copy, shell-syntax and runnable-mode checks lifted from the old validator, with a self-test that plants each fault. |
 | `.github/workflows/v1-checks.yml` | Runs `tests/run-all.sh` on manual dispatch only. Its job carries the repository gate the old release check demands, which names the old repository as well. It carries the old product name in that one line, until stage D removes the old check. |
+| `tests/fixtures/AGENTS.md` | A few lines for the fake-host rehearsal. It holds the placeholder sentence under a stack heading, which the Vercel fixture builder looks for. It is not a copy of the old template. |
 | `BORROWED.md` | This file. |
 
 ## Deliberately not copied
@@ -73,7 +96,9 @@ The source column gives a path inside that commit, written with the commit prefi
 | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/plan-refresh.sh` and its rehearsals | The gate does not call it. Left to the archive tag. |
 | `fbdf054:.agents/tests/trim-rehearsal.sh` | Not about borrowed code. |
 | `fbdf054:docs/SOURCES.md` | Stays at `docs/SOURCES.md` and is pruned there later. |
-| The replay harness under `fbdf054:.agents/tests/replay/` apart from the GitHub stand-in | Not borrowed. The host stand-ins arrive in stage C3. |
+| The replay harness under `fbdf054:.agents/tests/replay/` apart from the GitHub stand-in, the host stand-ins and the two Vercel fixture builders | Not borrowed. |
+| `fbdf054:.agents/tests/recipes-awaiting-run/parts` | A symbolic link to nothing the rehearsals need here. No recipe is waiting. |
+| `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/AGENTS.md` | Deleted from the templates. `tests/fixtures/AGENTS.md` stands in for it. |
 | `fbdf054:.agents/guard/blocked-commands.md` | The founded copy under `kit/templates/blocked-commands.md` is the one borrowed. |
 | `codex-with-github.py` and `old-skill-pointers.py` | Not borrowed. |
 | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/` files not listed above | Left for later stages or the archive tag. |
@@ -96,4 +121,6 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 - `tests/gate-script.sh`
 - `tests/kit-owns-worktrees-rehearsal.sh`
 - `tests/session-start.sh`
+- `tests/fixtures/AGENTS.md`
+- `tests/stand-ins/prepare/live-on-vercel.sh`
 - `.github/workflows/v1-checks.yml` (stage D1 removes it with the old check)

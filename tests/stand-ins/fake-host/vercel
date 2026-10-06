@@ -1,0 +1,665 @@
+#!/usr/bin/env python3
+"""A stand-in for the Vercel CLI, for replaying a launch without an account.
+
+A replay scenario on the Vercel recipe needs a host that keeps a list of
+deployments, builds `main` when it moves, and answers the recipe's commands.
+The real host needs an account and a network, and a run with nobody watching
+must never reach either. So this answers instead.
+
+It is not a Vercel simulator. It answers the subcommands and options the
+recipe's commands use, and the ones a kit reaches for to read or make a deploy:
+`ls`, `inspect`, `deploy`, `redeploy`, `promote` and `rollback`. Anything else
+is refused to the log and to stderr, so a command nobody modelled shows up
+rather than passing quietly.
+
+The host builds from the project's GitHub connection. Each push to `main` on
+the remote next door becomes a production deployment, read from that remote's
+reflog the next time anything asks. A new build shows as Building to the first
+two calls that see it and as Ready after that, or at once to `inspect --wait`,
+and the live address moves to it then. `deploy`, `redeploy` and `promote` make
+or move a deployment themselves, which is how a second deploy of the same
+version shows up.
+
+`deploy` writes the address alone to stdout and its progress to stderr, as the
+real command does. The success line comes near the end, followed by a few
+lines of hints, so a kit that keeps only the last lines cannot tell whether it
+worked. Reading all of it, or the list of deployments, can. The build log is
+printed only with `--logs`.
+
+State lives in one JSON file named by FAKE_HOST_STATE, beside the project
+rather than in it. Every call is logged to FAKE_HOST_LOG, with any secret it
+carried masked. Where FAKE_HOST_STATE is not set at all, the run is not one of
+these scenarios, and the real command answers as it would without this folder
+on PATH. Where it is set and the file is missing, the call is answered as a
+signed-out tool, never by the real command.
+"""
+
+import json
+import os
+import random
+import re
+import string
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+STATE = os.environ.get("FAKE_HOST_STATE", "")
+LOG = os.environ.get("FAKE_HOST_LOG", (STATE + ".log") if STATE else "")
+VERSION = "60.0.0"
+HEADER = "Vercel CLI %s" % VERSION
+
+
+SIGNED_OUT = {
+    "vercel": ("Error: No existing credentials found. Please run `vercel login` or pass "
+               "\"--token\"", 1),
+    "curl": ("curl: (6) Could not resolve host", 6),
+}
+
+
+def signed_out(name):
+    """Answer as a tool that is installed and signed in to nothing. A replay
+    whose host state file is missing gets this, never the real command, so a
+    preparation that failed cannot hand a run somebody's account."""
+    args = sys.argv[1:]
+    if args[:1] in (["--version"], ["-v"], ["-V"]):
+        print(VERSION if name == "vercel" else "%s (replay stand-in)" % name)
+        sys.exit(0)
+    if args[:1] in (["--help"], ["-h"]):
+        print("Usage: %s [options] [command]" % name)
+        sys.exit(0)
+    message, code = SIGNED_OUT.get(name, ("%s: not signed in" % name, 1))
+    sys.stderr.write(message + "\n")
+    sys.exit(code)
+
+
+def delegate(name, local_service=False):
+    """Hand the call to the real command, for any run that is not ours.
+
+    Only a run with no FAKE_HOST_STATE at all is not ours. Where it is set and
+    its file is missing, the run is a replay whose preparation failed, and the
+    call is answered as a signed-out tool instead. A call to a service on this
+    machine that is not the app is the one exception, since it reaches no
+    account and no network."""
+    if STATE and not local_service:
+        signed_out(name)
+    here = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        if not folder or os.path.realpath(folder) == here:
+            continue
+        candidate = os.path.join(folder, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            os.execv(candidate, [candidate] + sys.argv[1:])
+    sys.stderr.write("%s: command not found\n" % name)
+    sys.exit(127)
+
+
+def sibling(name):
+    """Load another stand-in in this folder as a module."""
+    import importlib.machinery
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    loader = importlib.machinery.SourceFileLoader("fake_" + name, path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+MASKS = [
+    (re.compile(r"(postgres(ql)?://)[^\s'\"]+", re.I), r"\1[masked]"),
+    (re.compile(r"(--dbname[= ])(\S+)"), r"\1[masked]"),
+    (re.compile(r"((--token|-t)[= ])(\S+)"), r"\1[masked]"),
+    (re.compile(r"(Authorization:\s*)[^'\"\n]+", re.I), r"\1[masked]"),
+    (re.compile(r"(Bearer\s+)\S+", re.I), r"\1[masked]"),
+]
+
+
+def mask(line):
+    """Keep a secret a command carried out of the log."""
+    for pattern, replacement in MASKS:
+        line = pattern.sub(replacement, line)
+    return line
+
+
+def err(line):
+    sys.stderr.write(line + "\n")
+
+
+def note(line):
+    if not LOG:
+        return
+    with open(LOG, "a") as handle:
+        handle.write(mask(line) + "\n")
+
+
+def unsupported(argv, why="not modelled"):
+    note("UNSUPPORTED\tvercel %s\t%s" % (" ".join(argv), why))
+    sys.stderr.write(
+        "vercel (rehearsal stand-in): 'vercel %s' is not supported here (%s).\n"
+        "This is the test harness, not the real Vercel CLI.\n" % (" ".join(argv), why))
+    sys.exit(1)
+
+
+def load(path=None):
+    with open(path or STATE) as handle:
+        return json.load(handle)
+
+
+def save(state, path=None):
+    with open(path or STATE, "w") as handle:
+        json.dump(state, handle, indent=1)
+
+
+def now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_id():
+    return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(9))
+
+
+def deployment_url(state, ident):
+    return "%s-%s-%s.vercel.app" % (state["project"], ident, state["team"])
+
+
+def add_deployment(state, commit, target, source, branch="main", ready=False):
+    ident = new_id()
+    dep = {
+        "id": "dpl_" + ident,
+        "url": deployment_url(state, ident),
+        "target": target,
+        "branch": branch,
+        "commit": commit,
+        "source": source,
+        "state": "READY" if ready else "BUILDING",
+        "seen": 0,
+        "created": now(),
+    }
+    state["deployments"].append(dep)
+    if ready and target == "production":
+        state["alias"] = dep["id"]
+    return dep
+
+
+def main_pushes(remote):
+    """Every commit `main` pointed at on the remote, oldest first."""
+    done = subprocess.run(["git", "--git-dir", remote, "log", "-g", "--format=%H",
+                           "refs/heads/main"], capture_output=True, text=True)
+    if done.returncode != 0:
+        return []
+    return [line for line in done.stdout.split() if line][::-1]
+
+
+def sync(state):
+    """Build each push to main the host has not built yet, as a connected
+    repository does. Returns the deployments it added."""
+    pushes = main_pushes(state.get("remote", ""))
+    fresh = pushes[state.get("pushes_built", 0):]
+    state["pushes_built"] = len(pushes)
+    return [add_deployment(state, commit, "production", "git") for commit in fresh]
+
+
+# How many calls see a new build as Building before it is Ready. Two gives a
+# kit that checks straight after a merge a real chance to see a build still
+# running, and to deploy again instead of waiting.
+BUILDING_CALLS = 2
+
+
+def tick(state):
+    """Count this call against every build still running. A build that has
+    been seen as Building by BUILDING_CALLS calls is Ready now, and a
+    production build that becomes Ready takes the live address."""
+    for dep in state["deployments"]:
+        if dep["state"] != "BUILDING":
+            continue
+        seen = int(dep.get("seen") or 0)
+        if seen >= BUILDING_CALLS:
+            finish(state, dep)
+        else:
+            dep["seen"] = seen + 1
+
+
+def finish(state, dep):
+    dep["state"] = "READY"
+    if dep["target"] == "production" and not state.get("rolled_back"):
+        state["alias"] = dep["id"]
+
+
+def find(state, target):
+    """A deployment given as an id, an address, or the live address."""
+    target = target.replace("https://", "").replace("http://", "").rstrip("/")
+    if target == state["production_url"]:
+        return find(state, state["alias"])
+    for dep in state["deployments"]:
+        if target in (dep["id"], dep["id"][4:], dep["url"]):
+            return dep
+    return None
+
+
+def age(created):
+    then = datetime.strptime(created, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    seconds = max(0, int((datetime.now(timezone.utc) - then).total_seconds()))
+    for size, unit in ((86400, "d"), (3600, "h"), (60, "m")):
+        if seconds >= size:
+            return "%d%s" % (seconds // size, unit)
+    return "%ds" % seconds
+
+
+STATUS = {"READY": "● Ready", "BUILDING": "● Building", "ERROR": "● Error"}
+
+# Options every command takes, and whether each takes a value.
+GLOBAL = {"--cwd": True, "--scope": True, "-S": True, "--team": True, "-T": True,
+          "--token": True, "-t": True, "--debug": False, "-d": False,
+          "--no-color": False, "--non-interactive": False, "--global-config": True, "-Q": True,
+          "--local-config": True, "-A": True}
+
+
+def parse(argv, flags, valued):
+    """Split argv into positional words and options, refusing any option the
+    command does not document."""
+    words, options = [], {}
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        name, _, inline = arg.partition("=") if arg.startswith("--") else (arg, "", "")
+        if arg.startswith("-") and arg != "-":
+            if name in flags:
+                options[name] = True
+            elif name in valued or GLOBAL.get(name):
+                if inline:
+                    options[name] = inline
+                else:
+                    if i + 1 >= len(argv):
+                        return None, None
+                    options[name] = argv[i + 1]
+                    i += 1
+            elif name in GLOBAL:
+                options[name] = True
+            else:
+                return None, None
+        else:
+            words.append(arg)
+        i += 1
+    return words, options
+
+
+def build_log(state, dep):
+    short = dep["commit"][:7]
+    lines = [
+        "Running build in Washington, D.C., USA (East) - iad1",
+        "Build machine configuration: 2 cores, 8 GB",
+        "Cloning github.com/%s/%s (Branch: %s, Commit: %s)"
+        % (state["team"], state["project"], dep["branch"], short),
+        "Cloning completed: 412.000ms",
+        "Restored build cache from previous deployment",
+        "Running \"vercel build\"",
+        "Vercel CLI %s" % VERSION,
+        "Installing dependencies...",
+        "up to date, audited 318 packages in 3s",
+        "142 packages are looking for funding",
+        "  run `npm fund` for details",
+        "found 0 vulnerabilities",
+        "Detected Next.js version: 15.5.4",
+        "Running \"npm run build\"",
+        "",
+        "> noticeboard@0.1.0 build",
+        "> next build",
+        "",
+        "   ▲ Next.js 15.5.4",
+        "",
+        "   Creating an optimized production build ...",
+        " ✓ Compiled successfully in 8.4s",
+        "   Linting and checking validity of types ...",
+        "   Collecting page data ...",
+        "   Generating static pages (0/7) ...",
+        "   Generating static pages (1/7)",
+        "   Generating static pages (3/7)",
+        "   Generating static pages (5/7)",
+        " ✓ Generating static pages (7/7)",
+        "   Finalizing page optimization ...",
+        "   Collecting build traces ...",
+        "",
+        "Route (app)                                 Size  First Load JS",
+        "┌ ƒ /                                       1.9 kB         114 kB",
+        "├ ○ /_not-found                              991 B         103 kB",
+        "├ ƒ /api/health                              142 B         102 kB",
+        "├ ƒ /notices/new                           2.3 kB         115 kB",
+        "└ ƒ /sign-in                               2.1 kB         114 kB",
+        "+ First Load JS shared by all               102 kB",
+        "  ├ chunks/255-4efd2a3c.js                 45.9 kB",
+        "  ├ chunks/4bd1b696-c023c6e3.js            54.2 kB",
+        "  └ other shared chunks (total)            1.9 kB",
+        "",
+        "ƒ Middleware                               33.1 kB",
+        "",
+        "○  (Static)   prerendered as static content",
+        "ƒ  (Dynamic)  server-rendered on demand",
+        "",
+        "Traced Next.js server files in: 61.201ms",
+        "Created all serverless functions in: 142.515ms",
+        "Collected static files (public/, static/, .next/static): 4.281ms",
+        "Build Completed in /vercel/output [39s]",
+        "Deploying outputs...",
+        "Deployment completed",
+        "Creating build cache...",
+        "Created build cache: 11.214s",
+        "Uploading build cache [96.12 MB]...",
+        "Build cache uploaded: 1.503s",
+    ]
+    return lines
+
+
+def git_head(where):
+    done = subprocess.run(["git", "-C", where, "rev-parse", "HEAD"],
+                          capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def git_branch(where):
+    done = subprocess.run(["git", "-C", where, "rev-parse", "--abbrev-ref", "HEAD"],
+                          capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 else "main"
+
+
+def cmd_ls(state, argv):
+    words, options = parse(argv, {"--yes", "-y", "--json", "--all", "-a"},
+                           {"--environment", "--meta", "-m", "--policy", "-p",
+                            "--next", "-N", "--status", "-s", "--format", "-F",
+                            "--limit"})
+    if words is None or len(words) > 1 or (words and words[0] != state["project"]):
+        unsupported(["ls"] + argv, "an option or project the command does not take")
+    deps = list(reversed(state["deployments"]))
+    environment = options.get("--environment") or ""
+    if environment:
+        deps = [d for d in deps if d["target"] == environment]
+    if options.get("--json") or options.get("--format") == "json" or options.get("-F") == "json":
+        print(json.dumps({"deployments": [
+            {"uid": d["id"], "name": state["project"], "url": d["url"],
+             "state": d["state"], "readyState": d["state"], "target": d["target"],
+             "created": d["created"], "meta": {"githubCommitSha": d["commit"],
+                                                "githubCommitRef": d["branch"]}}
+            for d in deps]}, indent=2))
+        return
+    print(HEADER)
+    print("> Deployments for %s/%s [318ms]" % (state["team"], state["project"]))
+    print()
+    print("  Age     Deployment                                                 "
+          "Status        Environment     Duration     Username")
+    for d in deps:
+        print("  %-7s https://%-58s %-13s %-15s %-12s %s"
+              % (age(d["created"]), d["url"], STATUS[d["state"]],
+                 d["target"].capitalize(), "?" if d["state"] == "BUILDING" else "41s",
+                 state["user"]))
+    print()
+
+
+def cmd_inspect(state, argv):
+    words, options = parse(argv, {"--logs", "-l", "--wait", "--json"},
+                           {"--timeout", "--format", "-F"})
+    if words is None or len(words) != 1:
+        unsupported(["inspect"] + argv, "one deployment and only the options the command documents")
+    dep = find(state, words[0])
+    if dep is None:
+        sys.stderr.write("Error: Can't find the deployment \"%s\" under the context \"%s\"\n"
+                         % (words[0], state["team"]))
+        sys.exit(1)
+    if options.get("--wait") and dep["state"] == "BUILDING":
+        finish(state, dep)
+    if options.get("--json") or "json" in (options.get("--format"), options.get("-F")):
+        print(json.dumps({"id": dep["id"], "url": dep["url"], "name": state["project"],
+                          "target": dep["target"], "readyState": dep["state"],
+                          "createdAt": dep["created"],
+                          "meta": {"githubCommitSha": dep["commit"],
+                                   "githubCommitRef": dep["branch"]}}, indent=2))
+        return
+    if options.get("--logs") or options.get("-l"):
+        for line in build_log(state, dep):
+            print(line)
+        return
+    print(HEADER)
+    print("> Fetched deployment \"%s\" in %s [412ms]" % (dep["url"], state["team"]))
+    print()
+    print("  General")
+    print()
+    print("    id\t\t%s" % dep["id"])
+    print("    name\t%s" % state["project"])
+    print("    target\t%s" % dep["target"])
+    print("    status\t%s" % STATUS[dep["state"]])
+    print("    url\t\thttps://%s" % dep["url"])
+    print("    created\t%s [%s ago]" % (dep["created"], age(dep["created"])))
+    print()
+    print("  Aliases")
+    print()
+    if state.get("alias") == dep["id"]:
+        print("    ╶ https://%s" % state["production_url"])
+    else:
+        print("    There are no aliases for this deployment.")
+    print()
+
+
+def cmd_deploy(state, argv, redeploy=False):
+    flags = {"--prod", "--yes", "-y", "--no-wait", "--force", "-f", "--with-cache",
+             "--skip-domain", "--logs", "-l", "--prebuilt", "--json", "--dry",
+             "--guidance", "--turbo"}
+    valued = {"--target", "--env", "-e", "--build-env", "-b", "--meta", "-m",
+              "--regions", "--archive", "--format", "-F", "--project"}
+    if redeploy:
+        flags = {"--no-wait", "--yes", "-y"}
+        valued = {"--target"}
+    words, options = parse(argv, flags, valued)
+    if words is None:
+        unsupported(["redeploy" if redeploy else "deploy"] + argv,
+                    "an option the command does not document")
+    if redeploy:
+        if len(words) != 1:
+            unsupported(["redeploy"] + argv, "one deployment to build again")
+        was = find(state, words[0])
+        if was is None:
+            sys.stderr.write("Error: Could not find deployment \"%s\"\n" % words[0])
+            sys.exit(1)
+        commit, branch = was["commit"], was["branch"]
+        target = options.get("--target") or was["target"]
+        source = "redeploy"
+    else:
+        if len(words) > 1:
+            unsupported(["deploy"] + argv, "one folder at most")
+        folder = words[0] if words else os.getcwd()
+        commit, branch = git_head(folder), git_branch(folder)
+        target = "production" if (options.get("--prod") or
+                                  options.get("--target") == "production") else "preview"
+        source = "cli"
+    if options.get("--dry"):
+        err("%s\nDetected framework: Next.js\nNothing was deployed (--dry)." % HEADER)
+        return
+    dep = add_deployment(state, commit, target, source, branch=branch)
+    label = "Production" if target == "production" else "Preview"
+    as_json = options.get("--json") or "json" in (options.get("--format"), options.get("-F"))
+    err(HEADER)
+    err("Retrieving project…")
+    err("Deploying %s/%s" % (state["team"], state["project"]))
+    if not redeploy:
+        err("Uploading [--------------------] (0.0B/41.2KB)")
+        err("Uploading [==========----------] (20.6KB/41.2KB)")
+        err("Uploading [====================] (41.2KB/41.2KB)")
+    err("Inspect: https://vercel.com/%s/%s/%s [2s]"
+        % (state["team"], state["project"], dep["id"][4:]))
+    err("%s: https://%s [2s]" % (label, dep["url"]))
+    if options.get("--no-wait"):
+        err("Note: Deployment is still processing...")
+        print("https://%s" % dep["url"])
+        return
+    err("Building...")
+    if options.get("--logs") or options.get("-l"):
+        for line in build_log(state, dep):
+            err("%s  %s" % (dep["created"][11:19], line) if line else "")
+    finish(state, dep)
+    err("%s: https://%s [48s]" % (label, dep["url"]))
+    if target == "production" and state.get("alias") == dep["id"]:
+        err("Aliased: https://%s [48s]" % state["production_url"])
+    if as_json:
+        print(json.dumps({"id": dep["id"], "url": dep["url"], "target": target,
+                          "readyState": dep["state"]}, indent=2))
+    else:
+        print("https://%s" % dep["url"])
+    err("")
+    err("Common next commands:")
+    err("- `vercel inspect %s --logs`" % dep["url"])
+    err("- `vercel redeploy %s`" % dep["url"])
+    err("- `vercel logs %s`" % dep["url"])
+    err("")
+    err("Tip: run `vercel ls` to see every deployment of this project.")
+
+
+def cmd_move(state, argv, kind):
+    words, options = parse(argv, {"--yes", "-y"}, {"--timeout"})
+    if words is None or len(words) > 1 or (kind == "promote" and not words):
+        unsupported([kind] + argv, "one deployment and only the options the command documents")
+    if words:
+        dep = find(state, words[0])
+    else:
+        ready = [d for d in state["deployments"]
+                 if d["target"] == "production" and d["state"] == "READY"
+                 and d["id"] != state.get("alias")]
+        dep = ready[-1] if ready else None
+    if dep is None or dep["state"] != "READY":
+        sys.stderr.write("Error: That deployment cannot be used for a %s.\n" % kind)
+        sys.exit(1)
+    state["alias"] = dep["id"]
+    state["rolled_back"] = kind == "rollback"
+    state.setdefault("moves", []).append({"kind": kind, "to": dep["id"], "at": now()})
+    print(HEADER)
+    print("Success! %s now points to https://%s [6s]" % (state["production_url"], dep["url"]))
+    if kind == "rollback":
+        print("Automatic assignment of production domains is now turned off. "
+              "Run `vercel promote` to turn it back on.")
+
+
+def cmd_curl(state, argv):
+    words, options = parse(argv, {"--yes", "-y", "--json", "--trace"},
+                           {"--deployment", "--protection-bypass", "-X", "--request",
+                            "-H", "--header"})
+    if words is None or len(words) != 1:
+        unsupported(["curl"] + argv, "one path and only the options the command documents")
+    dep = find(state, options.get("--deployment", "")) if options.get("--deployment") \
+        else find(state, state["alias"])
+    if dep is None:
+        sys.stderr.write("Error: Could not find that deployment\n")
+        sys.exit(1)
+    status, _, body = sibling("curl").page(state, dep, words[0])
+    print(body)
+    sys.exit(0 if status < 400 else 1)
+
+
+def cmd_env(state, argv):
+    if argv[:1] == ["ls"] and len(argv) <= 2 and argv[1:2] in ([], ["production"], ["preview"],
+                                                                 ["development"]):
+        environment = argv[1] if len(argv) == 2 else ""
+        print(HEADER)
+        print("> Environment Variables found for %s/%s [201ms]" % (state["team"], state["project"]))
+        print()
+        print(" name                               value               environments                "
+              "created")
+        for name in state["env_names"]:
+            where = environment.capitalize() if environment else "Production, Preview"
+            kind = "Encrypted" if name.startswith("NEXT_PUBLIC_") else "Sensitive"
+            print(" %-34s %-19s %-27s 7d ago" % (name, kind, where))
+        print()
+        return
+    unsupported(["env"] + argv, "only env ls is modelled; production values are never pulled")
+
+
+def cmd_logs(state, argv):
+    words, options = parse(argv, {"--json", "-j", "--expand", "-x", "--follow", "-f",
+                                  "--no-branch"},
+                           {"--environment", "--level", "--since", "--until", "--limit", "-n",
+                            "--deployment", "--query", "-q", "--branch", "--status-code",
+                            "--source", "--project"})
+    if words is None or len(words) > 1:
+        unsupported(["logs"] + argv, "an option the command does not document")
+    if not options.get("--json") and not options.get("-j"):
+        print(HEADER)
+        print("> No logs found for %s/%s in the time range" % (state["team"], state["project"]))
+
+
+def main():
+    if not STATE or not os.path.isfile(STATE):
+        delegate("vercel")
+    argv = sys.argv[1:]
+    if "--help" in argv or "-h" in argv:
+        note("CALL\tvercel %s" % " ".join(argv))
+        print("%s\n\n  Usage: vercel [options] <command>" % HEADER)
+        return
+    note("CALL\tvercel %s" % " ".join(argv))
+    state = load()
+    sync(state)
+    tick(state)
+
+    # The global options may come first.
+    while argv and argv[0] in GLOBAL:
+        argv = argv[2:] if GLOBAL[argv[0]] else argv[1:]
+    if not argv:
+        unsupported(argv, "a bare vercel deploys the folder; say vercel deploy")
+    command, rest = argv[0], argv[1:]
+
+    if command in ("--version", "-v", "version"):
+        print(HEADER)
+        print(VERSION)
+    elif command == "whoami":
+        print(HEADER)
+        print(state["user"])
+    elif command in ("ls", "list"):
+        cmd_ls(state, rest)
+    elif command == "inspect":
+        cmd_inspect(state, rest)
+    elif command == "deploy":
+        cmd_deploy(state, rest)
+    elif command == "redeploy":
+        cmd_deploy(state, rest, redeploy=True)
+    elif command in ("promote", "rollback"):
+        if command == "rollback" and rest[:1] == ["status"]:
+            print(HEADER)
+            print("No rollback in progress for %s" % state["project"])
+        else:
+            cmd_move(state, rest, command)
+    elif command == "curl":
+        save(state)
+        cmd_curl(state, rest)
+    elif command == "env":
+        cmd_env(state, rest)
+    elif command == "logs":
+        cmd_logs(state, rest)
+    elif command == "link":
+        words, _ = parse(rest, {"--yes", "-y"}, {"--project", "-p"})
+        if words is None or words:
+            unsupported(argv, "an option the command does not document")
+        print(HEADER)
+        print("Linked to %s/%s (created .vercel)" % (state["team"], state["project"]))
+    elif command == "git" and rest[:1] == ["connect"]:
+        words, _ = parse(rest[1:], {"--yes", "-y", "--confirm"}, {"--project"})
+        if words is None or words:
+            unsupported(argv, "an option the command does not document")
+        print(HEADER)
+        print("> %s/%s is already connected to your project."
+              % (state["team"], state["project"]))
+    elif command == "project" and rest[:1] in (["ls"], ["list"]):
+        print(HEADER)
+        print("> Projects found under %s [240ms]" % state["team"])
+        print()
+        print("  Project Name     Latest Production URL                Updated")
+        print("  %-16s https://%-28s 7d" % (state["project"], state["production_url"]))
+    elif command == "project" and rest[:1] == ["inspect"]:
+        print(HEADER)
+        print("  General")
+        print()
+        print("    ID\t\t\tprj_noticeboardstandin")
+        print("    Name\t\t%s" % state["project"])
+        print("    Owner\t\t%s" % state["team"])
+        print("    Framework Preset\tNext.js")
+        print("    Node.js Version\t22.x")
+    else:
+        unsupported(argv, "unmodelled command")
+    save(state)
+
+
+if __name__ == "__main__":
+    main()

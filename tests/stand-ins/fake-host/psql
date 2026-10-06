@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# A stand-in for psql in a replayed launch: installed, and unable to reach any
+# database, so no run touches a real one.
+. "$(dirname -- "$0")/_common.sh"
+stand_in_or_real psql "$@"
+case "${1:-}" in
+  --version|-V) echo "psql (PostgreSQL) 17.5"; exit 0 ;;
+esac
+host=$(printf '%s\n' "$*" | sed -n 's/.*@\([^:/ ]*\).*/\1/p' | head -1)
+if [ -n "$host" ]; then
+  echo "psql: error: could not translate host name \"$host\" to address: nodename nor servname provided, or not known" >&2
+else
+  echo "psql: error: connection to server on socket \"/tmp/.s.PGSQL.5432\" failed: No such file or directory" >&2
+  printf '\tIs the server running locally and accepting connections on that socket?\n' >&2
+fi
+exit 2
