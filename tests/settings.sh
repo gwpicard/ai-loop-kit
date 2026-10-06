@@ -197,6 +197,13 @@ for entry in table["rules"]:
     if got2 != entry["guard"]:
         fail("%s: the guard gives %s for %s %r, and the table says %s"
              % (entry["id"], got2, entry["tool"], text, entry["guard"]))
+    elif entry["layer1"] == "none":
+        # The settings rules cannot say this spelling, so the guard stands alone for it.
+        if "single layer" not in entry.get("other_layer", ""):
+            fail("%s: no settings rule applies, and the row does not say 'single layer'" % entry["id"])
+        else:
+            single += 1
+            print("  single layer: %s, the guard only (%s)" % (entry["id"], entry["other_layer"]))
     else:
         ok("%s: %s in the template and %s from the guard" % (entry["id"], got1, got2))
 for entry in table["must_pass"]:

@@ -283,12 +283,11 @@ def read_block(path: Path, ctx: Context, *, write: bool = False) -> Decision | N
             )
     data = _data_folder(ctx)
     if data is not None and _is_under(path, data):
-        parts = path.relative_to(data).parts
-        if path.name == "app-key.pem" or "held-out" in parts:
-            return refuse(
-                "this is the App key or the held-out folder. Only the gate reads them.",
-                "use the gate's own commands. Do not read these files.",
-            )
+        return refuse(
+            "this is the kit's data folder. It holds the App key, the evidence key, "
+            "the head records and the held-out folder. Only the gate reads them.",
+            "use the gate's own commands. Do not read or write these files.",
+        )
     for folder in _secret_folders(ctx):
         if _is_under(path, folder):
             return refuse(
@@ -815,7 +814,7 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
     if "graphql" in endpoint:
         if any(m in text for m in LABEL_MUTATIONS):
             return refuse("this GraphQL call changes labels.", GATE_NEXT_LABEL)
-        if any(m in text for m in COMMENT_MUTATIONS):
+        if any(m in text for m in COMMENT_MUTATIONS) or re.search(r"\bmutation\b", text):
             return ask("this GraphQL call posts in the person's name.", COMMENT_NEXT)
         return None
     labels_path = bool(re.search(r"(^|/)labels(/|$)", endpoint))
@@ -827,8 +826,8 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
         return refuse("this gh api call writes labels.", GATE_NEXT_LABEL)
     if labels_path and family_text:
         return refuse("this gh api call names a state label.", GATE_NEXT_LABEL)
-    if write and re.search(r"/(comments|reviews)(/|$)", endpoint):
-        return ask("this call posts in the person's name.", COMMENT_NEXT)
+    if write:
+        return ask("this call writes to GitHub in the person's name.", COMMENT_NEXT)
     return None
 
 
@@ -876,6 +875,10 @@ def check_gh(args: Sequence[str]) -> Decision | None:
                 "a label is held in a variable, so it cannot be read.",
                 "write the label in the command.",
             )
+    if (group in {"issue", "pr"} and action in {"create", "edit", "close"}) or (
+        group == "release" and action == "create"
+    ):
+        return ask("this posts to GitHub in the person's name.", COMMENT_NEXT)
     if group == "label" and action in {"create", "edit", "delete"}:
         names = [a for a in tail if not a.startswith("-")][:1]
         names += [
@@ -1014,7 +1017,7 @@ def check_paths(
                 found = covers_protected(path, ctx)
                 if found is not None:
                     return found
-    if prog not in {"echo", "printf"}:
+    if prog not in {"echo", "printf", "cd", "pushd"}:
         for arg in args:
             for path in candidates(arg, cwd, ctx):
                 found = read_block(path, ctx)
