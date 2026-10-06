@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """List the project's documents that repeat each other or are no longer needed.
 
-Reads every Markdown document git tracks, apart from the kit's own files, the
-project records, the changelog files waiting in `changes/`, and anything in a
-folder whose name starts with a dot. It
-prints one line for each of two findings, and nothing when there are none:
+Reads every Markdown document git tracks, apart from the changelog, the changelog
+files waiting in `changes/`, a few files from older projects, and anything in a
+folder whose name starts with a dot. `AGENTS.md` and the overview are read, since
+a paragraph copied from one record into another is the drift to find. It prints
+one line for each of two findings, and nothing when there are none:
 
     repeated<TAB>document:line<TAB>other-document:line
         The same paragraph, of forty words or more, in two documents.
     unreferenced<TAB>document
         No other file in the project names the document. A README is never
         listed, since it is where a reader starts.
+
+With `--repeated` it prints only the first finding. `records-check.py` uses that,
+and reports each line as a fault of the rule `repeat`. A note nothing names is
+advice for the maintainer, and never a fault in the records.
 
 A document that names things the project no longer has is the document read's
 to find, in /sync, one name at a time.
@@ -21,29 +26,33 @@ thing in different words.
 
 It reads the project and writes nothing. Run it from the project root:
 
-    python3 <maintain skill folder>/scripts/document-bloat.py
+    python3 <kit folder>/scripts/document-bloat.py [--repeated]
 """
+
+from __future__ import annotations
 
 import os
 import re
 import subprocess
 import sys
 from collections import defaultdict
+from collections.abc import Iterator
 
-SKIPPED = {
-    "AGENTS.md", "CLAUDE.md", "GEMINI.md", "WORKFLOW.md", "masterplan.md",
-    "CHANGELOG.md", "plan.local.md",
-}
+SKIPPED = {"GEMINI.md", "WORKFLOW.md", "masterplan.md", "CHANGELOG.md", "plan.local.md"}
+# Read for repeats, and never reported as unreferenced: a reader starts there.
+ENTRY_POINTS = {"readme.md", "agents.md", "claude.md"}
 SHORTEST_PARAGRAPH = 40
 
 
-def tracked():
-    result = subprocess.run(["git", "ls-files"], capture_output=True, text=True)
+def tracked() -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files"], capture_output=True, text=True, check=False
+    )
     return [f for f in result.stdout.split("\n") if f]
 
 
-def documents(files):
-    found = []
+def documents(files: list[str]) -> list[str]:
+    found: list[str] = []
     for name in files:
         if not name.endswith(".md") or os.path.basename(name) in SKIPPED:
             continue
@@ -55,12 +64,14 @@ def documents(files):
     return found
 
 
-def paragraphs(document):
+def paragraphs(document: str) -> Iterator[tuple[int, list[str]]]:
     """Yield (first line, words) for each paragraph outside a fenced block."""
     with open(document, encoding="utf-8") as handle:
         lines = handle.read().split("\n")
-    fenced, start, words = False, None, []
-    for number, line in enumerate(lines + [""], start=1):
+    fenced = False
+    start: int | None = None
+    words: list[str] = []
+    for number, line in enumerate([*lines, ""], start=1):
         if line.lstrip().startswith("```"):
             fenced = not fenced
             continue
@@ -75,13 +86,13 @@ def paragraphs(document):
             start, words = None, []
 
 
-def repeated(docs):
-    seen = defaultdict(list)
+def repeated(docs: list[str]) -> list[tuple[str, ...]]:
+    seen: defaultdict[str, list[tuple[str, int]]] = defaultdict(list)
     for document in docs:
         for line, words in paragraphs(document):
             if len(words) >= SHORTEST_PARAGRAPH:
                 seen[" ".join(words)].append((document, line))
-    found = []
+    found: list[tuple[str, ...]] = []
     for places in seen.values():
         documents_here = {document for document, _ in places}
         if len(documents_here) < 2:
@@ -93,17 +104,17 @@ def repeated(docs):
     return found
 
 
-def unreferenced(docs, files):
-    texts = {}
+def unreferenced(docs: list[str], files: list[str]) -> list[tuple[str, ...]]:
+    texts: dict[str, str] = {}
     for name in files:
         try:
             with open(name, encoding="utf-8") as handle:
                 texts[name] = handle.read()
         except (OSError, UnicodeDecodeError):
             continue
-    found = []
+    found: list[tuple[str, ...]] = []
     for document in docs:
-        if os.path.basename(document).lower() == "readme.md":
+        if os.path.basename(document).lower() in ENTRY_POINTS:
             continue
         base = os.path.basename(document)
         named = any(
@@ -115,10 +126,17 @@ def unreferenced(docs, files):
     return found
 
 
-def main():
+def main() -> int:
+    only_repeated = "--repeated" in sys.argv[1:]
+    unknown = [a for a in sys.argv[1:] if a != "--repeated"]
+    if unknown:
+        print("error: unknown argument " + unknown[0], file=sys.stderr)
+        print("next: python3 document-bloat.py [--repeated]", file=sys.stderr)
+        return 2
     files = tracked()
     docs = documents(files)
-    for finding in repeated(docs) + unreferenced(docs, files):
+    findings = repeated(docs) + ([] if only_repeated else unreferenced(docs, files))
+    for finding in findings:
         print("\t".join(finding))
     return 0
 

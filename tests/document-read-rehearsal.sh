@@ -8,7 +8,9 @@
 # flagged: a file that exists, a command the project has, a setting the code
 # reads, a file git ignores on purpose, and a document that simply says less
 # than the project does. A document AGENTS.md never points at is not read at
-# all. A clean project produces no output, and the script writes nothing.
+# all. AGENTS.md and docs/overview.md are read themselves, since a record that
+# names a file the project lacks is drift. A clean project produces no output,
+# and the script writes nothing.
 #
 # A piece's changelog file in `changes/` is part of the changelog: never read
 # as a document, and never stale once the last fold has taken it away.
@@ -29,8 +31,9 @@ fail() {
 [ -x "$SCRIPT" ] || fail "the document-claims script is missing or not runnable"
 command -v python3 >/dev/null 2>&1 || fail "python3 is needed to run this rehearsal"
 
+# The throwaway folder is made with mktemp -d and left in place: nothing here
+# deletes anything.
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
 PROJECT="$WORK/project"
 mkdir -p "$PROJECT/src" "$PROJECT/docs"
 cd "$PROJECT"
@@ -170,6 +173,21 @@ printf '%s\n' "$out" | grep -qF "$(printf 'docs/sign-in.md:5\tfile\tsrc/sign-in.
 echo "  ok: a concept file listed in docs/README.md is read through the list"
 printf '%s\n' "$out" | grep -q 'unlisted' && fail "a docs file the list does not name was read"
 echo "  ok: a file in docs/ the list does not name is still not read"
+[ -z "$(git status --porcelain)" ] || fail "the script wrote into the project"
+
+# --- the records are read themselves ------------------------------------------
+
+printf '%s\n' '' 'Release with `scripts/ship-it.sh`.' >> AGENTS.md
+printf '%s\n' '# Shop' '' 'Billing code lives in `src/billing/charge.js`.' > docs/overview.md
+git add -A
+commit "AGENTS.md and the overview drift"
+out=$(python3 "$SCRIPT")
+printf '%s\n' "$out" | grep -qE "^AGENTS.md:[0-9]+	file	scripts/ship-it.sh$" ||
+  fail "a name in AGENTS.md itself was not found: $out"
+echo "  ok: a stale name in AGENTS.md itself is found"
+printf '%s\n' "$out" | grep -qF "$(printf 'docs/overview.md:3\tfile\tsrc/billing/charge.js')" ||
+  fail "a name in docs/overview.md was not found: $out"
+echo "  ok: a stale name in docs/overview.md is found, though AGENTS.md never points at it"
 [ -z "$(git status --porcelain)" ] || fail "the script wrote into the project"
 
 echo

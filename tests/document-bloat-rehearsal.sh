@@ -3,7 +3,9 @@
 # throwaway project carrying each kind of bloat, and against a clean one.
 #
 # The project holds a paragraph repeated in two documents and a note nothing
-# names. Both have to be found. Just as much, the things that look like bloat
+# names. Both have to be found. `AGENTS.md` is read too, since a paragraph copied
+# from a record into a document is the drift the records check looks for, and
+# `--repeated` prints only the repeats, which is what that check uses. Just as much, the things that look like bloat
 # and are not have to be left alone: a README nothing links to, the project
 # records and the kit's own files, a short sentence two documents share, and a
 # page naming files the project no longer has, which the document read in
@@ -27,8 +29,9 @@ fail() {
 [ -x "$SCRIPT" ] || fail "the document-bloat script is missing or not runnable"
 command -v python3 >/dev/null 2>&1 || fail "python3 is needed to run this rehearsal"
 
+# The throwaway folder is made with mktemp -d and left in place: nothing here
+# deletes anything.
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
 PROJECT="$WORK/project"
 mkdir -p "$PROJECT/docs" "$PROJECT/src"
 cd "$PROJECT"
@@ -75,7 +78,7 @@ out=$(python3 "$SCRIPT")
 [ -z "$out" ] || fail "a tidy project should produce nothing, got: $out"
 echo "  ok: a tidy project produces nothing"
 echo "  ok: a README nothing links to is left alone"
-echo "  ok: the records and the kit's own files are not read, though they repeat and are unnamed"
+echo "  ok: the files from older projects are not read, though they repeat and are unnamed"
 [ -z "$(git status --porcelain)" ] || fail "the script wrote into the project"
 echo "  ok: the script writes nothing"
 
@@ -118,6 +121,26 @@ printf '%s\n' "$out" | grep -qE '[0-9]+ *%|score|grade' && fail "a score reached
 echo "  ok: no score, grade or percentage"
 [ -z "$(git status --porcelain)" ] || fail "the script wrote into the project"
 echo "  ok: the script still writes nothing"
+
+# --- the records are read, and --repeated prints only the repeats -------------
+
+printf '\n%s\n' "$PARAGRAPH" >> AGENTS.md
+save "AGENTS.md repeats the paragraph"
+out=$(python3 "$SCRIPT")
+printf '%s\n' "$out" | grep -qE "^repeated	AGENTS.md:[0-9]+	(README.md|docs/release.md):5$" ||
+  fail "a paragraph copied into AGENTS.md was not found: $out"
+echo "  ok: a paragraph copied into AGENTS.md is a repeat"
+printf '%s\n' "$out" | grep -q '^unreferenced	AGENTS.md' && fail "AGENTS.md was called unreferenced"
+echo "  ok: AGENTS.md is never called unreferenced"
+only=$(python3 "$SCRIPT" --repeated)
+printf '%s\n' "$only" | grep -q '^unreferenced' && fail "--repeated printed an unreferenced finding"
+printf '%s\n' "$only" | grep -q '^repeated' || fail "--repeated printed no repeat"
+echo "  ok: --repeated prints only the repeats"
+code=0
+python3 "$SCRIPT" --nonsense >/dev/null 2>&1 || code=$?
+[ "$code" = 2 ] || fail "an unknown argument should exit 2, got $code"
+echo "  ok: an unknown argument exits 2"
+[ -z "$(git status --porcelain)" ] || fail "the script wrote into the project"
 
 echo
 echo "document-bloat-rehearsal.sh: each kind of bloat found, everything else left alone"
