@@ -7,7 +7,7 @@ disable-model-invocation: true
 This fixture skill installs the kit and says what it left behind.
 
 ## Stops
-- Stop before anything that changes access or money. Held by: the ask rules in the project settings.
+- Stop before anything that changes access or money. Held by: settings: the ask rules for access and money.
 
 ## Steps
 1. Run the tooling check.

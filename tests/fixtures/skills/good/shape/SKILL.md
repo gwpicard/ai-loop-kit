@@ -10,7 +10,7 @@ This fixture skill talks with the person about one piece of work. It leaves a sp
 If the line above shows a disabled marker, run that command first.
 
 ## Stops
-- Stop when the piece needs a decision that only the person can make. Tell the person which decision, and wait. Held by: the gate refuses a move to ready without a spec that passes the spec lint.
+- Stop when the piece needs a decision that only the person can make. Tell the person which decision, and wait. Held by: `gate.py move` refuses a piece without a spec that passes the spec lint.
 - Stop when a check fails twice. Show the output. Held by: `kit/scripts/spec.py` exits non-zero on a bad spec.
 
 ## Steps

@@ -5,14 +5,18 @@ and fails a skill that uses a banned word, so a reader never has to guess whethe
 two words mean one thing.
 
 Each entry has a heading with the word to use, a line that says what it means, and
-a `Banned:` line with the words to avoid. The words are matched whole and without
+a `Banned:` line with the words to avoid, and perhaps a `Warn:` line with
+words that are often wrong but sometimes right. A banned word fails a skill. A
+warned word only warns. The words are matched whole and without
 regard to case, in `SKILL.md` and in references. They are not matched inside code.
 
 ## piece
 
 One unit of work, held as a GitHub issue, that moves through the states.
 
-Banned: ticket, task, work item, user story
+Banned: ticket, work item
+
+Warn: task
 
 ## state
 

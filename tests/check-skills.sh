@@ -96,6 +96,17 @@ expect_warn() {
   rs_ok "$2 warns ($1)"
 }
 
+expect_pass() {
+  # expect_pass <description>: the copy must pass with no finding and no warning.
+  lint "$M"
+  if [ "$LINT_CODE" -ne 0 ]; then
+    cat "$WORK/out"
+    rs_fail "the lint refused a copy that should pass: $1"
+  fi
+  [ -z "$(rules_in warnings)" ] || { cat "$WORK/out"; rs_fail "a copy that should pass warns: $1"; }
+  rs_ok "$1 passes"
+}
+
 # --- the good fixture passes -------------------------------------------------
 
 lint "$GOOD"
@@ -128,8 +139,29 @@ expect_fail P3-reference-lines "a reference over 300 lines"
 # --- principle 1: held by -----------------------------------------------------
 
 fresh
-edit shape/SKILL.md 't = t.replace(" Held by: the gate refuses a move to ready without a spec that passes the spec lint.", "")'
+edit shape/SKILL.md 't = t.replace(" Held by: `gate.py move` refuses a piece without a spec that passes the spec lint.", "")'
 expect_fail P1-held-by "a stop with no Held by line"
+
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas\n", "## Gotchas\n\n- Do not ever push to main.\n", 1)'
+expect_fail P1-held-by "a Gotchas bullet with 'do not' and no Held by line"
+
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas\n", "## Gotchas\n\n- You must never delete things; ask first.\n", 1)'
+expect_fail P1-held-by "a bullet with 'must' in the middle and no Held by line"
+
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas\n", "## Gotchas\n\n- The builder always asks first.\n", 1)'
+expect_fail P1-held-by "a bullet with 'always' in the middle and no Held by line"
+
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas\n", "## Gotchas\n\n- Never push to main. Held by: `gate.py move` refuses it.\n", 1)'
+expect_pass "a hard rule in Gotchas that has a real Held by line"
+
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas\n", "## Gotchas\n\n- Never push to main.\n\n```sh\n# never mind this comment\n```\n", 1)'
+edit shape/SKILL.md 't = t.replace("- Never push to main.\n", "- Push only through a pull request.\n", 1)'
+expect_pass "a hard word inside a code block"
 
 # --- principle 2: do not restate the gate --------------------------------------
 
@@ -222,7 +254,7 @@ edit shape/SKILL.md 't = t.replace("## Gotchas", "You MUST ask first.\n\n## Gotc
 expect_fail P9-emphasis "capitalised emphasis"
 
 fresh
-edit shape/SKILL.md 't = t.replace("## When to read more", "- Do not guess the answer.\n\n## When to read more")'
+edit shape/SKILL.md 't = t.replace("## When to read more", "- Do not guess the answer. Held by: `gate.py move` refuses a spec with a guess.\n\n## When to read more")'
 expect_warn P9-warn "a do-not with no positive instruction"
 
 # --- principle 10: gotchas -------------------------------------------------------------
@@ -254,6 +286,14 @@ fresh
 edit run/SKILL.md 't = t.replace("## Gotchas", "Each stage is one label.\n\n## Gotchas")'
 expect_fail P11-banned "a banned synonym (stage)"
 
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas", "Each task is one issue.\n\n## Gotchas")'
+expect_warn P11-warn "the word task, which only warns"
+
+fresh
+edit shape/SKILL.md 't = t.replace("## Gotchas", "A user story is a section of the spec.\n\n## Gotchas")'
+expect_pass "the spec section name 'user story'"
+
 # --- principle 12: done conditions -------------------------------------------------------
 
 fresh
@@ -284,6 +324,24 @@ fresh
 rm -- "$M/shape/evals/"*
 rmdir "$M/shape/evals"
 expect_fail P15-evals "a skill with no evals folder"
+
+fresh
+: > "$M/shape/evals/normal.md"
+expect_fail P15-evals "an empty eval file"
+
+fresh
+mv "$M/setup/evals/edge.md" "$M/setup/evals/other.md"
+printf '# Case: other\nNot an edge case.\n' > "$M/setup/evals/other.md"
+expect_fail P15-evals "no eval case marked edge"
+
+fresh
+mv "$M/setup/evals/edge.md" "$M/setup/evals/case-two.md"
+expect_pass "an eval case marked edge by its first heading"
+
+fresh
+mv "$M/setup/evals/edge.md" "$M/setup/evals/case-two.md"
+printf 'No heading here.\n' > "$M/setup/evals/case-two.md"
+expect_fail P15-evals "an eval case with a neutral name and no heading"
 
 # --- principle 16: timeless --------------------------------------------------------------------
 
@@ -320,6 +378,24 @@ expect_fail P17-guard "a guard held only by the skill's frontmatter"
 fresh
 edit shape/SKILL.md 't = t.replace("Held by: `kit/scripts/spec.py` exits non-zero on a bad spec.", "Held by: care.")'
 expect_fail P17-guard "a Held by line that names no holder"
+
+fresh
+edit shape/SKILL.md 't = t.replace("Held by: `kit/scripts/spec.py` exits non-zero on a bad spec.", "Held by: `kit/scripts/nonexistent.py` exits non-zero on a bad spec.")'
+expect_fail P17-guard "a Held by line that names a file that does not exist"
+
+for word in check script gate lint; do
+  fresh
+  edit shape/SKILL.md "t = t.replace('Held by: \`kit/scripts/spec.py\` exits non-zero on a bad spec.', 'Held by: a $word I trust.')"
+  expect_fail P17-guard "a Held by line with only the bare word '$word'"
+done
+
+fresh
+edit shape/SKILL.md 't = t.replace("Held by: `kit/scripts/spec.py` exits non-zero on a bad spec.", "Held by: `gate.py move` and `gate.py report`; also move 7.")'
+expect_pass "a Held by line that names gate moves"
+
+fresh
+edit shape/SKILL.md 't = t.replace("Held by: `kit/scripts/spec.py` exits non-zero on a bad spec.", "Held by: settings: deny rule on git push.")'
+expect_pass "a Held by line that names a settings rule"
 
 # --- the lint reads its own arguments -----------------------------------------------------------------
 

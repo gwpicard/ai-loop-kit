@@ -13,7 +13,8 @@ green.
 Each finding has a rule id that starts with its principle, such as `P3-lines`.
 A finding fails the check (exit 1). A warning does not. The rules:
 
-    P1   every stop and every "Never" line says `Held by:` and names a holder
+    P1   every stop, and every bullet with a hard word (do not, never, must, always),
+         says `Held by:`; P17 checks that it names a real path, gate move or setting
     P2   no copy of the gate's table: its labels or its exit codes
     P3   SKILL.md has 150 lines, 2,000 words, a 300 character description;
          a reference has 300 lines
@@ -30,7 +31,7 @@ A finding fails the check (exit 1). A warning does not. The rules:
          banned synonym from the glossary
     P12  every numbered step has a `Done when:` line
     P13  what-now and run start with the gate's report and a fallback line
-    P15  at least three eval cases, as files under `evals/`
+    P15  at least three non-empty eval cases under `evals/`: normal, edge, refusal
     P16  no date, version, model name, issue number or commit hash
     P17  a guard is held by more than the skill's own frontmatter
 
@@ -111,15 +112,13 @@ FRONTMATTER_CLAIM = re.compile(
     r"(skill-scoped|this skill'?s? (own )?(frontmatter|hooks)|allowed-tools|frontmatter)",
     re.IGNORECASE,
 )
-HOLDER = re.compile(
-    r"(script|setting|gate|github|deny rule|ask rule|\.py\b|\.sh\b|\bhook\b|"
-    r"settings\.json|sandbox|lint|check)",
-    re.IGNORECASE,
-)
+GATE_MOVE = re.compile(r"\bgate\.py\s+[a-z][\w-]*|\bmoves?\s+(?:<n>|\d+)", re.IGNORECASE)
+SETTINGS_RULE = re.compile(r"\bsettings:\s*\S+", re.IGNORECASE)
+PATH_WORD = re.compile(r"[\w@~./-]*(?:/[\w@~./-]*|\.[A-Za-z][A-Za-z0-9]{0,4}\b)")
+HARD_WORD = re.compile(r"\b(do not|don't|never|must not|always|must)\b", re.IGNORECASE)
+EVAL_KINDS = ("normal", "edge", "refusal")
 
-MONTHS = (
-    "January|February|March|April|May|June|July|August|September|October|November|December"
-)
+MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
 TIMELESS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("a date", re.compile(r"\b20\d\d-\d\d-\d\d\b")),
     ("a date", re.compile(rf"\b({MONTHS})\s+\d{{1,2}}(st|nd|rd|th)?,?\s+20\d\d\b")),
@@ -277,31 +276,56 @@ def check_size(skill: Skill, report: Report) -> None:
                 )
 
 
+def prose_bullets(skill: Skill) -> list[tuple[int, str]]:
+    """Every top-level bullet in the body outside fenced code, joined with its continuations."""
+    kept: list[tuple[int, str]] = []
+    fenced = False
+    for index in range(skill.body_start, len(skill.lines)):
+        line = skill.lines[index]
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            kept.append((index + 1, line))
+    return bullets(kept)
+
+
+def real_holder(holder: str) -> str:
+    """Why a `Held by:` text names nothing real, or an empty string when it does."""
+    text = FRONTMATTER_CLAIM.sub("", holder)
+    if GATE_MOVE.search(text) or SETTINGS_RULE.search(text):
+        return ""
+    text = text.replace("`", " ")
+    words = [w.strip(".,;:()'\"") for w in text.split()]
+    paths = [w for w in words if PATH_WORD.fullmatch(w)]
+    paths = [w for w in paths if "/" in w or re.search(r"\.[A-Za-z]", w)]
+    if not paths:
+        return (
+            "Held by names no holder outside the skill's own frontmatter: name a path, "
+            "`gate.py <command>`, `move <n>` or `settings: <rule>`"
+        )
+    missing = [w for w in paths if not ((KIT.parent / w).exists() or (KIT / w).exists())]
+    if missing:
+        return f"Held by names {missing[0]}, which does not exist under the repository or kit"
+    return ""
+
+
 def check_held_by(skill: Skill, report: Report) -> None:
     where = skill.skill_file
     hard: list[tuple[int, str]] = list(bullets(section_lines(skill, "stops")))
     stops = {number for number, _ in hard}
-    for number, text in bullets(
-        [(n + 1, line) for n, line in enumerate(skill.lines) if n >= skill.body_start]
-    ):
-        if number not in stops and re.match(r"(never|always|must)\b", text, re.IGNORECASE):
+    for number, text in prose_bullets(skill):
+        if number not in stops and HARD_WORD.search(re.sub(r"`[^`]*`", "", text)):
             hard.append((number, text))
     for number, text in hard:
-        if not HELD_BY.search(text):
+        found = HELD_BY.search(text)
+        if not found:
             report.fail(
                 "P1-held-by", where, number, f"a hard rule with no Held by line: {text[:60]}"
             )
             continue
-        holder = text[HELD_BY.search(text).end() :]  # type: ignore[union-attr]
-        rest = FRONTMATTER_CLAIM.sub("", holder)
-        if not HOLDER.search(rest):
-            report.fail(
-                "P17-guard",
-                where,
-                number,
-                "Held by names no holder outside the skill's own frontmatter: "
-                "name a script, hook, setting or gate move",
-            )
+        why = real_holder(text[found.end() :])
+        if why:
+            report.fail("P17-guard", where, number, why)
 
 
 def check_gate_copies(texts: list[tuple[Path, list[str]]], report: Report) -> None:
@@ -348,9 +372,7 @@ def check_invocation(skill: Skill, report: Report) -> None:
     where = skill.skill_file
     disabled = skill.front.get("disable-model-invocation", "").lower() == "true"
     if skill.name in MODEL_INVOKED_NEVER and not disabled:
-        report.fail(
-            "P5-disable", where, 1, f"/{skill.name} needs `disable-model-invocation: true`"
-        )
+        report.fail("P5-disable", where, 1, f"/{skill.name} needs `disable-model-invocation: true`")
     if not disabled and "use when" not in skill.front.get("description", "").lower():
         report.fail(
             "P5-use-when",
@@ -460,14 +482,14 @@ def check_gotchas(skill: Skill, report: Report) -> None:
         report.fail("P10-gotchas", skill.skill_file, 1, "no `## Gotchas` section with an entry")
 
 
-def banned_words(glossary: Path) -> list[tuple[str, str]]:
-    """(banned word, the word to use) from the `Banned:` lines under each heading."""
+def banned_words(glossary: Path, key: str = "banned:") -> list[tuple[str, str]]:
+    """(word, the word to use) from the `Banned:` or `Warn:` lines under each heading."""
     pairs: list[tuple[str, str]] = []
     use = ""
     for line in glossary.read_text(encoding="utf-8").split("\n"):
         if line.startswith("## "):
             use = line[3:].strip()
-        elif line.lower().startswith("banned:"):
+        elif line.lower().startswith(key):
             for word in line.split(":", 1)[1].split(","):
                 if word.strip():
                     pairs.append((word.strip().lower(), use))
@@ -475,7 +497,11 @@ def banned_words(glossary: Path) -> list[tuple[str, str]]:
 
 
 def check_banned(
-    path: Path, lines: list[str], banned: list[tuple[str, str]], report: Report
+    path: Path,
+    lines: list[str],
+    banned: list[tuple[str, str]],
+    warned: list[tuple[str, str]],
+    report: Report,
 ) -> None:
     for number, line in prose_lines(lines):
         for word, use in banned:
@@ -483,6 +509,9 @@ def check_banned(
                 report.fail(
                     "P11-banned", path, number, f"'{word}' is banned; the glossary word is '{use}'"
                 )
+        for word, use in warned:
+            if re.search(rf"\b{re.escape(word)}s?\b", line, re.IGNORECASE):
+                report.warn("P11-warn", path, number, f"'{word}' may mean '{use}'; use '{use}'")
 
 
 def check_repeats(folders: list[Skill], report: Report) -> None:
@@ -561,20 +590,43 @@ def check_now(skill: Skill, report: Report) -> None:
         report.fail("P13-now", where, body[0][0], "no fallback line after the injected report")
 
 
+def eval_kind(case: Path) -> str:
+    """normal, edge or refusal, by the file name or the first heading line; else empty."""
+    heading = ""
+    for line in case.read_text(encoding="utf-8").split("\n"):
+        if line.strip():
+            heading = line.lower() if line.startswith("#") else ""
+            break
+    for kind in EVAL_KINDS:
+        if kind in case.stem.lower() or kind in heading:
+            return kind
+    return ""
+
+
 def check_evals(skill: Skill, report: Report) -> None:
     evals = skill.folder / "evals"
     cases = (
-        [p for p in evals.iterdir() if p.is_file() and not p.name.startswith(".")]
+        [p for p in sorted(evals.iterdir()) if p.is_file() and not p.name.startswith(".")]
         if evals.is_dir()
         else []
     )
+    where = evals if evals.is_dir() else skill.folder
     if len(cases) < MIN_EVALS:
         report.fail(
             "P15-evals",
-            evals if evals.is_dir() else skill.folder,
+            where,
             1,
             f"{len(cases)} eval cases; {MIN_EVALS} at least (normal, edge, refusal)",
         )
+    for case in cases:
+        if not case.read_text(encoding="utf-8").strip():
+            report.fail("P15-evals", case, 1, "an empty eval case; write the case")
+    kinds = {eval_kind(c) for c in cases if c.read_text(encoding="utf-8").strip()}
+    for kind in EVAL_KINDS:
+        if len(cases) >= MIN_EVALS and kind not in kinds:
+            report.fail(
+                "P15-evals", where, 1, f"no {kind} case; name a file or its first heading '{kind}'"
+            )
 
 
 def check_timeless(path: Path, lines: list[str], report: Report) -> None:
@@ -604,6 +656,7 @@ def lint(root: Path, glossary: Path) -> tuple[Report, int]:
             next_command="add `Banned:` lines to kit/glossary.md, or pass --glossary FILE",
             code=cli.ExitCode.ENVIRONMENT,
         )
+    warned = banned_words(glossary, "warn:")
     skills = [load_skill(folder) for folder in skill_folders(root)]
     for skill in skills:
         check_size(skill, report)
@@ -624,7 +677,7 @@ def lint(root: Path, glossary: Path) -> tuple[Report, int]:
         check_gate_copies(texts, report)
         for path, lines in texts:
             check_emphasis(path, lines, report)
-            check_banned(path, lines, banned, report)
+            check_banned(path, lines, banned, warned, report)
             check_timeless(path, lines, report)
     if skills:
         check_repeats(skills, report)
