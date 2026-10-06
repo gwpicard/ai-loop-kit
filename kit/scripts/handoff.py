@@ -80,6 +80,27 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         ) from exc
 
 
+def _write_once(path: Path, data: dict[str, Any]) -> bool:
+    """Write the file whole or not at all. False when one already exists.
+
+    The text goes to a temporary file in the same folder. A hard link then gives
+    it the real name, and that fails when the name is taken, as O_EXCL would. A
+    reader never sees half a file, and two writers cannot both win.
+    """
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def handle(args: argparse.Namespace) -> dict[str, Any]:
     data = build(args)
     target = args.file or os.environ.get(sessions.HANDOFF_ENV)
@@ -109,8 +130,13 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
             next_command="stop now. The first hand-off stands, and you cannot change it",
             code=cli.ExitCode.REFUSED,
         )
-    if not args.dry_run:
-        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if not args.dry_run and not _write_once(path, data):
+        # Another hand-off won the race between the check above and now.
+        raise cli.Failure(
+            f"a hand-off is already written at {path}",
+            next_command="stop now. The first hand-off stands, and you cannot change it",
+            code=cli.ExitCode.REFUSED,
+        )
     return {
         "outcome": data["outcome"],
         "file": str(path),

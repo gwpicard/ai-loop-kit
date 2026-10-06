@@ -18,8 +18,8 @@ lines in the same session with the same command and event, so a refused command
 that comes back shows 1, then 2.
 
 A call that carries a call ID is logged once for each event, even when the hook
-runs twice for it, as it does when a session loads the plugin and `--settings`
-both. A call with no ID is always logged.
+runs twice for it at the same time, as it does when a session loads the plugin and
+`--settings` both. A marker file in `claims/` next to the log settles the race. A call with no ID is always logged.
 
 The run's name is the `AI_LOOP_KIT_RUN` variable. The session starter sets it.
 Without it, or with a name `loop/paths.py` refuses, the line goes to the run named
@@ -31,6 +31,7 @@ never stops a call: any fault here is swallowed, and `main()` always exits 0.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -137,29 +138,23 @@ def _retries(log: Path, session: str, command: str, event: str) -> int:
     return count
 
 
-def _seen(log: Path, session: str, call_id: str, event: str) -> bool:
-    """True when this call and event are already in the log.
+def _claim(log: Path, session: str, call_id: str, event: str) -> bool:
+    """Claim this call and event. True for the first claimant, False for any later one.
 
     A builder session gets the hooks from `--settings`. If the plugin is loaded
-    too, each hook runs twice for one call. Both runs carry the same call ID.
+    too, each hook runs twice for one call, and Claude Code runs them at the same
+    time. Both runs carry the same call ID. A marker file made with O_CREAT and
+    O_EXCL lets exactly one of them go on, with no read-then-write gap.
     """
+    key = hashlib.sha256(f"{session}\0{call_id}\0{event}".encode()).hexdigest()[:32]
+    folder = log.parent / "claims"
+    folder.mkdir(parents=True, exist_ok=True)
     try:
-        lines = log.read_text(encoding="utf-8").splitlines()[-RETRY_WINDOW:]
-    except OSError:
+        fd = os.open(folder / key, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
         return False
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if (
-            isinstance(row, dict)
-            and row.get("session") == session
-            and row.get("call") == call_id
-            and row.get("event") == event
-        ):
-            return True
-    return False
+    os.close(fd)
+    return True
 
 
 def record(
@@ -177,7 +172,7 @@ def record(
         session = str(payload.get("session_id") or "")
         command = scrub(_target(payload))
         call_id = str(payload.get("tool_use_id") or "")
-        if call_id and _seen(log, session, call_id, event):
+        if call_id and not _claim(log, session, call_id, event):
             return
         row = {
             "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),

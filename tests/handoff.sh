@@ -248,4 +248,20 @@ run_handoff --file "$HF" gave-up --reason "changed my mind" >"$TP_BASE/o" 2>"$TP
   || fail "a second, different hand-off should be refused with exit 3 (exit $code)"
 ok "a second, different hand-off is refused and the first stays"
 
+# Ten different hand-offs at once: exactly one wins, the file is whole, and no
+# temporary file stays in the folder.
+RACE="$TP_BASE/race"
+mkdir -p "$RACE"
+i=0
+while [ "$i" -lt 10 ]; do
+  python3 "$HANDOFF" --file "$RACE/handoff.json" done --summary "writer $i" \
+    >/dev/null 2>&1 &
+  i=$((i + 1))
+done
+wait
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["outcome"]=="done" and d["summary"].startswith("writer ")' \
+  "$RACE/handoff.json" || fail "the raced hand-off is not whole"
+[ "$(ls "$RACE" | wc -l | tr -d ' ')" = 1 ] || fail "a temporary file stayed behind: $(ls "$RACE")"
+ok "ten hand-offs at once leave one whole file and no temporary file"
+
 echo "handoff.sh: all checks passed"

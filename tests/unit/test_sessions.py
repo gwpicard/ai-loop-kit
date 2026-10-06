@@ -101,8 +101,15 @@ class CommandLine(unittest.TestCase):
                 "dontAsk",
                 "--output-format",
                 "json",
+                "--permission-prompts",
+                "none",
             ],
         )
+
+    def test_a_prompt_nobody_can_answer_is_a_denial(self) -> None:
+        command = sessions.build_command(self.SETTINGS, max_budget_usd=1)
+        at = command.index("--permission-prompts")
+        self.assertEqual(command[at + 1], "none")
 
     def test_no_bare_and_no_resume(self) -> None:
         command = sessions.build_command(self.SETTINGS, max_budget_usd=3)
@@ -179,6 +186,9 @@ class Starting(Base):
         )
         self.assertEqual(scrubbed, {"PATH": "/bin", "ANTHROPIC_API_KEY": "kept"})
 
+    def test_the_environment_turns_auto_memory_off(self) -> None:
+        self.assertEqual(self.plan().env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+
     def test_the_environment_names_the_run_and_the_handoff_file(self) -> None:
         session = self.plan()
         self.assertEqual(session.env["AI_LOOP_KIT_RUN"], "night-1")
@@ -247,6 +257,24 @@ class Starting(Base):
         self.assertIsNone(result.handoff)
         self.assertFalse(session.handoff_file.exists())
 
+    def test_a_hand_off_from_an_earlier_session_is_moved_aside_and_reported(self) -> None:
+        session = self.plan()
+        old = {"outcome": "gave-up", "reason": "old"}
+        session.handoff_file.write_text(json.dumps(old))
+        result = sessions.start(session, runner=FakeRunner())
+        self.assertIsNone(result.handoff)
+        self.assertIsNotNone(result.moved_aside)
+        assert result.moved_aside is not None
+        self.assertTrue(result.moved_aside.exists())
+        self.assertNotEqual(result.moved_aside, session.handoff_file)
+        self.assertRegex(result.moved_aside.name, r"\d{8}")
+        self.assertEqual(json.loads(result.moved_aside.read_text()), old)
+        self.assertFalse(session.handoff_file.exists())
+
+    def test_no_old_hand_off_means_nothing_moved(self) -> None:
+        result = sessions.start(self.plan(), runner=FakeRunner())
+        self.assertIsNone(result.moved_aside)
+
     def test_output_that_is_not_json_is_kept_as_text(self) -> None:
         result = sessions.start(self.plan(), runner=FakeRunner(stdout="plain words"))
         self.assertIsNone(result.output)
@@ -294,6 +322,9 @@ class Settings(Base):
         text = self.plan().settings_file.read_text()
         self.assertIn(f"{self.kit}/hooks/guard.py", text)
         self.assertIn(f"{self.kit}/hooks/command-log.py", text)
+
+    def test_auto_memory_is_off_in_the_rendered_settings(self) -> None:
+        self.assertIs(self.rendered()["autoMemoryEnabled"], False)
 
     def test_the_settings_file_is_private(self) -> None:
         mode = self.plan().settings_file.stat().st_mode & 0o777

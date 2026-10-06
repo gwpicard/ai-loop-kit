@@ -69,6 +69,43 @@ class Duplicates(unittest.TestCase):
         command_log.record(self.payload(), "ran", "", self.env)
         self.assertEqual(len(self.lines()), 2)
 
+    def test_two_hook_processes_at_once_log_each_call_once(self) -> None:
+        hook = ROOT / "kit" / "hooks" / "command-log.py"
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "AI_LOOP_KIT_RUN": "night-1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        procs = []
+        for index in range(20):
+            body = json.dumps(
+                self.payload(
+                    tool_use_id=f"toolu_{index}",
+                    hook_event_name="PostToolUse",
+                    tool_response={},
+                    tool_input={"command": f"echo {index}"},
+                )
+            )
+            for _ in range(2):
+                proc = subprocess.Popen(
+                    [sys.executable, str(hook)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=env,
+                    text=True,
+                )
+                procs.append((proc, body))
+        for proc, body in procs:
+            assert proc.stdin is not None
+            proc.stdin.write(body)
+            proc.stdin.close()
+        for proc, _ in procs:
+            proc.wait()
+        calls = [row["call"] for row in self.lines()]
+        self.assertEqual(len(calls), 20)
+        self.assertEqual(len(set(calls)), 20)
+
 
 if __name__ == "__main__":
     unittest.main()

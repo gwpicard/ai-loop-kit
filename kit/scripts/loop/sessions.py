@@ -29,6 +29,7 @@ import secrets
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from loop.paths import Paths
 CLAUDE = "claude"
 RUN_ENV = "AI_LOOP_KIT_RUN"
 HANDOFF_ENV = "AI_LOOP_KIT_HANDOFF_FILE"
+AUTO_MEMORY_ENV = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
 
 # Environment names a builder never inherits. A name that starts with GH_ or
 # GITHUB_ is dropped, so a new GitHub variable is covered before anybody lists it.
@@ -98,6 +100,9 @@ def build_command(settings_file: Path, *, max_budget_usd: float | None = None) -
         "dontAsk",
         "--output-format",
         "json",
+        # Nobody can answer a prompt in an unattended run, so it is a denial.
+        "--permission-prompts",
+        "none",
     ]
     if max_budget_usd is not None:
         if max_budget_usd <= 0:
@@ -353,6 +358,7 @@ class Result:
     output: dict[str, Any] | None  # the JSON `claude -p` printed, when it printed JSON
     handoff: dict[str, Any] | None  # None when the session left none
     handoff_error: str = ""  # why a hand-off that exists could not be read
+    moved_aside: Path | None = None  # an earlier session's hand-off, kept under a dated name
 
 
 def _write_private(path: Path, text: str) -> None:
@@ -397,6 +403,8 @@ def plan(
     session_env = scrub_env(os.environ if env is None else env)
     session_env[RUN_ENV] = run
     session_env[HANDOFF_ENV] = str(handoff_file)
+    # Second layer beside `autoMemoryEnabled: false` in the builder settings.
+    session_env[AUTO_MEMORY_ENV] = "1"
     _write_private(settings_file, json.dumps(settings, indent=2, sort_keys=True) + "\n")
     _write_private(brief_file, brief)
     return Session(
@@ -411,16 +419,36 @@ def plan(
     )
 
 
+def _move_aside(path: Path) -> Path | None:
+    """Rename an existing file to `<name>.<UTC date and time>[-n]`. None when there is none."""
+    if not path.exists():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for count in range(1000):
+        target = path.with_name(f"{path.name}.{stamp}" + (f"-{count}" if count else ""))
+        try:
+            os.link(path, target)  # fails when the name is taken, so nothing is overwritten
+        except FileExistsError:
+            continue
+        path.unlink()
+        return target
+    raise SessionError(
+        f"too many earlier hand-offs sit beside {path}",
+        next_command="look at them, then keep the ones you need",
+    )
+
+
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
 def start(session: Session, *, runner: Runner = subprocess.run) -> Result:
     """Run the session and wait for it. The brief file is its input.
 
-    A hand-off left by an earlier session of the same label is removed first, so
-    it cannot be taken for this one's.
+    A hand-off left by an earlier session of the same label is moved aside to a
+    dated name first, so it cannot be taken for this one's and is not lost. The
+    result names it in `moved_aside`.
     """
-    session.handoff_file.unlink(missing_ok=True)
+    moved_aside = _move_aside(session.handoff_file)
     try:
         with session.brief_file.open("r", encoding="utf-8") as brief:
             done = runner(
@@ -457,4 +485,5 @@ def start(session: Session, *, runner: Runner = subprocess.run) -> Result:
         output=output,
         handoff=handoff,
         handoff_error=problem,
+        moved_aside=moved_aside,
     )
