@@ -56,8 +56,10 @@ REQUIRED_FULL = (
     "follow",
     "changes",
     "coverage",
+    "not_in_this_piece",
     "judge",
     "links",
+    "sensitive_areas",
 )
 REQUIRED_QUICK = (
     "goal",

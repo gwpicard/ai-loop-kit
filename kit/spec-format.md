@@ -51,10 +51,10 @@ a `## ` heading. A heading inside a fenced code block does not count.
 | Follow | `follow` | yes | no |
 | Changes to current behaviour | `changes` | yes | no |
 | Coverage | `coverage` | yes | no |
-| Not in this piece | `not_in_this_piece` | no | no |
+| Not in this piece | `not_in_this_piece` | yes | no |
 | Judge | `judge` | yes | yes |
 | Links | `links` | yes | yes |
-| Sensitive areas | `sensitive_areas` | no | no |
+| Sensitive areas | `sensitive_areas` | yes | no |
 | Decisions | `decisions` | no | no |
 | Research | `research` | no | no |
 | Open questions | `open_questions` | no | no |

@@ -104,6 +104,22 @@ class QuickPathSpec(unittest.TestCase):
         self.assertIn("judge", spec.parse(cut).to_dict()["missing"])
 
 
+class FullPathRequiresTheLastTwoFields(unittest.TestCase):
+    def test_not_in_this_piece_and_sensitive_areas_are_required(self) -> None:
+        text = (FIXTURES / "full.md").read_text(encoding="utf-8")
+        cut = text.replace("## Not in this piece", "## X1").replace("## Sensitive areas", "## X2")
+        missing = spec.parse(cut).to_dict()["missing"]
+        self.assertIn("not_in_this_piece", missing)
+        self.assertIn("sensitive_areas", missing)
+
+    def test_none_counts_as_an_answer(self) -> None:
+        self.assertEqual(parse("full.md")["missing"], [])
+        self.assertEqual(parse("route-open.md")["missing"], [])
+
+    def test_the_quick_path_does_not_need_them(self) -> None:
+        self.assertEqual(parse("quick.md")["missing"], [])
+
+
 class RouteOpenSpec(unittest.TestCase):
     def test_route_open_is_marked(self) -> None:
         s = parse("route-open.md")
@@ -137,6 +153,24 @@ class RefusedSpecs(unittest.TestCase):
         with self.assertRaises(spec.SpecError) as caught:
             spec.parse((FIXTURES / "unclosed.md").read_text(encoding="utf-8"))
         self.assertIn("spec:end", str(caught.exception))
+
+    def test_a_marker_with_no_version_is_refused(self) -> None:
+        with self.assertRaises(spec.SpecError) as caught:
+            spec.parse("<!-- spec:start -->\n## Goal\nx\n<!-- spec:end -->\n")
+        self.assertTrue(caught.exception.refused)
+        self.assertIn("no version", str(caught.exception))
+
+    def test_a_bad_path_value_is_a_fault(self) -> None:
+        text = "<!-- spec:start version=1 -->\nPath: speedy\n## Goal\nx\n<!-- spec:end -->\n"
+        with self.assertRaises(spec.SpecError) as caught:
+            spec.parse(text)
+        self.assertIn("speedy", str(caught.exception))
+        self.assertFalse(caught.exception.refused)
+
+    def test_a_stray_end_marker_is_a_fault(self) -> None:
+        with self.assertRaises(spec.SpecError) as caught:
+            spec.parse("## Goal\nx\n<!-- spec:end -->\n")
+        self.assertIn("spec:start", str(caught.exception))
 
     def test_markers_inside_a_code_fence_do_not_count(self) -> None:
         s = parse("fenced-markers.md")

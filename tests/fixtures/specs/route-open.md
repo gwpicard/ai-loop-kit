@@ -32,6 +32,9 @@ Changed: the search answers faster. Docs: docs/search.md.
 Permissions: none new. Data kept: none. Errors: a timeout shows a message.
 Empty states: EC-1. What leaves the tool: the query, as today.
 
+## Not in this piece
+A new search engine.
+
 ## Judge
 Kind: measurement, metric p95 latency
 Command: npm run bench:search
@@ -42,4 +45,6 @@ Held-out cases: fingerprint 77aa11b (stored outside git; gate only)
 ## Links
 Relies on: src/search/index.ts
 Touches: search
+## Sensitive areas
+None.
 <!-- spec:end -->
