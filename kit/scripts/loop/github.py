@@ -29,7 +29,7 @@ pushes to GitHub only over https, to an address it builds from the owner and
 name, with the App's token. It never uses the person's SSH key or credential
 helper. A remote that is neither GitHub nor a folder on this computer is refused.
 
-Other kit scripts read GitHub through this module too: `spec.py`, `ready-lint.py`,
+Other kit scripts read GitHub through this module too: `spec.py`,
 `worktree.sh` (through `python3 -m loop.github pr-state <branch>`) and
 `check-tooling.sh` (through `python3 -m loop.github repo-view`).
 """

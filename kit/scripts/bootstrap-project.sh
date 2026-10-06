@@ -146,7 +146,6 @@ claude-settings.json|.claude/settings.json
 session-start.sh|.agents/hooks/session-start.sh
 plan-refresh.sh|.agents/tools/plan-refresh.sh
 gate.py|.agents/tools/gate.py
-ready-lint.py|.agents/tools/ready-lint.py
 area-map.py|.agents/tools/area-map.py
 state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
@@ -251,7 +250,6 @@ claude-settings.json|.claude/settings.json
 session-start.sh|.agents/hooks/session-start.sh
 plan-refresh.sh|.agents/tools/plan-refresh.sh
 gate.py|.agents/tools/gate.py
-ready-lint.py|.agents/tools/ready-lint.py
 area-map.py|.agents/tools/area-map.py
 state-guard.sh|.agents/hooks/state-guard.sh
 env.example|.env.example
