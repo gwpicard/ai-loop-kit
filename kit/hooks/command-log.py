@@ -17,6 +17,10 @@ ran in, the run's name and a retry count. The retry count is the number of earli
 lines in the same session with the same command and event, so a refused command
 that comes back shows 1, then 2.
 
+A call that carries a call ID is logged once for each event, even when the hook
+runs twice for it, as it does when a session loads the plugin and `--settings`
+both. A call with no ID is always logged.
+
 The run's name is the `AI_LOOP_KIT_RUN` variable. The session starter sets it.
 Without it, or with a name `loop/paths.py` refuses, the line goes to the run named
 `attended`.
@@ -133,6 +137,31 @@ def _retries(log: Path, session: str, command: str, event: str) -> int:
     return count
 
 
+def _seen(log: Path, session: str, call_id: str, event: str) -> bool:
+    """True when this call and event are already in the log.
+
+    A builder session gets the hooks from `--settings`. If the plugin is loaded
+    too, each hook runs twice for one call. Both runs carry the same call ID.
+    """
+    try:
+        lines = log.read_text(encoding="utf-8").splitlines()[-RETRY_WINDOW:]
+    except OSError:
+        return False
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if (
+            isinstance(row, dict)
+            and row.get("session") == session
+            and row.get("call") == call_id
+            and row.get("event") == event
+        ):
+            return True
+    return False
+
+
 def record(
     payload: Mapping[str, Any], event: str, reason: str, env: Mapping[str, str]
 ) -> None:
@@ -147,6 +176,9 @@ def record(
         log = paths.command_log(name)
         session = str(payload.get("session_id") or "")
         command = scrub(_target(payload))
+        call_id = str(payload.get("tool_use_id") or "")
+        if call_id and _seen(log, session, call_id, event):
+            return
         row = {
             "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "session": session,
@@ -158,6 +190,8 @@ def record(
             "run": name,
             "retry": _retries(log, session, command, event),
         }
+        if call_id:
+            row["call"] = call_id
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")

@@ -38,7 +38,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/push-to-main-rules.sh` | `fbdf054:.agents/tests/push-to-main-rules.sh` | `fbdf054` | adapted: Folder root now `..`; paths point at `kit/templates` and `tests/lib`. Removed the variables and rules that read the maintain skill and `WORKFLOW.md`. Knows the new hook-bypass deny rules. | Reads wording in `blocked-commands.md`. |
 | `tests/merge-ask-rule.sh` | `fbdf054:.agents/tests/merge-ask-rule.sh` | `fbdf054` | adapted: Folder root now `..`; paths point at `kit`. Removed the variables and rules that read skill prose, `WORKFLOW.md`, the compatibility page and this repository's own settings. The settings template may now carry other permission keys. | Reads wording in `blocked-commands.md`. |
 | `tests/attribution-scrub.sh` | `fbdf054:.agents/tests/attribution-scrub.sh` | `fbdf054` | edited: Folder root now `..`; the closing check now asks that `tests/house-rules.sh` names no exemption for this file (it asked this of the old validator). | Nothing known. |
-| `kit/scripts/worktree.sh` | `fbdf054:.agents/skills/implement/scripts/worktree.sh` | `fbdf054` | verbatim | Carries the old product name in two lines. |
+| `kit/scripts/worktree.sh` | `fbdf054:.agents/skills/implement/scripts/worktree.sh` | `fbdf054` | adapted: Shed the old product name. It no longer links the real `.env` or any other env file into a worktree. It writes a `.env` of throwaway values from `.env.example` under the guard's marker line, and counts that file as no unsaved work. The worktree-links and confidential lines moved to `.agents/loop/worktree-links.txt`. The run-state lookup also reads `run.json`. | Nothing yet. |
 | `kit/scripts/bring-up-to-date.sh` | `fbdf054:.agents/skills/section-builder/scripts/bring-up-to-date.sh` | `fbdf054` | edited: The fold script is found beside it (`$HERE/fold-changes.py`), because the scripts now sit in one folder. It was found under a sibling skill folder. | Its error message still says the sync skill's scripts folder. |
 | `kit/scripts/fold-changes.py` | `fbdf054:.agents/skills/sync/scripts/fold-changes.py` | `fbdf054` | verbatim | Nothing known. |
 | `kit/scripts/document-claims.py` | `fbdf054:.agents/skills/sync/scripts/document-claims.py` | `fbdf054` | verbatim | Nothing known. |
@@ -48,7 +48,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `kit/scripts/bootstrap-project.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/bootstrap-project.sh` | `fbdf054` | verbatim; no rehearsal drives it here | Untested in this place. It finds the guards and templates by paths under the old skill folders, so it cannot run from `kit/scripts` until those paths change. Carries the old product name in many lines. |
 | `kit/scripts/place-plan-helper.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/place-plan-helper.sh` | `fbdf054` | verbatim; no rehearsal drives it here | Untested in this place. It names the guards by paths under the old skill folders. Carries the old product name in one line. |
 | `tests/fixtures/CHANGELOG.md` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/CHANGELOG.md` | `fbdf054` | verbatim; a test fixture only, not a kit template | Nothing known. |
-| `tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054:.agents/tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script and the ignore template are found under `kit`. Removed the section "Walk-through pictures go to the main folder", which ran a lookup taken from the section-builder skill text. | Carries the old product name in one line. |
+| `tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054:.agents/tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054` | adapted: Folder root now `..`; the script and the ignore template are found under `kit`. Dropped the `.env` link assertions for throwaway-value assertions that read the marker line from `kit/hooks/guard.py`. It regains the `.agents/tmp` and walk-through picture assertions, now without a lookup taken from skill text. The recursive deletes are gone, and a folder is moved aside instead of deleted. | Nothing yet. |
 | `tests/fold-at-merge-rehearsal.sh` | `fbdf054:.agents/tests/fold-at-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the scripts are found under `kit/scripts` and the changelog under `tests/fixtures`. The helper is loaded from `tests/lib/rule-shape.sh`. | Nothing known. |
 | `tests/recheck-before-merge-rehearsal.sh` | `fbdf054:.agents/tests/recheck-before-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. The helper is loaded from `tests/lib/rule-shape.sh`. | Nothing known. |
 | `tests/check-tooling.sh` | `fbdf054:.agents/tests/check-tooling.sh` | `fbdf054` | edited: The root is now the folder above the tests (it was `.agents`); the checker is found under `kit/scripts`; the recipe lookup reads `kit/recipes`. The fallback to `tests/recipes-awaiting-run` is gone. A recipe missing from `kit/recipes` is a failure again (stage C2 had skipped it with a note, until the recipes arrived). | Carries the old product name in seven lines. |
@@ -116,13 +116,11 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 - `kit/scripts/bootstrap-project.sh`
 - `kit/scripts/check-tooling.sh`
 - `kit/scripts/place-plan-helper.sh`
-- `kit/scripts/worktree.sh`
 - `kit/scripts/gate.py`
 - `kit/templates/checks.yml`
 - `tests/area-map-rehearsal.sh`
 - `tests/check-tooling.sh`
 - `tests/gate-script.sh`
-- `tests/kit-owns-worktrees-rehearsal.sh`
 - `tests/fixtures/AGENTS.md`
 - `tests/stand-ins/prepare/live-on-vercel.sh`
 - `tests/stand-ins/prepare/live-on-vercel.after-commit.sh`
