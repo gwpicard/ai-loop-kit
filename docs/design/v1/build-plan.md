@@ -6,6 +6,17 @@ This plan takes v1 from the borrowed code now on `main` to a working core. Its s
 
 Pieces are numbered P1 to P27 for the core, then L1 to L10. A piece number is a name in this plan, not an issue number.
 
+## Waiting for the maintainer
+
+One question. P20 waits for the answer. Every other piece goes ahead, since none depends on it.
+
+Where is the gate's GitHub App created?
+
+- **A. In the first half of `/setup` (the plan's choice).** P20 guides the person through it. The first half then gives a full local run.
+- **B. In the second half, as the design says.** P20 drops the App step, the pre-run check refuses after the first half and names the second half, and P27 writes the stand-in App credential that the second half would write before its run.
+
+A one-line answer, "A" or "B", is enough. The detail is under "Decision for the maintainer to confirm".
+
 ## The pieces at a glance
 
 A parallel group is a set of pieces that share no files and whose dependencies are met, so they can build at the same time. Group G2 runs before G3, and so on.
@@ -88,8 +99,8 @@ This plan settles the lint rules for v1 code.
   ```
 
   `B` catches likely bugs, `UP` keeps code in the 3.10 style, `SIM` removes needless branches, `RUF` adds ruff's own checks, `PLW1510` refuses `subprocess.run` without `check=`, and the three `S` rules refuse a shell started from a string.
-- Verbatim copies keep `E4,E7,E9,F` until a piece adapts them. `tests/lint.sh` reads which files are verbatim from `BORROWED.md`, so the list has one home. It runs the full set on every other Python file and the old set on the verbatim ones. Adapting a file means changing its row, so the file moves to the full set in the same pull request.
-- mypy runs with `--strict` on `kit/scripts/loop/` and new scripts, and with default settings on verbatim copies.
+- Borrowed files that no v1 piece has adapted yet keep `E4,E7,E9,F` and default mypy. That covers every row whose "Verbatim or edit" cell starts with "verbatim" or "edited". `tests/lint.sh` reads this list from `BORROWED.md`, so the list has one home. It runs the full set on every other Python file. A piece that adapts a file changes its row to "adapted", so the file moves to the full set in the same pull request.
+- mypy runs with `--strict` on `kit/scripts/loop/` and new scripts, and with default settings on borrowed files not yet adapted.
 - Python files with no `.py` name, such as the GitHub stand-in, are found by their shebang and linted under a temporary `.py` name, as the stage C build did.
 - `tests/lint.sh` fails, with the install line, when ruff or mypy is missing. A check that did not run is never green.
 
@@ -114,8 +125,9 @@ GitHub hosted runners are off. Every test runs on this computer.
 **Test.** `tests/harness.sh` builds a throwaway project, opens an issue through the GitHub stand-in, runs a scripted Claude stand-in session that commits one file, and checks the commit and the stand-in's log. Unit tests cover `loop/paths.py` and `loop/cli.py`. `tests/lint.sh` and `tests/script-contracts.sh` each plant one fault in a copy and require a failure.
 
 **Files.**
-- New: `ruff.toml`; `tests/lint.sh`; `tests/unit.sh`; `tests/unit/test_paths.py`; `tests/unit/test_cli.py`; `kit/scripts/loop/__init__.py`; `kit/scripts/loop/paths.py`; `kit/scripts/loop/cli.py` (shared `--help`, `--json`, `--dry-run` and exit codes); `tests/lib/throwaway-project.sh`; `tests/stand-ins/fake-claude/claude` (replays a scripted attempt: files to write, commits to make, a hand-off to leave); `tests/stand-ins/fake-app/` (a stand-in App credential the GitHub stand-in accepts); `tests/script-contracts.sh` (finds scripts marked `# contract: agent` and runs principle 8's checks on each); `tests/harness.sh`.
-- `loop/paths.py` defines every shared path once, so no later piece edits it: the run folder and run record (`.agents/runs/<name>/run.json`), the lock file, the heartbeat, the mailbox, the piece records (`.agents/pieces/<n>/`), the command log, the worktrees folder, the policy file (`.agents/loop/policy.json`), the machine-local settings file (`.agents/loop/local.json`, git-ignored), the held-out folder outside the project, and the installed kit folder (the plugin cache in a founded project, `kit/` in this repository).
+- New: `ruff.toml`; `tests/lint.sh`; `tests/unit.sh`; `tests/unit/test_paths.py`; `tests/unit/test_cli.py`; `kit/scripts/loop/__init__.py`; `kit/scripts/loop/paths.py`; `kit/scripts/loop/cli.py` (shared `--help`, `--json`, `--dry-run` and exit codes); `tests/lib/throwaway-project.sh`; `tests/stand-ins/fake-claude/claude` (replays a scripted attempt: files to write, commits to make, a hand-off to leave); `tests/stand-ins/fake-app/` (a stand-in App credential; the stand-in key is made at test time with `openssl genrsa` in the throwaway folder, and no private key is committed; P11 makes the GitHub stand-in check it); `tests/script-contracts.sh` (finds scripts marked `# contract: agent` and runs principle 8's checks on each); `tests/harness.sh`.
+- `loop/paths.py` defines every shared path once, so no later piece edits it: the run folder and run record (`.agents/runs/<name>/run.json`), the lock file, the heartbeat, the mailbox, the piece records (`.agents/pieces/<n>/`), the command log, the worktrees folder, the policy file (`.agents/loop/policy.json`), the machine-local settings file (`.agents/loop/local.json`, git-ignored), the held-out folder outside the project, the App key file (outside the project, beside the held-out folder under the person's local data folder), and the installed kit folder (the plugin cache in a founded project, `kit/` in this repository).
+- P1 provides the mutation helper only as it is. P6 and P7 write their mutations in their own test files, and neither changes `tests/lib/rule-shape.sh`.
 - Changed: `tests/recipes.sh` gains a count assertion, so an empty `kit/recipes` fails (later note from the stage C3 review). `BORROWED.md` adds `tests/stand-ins/prepare/live-on-vercel.after-commit.sh` to its old-name list (same note).
 
 **Held by:** the lint rules in `ruff.toml` and `tests/lint.sh`; principle 8 in `tests/script-contracts.sh`; "a check that did not run is not green" in `tests/lint.sh` exiting non-zero.
@@ -136,11 +148,13 @@ GitHub hosted runners are off. Every test runs on this computer.
 
 **Goal.** Replace the text-matching state guard with a hook that parses each command, and log every command the agent runs, refuses or retries.
 
-**Test.** Unit tests feed the hook every spelling in `kit/templates/blocked-commands.md` and the permission matcher's cases: `git -C . push origin main`, `env X=1 git push --force`, `sh -c "rm -rf x"`, `find . -delete`, `git reset --hard`, `gh issue edit 5 --add-label state:ready`, `gh api` label writes, `cat .env` in the main folder, and a write to a guarded path. Each is refused with a reason. `gh issue comment` and `gh pr comment` return "ask", not a pass. Harmless forms such as `git push origin feature` pass. Reading a worktree's throwaway `.env`, whose first line is the kit's throwaway marker, passes. `tests/guard-hook.sh` runs the hook as Claude Code would, with JSON on stdin, in a throwaway project, and checks the command log line for a refusal, an ask and a pass.
+**Test.** Unit tests feed the hook every spelling in `kit/templates/blocked-commands.md` and the permission matcher's cases: `git -C . push origin main`, `env X=1 git push --force`, `sh -c "rm -rf x"`, `find . -delete`, `git reset --hard`, `gh issue edit 5 --add-label state:ready`, `gh api` label writes, `cat .env` in the main folder, and a write to a guarded path. Each is refused with a reason. `gh issue comment` and `gh pr comment` return "ask", not a pass. Harmless forms such as `git push origin feature` pass. Reading a worktree's throwaway `.env`, whose first line is the kit's throwaway marker, passes. A `.env` in the main folder is refused even when it starts with the marker. Reading the App key file, the held-out folder or the `gh` config, `gh auth token`, and `security find-generic-password` or `find-internet-password` are each refused. `tests/guard-hook.sh` runs the hook as Claude Code would, with JSON on stdin, in a throwaway project, and checks the command log line for a refusal, an ask and a pass.
 
 **Files.**
 - New: `kit/hooks/guard.py`; `kit/hooks/command-log.py`; `tests/unit/test_guard.py`; `tests/guard-hook.sh`.
-- Adapts: `kit/templates/blocked-commands.md` (v1 wording, the kit's own paths, the old product name gone).
+- Adapts: `kit/templates/blocked-commands.md` (the kit's own paths, the old product name gone).
+- P3 keeps every section heading and command list in `blocked-commands.md` that `tests/push-to-main-rules.sh` and `tests/merge-ask-rule.sh` read, so both stay green. It changes paths, the old product name and the hook name only. P10 changes the wording those two tests read, in the same pull request as the tests.
+- The throwaway marker string lives in `kit/hooks/guard.py`. P12's `worktree.sh` writes the same string.
 - Retires: `kit/scripts/state-guard.sh` and `tests/state-guard.sh`, replaced by the two tests above.
 
 **Held by:** this piece is one of the two layers for push to `main`, force push, recursive delete, `git reset --hard`, hand-written `state:` and `needs-you` labels, reading real env files, writes to the guards, and posting in the person's name. The other layer is P10's deny and ask rules.
@@ -160,7 +174,7 @@ GitHub hosted runners are off. Every test runs on this computer.
 
 **Goal.** Check the age and licence of a new dependency before it is accepted, and turn on the package managers' own minimum-age and no-install-scripts settings.
 
-**Test.** Unit tests diff two lockfiles for npm, pnpm and uv, find the added package, and judge it against a stand-in registry: too new is refused, an unknown licence is refused, an allowed one passes. `tests/dependency-check.sh` runs the check on a throwaway project with a planted lockfile change.
+**Test.** Unit tests diff two lockfiles for npm, pnpm and uv, find the added package, and judge it against a stand-in registry: too new is refused, an unknown licence is refused, an allowed one passes. `tests/dependency-check.sh` runs the check on a throwaway project with a planted lockfile change. The minimum-age setting differs by manager and version, so the test checks each template against the manager version on this computer and prints a visible "skipped" line when that version has no such setting.
 
 **Files.**
 - New: `kit/scripts/dependency-check.py`; `kit/templates/npmrc` (minimum release age, `ignore-scripts=true`); `kit/templates/uv.toml` (exclude newer, no build scripts where uv allows); `tests/stand-ins/fake-registry/`; `tests/unit/test_dependency_check.py`; `tests/dependency-check.sh`.
@@ -185,7 +199,7 @@ GitHub hosted runners are off. Every test runs on this computer.
 
 **Test.** `tests/check-skills.sh` builds a good fixture skill and passes it, then mutates one rule at a time with `tests/lib/rule-shape.sh` and requires each mutation to fail. Every lint rule has its mutation:
 - over 150 lines, over 2,000 words, a description over 300 characters (principle 3);
-- a hard rule with no `Held by:` line (1); a copied gate table row, label name or exit code (2);
+- a hard rule with no `Held by:` line (1); a copied gate table row, label name or exit code (2), read from a small list in `check-skills.py` that P11 points at `loop/states.py`;
 - sections out of order (4);
 - `disable-model-invocation: true` missing on `setup`, `run` or `maintain`, and a model-invoked description with no "Use when" clause (5);
 - a nested or orphan reference, a link line with no condition word, a reference over 100 lines with no contents list (6);
@@ -194,7 +208,7 @@ GitHub hosted runners are off. Every test runs on this computer.
 - no `## Gotchas` section (10);
 - a repeated paragraph or a banned synonym (11);
 - a step with no `Done when:` line (12);
-- `/what-now` or `/run` not starting with the gate report and its fallback line (13);
+- `/what-now` or `/run` not starting with an `!` line that runs `gate.py report --json --brief` and a fallback line (13); P7 checks the shape only, and P10 owns the fallback wording;
 - fewer than three eval cases (15);
 - a date, version, model name or hash-and-digits number (16);
 - a guard claimed only by the skill's own frontmatter (17).
@@ -242,6 +256,7 @@ GitHub hosted runners are off. Every test runs on this computer.
 - the held-out folder read-blocked for builders;
 - builders may write only their own hand-off file in the run folder, and nothing else under `.agents/runs/` or `.agents/pieces/`;
 - the `gh` config and the keychain read-blocked for builders;
+- the App key file and the machine-local settings file read-blocked for builders;
 - auto memory off in the builder settings;
 - the builder settings wire the hooks themselves, since builders get them through `--settings` and not through the plugin's `hooks.json`;
 - the settings template wires the session start hook, and merging the template into a project's own settings keeps the person's rules (later note from the stage C2 review).
@@ -261,13 +276,13 @@ The adapted session-start test drives the hook after a compaction. The hook call
 **Test.** P11 tests the table and the shared rules with stub check modules. Each later piece tests its own checks. Unit tests drive every one of the fourteen moves with a passing stub and a refusing stub, and require a move not in the table to be refused. They cover read-twice writes, a reason on every move back, the anti-circle rule on moves back to shaping only, the repeat counter of 3 on moves 7, 8 and 12, a gate-made spec change taking a new fingerprint, `gate.py answer` writing a late answer under Decisions and taking a new fingerprint, a second `state:` label refused, and a hand-changed label found by comparing it with the gate's own piece record (never by actor), reported and never undone. A unit test shows every GitHub call goes through `credential()`, and that with no App credential the gate changes nothing on GitHub and names the step to take. `tests/gate.sh` drives one piece through capture, shaping and drop in a throwaway project with the GitHub stand-in and the stand-in App credential, and checks the labels, the needs written below the spec, the `needs-you` flag and the piece record. It also checks that the session start hook (P10) now prints the real brief report.
 
 **Files.**
-- New: `kit/scripts/loop/states.py` (the table of states and moves, as data); `kit/scripts/loop/moves.py` (each move calls its checks from `loop/gates/<name>.py`; a move whose checks are not installed yet is refused with a `next:` line, so later pieces add a module and change no shared file); `kit/scripts/loop/github.py` (the `gh` wrapper, read-twice, one `credential()` function that reads the App's key path from the machine-local settings file and makes a short-lived App token, and the push step that runs `secret-scan.py` first); `kit/scripts/loop/gates/__init__.py`; `tests/unit/test_states.py`; `tests/unit/test_moves.py`; `tests/unit/test_github.py`; `tests/gate.sh`.
-- Adapts: `kit/scripts/gate.py`, rewritten as a thin command line (`capture`, `move`, `drop`, `answer`, `report`, `labels --create`, `branch`) over the modules above. It sheds the old label list, the sub-state markers, the checkpoint assumptions, the always-person review stub and the `.agents/tools/` paths. May extend `tests/stand-ins/fake-github/gh` where a move or the App token needs it.
-- Retires: `tests/gate-script.sh`, replaced by the tests above.
+- New: `kit/scripts/loop/states.py` (the table of states and moves, as data); `kit/scripts/loop/moves.py` (each move calls its checks from `loop/gates/<name>.py`; a move whose checks are not installed yet is refused with a `next:` line, so later pieces add a module and change no shared file); `kit/scripts/loop/github.py` (the `gh` wrapper, read-twice, one `credential()` function that reads the App's key path from the machine-local settings file and makes a short-lived App token; `credential()` signs the JWT by calling `openssl dgst -sha256 -sign <key>`, because the standard library has no RSA signing, and keeps the token in memory only; and the push step that runs `secret-scan.py` first); `kit/scripts/loop/gates/__init__.py`; `tests/unit/test_states.py`; `tests/unit/test_moves.py`; `tests/unit/test_github.py`; `tests/gate.sh`.
+- Adapts: `kit/scripts/gate.py`, rewritten as a thin command line (`capture`, `move`, `drop`, `answer`, `comment`, `report`, `labels --create`, `branch`; `comment` posts as the App) over the modules above. It sheds the old label list, the sub-state markers, the checkpoint assumptions, the always-person review stub and the `.agents/tools/` paths. May extend `tests/stand-ins/fake-github/gh` where a move or the App token needs it.
+- Retires: `tests/gate-script.sh`, replaced by the tests above, and `tests/frozen-bar-rehearsal.sh` and `tests/test-strength-rehearsal.sh`, since they drive the old gate's evidence commands. P16 carries their cases forward.
 - The gate alone writes `.agents/pieces/<n>/`. The run script (P21) alone writes `run.json`.
 - Labels: the gate creates its own set (`state:` for each state, `needs-you`, `type:feature`, `type:bug`, `type:chore`). The old labels stay until removal stage G retires them.
 
-**Held by:** the gate refusing any move outside the table; hand-written labels refused by P3's hook and P10's deny rules, and reported by `gate.py report`; the kit acting on GitHub only as the App by `credential()` and by builders holding no credential (P10, P12); the push step's secret scan beside P4's pre-push hook.
+**Held by:** the gate refusing any move outside the table; hand-written labels refused by P3's hook and P10's deny rules, and reported by `gate.py report`; the kit acting on GitHub only as the App by `credential()` and by builders holding no credential (P10, P12); the App key read-blocked for builders by the sandbox (P10) and refused by the hook (P3); the push step's secret scan beside P4's pre-push hook.
 
 ### P12. Worktrees, sessions and the builder hand-off
 
@@ -285,11 +300,11 @@ The adapted session-start test drives the hook after a compaction. The hook call
 
 **Goal.** Refuse to start a run, with the reason, unless every guard, the policy, the computer and `main` are fine.
 
-**Test.** `tests/pre-run-check.sh` takes each guard away in turn in a throwaway project and requires a refusal that names it: the guard hook, a deny rule, the sandbox, the pre-push hook, a changed file in the installed kit folder, no App credential (naming the App step of `/setup`), a missing policy, a malformed policy value (named by key), a lock held by another run, the computer on battery, sleep not held off, too little free memory, low disk, and a red `main`. Each computer reading comes from a stand-in for `pmset`, `vm_stat` and `df`. With the stand-in App credential and every other guard in place it passes. It names which half of `/setup` is missing. On an API key with no spend caps it refuses. With `origin` set to the kit's own repository it refuses. Unit tests cover the policy schema and its defaults. The `--bare` check is P21's, since it needs the run script.
+**Test.** `tests/pre-run-check.sh` takes each guard away in turn in a throwaway project and requires a refusal that names it: the guard hook, a deny rule, the sandbox, the pre-push hook, a changed file in the installed kit folder, no App credential (naming the App step of `/setup`), a missing policy, a malformed policy value (named by key), a lock held by another run, the computer on battery, sleep not held off, too little free memory, low disk, and a red `main`. Each computer reading comes from a stand-in for `pmset`, `vm_stat` and `df`. With the stand-in App credential and every other guard in place it passes. It names which half of `/setup` is missing. On an API key with no spend caps it refuses. With `origin` set to the kit's own repository it refuses. With every first-half guard and the stand-in App credential, and no second half, the check passes. It prints one notice, "the second half of `/setup` is missing: the run stops if this computer sleeps or this session closes", and exits 0. A missing guard is always a refusal, and the refusal names the half of `/setup` that installs that guard. An App key file inside the project, or readable by other users, is refused. "Main is green" means the policy's test command passes on a clean checkout of `main`, since GitHub Actions stay off and the App needs no check permissions. "A changed file in the installed kit folder" compares with the plugin's own version record in a founded project, and with `git status` on `kit/` in this repository. Unit tests cover the policy schema and its defaults. The `--bare` check is P21's, since it needs the run script.
 
 **Files.**
 - New: `kit/scripts/loop/policy.py`; `kit/templates/policy.json` (builder cap 3, attempt limit 3, review rounds 2, question cap 5, research age limit, length limits, pull request size limit, billing mode and caps); `kit/scripts/pre-run-check.py`; `tests/stand-ins/fake-computer/`; `tests/unit/test_policy.py`; `tests/pre-run-check.sh`.
-- Adapts: `kit/scripts/check-tooling.sh` (tools and sign-in, the kit repository guard; sheds the old product name), which the pre-run check calls; `tests/check-tooling.sh`.
+- Adapts: `kit/scripts/check-tooling.sh` (tools and sign-in, the kit repository guard, and `openssl` now required; sheds the old product name), which the pre-run check calls; `tests/check-tooling.sh`.
 
 **Held by:** this check is the second layer for "the guards stay in place" (P10 is the first). The policy file is protected from agents by P10's deny rules and P3's hook. The policy has no pre-approval key, so pre-approval can never become a standing setting.
 
@@ -339,7 +354,7 @@ Each must-look reason marks the piece for individual review, and so does the per
 - New: `kit/scripts/loop/gates/attempt.py`; `kit/scripts/loop/bar.py` (the byte-for-byte check over the judge and everything it rests on: tests, fixtures, test settings); `kit/scripts/loop/attempt_log.py` (the gate-kept attempt log: each attempt's result and findings, which the next builder's brief reads); `tests/unit/test_attempt.py`; `tests/unit/test_bar.py`; `tests/attempt-gate.sh`.
 - Changes `kit/scripts/loop/sessions.py` (P12) so each attempt gets its own settings file: the builder template plus deny rules and sandbox write-blocks on every path `bar.py` lists for that piece.
 - Adapts into `loop/bar.py`: the seven kinds of bar change from `kit/scripts/bar-guard.sh` and `kit/scripts/test-guard.sh`, without the named-change escape, since any bar change is now a failed attempt.
-- Retires: `kit/scripts/bar-guard.sh`, `kit/scripts/test-guard.sh`, `tests/bar-guard-rehearsal.sh`, `tests/frozen-bar-rehearsal.sh` and `tests/test-strength-rehearsal.sh`, each case carried into the new tests first.
+- Retires: `kit/scripts/bar-guard.sh`, `kit/scripts/test-guard.sh` and `tests/bar-guard-rehearsal.sh`. Each case of the retired rehearsals, including `tests/frozen-bar-rehearsal.sh` and `tests/test-strength-rehearsal.sh` retired by P11, is read from git history and carried into the new tests.
 - Core judge kinds: acceptance tests and reproducing test. Mutation testing at the gate (Proposed) is deferred to L5.
 
 **Held by:** the frozen bar by two layers: the per-attempt deny rules and sandbox write-blocks (first) and the gate's byte-for-byte check (second); held-out cases by the gate-only folder (P9, P10); touches by the area map read from the base commit.
@@ -388,7 +403,7 @@ Each must-look reason marks the piece for individual review, and so does the per
 
 ### P20. `/setup`, first half: shape and run locally
 
-**Goal.** Found a project, or meet an existing one, so the person can shape and run locally with every local guard in place and the gate's GitHub App created.
+**Goal.** Found a project, or meet an existing one, so the person can shape and run locally with every local guard in place and the gate's GitHub App created. P20 waits for the maintainer's answer on where the App is created (see "Waiting for the maintainer").
 
 **Eval cases, written first.**
 1. Normal: in an empty fixture project, the skill runs the tooling check, writes the foundation files without overwriting anything, guides the person through creating the gate's GitHub App, creates the gate's labels, and captures the first piece as a quick-path scaffold and test runner piece.
@@ -401,11 +416,12 @@ Each must-look reason marks the piece for individual review, and so does the per
 - the hooks and the pre-push hook installed (later note from the stage C2 review);
 - the ignore file covering the run folder, piece records, logs, worktrees and the machine-local settings;
 - a default network allowlist for the detected language, with no `github.com` or `api.github.com` in it;
-- the App step: the manifest link and permissions shown, the key path stored in the machine-local settings only, and the stand-in App credential accepted;
+- the App step: the manifest link and permissions shown, the key file written to the App key path with mode 600, never inside the project, its path stored in the machine-local settings only, and the stand-in App credential accepted;
+- with no `origin`, a stop with a `next:` line (the fixture has a stand-in `origin`);
 - spend caps asked for when the billing mode is an API key;
 - the free-plan warning on a private free repository (the GitHub stand-in gains a plan field if it lacks one);
 - the policy written;
-- the pre-run check passing apart from "the second half of `/setup` is missing".
+- the pre-run check passing, with the notice that the second half of `/setup` is missing.
 
 **Files.**
 - New: `kit/skills/setup/SKILL.md`; `kit/skills/setup/references/founding.md`; `kit/skills/setup/references/github-app.md` (the person's one-time App step); `kit/skills/setup/evals/`; `kit/scripts/setup.py` (the steps the skill calls, idempotent, decided by what is on disk); `kit/templates/github-app.json` (the App manifest: this repository only, issues, pull requests and contents, no administration and no workflows); `kit/templates/network-allowlist/` (one file per language: the package registry and toolchain hosts); `tests/setup-first-half.sh`.
@@ -431,7 +447,7 @@ Each must-look reason marks the piece for individual review, and so does the per
 
 **Goal.** Stop a clearly stuck attempt, wait out a usage limit without counting it, obey pause, continue and stop, pick up the person's answers from GitHub comments, and handle the run-level real stops.
 
-**Test.** Unit tests feed recorded builder output: the same error three times, a change undone and redone, a test past its hard timeout. Each stops the attempt and counts it. A usage-limit message pauses the piece as waiting for reset and counts nothing. Run-level stops: two environment failures in a row on different pieces, the same refused command in two pieces, and the same failure across several pieces. Each notifies once (a log line and the run record until L3) and the run carries on with independent work. `tests/watch-and-mailbox.sh` writes pause, continue and stop into the mailbox during a stand-in run and checks the run record and the tokens recorded per piece. `tests/answers.sh` posts an answer as a comment in the GitHub stand-in: during the run it resumes the parked piece; after the run it goes in through `gate.py answer`, the piece goes to ready by move 7, and the person is told in a comment.
+**Test.** Unit tests feed recorded builder output: the same error three times, a change undone and redone, a test past its hard timeout. Each stops the attempt and counts it. A usage-limit message pauses the piece as waiting for reset and counts nothing. Run-level stops: two environment failures in a row on different pieces, the same refused command in two pieces, and the same failure across several pieces. Each notifies once (a log line and the run record until L3) and the run carries on with independent work. `tests/watch-and-mailbox.sh` writes pause, continue and stop into the mailbox during a stand-in run and checks the run record and the tokens recorded per piece. `tests/answers.sh` posts an answer as a comment in the GitHub stand-in, on a parked piece and on a pull request made directly in the stand-in (the run's own pull request comes in P26): during the run it resumes the parked piece; after the run it goes in through `gate.py answer`, the piece goes to ready by move 7, and the person is told in a comment.
 
 **Files.**
 - New: `kit/scripts/loop/run/watch.py`; `kit/scripts/loop/run/mailbox.py`; `kit/scripts/loop/run/inbox.py` (reads new comments on parked pieces and on the run's pull request, as data); `tests/unit/test_watch.py`; `tests/unit/test_inbox.py`; `tests/watch-and-mailbox.sh`; `tests/answers.sh`.
@@ -500,6 +516,7 @@ Each must-look reason marks the piece for individual review, and so does the per
 - a merge the person makes after `main` moved is found by `gate.py check-main`, which the next pre-run check and the session start hook run when no run is going.
 
 **Files.**
+- Changes `kit/scripts/gate.py` to add `check-main`.
 - New: `kit/scripts/loop/run/pull_request.py`; `kit/scripts/loop/gates/merge.py`; `kit/scripts/closing-words.py` (scans title, body, commits and changelog entries); `tests/unit/test_merge.py`; `tests/merge-decision.sh`.
 - May extend `tests/stand-ins/fake-github/gh` for `--match-head-commit` if it lacks it.
 
@@ -537,7 +554,7 @@ These are Proposed in the design. They are not in any core piece and wait for a 
 
 ## Decision for the maintainer to confirm
 
-**The GitHub App is created in the first half of `/setup`.** The design says the kit acts on GitHub only as the App held by the gate, and the pre-run check refuses a run without it. It also puts the App in the second half of `/setup`, while the first half promises "shape and run locally". The plan keeps the Decided rule and moves the guided creation of the App, the person's one-time step, into the first half (P20). All GitHub access goes through one `credential()` function in the gate (P11). Tests use a stand-in App credential. The pre-run check refuses a run with no App, and P27 runs after the App step with the stand-in. L1 keeps launchd, the watch and the recipe allowlist.
+**The GitHub App is created in the first half of `/setup`.** The design says the kit acts on GitHub only as the App held by the gate, and the pre-run check refuses a run without it. It also puts the App in the second half of `/setup`, while the first half promises "shape and run locally". The plan keeps every rule about the App, but it moves one Decided line of the design: the App's creation, from the second half of `/setup` to the first (P20). The maintainer's own decisions do not name a half. P1 to P19 go ahead, since none of them depends on where the App is created. P20 waits for the maintainer's answer. If the maintainer keeps the App in the second half, P20 drops the App step, the pre-run check refuses after the first half and names the second half, and P27 writes the stand-in App credential that the second half would write before its run. All GitHub access goes through one `credential()` function in the gate (P11). Tests use a stand-in App credential. The pre-run check refuses a run with no App, and P27 runs after the App step with the stand-in. L1 keeps launchd, the watch and the recipe allowlist.
 
 The alternative is to let the gate use the person's own `gh` sign-in for local runs until the second half. That changes four Decided rules: the pre-run check's App guard, the yes before posting in the person's name, the red team's finding that the gate must be told apart from the person by identity, and the four pre-approval conditions (such a run could not be pre-approved). It would also leave the person's full token, held in the macOS keychain, in the run's process tree. The coordinator chose the first route.
 
@@ -547,7 +564,7 @@ The design did not settle these. Each is the choice that keeps every settled dec
 
 1. The plugin root is `kit/`, with `kit/.claude-plugin/plugin.json` and skills in `kit/skills/`. Removal stage D deletes the root `.claude-plugin/`, so the two never meet. In a founded project the kit runs from the plugin cache, and the write-blocks and the pre-run check name that path.
 2. Python 3.10 and the standard library only, so the policy file is JSON.
-3. The ruff rule set above, with the verbatim list read from `BORROWED.md`.
+3. The ruff rule set above. Borrowed files not yet adapted keep the old set, and the list is read from `BORROWED.md`.
 4. Withdrawn. See the decision for the maintainer above.
 5. The held-out folder sits outside the project, under the person's local data folder, keyed by repository. Its path lives in the machine-local settings file.
 6. Builders hand back by running `kit/scripts/handoff.py`, a script their settings allow, not through a server. The sandbox lets it write its one file in the run folder and blocks every other write there and in the piece records.
@@ -572,6 +589,6 @@ Most differences are earlier answers that a later decision on 5 October replaced
 2. Answer 18 and "Final three" name a Claude Code push notification with email as the fallback. The final research pass replaced this with GitHub @-mentions pushed by GitHub Mobile.
 3. The meta-loop answers give the watch the jobs of restarting the run script, stopping stuck attempts and giving up after three restarts. The final pass moved those into launchd and the run script. The watch now only checks the heartbeat, and notification 6 is "heartbeat stale" rather than "the watchdog gave up".
 4. Answer 11 says scratch files are removed before merge. The final pass keeps them in a git-ignored run folder, so nothing is removed.
-5. Both documents say the first half of `/setup` lets the person "shape and run locally". Both also say the pre-run check refuses unless the gate's GitHub App is in place, and the App comes from the second half. The plan holds the Decided App rule and moves the App step into the first half. The maintainer should confirm this (see above).
+5. Both documents say the first half of `/setup` lets the person "shape and run locally". Both also say the pre-run check refuses unless the gate's GitHub App is in place, and the App comes from the second half. The plan keeps every rule about the App, but it moves one Decided line of the design: the App's creation, from the second half of `/setup` to the first (P20). The maintainer's own decisions do not name a half. P20 waits for the maintainer's answer. If the maintainer keeps the App in the second half, P20 drops the App step, the pre-run check refuses after the first half and names the second half, and P27 writes the stand-in App credential that the second half would write before its run.
 6. The design puts the network allowlist in the second half of `/setup`, but also turns the sandbox and its allowlist on for every agent session in v1. The plan resolves it with decision 10 above.
 7. The design puts spend caps for an API key in the second half of `/setup`, but a local run on an API key needs them. The plan resolves it with decision 15 above.
