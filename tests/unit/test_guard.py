@@ -972,5 +972,33 @@ class CommandLog(unittest.TestCase):
         command_log.record(payload, "pass", "", env)
 
 
+class HookBypasses(Cases):
+    """Ways to switch off the git hooks, or to hide a command behind a name."""
+
+    def test_the_refused_spellings(self) -> None:
+        self.refused(
+            "git commit --no-verify -m x",
+            "git commit -m x --no-verify",
+            "git commit -n -m x",
+            "git commit -nm x",
+            "git -C . commit --no-verify -m x",
+            "git config core.hooksPath /tmp/none",
+            "git config --global core.hooksPath /tmp/none",
+            "git config --unset core.hooksPath",
+            "git -c core.hooksPath=/tmp/none commit -m x",
+            "git config alias.st status",
+            "git config --global alias.p 'push origin main'",
+        )
+
+    def test_the_spellings_that_pass(self) -> None:
+        self.passes(
+            "git commit -m x",
+            "git commit -am 'fix the name'",
+            "git config --get core.hooksPath",
+            "git config user.name Someone",
+            "git config --get alias.st",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
