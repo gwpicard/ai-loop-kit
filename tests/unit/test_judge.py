@@ -237,6 +237,27 @@ class RunInCheckout(unittest.TestCase):
         ).stdout
         self.assertEqual(len(listed.strip().splitlines()), 1)
 
+    def test_extra_files_are_written_into_the_checkout_and_never_into_git(self) -> None:
+        root = self.make_project("grep -q 'zebra-quartz-99[3]1' held/case.txt\n")
+        result = judge.run(
+            "sh check.sh", root, "main", time_limit=30,
+            extra_files={"held/case.txt": "zebra-quartz-9931"},
+        )
+        self.assertEqual(result["outcome"], "passed")
+        objects = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "--batch-all-objects", "--batch"],
+            capture_output=True, check=True,
+        ).stdout
+        self.assertNotIn(b"zebra-quartz-9931", objects)
+        plain = judge.run("sh check.sh", root, "main", time_limit=30)
+        self.assertNotEqual(plain["outcome"], "passed")
+
+    def test_an_extra_file_outside_the_checkout_is_refused(self) -> None:
+        root = self.make_project("exit 0\n")
+        with self.assertRaises(judge.JudgeError):
+            judge.run("sh check.sh", root, "main", time_limit=30,
+                      extra_files={"../outside.txt": "x"})
+
     def test_a_failed_install_is_an_error(self) -> None:
         root = self.make_project("exit 0\n")
         result = judge.run("sh check.sh", root, "main", install="sh -c 'exit 7'", time_limit=30)

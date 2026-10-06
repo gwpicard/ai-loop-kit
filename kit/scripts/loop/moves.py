@@ -22,11 +22,14 @@ module is not installed yet is refused with a `next:` line.
 The piece record, `.agents/pieces/<n>/`, is the gate's truth for state. Only the
 gate writes it, through `loop.evidence`. Each entry has a `kind`: `capture`,
 `move`, `body`, `needs`, `fingerprint`, `answer`, `queue`, `synced`, `branch`, and,
-from the ready gate, `judge-run`, `test-lists` and `relied-on`, and from the claim gate,
-`claim-check`. A move into ready carries the `must_look` reasons the ready gate wrote.
+from the ready gate, `judge-run`, `test-lists` and `relied-on`, from the claim gate,
+`claim-check`, and from the attempt gate, `attempt`. A move into ready carries the `must_look`
+reasons the ready gate wrote.
 
 A check that refuses with `send_back` in its data (the claim gate does) makes the gate send
-the piece back to shaping by move 3, with that text as the reason. A dry run only reports it.
+the piece back to shaping with that text as the reason: by move 3 from the claim, and by
+move 6 from the attempt gate, which first writes the failed attempt to the record. A dry run
+only reports it.
 
 With the GitHub App the gate writes the labels, the body and the comments as
 the App, then the record. A failed GitHub write leaves the record unchanged.
@@ -775,10 +778,13 @@ class Gate:
             result = self._check(move, number, origin, target, reason, piece.title, body,
                                  piece.record, options or {})
         except MoveError as error:
+            if move.number == 5 and error.data.get("attempt") and not dry_run:
+                raise self._failed_attempt(piece, error) from error
             if error.data.get("send_back") and move.number == 4 and not dry_run:
                 raise self._sent_back(number, error) from error
             if error.data.get("send_back") and dry_run:
-                error.message += " (a real run sends the piece back to shaping by move 3)"
+                back = "move 6" if move.number == 5 else "move 3"
+                error.message += f" (a real run sends the piece back to shaping by {back})"
             raise
         new_body = str(result.data.get("body") or body)
         if states.anti_circle(move, target):
@@ -828,16 +834,38 @@ class Gate:
             summary["fingerprint"] = fp_entry["fingerprint"]["fingerprint"]
         return {**summary, **written}
 
-    def _sent_back(self, number: int, error: MoveError) -> MoveError:
-        """The refusal of a claim whose fault sends the piece back to shaping, by move 3.
+    def _failed_attempt(self, piece: Piece, error: MoveError) -> MoveError:
+        """The refusal of an attempt the gate judged and failed (move 5).
 
-        A check asks for it with `send_back` (the reason) in the data of its refusal. The move
-        is made here, by the same machinery as any move, so the reason is posted, the anti-circle
-        rule applies and the spec gets the need. A dry run never gets here.
+        The check puts the attempt's entry in `attempt` in the data of its refusal. The gate
+        writes it to the piece record, and the piece stays building, so the next builder's brief
+        reads it. When the check also asks to `send_back` (no attempt is left), the piece goes
+        back to shaping by move 6, with the same machinery as any move. A dry run never gets here.
+        """
+        again = read_piece(self.paths, piece.number)
+        if again is None or again.entries != piece.entries:
+            return MoveError(
+                f"piece {piece.number} moved between the gate's two reads of its record, so "
+                "another session changed it, and the attempt was not logged",
+                next_command="run gate.py report, then the same command again",
+            )
+        evidence.append(self.paths, piece.number, [dict(error.data["attempt"])])
+        if error.data.get("send_back"):
+            return self._sent_back(piece.number, error)
+        error.message += ". The attempt is logged in the piece record, and the piece stays building"
+        return error
+
+    def _sent_back(self, number: int, error: MoveError) -> MoveError:
+        """The refusal of a check whose fault sends the piece back to shaping.
+
+        A claim that fails sends it by move 3, and an attempt with none left by move 6. A check
+        asks for it with `send_back` (the reason) in the data of its refusal. The move is made
+        here, by the same machinery as any move, so the reason is posted, the anti-circle rule
+        applies and the spec gets the need. A dry run never gets here.
         """
         reason = str(error.data["send_back"])
         try:
-            self.move(number, "shaping", reason=reason)
+            done = self.move(number, "shaping", reason=reason)
         except MoveError as inner:
             return MoveError(
                 f"{error.message}. The gate tried to send the piece back to shaping and could "
@@ -845,8 +873,8 @@ class Gate:
                 next_command=inner.next_command, code=error.code,
             )
         return MoveError(
-            f"{error.message}. The piece was sent back to shaping by move 3, with the reason "
-            "written on it and a new open question in the spec",
+            f"{error.message}. The piece was sent back to shaping by move {done['move']}, with "
+            "the reason written on it and a new open question in the spec",
             next_command=f"settle the open question in /shape, then gate.py move {number} ready",
             code=error.code, data={"sent_back": True},
         )

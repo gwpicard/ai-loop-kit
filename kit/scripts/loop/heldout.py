@@ -8,6 +8,11 @@ makes every folder and file private to the person who owns it.
 
 A case is a text file named by its ID. The fingerprint is a hash over the case
 IDs and the hash of each case. It never holds a case.
+
+The store keeps any text. The attempt gate (`loop/gates/attempt.py`) runs each case as a
+test file, so a case written for it carries a line `held-out-path: <relative path>` in
+its first five lines, usually in a comment. The gate lays the file at that path over the
+attempt, runs the judge's command with it, and never shows the case to a builder.
 """
 
 from __future__ import annotations

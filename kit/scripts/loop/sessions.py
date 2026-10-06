@@ -13,7 +13,9 @@ between them:
 - text from outside (an issue, a comment, a web page, the spec, the attempt log)
   reaches a session only inside a marked data block, and a lint refuses a brief
   template that puts it anywhere else;
-- the builder settings are rendered with absolute paths and no placeholder left;
+- the builder settings are rendered with absolute paths and no placeholder left. A builder
+  attempt also passes the files of the frozen bar, and its own settings file then denies a
+  write to each of them, by a deny rule and by a sandbox write block (`bar_rules`);
 - a session ends with one hand-off file, which this module reads and checks.
 
 The hand-off file is written by `kit/scripts/handoff.py`. It holds one of five
@@ -27,10 +29,10 @@ import os
 import re
 import secrets
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from loop.paths import Paths
@@ -156,10 +158,46 @@ def _render_json(node: Any, values: Mapping[str, str]) -> Any:
     return node
 
 
+def bar_rules(worktree: Path, bar_paths: Sequence[str]) -> tuple[list[str], list[str]]:
+    """The deny rules and the sandbox write blocks for the paths of the frozen bar.
+
+    The first layer of the frozen bar (the gate's byte-for-byte check is the second). Each
+    path is relative to the worktree and names one file, so a wildcard is refused. A rule
+    that stands for more than the bar lists would stop a builder from adding new tests.
+    """
+    rules: list[str] = []
+    blocks: list[str] = []
+    for name in bar_paths:
+        pure = PurePosixPath(name)
+        if not name or pure.is_absolute() or ".." in pure.parts or any(c in name for c in "*?[]{}"):
+            raise SessionError(
+                f"the bar path {name!r} is not one file relative to the worktree",
+                next_command="list each bar file by its path from the worktree root, "
+                "with no wildcard and no '..'",
+            )
+        absolute = str(worktree / pure)
+        rules.append(f"Edit(/{absolute})")
+        blocks.append(absolute)
+    if bar_paths:
+        # A new conftest.py can turn every failing test green, and a list of files cannot name
+        # a file that does not exist yet, so one rule covers each conftest.py in the worktree.
+        rules.append(f"Edit(/{worktree}/**/conftest.py)")
+    return rules, blocks
+
+
 def render_settings(
-    template: Path, *, paths: Paths, worktree: Path, handoff_file: Path
+    template: Path,
+    *,
+    paths: Paths,
+    worktree: Path,
+    handoff_file: Path,
+    bar_paths: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """The builder settings for one session, as a dictionary with no placeholder left."""
+    """The builder settings for one session, as a dictionary with no placeholder left.
+
+    `bar_paths` are the files of the frozen bar (`loop.bar.paths`). The settings then deny a
+    write to each: a deny rule for the edit tools and a write block in the sandbox.
+    """
     values = {
         "KIT_DIR": str(paths.kit_dir),
         "PROJECT_ROOT": str(paths.root),
@@ -175,6 +213,13 @@ def render_settings(
             )
     loaded = json.loads(template.read_text(encoding="utf-8"))
     rendered: dict[str, Any] = _render_json(loaded, values)
+    rules, blocks = bar_rules(worktree, bar_paths)
+    deny = rendered.setdefault("permissions", {}).setdefault("deny", [])
+    deny.extend(rule for rule in rules if rule not in deny)
+    write_blocks = rendered.setdefault("sandbox", {}).setdefault("filesystem", {}).setdefault(
+        "denyWrite", []
+    )
+    write_blocks.extend(block for block in blocks if block not in write_blocks)
     return rendered
 
 
@@ -379,8 +424,13 @@ def plan(
     max_budget_usd: float | None = None,
     env: Mapping[str, str] | None = None,
     settings_template: Path | None = None,
+    bar_paths: Sequence[str] = (),
 ) -> Session:
-    """Plan one session and write its settings file and brief file in the run folder."""
+    """Plan one session and write its settings file and brief file in the run folder.
+
+    A builder attempt passes its own `label` (such as `p7-a2`) and `bar_paths`, so each attempt
+    gets its own settings file with the deny rules and write blocks of the frozen bar.
+    """
     if not _LABEL.match(label) or ".." in label:
         raise SessionError(
             f"{label!r} is not a valid session label",
@@ -398,7 +448,9 @@ def plan(
     settings_file = run_dir / f"settings-{label}.json"
     brief_file = run_dir / f"brief-{label}.md"
     template = settings_template or paths.kit_dir / "templates" / "builder-settings.json"
-    settings = render_settings(template, paths=paths, worktree=worktree, handoff_file=handoff_file)
+    settings = render_settings(
+        template, paths=paths, worktree=worktree, handoff_file=handoff_file, bar_paths=bar_paths
+    )
     command = build_command(settings_file, max_budget_usd=max_budget_usd)
     session_env = scrub_env(os.environ if env is None else env)
     session_env[RUN_ENV] = run

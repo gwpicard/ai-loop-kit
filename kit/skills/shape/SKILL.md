@@ -34,7 +34,7 @@ If the line above shows a disabled marker or an error, run that command by hand 
    Done when: each answer is written into the spec, or each open question sits under Open questions with its reason and a recommended answer.
 7. Hand the gate the new spec with `python3 kit/scripts/gate.py spec <n> --body-file <file>`, or write one answer with `gate.py answer`. The gate works out the needs again.
    Done when: the gate's reply shows the need gone, or shows the next need.
-8. Set aside the hidden cases for an acceptance test. Write them to files outside the project folder, then run `PYTHONPATH=kit/scripts python3 -m loop.heldout store --piece <n> --case ID=FILE`. Write the printed fingerprint in `Held-out cases:`.
+8. Set aside the hidden cases for an acceptance test. Each case is a test file. Its first lines hold `held-out-path: <relative path>`, in a comment, so the gate knows where to place it. Write them to files outside the project folder, then run `PYTHONPATH=kit/scripts python3 -m loop.heldout store --piece <n> --case ID=FILE`. Write the printed fingerprint in `Held-out cases:`.
    Done when: the spec holds a fingerprint of 64 hex digits and no case text.
 9. For a sensitive area, give the risk notice once, in full, in plain words. Ask first whether a different design avoids the area. Write the item under Sensitive areas with `Accepted:`, the person's exact words in quotes, and the date.
    Done when: the item holds all three, or the person has chosen a design with no sensitive area.

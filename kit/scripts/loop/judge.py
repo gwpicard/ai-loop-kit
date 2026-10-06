@@ -38,7 +38,8 @@ import signal
 import subprocess
 import tempfile
 import time
-from pathlib import Path
+from collections.abc import Mapping
+from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.etree import ElementTree
 
@@ -402,6 +403,20 @@ def run_limited(argv: list[str], cwd: str, limit: int) -> tuple[int, str, bool]:
         return -1, output or "", True
 
 
+def _lay(folder: str, files: Mapping[str, str]) -> None:
+    """Write each extra file into the checkout. A path that leaves the checkout is refused."""
+    for name, text in files.items():
+        pure = PurePosixPath(name)
+        if not name or pure.is_absolute() or ".." in pure.parts:
+            raise JudgeError(
+                f"the extra file {name!r} is not a path inside the checkout",
+                next_command="give each extra file as a relative path with no '..'",
+            )
+        target = Path(folder) / pure
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+
 def run(
     command: str,
     root: Path,
@@ -409,8 +424,14 @@ def run(
     *,
     install: str | None = None,
     time_limit: int | None = None,
+    extra_files: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Run `command` in a temporary checkout of `ref` of the project at `root`."""
+    """Run `command` in a temporary checkout of `ref` of the project at `root`.
+
+    `extra_files` maps a path inside the checkout to its text. They are written after the
+    checkout is made and before the command runs. Nothing goes through git, so the text never
+    enters the project's object store (the gate lays held-out cases this way).
+    """
     limit = time_limit if time_limit is not None else default_time_limit()
     seconds_word = "second" if limit == 1 else "seconds"
     try:
@@ -433,6 +454,7 @@ def run(
     started = time.monotonic()
     try:
         checkout.open()
+        _lay(checkout.path, extra_files or {})
         if install:
             code, output, late = run_limited(shlex.split(install), checkout.path, limit)
             if late or code != 0:
