@@ -1,5 +1,0 @@
-{
-  "type": "result",
-  "result": "{\"scenario\": 24, \"error\": \"transcript is incomplete\"}",
-  "stop_reason": "end_turn"
-}
