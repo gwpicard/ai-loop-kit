@@ -1,0 +1,22 @@
+{
+  "builder_cap": 3,
+  "attempt_limit": 3,
+  "review_rounds": 2,
+  "question_cap": 5,
+  "research_age_days": 30,
+  "length_limits": {
+    "chore": 80,
+    "bug": 120,
+    "feature": 250
+  },
+  "pull_request_size_limit": 800,
+  "billing": {
+    "mode": "subscription",
+    "spend_cap_per_piece_usd": null,
+    "spend_cap_per_run_usd": null
+  },
+  "test_command": "",
+  "test_timeout_seconds": 1800,
+  "min_free_memory_mb": 2048,
+  "min_free_disk_gb": 5
+}

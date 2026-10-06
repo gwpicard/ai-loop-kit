@@ -298,8 +298,9 @@ class EveryCallGoesThroughCredential(unittest.TestCase):
         """Every agent script reaches GitHub through loop/github.py, so through credential()."""
         # Borrowed files that a later piece adapts. Each is named with that piece.
         later = {
-            # Setup's tooling report reads the person's own sign-in, for the
-            # person, before the App exists. P13 adapts it.
+            # It only reads `gh auth status` and `gh repo view`, to report
+            # readiness. pre-run-check.py (an agent script) also calls it, with
+            # --for-run, before a run. That call is open for the maintainer to judge.
             "kit/scripts/check-tooling.sh",
         }
         python_spawn = re.compile(r"""[\[(]\s*["']gh["']""")

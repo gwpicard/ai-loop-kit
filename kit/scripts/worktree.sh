@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # worktree.sh: open, check and clear away the worktree each piece in a run is
-# built in, as the implement skill's references/running-longer.md describes.
+# built in.
 #
 # A worktree is a second working copy of the project, on its own branch, in a
 # folder of its own. Each piece in a run on Claude Code gets one at
@@ -10,10 +10,12 @@
 #
 #   open [--resume] <name> <branch> <base>
 #       Make .agents/worktrees/<name> on <branch>, cut from <base> when the
-#       branch does not exist yet. Link the main folder's .env into it, never
-#       copy it, and each path on the worktree-links line of
-#       .ai-build-kit-maintenance, refusing the ones below. Reuse a worktree already at that path only when it is on the
-#       same branch and holds no unsaved work; with --resume, only when it
+#       branch does not exist yet. Write a .env of throwaway values into it,
+#       under the kit's marker line, from the project's .env.example. The real
+#       env files never reach a worktree, by link or by copy. Link each path on
+#       the worktree-links line of .agents/loop/worktree-links.txt, refusing the
+#       ones below. Reuse a worktree already at that path only when it is on
+#       the same branch and holds no unsaved work; with --resume, only when it
 #       holds no uncommitted change. A branch this call created is deleted
 #       again if the worktree cannot be made. Exit 1 to skip the piece, 3 when
 #       the disk is full, 4 when Git is older than 2.17.
@@ -38,6 +40,13 @@
 #       git ignores and a build might need, for founding and /maintain to ask
 #       about. Dependency and build folders, env files, .agents/, .claude/
 #       and every confidential folder are left out.
+#
+# The throwaway .env starts with the marker line the guard hook knows, so the
+# hook lets a builder read it and nothing else named .env. It is written only
+# when git ignores .env, so it never shows as a new file to save. A .env already
+# in the worktree is never overwritten: one that lacks the marker line, or is a
+# link, is named and the piece is flagged. A throwaway .env counts as no unsaved
+# work.
 #
 # The worktree-links line names ignored files a build needs that hold no
 # secret, such as a licensed font: `worktree-links|<path> ; <path>`, each path
@@ -74,7 +83,10 @@ MAIN=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
 STARTED=$(git rev-parse --show-toplevel 2>/dev/null || true)
 cd "$MAIN"
 WT_DIR="$MAIN/.agents/worktrees"
-RECORD="$MAIN/.ai-build-kit-maintenance"
+RECORD="$MAIN/.agents/loop/worktree-links.txt"
+# The first line of a throwaway .env. kit/hooks/guard.py holds the same text as
+# THROWAWAY_MARKER, and the rehearsal checks that the two match.
+MARKER="# ai-loop-kit: throwaway values. Nothing in this file is a real secret."
 
 # git_error <output>: the line git gave its reason on, rather than a hint.
 git_error() {
@@ -147,6 +159,7 @@ ignored_work() {
   ignored_paths "$1" | while IFS= read -r f; do
     f=${f%/}
     [ -L "$1/$f" ] && continue
+    throwaway "$1/$f" && continue
     rebuilt "$f" && continue
     if [ -d "$1/$f" ]; then
       (cd "$1" && find "./$f" -type f -print 2>/dev/null) | sed 's|^\./||' \
@@ -157,6 +170,11 @@ ignored_work() {
       printf '%s\n' "$f"
     fi
   done
+}
+
+# throwaway <file>: true for a file whose first line is the kit's marker line.
+throwaway() {
+  [ -f "$1" ] && [ ! -L "$1" ] && [ "$(sed -n '1p' "$1")" = "$MARKER" ]
 }
 
 # clean_path <path>: the path without spaces around it, a leading ./ or a
@@ -375,7 +393,9 @@ being_built() {
   python3 - "$MAIN" "$(relative "$1")" "$2" <<'PY' 2>/dev/null
 import glob, json, os, sys
 main, rel, branch = sys.argv[1:4]
-for path in glob.glob(os.path.join(main, ".agents", "runs", "*", "state.json")):
+for path in glob.glob(os.path.join(main, ".agents", "runs", "*", "*.json")):
+    if os.path.basename(path) not in ("state.json", "run.json"):
+        continue
     try:
         run = json.load(open(path))
     except Exception:
@@ -389,53 +409,37 @@ sys.exit(1)
 PY
 }
 
-# link_env <worktree>: link each env file git ignores in the main folder.
-link_env() {
-  linked=""
-  failed=""
-  copies=""
-  found=no
-  for source in "$MAIN"/.env "$MAIN"/.env.*; do
-    [ -f "$source" ] || continue
-    name=${source##*/}
-    # A file git does not ignore is either tracked, so the worktree already has
-    # it, or would show as a new file in every worktree. Neither is linked.
-    git check-ignore -q "$name" 2>/dev/null || continue
-    found=yes
-    if [ -L "$1/$name" ]; then
-      linked="$linked $name"
-      continue
-    fi
-    if [ -e "$1/$name" ]; then
-      copies="$copies $name"
-      continue
-    fi
-    if ln -s "../../../$name" "$1/$name" 2>/dev/null && [ -L "$1/$name" ]; then
-      linked="$linked $name"
-    else
-      failed="$failed $name"
+# throwaway_env <worktree>: give the worktree a .env of throwaway values. They
+# come from the project's .env.example, the first of the usual example names,
+# under the kit's marker line. The main folder's real env files are never read.
+throwaway_env() {
+  if [ -L "$1/.env" ] || { [ -e "$1/.env" ] && ! throwaway "$1/.env"; }; then
+    say "A .env already sits in this worktree and does not start with the kit's marker line: it was left as it is, and it may hold real values. Flag the piece."
+    return
+  fi
+  if [ -e "$1/.env" ]; then
+    return
+  fi
+  example=""
+  for name in .env.example .env.sample .env.template .env.dist; do
+    if [ -f "$1/$name" ] && [ ! -L "$1/$name" ]; then
+      example=$name
+      break
     fi
   done
-  if [ -n "$copies" ]; then
-    say "A copy of${copies} already sits in this worktree: it was not linked, and it is a copy outside the main folder. Flag this worktree."
+  if [ -z "$example" ]; then
+    say "No .env.example in the project, so the worktree has no .env."
+    return
   fi
-  if [ -n "$failed" ]; then
-    say "The link to${failed} could not be made here, so this piece runs without secrets. Say so once, and flag anything in it that needs a key. Never copy the file instead."
+  # A file git does not ignore would show as a new file to save.
+  if ! git -C "$1" check-ignore -q .env 2>/dev/null; then
+    say "Git does not ignore .env here, so no throwaway .env was written: it would show as a new file to save. Flag the piece."
+    return
   fi
-  if [ -n "$linked" ]; then
-    say "Linked${linked} to the main folder's own, so each secret stays in one file."
-  fi
-  if [ "$found" = no ]; then
-    nested=$(find "$MAIN" \( -name .git -o -name node_modules -o -path "$WT_DIR" \) -prune -o \
-      \( -name .env -o -name '.env.*' \) -type f -print 2>/dev/null \
-      | sed -n '1p')
-    if [ -n "$nested" ]; then
-      say "A .env sits in $(relative "$(dirname "$nested")") rather than at the top of the main folder, so nothing was linked."
-    elif [ -f "$MAIN/.env" ]; then
-      say "The main folder's .env is not ignored by git, so it was not linked."
-    else
-      say "No .env in the main folder, so nothing was linked."
-    fi
+  if { printf '%s\n' "$MARKER"; cat "$1/$example"; } > "$1/.env" 2>/dev/null; then
+    say "Wrote .env with throwaway values from $example, under the kit's marker line. The real env files stay in the main folder."
+  else
+    say "The throwaway .env could not be written here. Flag the piece: it runs without an .env."
   fi
 }
 
@@ -493,7 +497,7 @@ cmd_open() {
       exit 1
     fi
     say "Reused $rel: it is already on branch $branch."
-    link_env "$wt"
+    throwaway_env "$wt"
     link_listed "$wt"
     exit 0
   fi
@@ -529,7 +533,7 @@ cmd_open() {
     exit 1
   fi
   say "Opened $rel on branch $branch, from $base."
-  link_env "$wt"
+  throwaway_env "$wt"
   link_listed "$wt"
 }
 
