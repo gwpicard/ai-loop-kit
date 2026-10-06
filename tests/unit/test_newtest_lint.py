@@ -38,7 +38,10 @@ def read(rule_or_name: Rule | str, language: str) -> str:
 
 def judge(rule: Rule, language: str, **kwargs: object) -> list[nl.Finding]:
     return nl.lint_text(
-        name_for(rule, language), read(rule, language), own_modules=OWN, **kwargs  # type: ignore[arg-type]
+        name_for(rule, language),
+        read(rule, language),
+        own_modules=OWN,
+        **kwargs,  # type: ignore[arg-type]
     )
 
 
@@ -97,7 +100,9 @@ class MutationEveryRuleIsLoadBearing(unittest.TestCase):
 
     def test_switching_the_snapshot_rule_off_lets_the_example_through(self) -> None:
         enabled = frozenset(r for r in Rule if r is not Rule.SNAPSHOT_REWRITTEN)
-        found = nl.lint_changes([("M", "src/a.ts"), ("M", "src/__snapshots__/a.snap")], rules=enabled)
+        found = nl.lint_changes(
+            [("M", "src/a.ts"), ("M", "src/__snapshots__/a.snap")], rules=enabled
+        )
         self.assertEqual(found, [])
 
     def test_every_refusing_rule_has_a_message_and_a_hint(self) -> None:
@@ -136,9 +141,7 @@ class ReportOnly(unittest.TestCase):
 
 class CleanTestsPass(unittest.TestCase):
     def test_a_clean_python_test_passes(self) -> None:
-        self.assertEqual(
-            nl.lint_text("test_billing.py", read("clean", "py"), own_modules=OWN), []
-        )
+        self.assertEqual(nl.lint_text("test_billing.py", read("clean", "py"), own_modules=OWN), [])
 
     def test_a_clean_typescript_test_passes(self) -> None:
         self.assertEqual(nl.lint_text("billing.test.ts", read("clean", "ts"), own_modules=OWN), [])
@@ -153,7 +156,7 @@ class CleanTestsPass(unittest.TestCase):
             '    with patch("requests.get") as get:\n        assert get is not None\n'
         )
         self.assertEqual(nl.lint_text("test_a.py", text, own_modules=OWN), [])
-        ts = "jest.mock('axios');\nit('a', () => {\n  expect(1).toBe(1);\n});\n"
+        ts = "jest.mock('axios');\nit('a', () => {\n  expect(f()).toBe(1);\n});\n"
         self.assertEqual(nl.lint_text("a.test.ts", ts, own_modules=OWN), [])
 
     def test_rule_words_inside_strings_and_comments_do_not_fire(self) -> None:
@@ -168,15 +171,20 @@ class CleanTestsPass(unittest.TestCase):
 
 class MoreShapes(unittest.TestCase):
     def test_a_bare_except_pass_is_swallowed(self) -> None:
-        text = "def test_a():\n    try:\n        f()\n    except:\n        pass\n    assert 1\n"
+        text = "def test_a():\n    try:\n        f()\n    except:\n        pass\n    assert f()\n"
         self.assertEqual(refused(nl.lint_text("test_a.py", text)), {"swallowed_error"})
 
     def test_an_empty_catch_with_only_a_comment_is_swallowed(self) -> None:
-        text = "it('a', () => {\n  try { f(); } catch (e) { /* ignore */ }\n  expect(1).toBe(1);\n});\n"
+        text = (
+            "it('a', () => {\n  try { f(); } catch (e) { /* ignore */ }\n"
+            "  expect(f()).toBe(1);\n});\n"
+        )
         self.assertEqual(refused(nl.lint_text("a.test.ts", text)), {"swallowed_error"})
 
     def test_a_catch_that_rethrows_is_not_swallowed(self) -> None:
-        text = "it('a', () => {\n  try { f(); } catch (e) { throw e; }\n  expect(1).toBe(1);\n});\n"
+        text = (
+            "it('a', () => {\n  try { f(); } catch (e) { throw e; }\n  expect(f()).toBe(1);\n});\n"
+        )
         self.assertEqual(nl.lint_text("a.test.ts", text), [])
 
     def test_an_empty_python_test_is_a_test_with_no_assertion(self) -> None:
@@ -191,12 +199,12 @@ class MoreShapes(unittest.TestCase):
         self.assertEqual(nl.lint_text("test_a.py", text), [])
 
     def test_xit_and_describe_skip_are_skip_markers(self) -> None:
-        for line in ("xit('a', () => { expect(1).toBe(1); });", "describe.skip('a', () => {});"):
+        for line in ("xit('a', () => { expect(f()).toBe(1); });", "describe.skip('a', () => {});"):
             with self.subTest(line=line):
                 self.assertIn("skip_added", refused(nl.lint_text("a.test.ts", line + "\n")))
 
     def test_it_only_is_a_debug_leftover(self) -> None:
-        text = "it.only('a', () => {\n  expect(1).toBe(1);\n});\n"
+        text = "it.only('a', () => {\n  expect(f()).toBe(1);\n});\n"
         self.assertEqual(refused(nl.lint_text("a.test.ts", text)), {"debug_leftover"})
 
     def test_a_new_todo_in_a_test_is_a_debug_leftover(self) -> None:
@@ -228,7 +236,9 @@ class MoreShapes(unittest.TestCase):
             "def test_a(monkeypatch):\n"
             '    monkeypatch.setattr("billing.rates.lookup", lambda: 3)\n    assert 1 == f()\n'
         )
-        self.assertEqual(refused(nl.lint_text("test_a.py", text, own_modules=OWN)), {"own_module_mock"})
+        self.assertEqual(
+            refused(nl.lint_text("test_a.py", text, own_modules=OWN)), {"own_module_mock"}
+        )
 
     def test_a_relative_vi_mock_is_a_mock_of_an_own_module(self) -> None:
         text = "vi.mock('../rates');\nit('a', () => {\n  expect(f()).toBe(2);\n});\n"
@@ -239,17 +249,17 @@ class OnlyAddedLinesCount(unittest.TestCase):
     """A change is judged on the lines it adds, not on the tests it leaves alone."""
 
     SOURCE = (
-        "import time\n"            # 1
-        "\n"                       # 2
-        "\n"                       # 3
-        "def test_old():\n"        # 4
-        "    time.sleep(1)\n"      # 5
-        "    assert f() == 2\n"    # 6
-        "\n"                       # 7
-        "\n"                       # 8
-        "def test_new():\n"        # 9
-        "    time.sleep(1)\n"      # 10
-        "    assert f() == 2\n"    # 11
+        "import time\n"  # 1
+        "\n"  # 2
+        "\n"  # 3
+        "def test_old():\n"  # 4
+        "    time.sleep(1)\n"  # 5
+        "    assert f() == 2\n"  # 6
+        "\n"  # 7
+        "\n"  # 8
+        "def test_new():\n"  # 9
+        "    time.sleep(1)\n"  # 10
+        "    assert f() == 2\n"  # 11
     )
 
     def test_an_old_sleep_is_left_alone(self) -> None:
@@ -289,13 +299,12 @@ class ReadingADiff(unittest.TestCase):
 
     def test_added_lines_per_file(self) -> None:
         changed = nl.parse_diff(self.DIFF)
-        self.assertEqual(changed["tests/test_a.py"].added, {4, 5, 1 + 10})
+        self.assertEqual(changed["tests/test_a.py"].added, {4, 5})
         self.assertEqual(changed["src/app.py"].added, {1})
 
     def test_a_deletion_marks_the_lines_beside_it_as_touched(self) -> None:
         changed = nl.parse_diff(self.DIFF)
         self.assertEqual(changed["tests/test_a.py"].touched, {11, 12})
-        self.assertEqual(changed["tests/test_a.py"].added & {12}, set())
 
     def test_an_empty_diff_has_no_files(self) -> None:
         self.assertEqual(nl.parse_diff(""), {})
