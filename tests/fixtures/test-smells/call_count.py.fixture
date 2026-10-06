@@ -1,0 +1,9 @@
+from unittest.mock import MagicMock
+
+from billing import total
+
+
+def test_total_asks_once():
+    ask = MagicMock(return_value=3)
+    assert total([1, 2], ask=ask) == 3
+    assert ask.call_count == 1

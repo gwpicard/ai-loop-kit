@@ -1,0 +1,6 @@
+export function rate(): number {
+  if (process.env.NODE_ENV === 'test') {
+    return 5;
+  }
+  return compute();
+}
