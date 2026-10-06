@@ -1,0 +1,10 @@
+{
+  "name": "ai-loop-kit",
+  "description": "A state machine for building software with agents: shape a piece, let a run build it, and check it at the gate.",
+  "author": {
+    "name": "Guillaume Picard"
+  },
+  "homepage": "https://github.com/gwpicard/ai-loop-kit",
+  "repository": "https://github.com/gwpicard/ai-loop-kit",
+  "license": "MIT"
+}
