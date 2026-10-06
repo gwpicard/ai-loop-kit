@@ -1,6 +1,6 @@
 ---
 name: run
-description: Starts a run that builds the ready pieces. The person starts it by hand.
+description: Starts a run that builds the ready pieces. Use when the person asks for a run.
 disable-model-invocation: true
 ---
 # Run

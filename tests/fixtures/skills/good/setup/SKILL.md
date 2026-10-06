@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Installs the kit into a project. The person starts it by hand.
+description: Installs the kit into a project. Use when the person asks to set up the kit.
 disable-model-invocation: true
 ---
 # Setup

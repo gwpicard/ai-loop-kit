@@ -32,15 +32,14 @@ WORK="$rs_dir"
 # --- helpers ---------------------------------------------------------------
 
 fresh() {
-  # fresh: a new copy of the good fixture in $WORK/m. Prints nothing.
-  rm -f -- "$WORK"/m/*/SKILL.md "$WORK"/m/*/references/* "$WORK"/m/*/evals/* 2>/dev/null || true
-  mkdir -p "$WORK/m"
-  cp -R "$GOOD/." "$WORK/m/"
+  # fresh: a new copy of the good fixture in a new folder, named by $M.
+  M=$(mktemp -d "$WORK/m.XXXXXX")
+  cp -R "$GOOD/." "$M/"
 }
 
 edit() {
   # edit <file> <python statement over the text `t`>: change a file in the copy.
-  python3 - "$WORK/m/$1" "$2" <<'PY'
+  python3 - "$M/$1" "$2" <<'PY'
 import sys
 path, code = sys.argv[1], sys.argv[2]
 t = open(path, encoding="utf-8").read()
@@ -69,7 +68,7 @@ PY
 
 expect_fail() {
   # expect_fail <rule id> <description>: the copy in $WORK/m must fail on that rule alone.
-  lint "$WORK/m"
+  lint "$M"
   if [ "$LINT_CODE" -eq 0 ]; then
     cat "$WORK/out"
     rs_fail "the lint passed a copy with this fault: $2"
@@ -84,7 +83,7 @@ expect_fail() {
 
 expect_warn() {
   # expect_warn <rule id> <description>: a warning, and still a pass.
-  lint "$WORK/m"
+  lint "$M"
   if [ "$LINT_CODE" -ne 0 ]; then
     cat "$WORK/out"
     rs_fail "the lint refused a copy that should only warn: $2"
@@ -172,9 +171,9 @@ edit setup/SKILL.md 't = t.replace("disable-model-invocation: true\n", "")'
 expect_fail P5-disable "the setup skill without disable-model-invocation"
 
 fresh
-mkdir -p "$WORK/m/maintain/evals"
-cp "$WORK/m/setup/SKILL.md" "$WORK/m/maintain/SKILL.md"
-cp "$WORK/m/setup/evals/"* "$WORK/m/maintain/evals/"
+mkdir -p "$M/maintain/evals"
+cp "$M/setup/SKILL.md" "$M/maintain/SKILL.md"
+cp "$M/setup/evals/"* "$M/maintain/evals/"
 edit maintain/SKILL.md 't = t.replace("name: setup", "name: maintain").replace("disable-model-invocation: true\n", "").replace("# Setup", "# Maintain")'
 edit maintain/SKILL.md 't = t.replace("Installs the kit into a project.", "Keeps the kit and the project tidy.")'
 expect_fail P5-disable "the maintain skill without disable-model-invocation"
@@ -190,12 +189,12 @@ edit shape/references/spec-shape.md 't += "\nRead `references/questions.md` when
 expect_fail P6-nested "a reference that points at another reference"
 
 fresh
-mkdir -p "$WORK/m/shape/references/deep"
-printf '# Deep\nA file under a folder in references.\n' > "$WORK/m/shape/references/deep/more.md"
+mkdir -p "$M/shape/references/deep"
+printf '# Deep\nA file under a folder in references.\n' > "$M/shape/references/deep/more.md"
 expect_fail P6-nested "a reference in a nested folder"
 
 fresh
-printf '# Orphan\nNo skill reads this.\n' > "$WORK/m/shape/references/orphan.md"
+printf '# Orphan\nNo skill reads this.\n' > "$M/shape/references/orphan.md"
 expect_fail P6-orphan "a reference no SKILL.md names"
 
 fresh
@@ -209,11 +208,11 @@ expect_fail P6-contents "a reference over 100 lines with no contents list"
 # --- principle 7: freedom matches fragility ------------------------------------------
 
 fresh
-edit shape/SKILL.md 't = t.replace("## Gotchas", "```sh\\nset -e\\ncd here\\nmake it\\nrun it\\n```\\n\\n## Gotchas")'
+edit shape/SKILL.md 't = t.replace("## Gotchas", "```sh\nset -e\ncd here\nmake it\nrun it\n```\n\n## Gotchas")'
 expect_fail P7-long-block "a shell block over three lines"
 
 fresh
-edit shape/SKILL.md 't = t.replace("## Gotchas", "```sh\\ngh issue list | xargs gh issue close\\n```\\n\\n## Gotchas")'
+edit shape/SKILL.md 't = t.replace("## Gotchas", "```sh\ngh issue list | xargs gh issue close\n```\n\n## Gotchas")'
 expect_fail P7-pipe "a pipe into a state change"
 
 # --- principle 9: do not shout --------------------------------------------------------
@@ -235,12 +234,12 @@ expect_fail P10-gotchas "a skill with no Gotchas section"
 # --- principle 11: one home, one word ---------------------------------------------------
 
 fresh
-python3 - "$WORK/m" <<'PY'
+python3 - "$M" <<'PY'
 import sys
 from pathlib import Path
 root = Path(sys.argv[1])
 shape = (root / "shape/SKILL.md").read_text(encoding="utf-8")
-para = shape.split("\n")[6]  # the intro paragraph
+para = shape.split("\n")[5]  # the intro paragraph
 assert len(para.split()) >= 40, len(para.split())
 now = root / "what-now/SKILL.md"
 now.write_text(now.read_text(encoding="utf-8").replace("## Gotchas", para + "\n\n## Gotchas"), encoding="utf-8")
@@ -278,12 +277,12 @@ expect_fail P13-now "run with a different report command"
 # --- principle 15: evals --------------------------------------------------------------------
 
 fresh
-rm -- "$WORK/m/setup/evals/edge.md"
+rm -- "$M/setup/evals/edge.md"
 expect_fail P15-evals "a skill with two eval cases"
 
 fresh
-rm -- "$WORK/m/shape/evals/"*
-rmdir "$WORK/m/shape/evals"
+rm -- "$M/shape/evals/"*
+rmdir "$M/shape/evals"
 expect_fail P15-evals "a skill with no evals folder"
 
 # --- principle 16: timeless --------------------------------------------------------------------
@@ -305,7 +304,7 @@ edit shape/SKILL.md 't = t.replace("## Gotchas", "Tuned for Sonnet.\n\n## Gotcha
 expect_fail P16-timeless "a model name"
 
 fresh
-edit shape/SKILL.md 't = t.replace("## Gotchas", "See issue #42 for the reason.\n\n## Gotchas")'
+edit shape/SKILL.md 't = t.replace("## Gotchas", "See issue #" "42 for the reason.\n\n## Gotchas")'
 expect_fail P16-timeless "an issue number"
 
 fresh
