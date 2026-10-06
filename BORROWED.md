@@ -123,4 +123,5 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 - `tests/session-start.sh`
 - `tests/fixtures/AGENTS.md`
 - `tests/stand-ins/prepare/live-on-vercel.sh`
+- `tests/stand-ins/prepare/live-on-vercel.after-commit.sh`
 - `.github/workflows/v1-checks.yml` (stage D1 removes it with the old check)

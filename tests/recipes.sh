@@ -263,6 +263,13 @@ rs_ok "a rehearsal that sources the helper and names its recipe counts"
 
 # --- every recipe, part and the blank, as the old validator checked them --
 # Nothing else runs this loop once the old validator is gone.
+# An empty kit/recipes would let the loop below pass with nothing to check, so
+# count the recipes first. The plan ships two, but one is enough to be a menu.
+set -- "$ROOT"/kit/recipes/*.md
+if [ ! -f "$1" ]; then
+  rs_fail "kit/recipes holds no recipe, so the loop over the recipes would check nothing"
+fi
+rs_ok "kit/recipes holds $# recipe(s)"
 for recipe in "$ROOT"/kit/recipes/*.md; do
   [ -f "$recipe" ] || continue
   name=$(basename "$recipe" .md)

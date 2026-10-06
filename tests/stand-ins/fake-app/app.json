@@ -1,0 +1,6 @@
+{
+  "note": "A stand-in for a GitHub App credential. The numbers are made up. The private key is made at test time by make-key.sh and is never committed.",
+  "app_id": 424242,
+  "installation_id": 4242001,
+  "slug": "ai-loop-kit-stand-in"
+}

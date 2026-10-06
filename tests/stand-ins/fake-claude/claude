@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""A stand-in for the `claude` command, for tests that must not call a model.
+
+It does not think. It replays one scripted attempt, named by FAKE_CLAUDE_SCRIPT,
+a JSON file with three optional parts:
+
+  files    a map of project-relative path to the text to write
+  commits  a list of {"message": ..., "paths": [...]}; each is one commit
+  handoff  {"path": ..., "content": ...}; written and left unsaved
+
+It writes one JSON line for each call to FAKE_CLAUDE_LOG (the arguments, the
+folder and whether a script was set), and prints a result in the shape of
+`claude -p --output-format json`.
+
+It refuses, with exit code 3, a script that writes outside the project, and,
+with exit code 2, a call that has no script. It does not enforce the sandbox.
+Every sandbox claim needs its own smoke test with the real `claude`.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def log(argv: list[str], script: str | None) -> None:
+    target = os.environ.get("FAKE_CLAUDE_LOG")
+    if not target:
+        return
+    entry = {"argv": argv, "cwd": os.getcwd(), "script": script}
+    with open(target, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def inside(project: Path, relative: str) -> Path:
+    """The path under the project, or a refusal."""
+    if os.path.isabs(relative):
+        raise PermissionError(f"{relative!r} is an absolute path")
+    target = (project / relative).resolve()
+    if project.resolve() not in (target, *target.parents):
+        raise PermissionError(f"{relative!r} is outside the project")
+    return target
+
+
+def write(project: Path, relative: str, text: str) -> None:
+    target = inside(project, relative)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+def git(project: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
+
+
+def replay(project: Path, script: dict[str, Any]) -> list[str]:
+    done: list[str] = []
+    for relative in script.get("files", {}):
+        inside(project, relative)  # refuse every bad path before writing any file
+    for commit in script.get("commits", []):
+        for relative in commit["paths"]:
+            inside(project, relative)
+    handoff = script.get("handoff")
+    if handoff:
+        inside(project, handoff["path"])
+
+    for relative, text in script.get("files", {}).items():
+        write(project, relative, text)
+        done.append(f"wrote {relative}")
+    for commit in script.get("commits", []):
+        git(project, "add", "--", *commit["paths"])
+        git(project, "commit", "-q", "-m", commit["message"])
+        done.append(f"committed {commit['message']}")
+    if handoff:
+        write(project, handoff["path"], handoff["content"])
+        done.append(f"left a hand-off at {handoff['path']}")
+    return done
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    path = os.environ.get("FAKE_CLAUDE_SCRIPT")
+    log(argv, path)
+    if not path or not os.path.isfile(path):
+        sys.stderr.write(
+            "claude (stand-in): no script. Set FAKE_CLAUDE_SCRIPT to a JSON file "
+            "(see tests/stand-ins/fake-claude/claude).\n"
+        )
+        return 2
+    with open(path, encoding="utf-8") as handle:
+        script = json.load(handle)
+    try:
+        done = replay(Path.cwd(), script)
+    except PermissionError as exc:
+        sys.stderr.write(f"claude (stand-in): refused. {exc}\n")
+        return 3
+    except subprocess.CalledProcessError as exc:
+        sys.stderr.write(f"claude (stand-in): git failed: {exc.stderr.decode(errors='replace')}\n")
+        return 1
+    print(
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "result": "; ".join(done) or "nothing to do",
+                "session_id": "stand-in-session",
+            }
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
