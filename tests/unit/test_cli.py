@@ -10,7 +10,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kit" / "scripts"))
 
-from loop import cli  # noqa: E402
+from loop import cli
 
 
 def handler_ok(args: Any) -> dict[str, Any]:

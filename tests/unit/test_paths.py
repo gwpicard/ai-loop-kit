@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kit" / "scripts"))
 
-from loop import paths  # noqa: E402
+from loop import paths
 
 
 class ProjectPaths(unittest.TestCase):
