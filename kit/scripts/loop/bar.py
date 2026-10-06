@@ -213,7 +213,7 @@ def _count(pattern: re.Pattern[str], text: str | None) -> int:
 
 
 def _table_name(head: str) -> str:
-    """A table's name with every space and quote taken out, so `[tool."pytest"]` is `tool.pytest`."""
+    """A table name with spaces and quotes taken out, so `[tool."pytest"]` is `tool.pytest`."""
     return re.sub(r"[\s\"']", "", head).lower()
 
 

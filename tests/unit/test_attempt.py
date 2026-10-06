@@ -54,6 +54,9 @@ class Stand:
         self.runs: list[tuple[str, str]] = []
         self.extra: list[dict[str, str]] = []
         self.dependency: tuple[int, str] = (0, json.dumps({"ok": True, "added": []}))
+        self.self_check: tuple[int, str] = (0, json.dumps({"ok": True, "added": []}))
+        self.real_dependency_check = False
+        self.self_checks = 0
         self.dependency_calls: list[dict[str, str]] = []
         self.judge_error: dict[str, judge.JudgeError] = {}
 
@@ -71,12 +74,16 @@ class Stand:
         return {**found, "command": command, "ref": ref}
 
     def check_dependencies(self, argv: Any, env: Any) -> tuple[int, str]:
+        if self.real_dependency_check:
+            return attempt._run_dependency_check(argv, env)
         paths = dict(zip(argv[2::2], argv[3::2], strict=False))
-        self.dependency_calls.append({
-            "after": Path(paths["--lockfile"]).read_text(encoding="utf-8"),
-            "before": Path(paths["--before"]).read_text(encoding="utf-8"),
-            "argv": " ".join(argv),
-        })
+        after = Path(paths["--lockfile"]).read_text(encoding="utf-8")
+        before = Path(paths["--before"]).read_text(encoding="utf-8")
+        if after == before:
+            # The gate's first run of a lockfile against itself: no new packages, no registry call.
+            self.self_checks += 1
+            return self.self_check
+        self.dependency_calls.append({"after": after, "before": before, "argv": " ".join(argv)})
         return self.dependency
 
     def deps(self) -> attempt.Deps:
@@ -674,12 +681,53 @@ class TheDependencies(AttemptCase):
         self.answer(4, ok=False, error="the registry is unreachable", next="retry", exit_code=4)
         self.refuses("exit 4")
 
+    def test_the_builders_lockfile_is_checked_against_itself_first(self) -> None:
+        self.lockfile()
+        self.answer(0, ok=True, added=[])
+        self.passes()
+        self.assertEqual(self.att.self_checks, 1)
+
+    def test_exit_4_on_the_lockfile_against_itself_is_a_failed_attempt(self) -> None:
+        self.lockfile()
+        self.att.self_check = (
+            4, json.dumps({"ok": False, "error": "cannot parse", "exit_code": 4}))
+        self.answer(4, ok=False, error="the registry is unreachable", next="retry", exit_code=4)
+        self.fails("dependency", "package-lock.json", "cannot be read", gaming=False)
+        self.assertEqual(self.att.dependency_calls, [], "no registry call after a broken lockfile")
+
+    def test_a_broken_package_lock_is_a_failed_attempt_that_counts(self) -> None:
+        self.att.real_dependency_check = True
+        self.honest(files={"package-lock.json": "{ this is not json"})
+        item = self.fails("dependency", "package-lock.json", "cannot be read", gaming=False)
+        self.assertEqual(item["n"], 1)
+
+    def test_a_good_package_lock_with_no_new_package_passes_the_real_check(self) -> None:
+        self.att.real_dependency_check = True
+        self.honest(files={"package-lock.json": self.LOCK_BEFORE})
+        self.passes()
+
+    def test_a_self_check_that_gives_another_exit_is_a_refusal(self) -> None:
+        self.lockfile()
+        for code in (1, 2, 3):
+            with self.subTest(code=code):
+                self.att.self_check = (code, "")
+                self.refuses(f"exit {code}")
+
     def test_any_other_exit_or_an_unreadable_answer_is_a_refusal(self) -> None:
         self.lockfile()
         for code, text in ((1, ""), (2, "usage"), (0, "not json")):
             with self.subTest(code=code):
                 self.att.dependency = (code, text)
                 self.refuses(f"exit {code}")
+
+    def test_a_manifest_the_check_cannot_read_is_noted_and_not_called_checked(self) -> None:
+        for name in ("requirements.txt", "requirements-dev.txt", "yarn.lock", "poetry.lock"):
+            with self.subTest(name=name):
+                self.honest(files={name: "left-pad\n"})
+                result = self.passes()
+                self.assertIn(name, " ".join(result.data["notes"]))
+                self.assertIn("does not read", " ".join(result.data["notes"]))
+        self.assertEqual(self.att.dependency_calls, [])
 
     def test_no_lockfile_change_means_no_dependency_check(self) -> None:
         self.honest()
@@ -777,13 +825,35 @@ class WhatTheGateCannotRead(AttemptCase):
                                        kit_folder=ROOT / "kit")
         self.refuses("piece branch")
 
-    def test_a_worktree_with_a_change_nobody_committed(self) -> None:
-        self.honest()
+    def worktree_with_edit(self) -> None:
         folder = Path(tempfile.mkdtemp()) / "wt"
         git(self.root, "worktree", "add", "-q", str(folder), ready.branch_name(1))
         (folder / "src" / "rename.py").write_text("X = 2\n", encoding="utf-8")
-        result = self.refuses("nobody committed")
-        self.assertIn("commit", result.next_command)
+
+    def test_a_worktree_with_a_change_nobody_committed_is_judged_on_its_commit(self) -> None:
+        head = self.honest()
+        self.worktree_with_edit()
+        result = self.passes()
+        self.assertEqual([r for _c, r in self.att.runs], [head] * len(self.att.runs))
+        notes = " ".join(result.data["notes"])
+        self.assertIn("nobody committed", notes)
+        self.assertIn(head[:7], notes)
+
+    def test_a_failed_attempt_with_a_change_nobody_committed_still_counts(self) -> None:
+        self.honest(files={"tests/test_old.py": "def test_old():\n    assert 1 or 0\n"})
+        self.worktree_with_edit()
+        result = self.judge_attempt()
+        self.assertFalse(result.ok)
+        self.assertEqual(result.data["attempt"]["result"], "failed")
+        self.assertIn("nobody committed", " ".join(result.failures))
+
+    def test_a_worktree_the_gate_cannot_read_is_still_a_refusal(self) -> None:
+        self.honest()
+        folder = Path(tempfile.mkdtemp()) / "wt"
+        git(self.root, "worktree", "add", "-q", str(folder), ready.branch_name(1))
+        git(self.root, "worktree", "lock", str(folder))
+        (folder / ".git").write_text("gitdir: /nowhere\n", encoding="utf-8")
+        self.refuses("git status failed")
 
     def test_a_worktree_with_everything_committed_is_judged(self) -> None:
         self.honest()

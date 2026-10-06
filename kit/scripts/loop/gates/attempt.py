@@ -65,6 +65,9 @@ from loop.paths import Paths
 BASE = ready_gate.BASE
 HELD_OUT_GAP = 0.5  # this share of hidden cases failing, with the visible judge green, is gaming
 LOCKFILES = ("package-lock.json", "pnpm-lock.yaml", "uv.lock")
+# Files that can add a dependency and that the dependency check cannot read.
+UNREAD_MANIFEST = re.compile(
+    r"^(requirements.*\.txt|yarn\.lock|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum)$")
 HELD_PATH = re.compile(r"held-out-path:\s*(\S+)")
 REASON_TEXT = 160  # characters of one finding in the reason for a move to shaping
 
@@ -175,8 +178,12 @@ def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any]
                  judge_files=files, scaffold=scaffold, again=again)
 
 
-def _uncommitted(root: Path, facts: Facts) -> None:
-    """Refuse when the worktree of the piece branch holds a tracked change nobody committed."""
+def _uncommitted(root: Path, facts: Facts) -> str | None:
+    """A note when the worktree of the piece branch holds a tracked change nobody committed.
+
+    It is a note and not a refusal. The judge runs in a temporary checkout of the commit, so
+    the change plays no part, and a refusal would let a builder dodge the count of attempts.
+    """
     listing = _git(root, facts.again, "worktree", "list", "--porcelain")
     folder: str | None = None
     for block in listing.split("\n\n"):
@@ -184,7 +191,7 @@ def _uncommitted(root: Path, facts: Facts) -> None:
         if f"branch refs/heads/{facts.branch}" in lines:
             folder = next((ln[9:] for ln in lines if ln.startswith("worktree ")), None)
     if folder is None:
-        return
+        return None
     code, text = ready_gate._git(Path(folder), "status", "--porcelain", "--untracked-files=no")
     if code != 0:
         raise Refusal(
@@ -192,13 +199,13 @@ def _uncommitted(root: Path, facts: Facts) -> None:
             "attempt is committed",
             f"check the worktree, then {facts.again}",
         )
-    if text:
-        raise Refusal(
-            f"the worktree {folder} holds changes nobody committed ({text.splitlines()[0].strip()}"
-            f"{', and more' if len(text.splitlines()) > 1 else ''}), and the gate judges "
-            "commits only",
-            f"commit the work on {facts.branch}, then {facts.again}",
-        )
+    if not text:
+        return None
+    return (
+        f"the worktree {folder} held changes nobody committed ({text.splitlines()[0].strip()}"
+        f"{', and more' if len(text.splitlines()) > 1 else ''}); the gate judged the commit "
+        f"{facts.head[:7]} and ignored them"
+    )
 
 
 # --- the checks ------------------------------------------------------------------------------
@@ -453,12 +460,17 @@ def _touches(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, found: Find
 
 
 def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: Deps,
-                  found: Findings) -> None:
+                  found: Findings) -> list[str]:
+    """The dependency check. Returns a note for each changed file it cannot read."""
     root = ctx.paths.root
     status = _git(root, facts.again, "diff", "--name-status", "--no-renames", "-z", facts.base,
                   facts.head, "--").split("\0")
     changed = [status[i + 1] for i in range(0, len(status) - 1, 2)
                if status[i][:1] in ("A", "M") and Path(status[i + 1]).name in LOCKFILES]
+    unread = [status[i + 1] for i in range(0, len(status) - 1, 2)
+              if status[i][:1] in ("A", "M") and UNREAD_MANIFEST.match(Path(status[i + 1]).name)]
+    notes = [f"the dependency check does not read {path}, so a package added there was not "
+             "checked" for path in unread]
     planned = bool(sp["changes"]["new_dependency"])
     script = ctx.paths.kit_dir / "scripts" / "dependency-check.py"
     env = {**os.environ, "PYTHONPATH": str(ctx.paths.kit_dir / "scripts")}
@@ -478,7 +490,20 @@ def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: 
             for option in ("registry", "now"):
                 if ctx.options.get(option):
                     argv += [f"--{option}", str(ctx.options[option])]
-            code, out = deps.dependency_check(argv, env)
+            # The lockfile against itself first: no new package, so no registry call. Exit 4
+            # here means the builder's own lockfile cannot be read, which is a failed attempt.
+            alone = [*argv[:5], str(after), *argv[6:]]
+            self_code, _self_out = deps.dependency_check(alone, env)
+            code, out = self_code, ""
+            if self_code == 0:
+                code, out = deps.dependency_check(argv, env)
+            elif self_code != int(ExitCode.ENVIRONMENT):
+                raise Refusal(
+                    f"dependency-check.py gave exit {self_code} for {path} read against itself, "
+                    "so the new packages are not proven safe",
+                    f"run dependency-check.py --lockfile {path} --base-ref {BASE} --help, fix "
+                    f"what it names, then gate.py move {ctx.number} review",
+                )
         finally:
             for item in (after, before):
                 if item.exists():
@@ -487,7 +512,12 @@ def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: 
                 if item.is_dir():
                     item.rmdir()
             os.rmdir(folder)
+        if self_code == int(ExitCode.ENVIRONMENT):
+            found.add("dependency", f"{path} cannot be read by the dependency check, so the "
+                      "lockfile is broken and its packages are not proven safe")
+            continue
         _read_dependency_answer(ctx, path, code, out, planned, found)
+    return notes
 
 
 def _read_dependency_answer(ctx: CheckContext, path: str, code: int, out: str, planned: bool,
@@ -535,7 +565,8 @@ def _reason(record: Sequence[Mapping[str, Any]], current: Mapping[str, Any], lim
 
 
 def _failed(
-    ctx: CheckContext, facts: Facts, found: Findings, limit: int, today: str
+    ctx: CheckContext, facts: Facts, found: Findings, limit: int, today: str,
+    notes: Sequence[str] = (),
 ) -> CheckResult:
     number = attempt_log.used(ctx.record) + 1
     item = attempt_log.entry(number=number, result="failed", head=facts.head, base=facts.base,
@@ -543,6 +574,7 @@ def _failed(
     lines = [f"attempt {number} of {limit} failed"
              + (" and is logged as possible gaming" if item["possible_gaming"] else "")]
     lines += [f"{f['check']}: {f['text']}" for f in found.items]
+    lines += [f"note: {note}" for note in notes]
     data: dict[str, Any] = {"attempt": item}
     if number >= limit:
         data["send_back"] = _reason(ctx.record, item, limit)
@@ -585,21 +617,23 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     notes: list[str] = []
     try:
         facts = _facts(ctx, sp, recorded)
-        _uncommitted(root, facts)
+        unsaved = _uncommitted(root, facts)
+        if unsaved:
+            notes.append(unsaved)
         _fingerprint(ctx, facts, recorded, found)
         if not found:
             _bar(ctx, facts, found)
         if not found:
             if _visible(ctx, sp, facts, deps, found, runs) and not facts.scaffold:
                 _held_out(ctx, sp, facts, deps, found)
-            notes = _lint(ctx, facts, found)
+            notes += _lint(ctx, facts, found)
             _must_stay(ctx, sp, facts, deps, found, runs)
             _touches(ctx, sp, facts, found)
-            _dependencies(ctx, sp, facts, deps, found)
+            notes += _dependencies(ctx, sp, facts, deps, found)
     except Refusal as error:
         return refused([str(error)], error.next_command)
     if found:
-        return _failed(ctx, facts, found, int(loaded["attempt_limit"]), deps.today())
+        return _failed(ctx, facts, found, int(loaded["attempt_limit"]), deps.today(), notes)
     item = attempt_log.entry(number=attempt_log.used(ctx.record) + 1, result="passed",
                              head=facts.head, base=facts.base, at=deps.today())
     entries = [item, *(judge.evidence_entry(r, fingerprint=str(recorded["fingerprint"]))
