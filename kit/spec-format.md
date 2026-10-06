@@ -114,8 +114,8 @@ continues the line above it.
 | `Kind:` | The judge kind, then an optional note after a comma. |
 | `Command:` | The command that runs the judge. |
 | `Proves:` | The IDs the judge proves. |
-| `Held-out cases:` | The fingerprint of the hidden cases. Never their content. |
-| `Fails today:` | The gate's record that the judge fails. Only the gate writes it. |
+| `Held-out cases:` | The fingerprint of the hidden cases, as the 64 hex digits that `loop.heldout store` prints. Never their content. The ready gate compares it with the store. |
+| `Fails today:` | The gate's record that the judge fails. Only the gate writes it, at ready. |
 | `Route:` | The word `open` marks "route open". |
 | `Hypotheses:` | The hypotheses of a metric piece or an open route, split by `;`. |
 
@@ -142,7 +142,9 @@ It is null for any other command.
 ## Links
 
 - `Relies on:` code or services, by name, split by commas.
-- `Touches:` areas, split by commas.
+- `Touches:` areas, split by commas. Each area is in the project's area map,
+  `docs/area-map`, or is named under `New area:` in Changes to current
+  behaviour. The ready gate refuses any other.
 
 Waiting for another piece is a GitHub blocked-by link. It is not a spec field.
 
@@ -154,12 +156,29 @@ Each line may carry these labels, and several may share a line.
 - `Docs:` names the docs the pull request must change, split by commas.
 - `New area:` names a new area, split by commas. Use it when the change makes
   an area that the area map does not hold yet.
+- `Not reversible:`, `New dependency:` and `Security:` mark the change. Write
+  what is not reversible, which dependency is new, or what security behaviour
+  changes. A mark whose text is `no` or `none` marks nothing. Each mark is a
+  must-look reason: the ready gate gives the piece individual review.
+
+## Must stay the same
+
+Prose says what must not change. Each `Check:` line names a command that proves
+it, such as `Check: python3 -m pytest tests/test_old.py`. The ready gate runs
+each command on `main`, and it must pass there. The parser gives the commands
+in `must_stay_checks`.
 
 ## Lists
 
 Sensitive areas, Decisions, Research and Open questions are lists. Each item
 starts with `- `. A line that continues an item is indented or follows it
 directly. "None." in a list field means an empty list.
+
+## Decisions
+
+A line that starts with `must-look` in Decisions, written by the person, marks
+the piece for individual review. It is the fifth must-look reason, beside a
+sensitive area and the three marks above.
 
 ## Sensitive areas
 
@@ -172,7 +191,7 @@ the words are the person's. The person decides that at the gate.
 ## What the parser returns
 
 `to_dict()` always has the same keys: `found`, `version`, `path`, `header`,
-`fields`, `missing`, `flow`, `flow_without_id`, `edge_cases`,
+`fields`, `must_stay_checks`, `missing`, `flow`, `flow_without_id`, `edge_cases`,
 `edge_cases_without_id`, `ids`, `duplicate_ids`, `coverage`,
 `unanswered_coverage`, `judge`, `route_open`, `links`, `changes`,
 `sensitive_areas`, `decisions`, `research` and `open_questions`.
