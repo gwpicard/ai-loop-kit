@@ -237,6 +237,9 @@ class Engine:
                     break
                 self.wake.wait(self.tick_seconds)
                 self.wake.clear()
+        except BaseException:
+            self.request_stop()  # a fault in the loop itself: end the sessions, then say so
+            raise
         finally:
             for thread in list(self.workers.values()):
                 thread.join()
@@ -614,9 +617,9 @@ class Engine:
         if route.action == "park-person":
             self.record.set_status(
                 number, record.PARKED_PERSON, question=route.reason,
-                next=f"answer the question: gate.py answer {number} --question <it> --answer "
-                "<yours> --by <you>, then gate.py move "
-                f"{number} ready (an answer in this run resumes the piece)")
+                next=f"answer the question with gate.py answer {number} --question <it> --answer "
+                f"<yours> --by <you>, then gate.py move {number} ready --reason <why>. "
+                "An answer that comes while the run is live resumes the piece")
             return "done"
         target = route.target or ""
         with self.gate_lock:

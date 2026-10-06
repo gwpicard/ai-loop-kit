@@ -352,6 +352,53 @@ build founded
 git -C "$TP_ROOT" branch -m main trunk
 expect_refusal "no main branch" main none "main"
 
+echo "== An empty project =="
+# The first piece scaffolds the project and its test runner. Until it lands the policy has no
+# test command, so main cannot be shown green, and only a run of that piece alone may start.
+capture_piece() {
+  # capture_piece <spec file>: capture a piece in the throwaway project; the piece is number 1.
+  (cd "$TP_ROOT" && python3 "$KIT/scripts/gate.py" capture --title "$2" --body-file "$1" \
+    --type feature --json >/dev/null)
+}
+SPECS=$(mktemp -d)
+sed 's#{{TEST_COMMAND}}#python3 -m pytest#' "$ROOT/kit/templates/first-piece.md" > "$SPECS/scaffold.md"
+sed 's#Kind: scaffold#Kind: acceptance tests, a single test#' "$SPECS/scaffold.md" > "$SPECS/feature.md"
+
+build founded
+edit_json "$POLICY" 'd["test_command"] = ""'
+capture_piece "$SPECS/scaffold.md" "Scaffold the project"
+expect_pass "no test command, and the run is the scaffold piece alone" --pieces 1
+printf '%s' "$out" | grep -q "main is not tested" \
+  && pass "it says in a notice that main was not tested" \
+  || fail "no notice that main was not tested: $out"
+expect_refusal "no test command, and no piece named" main none "test_command" --
+expect_refusal "no test command, and a piece that does not exist" main none "test_command" \
+  -- --pieces 7
+
+build founded
+edit_json "$POLICY" 'd["test_command"] = ""'
+capture_piece "$SPECS/feature.md" "A feature"
+expect_refusal "no test command, and the piece is not the scaffold" main none "test_command" \
+  -- --pieces 1
+
+build founded
+capture_piece "$SPECS/scaffold.md" "Scaffold the project"
+edit_json "$POLICY" 'd["test_command"] = "sh -c \"test ! -f RED\""'
+printf 'red\n' > "$TP_ROOT/RED"
+git -C "$TP_ROOT" add RED
+git -C "$TP_ROOT" commit -q -m "Break main"
+git -C "$TP_ROOT" push -q origin main
+expect_refusal "a red main is refused even for the scaffold piece" main none "RED" -- --pieces 1
+
+echo "== The builders' command line =="
+build founded
+expect_refusal "a session command line with --bare" bare none "--bare" "hooks" \
+  -- --session-command "claude -p --bare --settings s.json"
+expect_pass "a session command line without --bare" --session-command "claude -p --settings s.json"
+set_env CLAUDE_CODE_SIMPLE 1
+expect_refusal "CLAUDE_CODE_SIMPLE, which is --bare in the environment" bare none "CLAUDE_CODE_SIMPLE"
+unset CLAUDE_CODE_SIMPLE
+
 echo "== The GitHub App =="
 build founded
 mv "$TP_APP_KEY" "$TP_APP_KEY.away"
