@@ -66,11 +66,15 @@ print("  ok: the matcher agrees with every example in the documentation's table"
 # --- the rules ----------------------------------------------------------------
 
 template = json.load(open(rules_path))
-expected = {"ask": ["Bash(gh pr merge *)", "Bash(gh api *pulls/*/merge*)"]}
-if template != expected:
-    stop("merge-ask-rules.json holds %r, not %r" % (template, expected))
+merge_rules = ["Bash(gh pr merge *)", "Bash(gh api *pulls/*/merge*)"]
+if set(template) != {"ask"} or template["ask"][:2] != merge_rules:
+    stop("merge-ask-rules.json holds %r, and its first two rules must be %r" % (template, merge_rules))
+# Every other rule asks before something posted in the person's name; settings.sh tests those.
+for other in template["ask"][2:]:
+    if not other.startswith("Bash(gh "):
+        stop("merge-ask-rules.json holds %r, which is not a gh posting rule" % other)
 rules = template["ask"]
-print("  ok: the template holds the two rules and nothing else")
+print("  ok: the template holds the two merge rules first, then only gh posting rules")
 
 must_ask = [
     "gh pr merge 12",
@@ -117,8 +121,10 @@ if problems:
     stop("\n".join(problems))
 print("  ok: every merge listed as asked about is asked, and nothing else is")
 
-for rule in rules:
-    if not evaluate([r for r in rules if r != rule]):
+# Each merge rule is tested alone, so the posting rules (which also match gh api -X PUT)
+# do not make a merge rule look needless.
+for rule in merge_rules:
+    if not evaluate([r for r in merge_rules if r != rule]):
         stop("taking out %s changes nothing, so the check does not need it" % rule)
 print("  ok: taking out either rule is caught")
 
@@ -160,7 +166,7 @@ if after.get("hooks") != before.get("hooks"):
     stop("add changed the session-start hook")
 rest_before = {k: v for k, v in before.items() if k != "permissions"}
 rest_after = {k: v for k, v in after.items() if k != "permissions"}
-if rest_before != rest_after or set(after["permissions"]) != {"deny", "ask"}:
+if rest_before != rest_after or set(after["permissions"]) != set(before["permissions"]) | {"ask"}:
     stop("add changed something besides the ask list")
 if not all(rule in out for rule in rules):
     stop("add did not print the rules it added: %r" % out)

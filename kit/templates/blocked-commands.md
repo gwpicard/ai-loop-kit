@@ -23,6 +23,9 @@ deny list, mirror these entries there as mechanical enforcement:
   history" below
 - `git reflog expire`
 - `git gc` with `--prune`
+- `git commit --no-verify`, `git config core.hooksPath` and `git config
+  alias.*`, which switch off the git hooks or hide a refused command behind a
+  short name, in the spellings listed under "Keeping the git hooks on" below
 - a direct change to a `state:`, `shaping:` or `review:` label, in the
   spellings listed under "Changing a piece's state by hand" below
 - a write to the gate's record in `.agents/pieces/`, as "A piece's record"
@@ -148,6 +151,32 @@ These spellings are not refused, and the rule above still forbids them:
 - `/bin/rm -r build`, with `rm` called by its full path
 - `sh -c 'rm -r build'`, with the delete inside another shell
 - `git -C . gc --prune=now`, with an option between `git` and `gc`
+
+## Keeping the git hooks on
+
+The git hooks check each commit and each push. Three commands switch them off,
+or hide a refused command behind a short name. The Claude Code settings the kit
+installs refuse all three, and the guard hook, `kit/hooks/guard.py`, refuses
+them too. Where the deny rule reads the words as written, the hook reads the
+command.
+
+These spellings are refused by the hook and by the deny rules:
+
+- `git commit --no-verify -m x`, `git commit -m x --no-verify` and
+  `git commit -n -m x`
+- `git config core.hooksPath /tmp/none` and
+  `git config --global core.hooksPath /tmp/none`
+- `git config alias.st status` and `git config --global alias.st status`
+
+The hook refuses these spellings, and the deny rules miss them:
+
+- `git -c core.hooksPath=/tmp/none commit -m x`, with the option before the
+  subcommand
+- `git -C . commit --no-verify -m x`, with an option between `git` and `commit`
+- `git commit -nm x`, with the short option joined to another
+
+Reading a value still runs, such as `git config --get core.hooksPath`. Setting
+`user.name` and every other key still runs.
 
 ## Changing a piece's state by hand
 

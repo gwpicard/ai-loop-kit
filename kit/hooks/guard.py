@@ -283,12 +283,11 @@ def read_block(path: Path, ctx: Context, *, write: bool = False) -> Decision | N
             )
     data = _data_folder(ctx)
     if data is not None and _is_under(path, data):
-        parts = path.relative_to(data).parts
-        if path.name == "app-key.pem" or "held-out" in parts:
-            return refuse(
-                "this is the App key or the held-out folder. Only the gate reads them.",
-                "use the gate's own commands. Do not read these files.",
-            )
+        return refuse(
+            "this is the kit's data folder. It holds the App key, the evidence key, "
+            "the head records and the held-out folder. Only the gate reads them.",
+            "use the gate's own commands. Do not read or write these files.",
+        )
     for folder in _secret_folders(ctx):
         if _is_under(path, folder):
             return refuse(
@@ -580,6 +579,8 @@ def unwrap(words: Sequence[str]) -> list[str]:
 # --- the rules ---------------------------------------------------------------------
 
 VALUE_PUSH_OPTIONS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+HOOKS_PATH_WHAT = "core.hooksPath moves the git hooks, so the checks in them stop running."
+HOOKS_PATH_NEXT = "leave core.hooksPath alone. Ask the person to change it."
 GIT_VALUE_OPTIONS = {"-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 PUSH_NEXT = (
     "push the piece's own branch, such as git push origin <branch>, then open a pull request."
@@ -677,6 +678,12 @@ def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
             here = _real(os.path.join(here, args[i + 1]))
             i += 2
         elif args[i] in GIT_VALUE_OPTIONS:
+            if (
+                args[i] == "-c"
+                and i + 1 < len(args)
+                and args[i + 1].lower().startswith("core.hookspath")
+            ):
+                return refuse(HOOKS_PATH_WHAT, HOOKS_PATH_NEXT)
             i += 2
         else:
             i += 1
@@ -685,6 +692,23 @@ def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
     sub, rest = args[i], list(args[i + 1 :])
     if sub == "push":
         return check_push(rest, here)
+    if sub == "commit" and any(
+        a == "--no-verify" or re.fullmatch(r"-[a-zA-Z]*n[a-zA-Z]*", a) for a in rest
+    ):
+        return refuse(
+            "git commit --no-verify skips the git hooks that check the commit.",
+            "commit without --no-verify. If a hook fails, fix what it names.",
+        )
+    if sub == "config":
+        names = [a.lower() for a in rest if not a.startswith("-")]
+        reading = any(a in {"--get", "--get-all", "--list", "-l"} for a in rest)
+        if not reading and any(n.startswith("core.hookspath") for n in names):
+            return refuse(HOOKS_PATH_WHAT, HOOKS_PATH_NEXT)
+        if any(n.startswith("alias.") for n in names) and not reading:
+            return refuse(
+                "a git alias can hide a refused command behind a short name.",
+                "type the full git command. Ask the person to add an alias.",
+            )
     if sub == "reset" and "--hard" in rest:
         return refuse(
             "git reset --hard throws away work that is not saved.",
@@ -790,7 +814,7 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
     if "graphql" in endpoint:
         if any(m in text for m in LABEL_MUTATIONS):
             return refuse("this GraphQL call changes labels.", GATE_NEXT_LABEL)
-        if any(m in text for m in COMMENT_MUTATIONS):
+        if any(m in text for m in COMMENT_MUTATIONS) or re.search(r"\bmutation\b", text):
             return ask("this GraphQL call posts in the person's name.", COMMENT_NEXT)
         return None
     labels_path = bool(re.search(r"(^|/)labels(/|$)", endpoint))
@@ -802,8 +826,8 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
         return refuse("this gh api call writes labels.", GATE_NEXT_LABEL)
     if labels_path and family_text:
         return refuse("this gh api call names a state label.", GATE_NEXT_LABEL)
-    if write and re.search(r"/(comments|reviews)(/|$)", endpoint):
-        return ask("this call posts in the person's name.", COMMENT_NEXT)
+    if write:
+        return ask("this call writes to GitHub in the person's name.", COMMENT_NEXT)
     return None
 
 
@@ -851,6 +875,10 @@ def check_gh(args: Sequence[str]) -> Decision | None:
                 "a label is held in a variable, so it cannot be read.",
                 "write the label in the command.",
             )
+    if (group in {"issue", "pr"} and action in {"create", "edit", "close"}) or (
+        group == "release" and action == "create"
+    ):
+        return ask("this posts to GitHub in the person's name.", COMMENT_NEXT)
     if group == "label" and action in {"create", "edit", "delete"}:
         names = [a for a in tail if not a.startswith("-")][:1]
         names += [
@@ -989,7 +1017,7 @@ def check_paths(
                 found = covers_protected(path, ctx)
                 if found is not None:
                     return found
-    if prog not in {"echo", "printf"}:
+    if prog not in {"echo", "printf", "cd", "pushd"}:
         for arg in args:
             for path in candidates(arg, cwd, ctx):
                 found = read_block(path, ctx)
