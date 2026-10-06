@@ -549,6 +549,7 @@ class Engine:
                 "give-back", 7, "ready",
                 reason=f"the builder session could not be planned: {error}"))
             return None
+        began = time.time()
         try:
             result = self._start(session)
         except sessions.SessionError as error:
@@ -556,6 +557,9 @@ class Engine:
                 "give-back", 7, "ready",
                 reason=f"the builder session could not start: {error}"))
             return None
+        windows = list(self.record.piece(number).get("windows", []))
+        windows.append([began, time.time()])
+        self.record.update(number, windows=windows)
         self._spend(number, result)
         return result
 

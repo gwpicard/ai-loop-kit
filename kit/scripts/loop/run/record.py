@@ -245,8 +245,10 @@ class RunRecord:
         if per_run is not None and total >= per_run - 1e-9:
             return (f"the run has spent ${total:.2f}, and the cap for the run is "
                     f"${per_run:.2f}")
+        if per_piece is None:
+            return None
         spent = self.spend_piece(piece)
-        if per_piece is not None and spent >= per_piece - 1e-9:
+        if spent >= per_piece - 1e-9:
             return (f"piece {piece} has spent ${spent:.2f}, and the cap for a piece is "
                     f"${per_piece:.2f}")
         return None
