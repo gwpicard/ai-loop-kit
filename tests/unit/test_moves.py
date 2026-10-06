@@ -19,7 +19,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
-from loop import evidence, fingerprint, github, moves, spec, states  # noqa: E402
+from loop import attempt_log, evidence, fingerprint, github, moves, spec, states  # noqa: E402
 from loop.cli import ExitCode  # noqa: E402
 from loop.gates import CheckContext, CheckResult, passed, refused  # noqa: E402
 from loop.paths import Paths  # noqa: E402
@@ -37,6 +37,7 @@ class Loader:
         self.data: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, int]] = []
         self.during: dict[str, Callable[[CheckContext], None]] = {}
+        self.refusal_data: dict[str, dict[str, Any]] = {}
 
     def __call__(self, name: str) -> Callable[[CheckContext], CheckResult]:
         def check(ctx: CheckContext) -> CheckResult:
@@ -44,7 +45,10 @@ class Loader:
             if name in self.during:
                 self.during[name](ctx)
             if name in self.refuse:
-                return refused([f"the {name} stub refused"], f"fix the {name} stub")
+                result = refused([f"the {name} stub refused"], f"fix the {name} stub")
+                return CheckResult(ok=False, failures=result.failures,
+                                   next_command=result.next_command,
+                                   data=self.refusal_data.get(name, {}))
             return passed(**self.data.get(name, {}))
 
         return check
@@ -928,6 +932,117 @@ class DryRun(Base):
         self.assertEqual(result["to"], "ready")
         self.assertEqual(evidence.read(self.paths, piece), before)
         self.assertEqual(self.hub.calls, calls)
+
+
+class FailedAttempts(Base):
+    """Move 5 when the attempt gate fails an attempt: it is logged, and may send the piece back."""
+
+    def entry(self, number: int = 1) -> dict[str, Any]:
+        return attempt_log.entry(
+            number=number, result="failed", head="a" * 40, base="b" * 40, at=TODAY,
+            findings=[attempt_log.finding("visible-judge", f"fault {number}")])
+
+    def building(self) -> int:
+        piece = self.capture()
+        self.walk(piece, "building")
+        self.loader.refuse.add("attempt")
+        return piece
+
+    def refused(self, piece: int, **kwargs: Any) -> moves.MoveError:
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.move(piece, "review", **kwargs)
+        return caught.exception
+
+    def test_a_failed_attempt_is_logged_and_the_piece_stays_building(self) -> None:
+        piece = self.building()
+        self.loader.refusal_data["attempt"] = {"attempt": self.entry()}
+        error = self.refused(piece)
+        self.assertEqual(error.code, ExitCode.REFUSED)
+        self.assertIn("logged in the piece record", error.message)
+        self.assertIn("fix the attempt stub", error.next_command)
+        record = evidence.read(self.paths, piece)
+        self.assertEqual(attempt_log.attempts(record), [self.entry()])
+        self.assertEqual(self.gate.piece(piece).state, "building")
+        self.assertIn("state:building", self.labels(piece))
+
+    def test_each_failed_attempt_adds_one_entry(self) -> None:
+        piece = self.building()
+        for number in (1, 2):
+            self.loader.refusal_data["attempt"] = {"attempt": self.entry(number)}
+            self.refused(piece)
+        self.assertEqual([a["n"] for a in attempt_log.attempts(evidence.read(self.paths, piece))],
+                         [1, 2])
+
+    def test_a_dry_run_logs_nothing(self) -> None:
+        piece = self.building()
+        self.loader.refusal_data["attempt"] = {"attempt": self.entry(),
+                                               "send_back": "the attempts ran out"}
+        before = evidence.read(self.paths, piece)
+        error = self.refused(piece, dry_run=True)
+        self.assertIn("move 6", error.message)
+        self.assertEqual(evidence.read(self.paths, piece), before)
+        self.assertEqual(self.gate.piece(piece).state, "building")
+
+    def test_a_refusal_with_no_attempt_data_logs_nothing(self) -> None:
+        piece = self.building()
+        before = evidence.read(self.paths, piece)
+        self.refused(piece)
+        self.assertEqual(evidence.read(self.paths, piece), before)
+
+    def test_with_no_attempt_left_the_piece_goes_back_to_shaping_by_move_6(self) -> None:
+        piece = self.building()
+        reason = "The attempts ran out: 3 of 3 failed. attempt 1 (fault 1) | attempt 3 (fault 3)"
+        self.loader.refusal_data["attempt"] = {"attempt": self.entry(3), "send_back": reason}
+        error = self.refused(piece)
+        self.assertEqual(error.data, {"sent_back": True})
+        self.assertIn("move 6", error.message)
+        self.assertIn("gate.py move", error.next_command)
+        self.assertEqual(self.gate.piece(piece).state, "shaping")
+        record = evidence.read(self.paths, piece)
+        move = [e for e in record if e["kind"] == "move"][-1]
+        self.assertEqual((move["move"], move["from"], move["to"]), (6, "building", "shaping"))
+        self.assertEqual(move["reason"], reason)
+        kinds = [e["kind"] for e in record]
+        self.assertLess(kinds.index("attempt"), len(kinds) - 1 - kinds[::-1].index("move"))
+        issue = self.hub.issues[self.gate.piece(piece).issue]
+        self.assertTrue(any(reason in c for c in issue["comments"]))
+        self.assertIn(reason, issue["body"], "the reason is a new open question in the spec")
+
+    def test_the_attempt_is_kept_when_the_send_back_is_refused(self) -> None:
+        piece = self.building()
+        reason = "The attempts ran out, and the findings are the same as before."
+        self.loader.refusal_data["attempt"] = {"attempt": self.entry(3), "send_back": reason}
+        self.refused(piece)
+        self.walk(piece, "building")
+        self.loader.refuse.add("attempt")
+        error = self.refused(piece)  # the same reason again: the anti-circle rule says no
+        self.assertIn("could not", error.message)
+        self.assertEqual(self.gate.piece(piece).state, "building")
+        self.assertEqual(len(attempt_log.attempts(evidence.read(self.paths, piece))), 1,
+                         "the attempts of the first round do not count in the second")
+        self.assertEqual(len([e for e in evidence.read(self.paths, piece)
+                              if e["kind"] == "attempt"]), 2)
+
+    def test_a_pass_records_the_attempt_and_moves_to_review(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "building")
+        passing = attempt_log.entry(number=1, result="passed", head="a" * 40, base="b" * 40,
+                                    at=TODAY)
+        self.loader.data["attempt"] = {"entries": [passing]}
+        result = self.gate.move(piece, "review")
+        self.assertEqual((result["move"], result["to"]), (5, "review"))
+        self.assertEqual(attempt_log.attempts(evidence.read(self.paths, piece)), [passing])
+
+    def test_a_record_changed_between_the_reads_logs_nothing_and_says_so(self) -> None:
+        piece = self.building()
+        self.loader.refusal_data["attempt"] = {"attempt": self.entry()}
+        def other_session(_ctx: CheckContext) -> None:
+            evidence.append(self.paths, piece, [{"kind": "answer", "text": "another session"}])
+
+        self.loader.during["attempt"] = other_session
+        error = self.refused(piece)
+        self.assertIn("another session", error.message)
+        self.assertEqual(attempt_log.attempts(evidence.read(self.paths, piece)), [])
 
 
 if __name__ == "__main__":

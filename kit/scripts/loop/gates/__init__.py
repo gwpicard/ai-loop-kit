@@ -18,8 +18,11 @@ A passing result may carry data the gate records:
 - `entries`: more entries for the piece record, such as the judge runs and the
   test lists the check made. Each has a `kind` that the gate's own kinds do not use.
 
-A refusal may carry `send_back`: the reason the gate gives to move 3, which sends the
-piece back to shaping. Only the claim sets it, and `loop.moves` makes that move itself.
+A refusal may carry `send_back`: the reason the gate gives to the move that sends the
+piece back to shaping. The claim sets it (move 3) and so does the attempt gate (move 6),
+and `loop.moves` makes that move itself. A refusal of the attempt gate that judged a failed
+attempt also carries `attempt`, the entry for the piece record, which `loop.moves` writes
+before the refusal is shown.
 """
 
 from __future__ import annotations
