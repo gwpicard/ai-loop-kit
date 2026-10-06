@@ -1,0 +1,24 @@
+# v1 checks. Runs every rehearsal in tests/ through tests/run-all.sh and nothing
+# else.
+#
+# It starts by hand only. The maintainer adds a pull_request trigger once hosted
+# runners are trusted again. Until then the local run of tests/run-all.sh is the
+# check.
+name: v1 checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rehearsal:
+    # The old release check wants every job gated to this repository, so the gate
+    # names both repository names. Stage D drops the old one with that check.
+    if: github.repository == 'gwpicard/ai-build-kit' || github.repository == 'gwpicard/ai-loop-kit'
+    runs-on: ubuntu-latest
+    # A rehearsal that waits for an answer nobody is there to give should stop
+    # rather than hold the queue open.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rehearse
+        run: tests/run-all.sh
