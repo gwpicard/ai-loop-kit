@@ -4,7 +4,8 @@
 
 Commands:
   newtest-lint.py --base <ref>        judge what the working tree adds to <ref>
-  newtest-lint.py --file <path> ...   judge whole files (by their names only)
+  newtest-lint.py --file <path> [--file <path> ...]
+                                      judge whole files (by their names only)
 
 The lint (loop/newtest_lint.py) reads only the lines a change adds, so an old
 smell is left alone. It finds: no assertion, a skip marker, `assert True`, a
@@ -14,9 +15,11 @@ a snapshot rewritten with the code, a suppression comment, a swallowed error and
 a debug leftover. Assertion roulette and magic numbers are only reported. The
 attempt gate runs this on every attempt. The script changes nothing.
 
-Python modules of the project are found from its top-level folders. Add more
-with --own-module. A file that is a test is told by its path, as test-guard.sh
-tells it.
+Python modules of the project are found as every folder with __init__.py at
+any depth, the modules in the roots that pyproject.toml or MYPYPATH name, and
+the top level and src/. Add more with --own-module. When a Python file is judged
+and no module is found, the output says so in "notes". A file that is a test is
+told by its path, as test-guard.sh tells it.
 """
 
 from __future__ import annotations
@@ -37,7 +40,11 @@ from loop.cli import ExitCode, Failure
 def setup(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base", metavar="REF", help="judge the working tree against this commit")
     parser.add_argument(
-        "--file", action="append", default=[], metavar="PATH", help="judge this file whole"
+        "--file",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="judge this file whole; repeat the option for each more file",
     )
     parser.add_argument(
         "--own-module",
@@ -95,7 +102,18 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def judge_base(base: str, extra_modules: frozenset[str]) -> tuple[list[nl.Finding], list[str]]:
+def _detect_here() -> frozenset[str]:
+    """The own modules of the project that holds the current folder, or of the folder itself."""
+    try:
+        root = _root()
+    except Failure:
+        root = Path.cwd()
+    return nl.detect_own_modules(root)
+
+
+def judge_base(
+    base: str, extra_modules: frozenset[str]
+) -> tuple[list[nl.Finding], list[str], frozenset[str]]:
     root = _root()
     own = nl.detect_own_modules(root) | extra_modules
     diff = _git(
@@ -127,12 +145,13 @@ def judge_base(base: str, extra_modules: frozenset[str]) -> tuple[list[nl.Findin
             continue
         checked.append(path)
         findings.extend(nl.lint_text(path, text, added=added, touched=touched, own_modules=own))
-    return findings, checked
+    return findings, checked, own
 
 
 def judge_files(
     files: list[str], extra_modules: frozenset[str]
-) -> tuple[list[nl.Finding], list[str]]:
+) -> tuple[list[nl.Finding], list[str], frozenset[str]]:
+    own = _detect_here() | extra_modules
     findings: list[nl.Finding] = []
     checked: list[str] = []
     for name in files:
@@ -151,11 +170,11 @@ def judge_files(
             nl.lint_text(
                 name,
                 text,
-                own_modules=extra_modules,
+                own_modules=own,
                 is_test=nl.is_test_path(path.name),
             )
         )
-    return findings, checked
+    return findings, checked, own
 
 
 def handle(args: argparse.Namespace) -> dict[str, Any]:
@@ -167,11 +186,18 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
         )
     extra = frozenset(args.own_module)
     if args.base:
-        findings, checked = judge_base(args.base, extra)
+        findings, checked, own = judge_base(args.base, extra)
         again = f"newtest-lint.py --base {args.base}"
     else:
-        findings, checked = judge_files(args.file, extra)
+        findings, checked, own = judge_files(args.file, extra)
         again = "newtest-lint.py --file " + " --file ".join(args.file)
+    notes: list[str] = []
+    if not own and any(nl.language_of(name) == "py" for name in checked):
+        notes.append(
+            "no Python module of this project was found, so own_module_mock cannot judge "
+            "Python mocks; add one with --own-module NAME, or put an __init__.py in each package"
+        )
+        sys.stderr.write(f"note: {notes[0]}\n")
     refused = nl.refusals(findings)
     noted = nl.reports(findings)
     data: dict[str, Any] = {
@@ -179,6 +205,8 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
         "reports": noted,
         "checked": checked,
         "mode": "base" if args.base else "file",
+        "own_modules": sorted(own),
+        "notes": notes,
     }
     if refused:
         first = refused[0]

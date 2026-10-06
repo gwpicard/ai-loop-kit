@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import ast
 import bisect
+import os
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -395,7 +396,7 @@ TS_LINE_RULES: list[tuple[Rule, re.Pattern[str]]] = [
     (
         Rule.SKIP_ADDED,
         re.compile(
-            r"\b(?:it|test|describe|context)\.skip\b|\b(?:it|test)\.fails\b"
+            r"\b(?:it|test|describe|context)\.skip\b|\b(?:it|test)\.(?:fails|todo)\b"
             r"|\bx(?:it|test|describe)\s*\("
         ),
     ),
@@ -421,9 +422,14 @@ TS_LINE_RULES: list[tuple[Rule, re.Pattern[str]]] = [
     (
         Rule.ASSERT_TRUE,
         re.compile(
-            r"\bexpect\(\s*true\s*\)\.(?:toBeTruthy\(\s*\)|(?:toBe|toEqual|toStrictEqual)"
-            r"\(\s*true\s*\))|\bassert(?:\.ok)?\(\s*true\s*\)"
-            r"|\bexpect\(\s*(\d+|false|null)\s*\)\.(?:toBe|toEqual|toStrictEqual)\(\s*\1\s*\)"
+            # expect(true) with any matcher that cannot fail
+            r"\bexpect\(\s*true\s*\)\.(?!(?:toBe|toEqual|toStrictEqual)\(\s*false\b|toBeFalsy\b)"
+            r"|\bassert(?:\.ok)?\(\s*true\s*\)"
+            # expect(x).toBe(x): the same name, number or path on both sides
+            r"|\bexpect\(\s*([\w.$]+)\s*\)\.(?:toBe|toEqual|toStrictEqual)\(\s*\1\s*\)"
+            # an assertion with an or-true tail or head
+            r"|\b(?:expect|assert)\w*\s*\(.*\|\|\s*(?:true|1)\b"
+            r"|\b(?:true|1)\s*\|\|\s*(?:await\s+)?(?:expect|assert)\w*\s*\("
         ),
     ),
 ]
@@ -431,7 +437,7 @@ TS_LINE_RULES: list[tuple[Rule, re.Pattern[str]]] = [
 TS_SAME_STRING = re.compile(r"\bexpect\(\s*(['\"])(.*?)\1\s*\)\.(?:toBe|toEqual)\(\s*\1\2\1\s*\)")
 PY_PATCH = re.compile(r"\bpatch(?:\.object|\.dict)?\(\s*f?['\"]([\w.]+)['\"]")
 PY_SETATTR = re.compile(r"\bmonkeypatch\.setattr\(\s*['\"]([\w.]+)['\"]")
-PY_PATCH_OBJECT = re.compile(r"\b(?:patch\.object|monkeypatch\.setattr)\(\s*([A-Za-z_]\w*)\s*,")
+PY_PATCH_OBJECT = re.compile(r"\b(?:patch\.object|monkeypatch\.setattr)\(\s*([A-Za-z_][\w.]*)\s*,")
 TS_MOCK = re.compile(r"\b(?:jest|vi)\.(?:mock|doMock|unstable_mockModule)\(\s*['\"]([^'\"]+)['\"]")
 TS_OWN_PATH = re.compile(r"^(?:\.|/|@/|~/|src/)")
 TS_EMPTY_CATCH = re.compile(
@@ -441,7 +447,7 @@ TS_TEST_CALL = re.compile(
     r"(?<![\w.$])(?:it|test)(?:\.(?:only|skip|concurrent|fails|failing))?\s*\("
 )
 TS_ASSERTION = re.compile(
-    r"\bexpect\s*[.(]|\bassert\w*\s*[.(]|\.should\b|\bfail\s*\("
+    r"\bexpect\s*[.(]|\bassert\w*\s*[.(]|\.should\b|(?<![\w.$])fail\s*\("
     r"|\bt\.(?:is|true|false|deepEqual|throws|truthy|falsy|not|assert|pass)\w*\s*\("
     r"|\bexpectTypeOf\b"
 )
@@ -464,7 +470,7 @@ def _source_rules(raw_lines: list[str], scope: Scope, add: Callable[[Rule, int],
 
 # --- Python -------------------------------------------------------------------
 
-_ASSERT_PREFIXES = ("assert", "expect", "verify", "fail", "raises", "warns")
+_NESTED = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
 def _call_name(node: ast.Call) -> str:
@@ -476,18 +482,87 @@ def _call_name(node: ast.Call) -> str:
     return ""
 
 
+def _dotted(node: ast.AST) -> str:
+    """`a.b.c` for a name or an attribute path, and an empty string for anything else."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+        return ".".join(reversed(parts))
+    return ""
+
+
+def _is_assertion_call(node: ast.Call) -> bool:
+    """An assertion call, matched exactly.
+
+    `self.assertEqual`, `mock.assert_called_with` and `assert_that` start with `assert`.
+    `pytest.raises`, `pytest.warns`, `pytest.fail`, `self.fail` and `expect(...)` are named.
+    A name that merely starts like one, such as `verify_nothing`, is not an assertion.
+    """
+    func = node.func
+    name = _call_name(node)
+    if name.startswith("assert"):
+        return True
+    if isinstance(func, ast.Name):
+        return name in ("expect", "raises", "warns", "fail", "deprecated_call")
+    if isinstance(func, ast.Attribute):
+        owner = _dotted(func.value)
+        if name in ("raises", "warns", "deprecated_call"):
+            return owner == "pytest"
+        if name == "fail":
+            return owner in ("pytest", "self", "cls")
+    return False
+
+
+def _py_scope(test: ast.AST) -> list[ast.AST]:
+    """The nodes of a test that run. A nested function or lambda counts only when it is called."""
+    nested: dict[str, ast.AST] = {}
+    live: list[ast.AST] = []
+    pending: list[ast.AST] = [test]
+    used: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _NESTED):
+                nested[child.name] = child
+            elif isinstance(child, ast.Lambda):
+                continue
+            elif (
+                isinstance(child, ast.Assign)
+                and isinstance(child.value, ast.Lambda)
+                and len(child.targets) == 1
+                and isinstance(child.targets[0], ast.Name)
+            ):
+                nested[child.targets[0].id] = child.value
+            else:
+                live.append(child)
+                visit(child)
+
+    while pending:
+        visit(pending.pop())
+        for node in live:
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                name = node.func.id
+                if name in nested and name not in used:
+                    used.add(name)
+                    pending.append(nested[name])
+    return live
+
+
 def _py_has_assertion(node: ast.AST) -> bool:
-    for child in ast.walk(node):
+    for child in _py_scope(node):
         if isinstance(child, ast.Assert):
             return True
-        if isinstance(child, ast.Call) and _call_name(child).lower().startswith(_ASSERT_PREFIXES):
+        if isinstance(child, ast.Call) and _is_assertion_call(child):
             return True
     return False
 
 
 def _py_assertions(node: ast.AST) -> list[ast.AST]:
     found: list[ast.AST] = []
-    for child in ast.walk(node):
+    for child in _py_scope(node):
         if isinstance(child, ast.Assert) or (
             isinstance(child, ast.Call) and _call_name(child).startswith("assert")
         ):
@@ -499,27 +574,42 @@ def _is_constant(node: ast.AST) -> bool:
     return isinstance(node, ast.Constant)
 
 
+def _plain(node: ast.AST) -> bool:
+    """An expression with no call, so the same text twice gives the same value."""
+    return not any(
+        isinstance(n, (ast.Call, ast.Await, ast.Yield, ast.NamedExpr)) for n in ast.walk(node)
+    )
+
+
+def _same(left: ast.AST, right: ast.AST) -> bool:
+    return _plain(left) and _plain(right) and ast.dump(left) == ast.dump(right)
+
+
+def _truthy(node: ast.AST) -> bool:
+    """An expression that is true however the code behaves."""
+    if isinstance(node, ast.Constant):
+        return bool(node.value)
+    if isinstance(node, ast.Tuple):
+        return bool(node.elts)
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.Or):
+            return any(_truthy(v) for v in node.values)
+        return all(_truthy(v) for v in node.values)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+        return _same(node.left, node.comparators[0])
+    return False
+
+
 def _py_always_true(node: ast.AST) -> bool:
     if isinstance(node, ast.Assert):
-        test = node.test
-        if isinstance(test, ast.Constant):
-            return bool(test.value)
-        if (
-            isinstance(test, ast.Compare)
-            and len(test.ops) == 1
-            and isinstance(test.ops[0], ast.Eq)
-            and _is_constant(test.left)
-            and _is_constant(test.comparators[0])
-        ):
-            return ast.dump(test.left) == ast.dump(test.comparators[0])
-        return False
+        return _truthy(node.test)
     if isinstance(node, ast.Call):
         name = _call_name(node)
         args = node.args
         if name in ("assertTrue", "assert_") and len(args) >= 1:
-            return isinstance(args[0], ast.Constant) and bool(args[0].value)
+            return _truthy(args[0])
         if name in ("assertEqual", "assertEquals") and len(args) >= 2:
-            return _is_constant(args[0]) and ast.dump(args[0]) == ast.dump(args[1])
+            return _same(args[0], args[1])
     return False
 
 
@@ -559,14 +649,75 @@ def _py_own_names(tree: ast.AST, own: frozenset[str]) -> set[str]:
             for alias in node.names:
                 if alias.name.split(".")[0] in own:
                     names.add(alias.asname or alias.name.split(".")[0])
-        elif (
-            isinstance(node, ast.ImportFrom)
-            and node.module
-            and node.level == 0
-            and node.module.split(".")[0] in own
+        elif isinstance(node, ast.ImportFrom) and (
+            node.level > 0 or (node.module and node.module.split(".")[0] in own)
         ):
             names.update(alias.asname or alias.name for alias in node.names)
     return names
+
+
+_MOCK_MAKERS = (
+    "Mock",
+    "MagicMock",
+    "AsyncMock",
+    "NonCallableMock",
+    "create_autospec",
+    "ModuleType",
+)
+
+
+def _is_own_target(node: ast.AST, own: frozenset[str], own_names: set[str]) -> bool:
+    """A name, a dotted path or a string that points into the project's own code."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.split(".")[0] in own
+    root = _dotted(node).split(".")[0]
+    return bool(root) and (root in own_names or root in own)
+
+
+def _is_sys_modules(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant):
+        return node.value == "sys.modules"
+    return _dotted(node) == "sys.modules"
+
+
+def _py_own_mocks(
+    tree: ast.AST,
+    own: frozenset[str],
+    own_names: set[str],
+    scope: Scope,
+    add: Callable[[Rule, int], None],
+) -> None:
+    """Mocks of the project's own code that the line patterns cannot see."""
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if not line or not scope.adds(line):
+            continue
+        if isinstance(node, ast.Call) and node.args:
+            dotted = _dotted(node.func)
+            tail = dotted.rsplit(".", 1)[-1]
+            first = node.args[0]
+            if (
+                dotted.endswith(("patch.object", "monkeypatch.setattr"))
+                or tail == "create_autospec"
+            ) and _is_own_target(first, own, own_names):
+                add(Rule.OWN_MODULE_MOCK, line)
+            elif tail == "setitem" and len(node.args) >= 2 and _is_sys_modules(first):
+                if _is_own_target(node.args[1], own, own_names):
+                    add(Rule.OWN_MODULE_MOCK, line)
+            elif dotted.endswith("patch.dict") and _is_sys_modules(first) and len(node.args) >= 2:
+                keys = node.args[1].keys if isinstance(node.args[1], ast.Dict) else []
+                if any(k is not None and _is_own_target(k, own, own_names) for k in keys):
+                    add(Rule.OWN_MODULE_MOCK, line)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and _is_sys_modules(target.value)
+                    and _is_own_target(target.slice, own, own_names)
+                    and isinstance(node.value, ast.Call)
+                    and _call_name(node.value) in _MOCK_MAKERS
+                ):
+                    add(Rule.OWN_MODULE_MOCK, line)
 
 
 def _py_swallowed(tree: ast.AST, scope: Scope, add: Callable[[Rule, int], None]) -> None:
@@ -595,7 +746,7 @@ def _py_test(
     first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
     last = node.end_lineno or node.lineno
     changed = scope.touches(first, last)
-    calls = {_call_name(c) for c in ast.walk(node) if isinstance(c, ast.Call)}
+    calls = {_call_name(c) for c in _py_scope(node) if isinstance(c, ast.Call)}
     if changed and not _py_has_assertion(node) and not calls & helpers:
         add(Rule.NO_ASSERTION, node.lineno)
     asserts = _py_assertions(node)
@@ -650,6 +801,7 @@ def _py_lint(
     if tree is None:
         return
     _py_swallowed(tree, scope, add)
+    _py_own_mocks(tree, own, own_names, scope, add)
     functions = [
         n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
@@ -713,27 +865,43 @@ def _ts_tests(masked: str, raw: str, lines: Lines) -> list[TsTest]:
     return tests
 
 
+def _ts_decl_span(masked: str, match: re.Match[str], pattern: re.Pattern[str]) -> tuple[int, int]:
+    """From the start of a named function declaration to the end of its body."""
+    k = match.end()
+    if pattern is TS_FUNCTION:
+        k = masked.find("{", k)
+    else:
+        while k < len(masked) and masked[k].isspace():
+            k += 1
+    if k < 0 or k >= len(masked):
+        return (match.start(), match.end())
+    end = match_close(masked, k, "{", "}") if masked[k] == "{" else masked.find("\n", k)
+    return (match.start(), end + 1 if end >= 0 else len(masked))
+
+
 def _ts_helpers(masked: str) -> set[str]:
     names: set[str] = set()
     for pattern in (TS_FUNCTION, TS_ARROW):
         for match in pattern.finditer(masked):
-            k = match.end()
-            if pattern is TS_FUNCTION:
-                k = masked.find("{", k)
-            else:
-                while k < len(masked) and masked[k].isspace():
-                    k += 1
-            if k < 0 or k >= len(masked):
-                continue
-            if masked[k] == "{":
-                end = match_close(masked, k, "{", "}")
-                body = masked[k : end if end >= 0 else len(masked)]
-            else:
-                end = masked.find("\n", k)
-                body = masked[k : end if end >= 0 else len(masked)]
-            if TS_ASSERTION.search(body):
+            _, last = _ts_decl_span(masked, match, pattern)
+            if TS_ASSERTION.search(masked[match.end() : last]):
                 names.add(match.group(1))
     return names
+
+
+def _ts_live_body(body: str) -> str:
+    """The body of a test with the declarations of unused nested functions blanked out."""
+    out = body
+    for pattern in (TS_FUNCTION, TS_ARROW):
+        for match in pattern.finditer(body):
+            first, last = _ts_decl_span(body, match, pattern)
+            name = re.escape(match.group(1))
+            outside = body[:first] + body[last:]
+            if re.search(rf"\b{name}\s*\(|[(,]\s*{name}\s*[,)]", outside):
+                continue
+            blank = "".join("\n" if c == "\n" else " " for c in body[first:last])
+            out = out[:first] + blank + out[last:]
+    return out
 
 
 def _ts_test_rules(
@@ -743,8 +911,9 @@ def _ts_test_rules(
     add: Callable[[Rule, int], None],
 ) -> None:
     changed = scope.touches(test.first, test.last)
-    calls_helper = any(re.search(rf"\b{re.escape(h)}\s*\(", test.body) for h in helpers)
-    if changed and not TS_ASSERTION.search(test.body) and not calls_helper:
+    live = _ts_live_body(test.body)
+    calls_helper = any(re.search(rf"\b{re.escape(h)}\s*\(", live) for h in helpers)
+    if changed and not TS_ASSERTION.search(live) and not calls_helper:
         add(Rule.NO_ASSERTION, test.first)
     seen: set[str] = set()
     for match in TS_ASSERT_LINE.finditer(test.raw):
@@ -850,25 +1019,89 @@ def lint_changes(
     return out
 
 
-PLAIN_DIRS = {"tests", "test", "spec", "docs", "node_modules", "venv", "env", "build", "dist"}
+PLAIN_DIRS = {
+    "tests",
+    "test",
+    "spec",
+    "docs",
+    "node_modules",
+    "venv",
+    "env",
+    "build",
+    "dist",
+    "site-packages",
+}
+PACKAGE_LIMIT = 20000  # folders read at most, so a huge tree cannot stall the lint
+
+# The keys of pyproject.toml that name a folder holding importable code.
+ROOT_KEYS = re.compile(
+    r"^\s*(?:pythonpath|mypy_path|where|src_paths|source-roots)\s*=\s*(\[[^\]]*\]|\"[^\"\n]*\"|'[^'\n]*')",
+    re.MULTILINE,
+)
 
 
-def detect_own_modules(root: Path) -> frozenset[str]:
-    """The names of the Python packages and modules this project holds."""
+def _skipped(name: str) -> bool:
+    return name.startswith((".", "_")) or name in PLAIN_DIRS
 
-    def names(folder: Path) -> set[str]:
-        found: set[str] = set()
-        try:
-            entries = sorted(folder.iterdir())
-        except OSError:
-            return found
-        for entry in entries:
-            if entry.name.startswith((".", "_")) or entry.name in PLAIN_DIRS:
-                continue
-            if entry.is_file() and entry.suffix == ".py":
-                found.add(entry.stem)
-            elif entry.is_dir() and ((entry / "__init__.py").exists() or any(entry.glob("*.py"))):
-                found.add(entry.name)
+
+def _modules_in(folder: Path) -> set[str]:
+    """The Python modules and packages that sit directly in a folder."""
+    found: set[str] = set()
+    try:
+        entries = sorted(folder.iterdir())
+    except OSError:
         return found
+    for entry in entries:
+        if _skipped(entry.name):
+            continue
+        if entry.is_file() and entry.suffix == ".py":
+            if not is_test_path(entry.name):  # a test file is not code under test
+                found.add(entry.stem)
+        elif entry.is_dir() and ((entry / "__init__.py").exists() or any(entry.glob("*.py"))):
+            found.add(entry.name)
+    return found
 
-    return frozenset(names(root) | names(root / "src"))
+
+def _named_roots(root: Path, environ: Mapping[str, str]) -> list[Path]:
+    """Folders that the project's own settings name as import roots."""
+    named: list[str] = []
+    try:
+        text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    for match in ROOT_KEYS.finditer(text):
+        named.extend(re.findall(r"[\"']([^\"']+)[\"']", match.group(1)))
+    named.extend(part for part in environ.get("MYPYPATH", "").split(os.pathsep) if part)
+    roots: list[Path] = []
+    for item in named:
+        folder = (root / item).resolve()
+        if folder.is_dir() and folder not in roots:
+            roots.append(folder)
+    return roots
+
+
+def _packages_below(root: Path) -> set[str]:
+    """The top-most package (a folder with `__init__.py`) at any depth."""
+    found: set[str] = set()
+    for seen, (folder, subfolders, files) in enumerate(os.walk(root)):
+        subfolders[:] = sorted(d for d in subfolders if not _skipped(d))
+        if seen >= PACKAGE_LIMIT:
+            break
+        if "__init__.py" in files and not _skipped(Path(folder).name):
+            found.add(Path(folder).name)
+            subfolders[:] = []  # its sub-packages belong to it
+    return found
+
+
+def detect_own_modules(root: Path, environ: Mapping[str, str] | None = None) -> frozenset[str]:
+    """The names of the Python packages and modules this project holds.
+
+    A package is any folder with `__init__.py`, at any depth. The folders that pyproject.toml
+    (`pythonpath`, `mypy_path`, `where`) or MYPYPATH name as roots add the modules in them.
+    The top level and `src/` count too.
+    """
+    env = os.environ if environ is None else environ
+    found = _packages_below(root) | _modules_in(root) | _modules_in(root / "src")
+    for folder in _named_roots(root, env):
+        found |= _modules_in(folder)
+    return frozenset(found)

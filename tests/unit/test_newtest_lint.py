@@ -253,10 +253,7 @@ class AssertionsThatNeverRun(unittest.TestCase):
         self.assertEqual(lint_py(used), set())
 
     def test_an_assertion_in_a_nested_function_does_not_count_as_duplicate_either(self) -> None:
-        text = (
-            "def test_a():\n    def inner():\n        assert f() == 2\n"
-            "    assert f() == 2\n"
-        )
+        text = "def test_a():\n    def inner():\n        assert f() == 2\n    assert f() == 2\n"
         self.assertEqual(lint_py(text), set())
 
     def test_an_uncalled_nested_arrow_or_function_does_not_count_in_typescript(self) -> None:
@@ -279,7 +276,12 @@ class AssertionsThatNeverRun(unittest.TestCase):
 
 class AssertionCallsMatchExactly(unittest.TestCase):
     def test_a_name_that_only_starts_like_an_assertion_does_not_count(self) -> None:
-        for call in ("verify_nothing()", "failover_setup()", "expected_value()", "raisesomething()"):
+        for call in (
+            "verify_nothing()",
+            "failover_setup()",
+            "expected_value()",
+            "raisesomething()",
+        ):
             text = f"def test_a():\n    f()\n    {call}\n"
             with self.subTest(call=call):
                 self.assertEqual(lint_py(text), {"no_assertion"})
@@ -300,7 +302,11 @@ class AssertionCallsMatchExactly(unittest.TestCase):
                 self.assertEqual(lint_py(text), set())
 
     def test_raises_and_warns_blocks_count(self) -> None:
-        for head in ("pytest.raises(ValueError)", "pytest.warns(UserWarning)", "raises(ValueError)"):
+        for head in (
+            "pytest.raises(ValueError)",
+            "pytest.warns(UserWarning)",
+            "raises(ValueError)",
+        ):
             text = f"def test_a():\n    with {head}:\n        f()\n"
             with self.subTest(head=head):
                 self.assertEqual(lint_py(text), set())
@@ -408,7 +414,7 @@ class OwnModuleDetection(unittest.TestCase):
         self.touch("kit/scripts/spec.py")
         self.touch("tools/other.py")
         found = nl.detect_own_modules(self.root, environ={"MYPYPATH": "tools:missing"})
-        self.assertEqual(found, frozenset({"spec", "other"}))
+        self.assertEqual(found, frozenset({"spec", "other", "tools"}))
 
     def test_a_project_with_no_module_gives_an_empty_set(self) -> None:
         self.touch("README.md")
