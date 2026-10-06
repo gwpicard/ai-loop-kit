@@ -193,7 +193,9 @@ def build_context(cwd: str, env: Mapping[str, str]) -> Context:
 # --- paths named in a command ------------------------------------------------------
 
 
-VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+VARIABLE = re.compile(
+    r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?::?[-=]([^}]*))?\}|([A-Za-z_][A-Za-z0-9_]*))"
+)
 
 
 def expand(token: str, ctx: Context) -> str:
@@ -208,8 +210,12 @@ def expand(token: str, ctx: Context) -> str:
         out = home + out[1:]
 
     def value(match: re.Match[str]) -> str:
-        name = match.group(1) or match.group(2)
-        return known[name] if known.get(name) else match.group(0)
+        name = match.group(1) or match.group(3)
+        if known.get(name):
+            return known[name]
+        # `${VAR:-default}`, `${VAR-default}` and `${VAR:=default}` give the default.
+        default = match.group(2)
+        return VARIABLE.sub(value, default) if default is not None else match.group(0)
 
     return VARIABLE.sub(value, out)
 
@@ -390,6 +396,13 @@ def normalise(text: str) -> str:
         if c in "'\"":
             quote = c
             out.append(c)
+        elif c.isdigit() and (i == 0 or text[i - 1] in " \t;&|(\n"):
+            # A file descriptor in front of a redirect, as in `2>&1`, is not a word.
+            digits = re.match(r"\d+(?=[<>])", text[i:])
+            if digits:
+                i += len(digits.group())
+                continue
+            out.append(c)
         elif c == "`":
             out.append(" ) " if tick else " ( ")
             tick = not tick
@@ -519,8 +532,11 @@ def _split_string_option(option: str, rest: list[str]) -> list[str] | None:
         text = rest.pop(0) if rest else ""
     elif option.startswith("--split-string="):
         text = option.split("=", 1)[1]
-    elif option.startswith("-S"):
-        text = option[2:]
+    else:
+        # Clustered short flags such as `-iS` and `-vS` split like `-S`.
+        cluster = re.fullmatch(r"-[iv0]*S(.*)", option, re.DOTALL)
+        if cluster:
+            text = cluster.group(1) if cluster.group(1) else (rest.pop(0) if rest else "")
     if text is None:
         return None
     try:
@@ -819,6 +835,11 @@ def check_gh(args: Sequence[str]) -> Decision | None:
                 "ask the person to run the command that needs the sign-in.",
             )
         return None
+    if group == "config" and action == "get" and "oauth_token" in tail:
+        return refuse(
+            "this prints the sign-in token. A builder holds no GitHub credential.",
+            "ask the person to run the command that needs the sign-in.",
+        )
     if group in {"issue", "pr"} and action in {"edit", "create"}:
         values = _label_values(tail)
         if any(_is_state_label(v) for v in values):
@@ -1052,14 +1073,15 @@ def check_command(
         )
     found: list[Decision | None] = []
     stack: list[Path] = []
+    previous: list[Path] = []
     for simple in simples:
         found.append(check_words(simple.words, here, ctx, simple.redirects, depth))
-        here, ctx = _after(simple.words, here, ctx, stack)
+        here, ctx = _after(simple.words, here, ctx, stack, previous)
     return _first_decision(found)
 
 
 def _after(
-    words: Sequence[str], here: Path, ctx: Context, stack: list[Path]
+    words: Sequence[str], here: Path, ctx: Context, stack: list[Path], previous: list[Path]
 ) -> tuple[Path, Context]:
     """The folder and variables that the next command on the line sees."""
     rest = unwrap(words)
@@ -1077,12 +1099,17 @@ def _after(
     if prog in {"cd", "pushd"}:
         targets = [a for a in args if not a.startswith("-") or a == "-"]
         text = expand(targets[0], ctx) if targets else str(ctx.home)
+        if text == "-" and prog == "cd" and previous:
+            back = previous[0]
+            previous[:] = [here]
+            return back, ctx
         if text == "-" or "$" in text or any(ch in text for ch in "*?["):
             return here, ctx
         new = _real(os.path.join(here, text))
         if new.is_dir():
             if prog == "pushd":
                 stack.append(here)
+            previous[:] = [here]
             return new, ctx
     return here, ctx
 

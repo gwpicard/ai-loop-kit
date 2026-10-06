@@ -571,6 +571,67 @@ class TrackedFolder(Cases):
         self.expect(f"pushd {P.root} && popd && cat .env.example", ALLOW, cwd=P.feature)
 
 
+class RoundTwoFixes(Cases):
+    """A redirect before the program, defaults in variables, and three small gaps."""
+
+    def test_a_redirect_before_the_program_does_not_hide_it(self) -> None:
+        self.refused(
+            "2>&1 git push -f",
+            "2>/dev/null rm -rf x",
+            "<in git push origin main",
+            "&>log gh issue edit 5 --add-label state:ready",
+            "3>&- git reset --hard",
+            "1>&2 git push -f",
+            "{ 2>&1 git push -f; }",
+            "if true; then 2>&1 git push -f; fi",
+            "2>&1 cat .env",
+        )
+
+    def test_a_number_that_is_an_argument_stays_an_argument(self) -> None:
+        self.passes(
+            "echo 2 > out.txt",
+            "2>&1 git status",
+            "echo 2>&1 git push -f",
+            "git log -n 2 > /dev/null",
+        )
+
+    def test_a_default_in_a_variable_is_expanded(self) -> None:
+        key = P.key_dir.name
+        self.refused(
+            f"cat ${{NOPE_X:-{P.data}}}/{key}/app-key.pem",
+            f"cat ${{NOPE_X-{P.data}}}/{key}/app-key.pem",
+            f"cat ${{NOPE_X:={P.data}}}/{key}/app-key.pem",
+            f"cat ${{AI_LOOP_KIT_DATA:-/x}}/{key}/app-key.pem",
+            "cat ${HOME:-/x}/.config/gh/hosts.yml",
+            f"cd ${{NOPE_X:-{P.key_dir}}} && cat app-key.pem",
+        )
+        self.passes("ls ${HOME:-/tmp}", f"cat ${{NOPE_X:-{P.feature}}}/README.md")
+
+    def test_env_with_a_clustered_split_flag(self) -> None:
+        self.refused(
+            "env -iS 'git push -f'",
+            "env -vS 'git push -f'",
+            "env -iS'git reset --hard'",
+        )
+        self.passes("env -iS 'git status'")
+
+    def test_gh_config_get_of_the_token(self) -> None:
+        self.refused(
+            "gh config get oauth_token",
+            "gh config get -h github.com oauth_token",
+            "gh config get oauth_token --host github.com",
+            "gh config get --host github.com oauth_token",
+        )
+        self.passes("gh config get editor", "gh config list")
+
+    def test_cd_dash_returns_to_the_last_folder(self) -> None:
+        self.refused(
+            f"cd {P.key_dir}; cd /tmp; cd -; cat app-key.pem",
+            f"cd {P.key_dir} && cd {P.feature} && cd - && cat app-key.pem",
+        )
+        self.passes(f"cd {P.feature}; cd {P.key_dir}; cd -; cat app-key.pem")
+
+
 class ReadsByVariableGlobOrTree(Cases):
     def test_a_variable_that_names_the_data_folder(self) -> None:
         key = P.key_dir.name
