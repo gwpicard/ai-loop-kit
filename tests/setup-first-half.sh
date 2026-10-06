@@ -128,7 +128,7 @@ ok "the kit's own repository is refused: no file, no gh call, no change to origi
 git -C "$TP_ROOT" remote remove origin
 run_setup found
 [ "$CODE" -eq 3 ] || fail "no origin was not refused with exit 3 (got $CODE)"
-grep -q '^next:.*git remote add origin' "$ERR" || fail "the no-origin stop does not name the command"
+grep -q '^next:.*remote add origin' "$ERR" || fail "the no-origin stop does not name the command"
 [ "$(snap "$TP_ROOT")" = "$BEFORE" ] || fail "the no-origin stop wrote files"
 ok "no origin stops with a next: line"
 git -C "$TP_ROOT" remote add origin "$TP_BASE/origin.git"
@@ -249,6 +249,20 @@ run_setup found --test-command "sh -c 'exit 0'" --billing-mode subscription \
 [ "$(js "$(cat "$OUT")" 'd["created"]')" = "[]" ] || fail "the second run created files"
 ok "a second run changes nothing"
 
+# The first piece, captured locally on the quick path.
+run_setup first-piece
+[ "$CODE" -eq 0 ] || { cat "$ERR"; fail "first-piece failed (got $CODE)"; }
+N=$(js "$(cat "$OUT")" 'd["piece"]')
+[ -n "$N" ] || fail "first-piece printed no piece number"
+SHOWN=$(cd "$TP_ROOT" && python3 "$KIT/scripts/spec.py" show "$N" --json 2>/dev/null || true)
+[ "$(js "$SHOWN" 'd.get("found")')" = "true" ] || fail "the first piece has no spec block"
+[ "$(js "$SHOWN" 'd.get("path")')" = "quick" ] || fail "the first piece is not on the quick path"
+(cd "$TP_ROOT" && python3 "$KIT/scripts/spec.py" lint "$N" >/dev/null 2>&1) || fail "the first piece's spec does not lint"
+run_setup first-piece
+[ "$(js "$(cat "$OUT")" 'd["captured"]')" = "false" ] || fail "a second first-piece captured another piece"
+[ ! -s "$FAKE_GH_LOG" ] || fail "first-piece called gh"
+ok "the first piece is captured locally, once, on the quick path"
+
 # GitHub steps with no App.
 : > "$FAKE_GH_LOG"
 GH_STATE_BEFORE=$(cat "$FAKE_GH_STATE" 2>/dev/null || true)
@@ -261,19 +275,6 @@ grep -q 'gate.py sync' "$ERR" "$OUT" || fail "the issue step has no next: line n
 [ ! -s "$FAKE_GH_LOG" ] || { cat "$FAKE_GH_LOG" >&2; fail "a GitHub step called gh"; }
 [ "$(cat "$FAKE_GH_STATE" 2>/dev/null || true)" = "$GH_STATE_BEFORE" ] || fail "a GitHub step changed GitHub"
 ok "a GitHub step with no App changes nothing on GitHub and names the command to run"
-
-# The first piece, captured locally on the quick path.
-run_setup first-piece
-[ "$CODE" -eq 0 ] || { cat "$ERR"; fail "first-piece failed (got $CODE)"; }
-N=$(js "$(cat "$OUT")" 'd["piece"]')
-[ -n "$N" ] || fail "first-piece printed no piece number"
-SHOWN=$(cd "$TP_ROOT" && python3 "$KIT/scripts/spec.py" show "$N" --json 2>/dev/null || true)
-[ "$(js "$SHOWN" 'd.get("found")')" = "true" ] || fail "the first piece has no spec block"
-[ "$(js "$SHOWN" 'd.get("path")')" = "quick" ] || fail "the first piece is not on the quick path"
-run_setup first-piece
-[ "$(js "$(cat "$OUT")" 'd["captured"]')" = "false" ] || fail "a second first-piece captured another piece"
-[ ! -s "$FAKE_GH_LOG" ] || fail "first-piece called gh"
-ok "the first piece is captured locally, once, on the quick path"
 
 # The pre-run check.
 git -C "$TP_ROOT" add -A
