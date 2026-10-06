@@ -317,6 +317,60 @@ class MatcherCases(Cases):
             "cd x && python3 gate.py sync",
         )
 
+    def test_gate_sync_behind_a_variable_env_or_runpy_is_refused(self) -> None:
+        self.refused(
+            "G=kit/scripts/gate.py; env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT python3 $G sync",
+            'G=kit/scripts/gate.py; python3 "$G" sync',
+            "G=kit/scripts/gate.py && python3 ${G} sync --dry-run",
+            "python3 $GATE sync",
+            "env -u CLAUDECODE python3 kit/scripts/gate.py sync",
+            "env --unset=CLAUDECODE python3 kit/scripts/gate.py sync",
+            "unset CLAUDECODE; python3 kit/scripts/gate.py sync",
+            "CLAUDECODE= CLAUDE_CODE_ENTRYPOINT= python3 kit/scripts/gate.py sync",
+            "python3 -c \"import runpy, sys; sys.argv = ['gate.py', 'sync']; "
+            "runpy.run_path('kit/scripts/gate.py', run_name='__main__')\"",
+            "python3 -c 'import runpy,sys; sys.argv=[\"g\",\"sync\"]; "
+            "runpy.run_path(sys.argv[0])'",
+            "cp kit/scripts/gate.py /tmp/g.py && python3 /tmp/g.py sync",
+            # The round 2 review's spellings: the word split by a variable or a
+            # backtick, fed through xargs, and the combined command it ran.
+            "a=syn; python3 kit/scripts/gate.py ${a}c",
+            "python3 kit/scripts/gate.py `printf syn`c",
+            "echo sync | xargs python3 kit/scripts/gate.py",
+            "a=syn; script -q /dev/null env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT "
+            "python3 kit/scripts/gate.py ${a}c",
+            "python3 kit/scripts/gate.py $(printf sync)",
+            "printf sync | xargs -I{} python3 kit/scripts/gate.py {}",
+            "env -i PATH=/usr/bin python3 kit/scripts/gate.py report",
+            "env -u CLAUDECODE python3 kit/scripts/gate.py report",
+            "unset CLAUDECODE; python3 kit/scripts/gate.py report",
+            "eval 'python3 kit/scripts/gate.py sy''nc'",
+            "eval python3 kit/scripts/gate.py report",
+        )
+
+    def test_a_pseudo_terminal_with_python_or_the_gate_is_refused(self) -> None:
+        self.refused(
+            "script -q /dev/null python3 kit/scripts/gate.py report",
+            "script -q /dev/null python3 -c 'print(1)'",
+            "unbuffer python3 kit/scripts/gate.py report",
+            "expect -c 'spawn python3 g.py'",
+            "unbuffer kit/scripts/gate.py report",
+        )
+
+    def test_gate_commands_that_are_not_sync_pass(self) -> None:
+        self.passes(
+            "python3 kit/scripts/gate.py report --brief",
+            "python3 kit/scripts/gate.py move 3 ready",
+            "grep -n sync kit/scripts/gate.py",
+            "env -u CLAUDECODE claude -p hello",
+            "python3 -c 'print(1)'",
+        )
+
+    def test_the_labels_hint_names_labels_create(self) -> None:
+        got = bash("gh label create state:ready --color 000000")
+        self.assertEqual(got.kind, DENY)
+        self.assertIn("gate.py labels --create", got.reason)
+
     def test_harmless_forms_pass(self) -> None:
         self.passes(
             "git push origin feature",

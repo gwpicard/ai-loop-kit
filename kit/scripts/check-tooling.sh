@@ -2,15 +2,17 @@
 # check-tooling.sh: say whether the tools the kit itself needs are ready, before
 # setup leans on them.
 #
-# The kit keeps a project's pieces as GitHub issues and prints them with a small
-# Python filter, so three tools have to be here before the pieces can be founded:
-# Git, the GitHub command line tool, python3 and openssl. This reports which are ready
-# and which are not, in plain words, and stops with a non-zero result when one
-# that blocks founding is missing, so a gap is caught here rather than at the
-# later step that creates the issues.
+# Three tools have to be here before the pieces can be founded: Git, python3 and
+# openssl. The kit saves versions with Git, reads JSON with python3 and signs
+# the GitHub App's token request with openssl. The report says which are ready
+# and which are not, in plain words. It stops with a non-zero result when one of
+# them is missing, so a gap is caught here and not at a later step. The GitHub
+# command line tool is reported too. Before the App is set up a project shapes
+# and runs locally, so a missing gh does not stop founding.
 #
-# It changes nothing. It reaches no further than the sign-in and repository
-# lookups the report needs.
+# It changes nothing. It never uses the person's own GitHub sign-in. With the
+# gate's GitHub App set up, it reads the repository as the App, through
+# loop/github.py. With no App it does not look at GitHub, and says so once.
 #
 # openssl makes and reads the key of the GitHub App the gate acts as.
 #
@@ -94,38 +96,25 @@ else
   blocked=1
 fi
 
-gh_ready=no
+# The GitHub command line tool. The report checks only that it is installed. It
+# never runs it with the person's own sign-in, so it never reads that sign-in.
+# Before the GitHub App is set up a project shapes and runs locally, so a
+# missing gh blocks nothing.
+gh_here=no
 if command -v gh >/dev/null 2>&1; then
-  if gh_status=$(gh auth status 2>&1); then
-    echo "The GitHub command line tool is ready: your pieces are kept as issues, and you are signed in."
-    gh_ready=yes
-  else
-    # Do not print auth status: it may include credential diagnostics. A failed
-    # network check is not evidence that the account has signed out.
-    case "$gh_status" in
-      *"error connecting"* | *"Could not resolve host"* | *"dial tcp"* | *"timed out"*)
-        echo "The GitHub command line tool cannot reach GitHub: network access may be blocked or unavailable. Request GitHub access for this session, then run this report again." ;;
-      *"HTTP 403"* | *"Resource not accessible"* | *"permission denied"*)
-        echo "The GitHub command line tool was refused permission: check this session's GitHub access and the signed-in account's permissions, then run this report again." ;;
-      *"HTTP 401"* | *"Bad credentials"* | *"Failed to log in"*)
-        echo "The GitHub command line tool could not authenticate: compare GH_TOKEN and GITHUB_TOKEN presence and gh auth status in this session and your terminal before signing in again. A sandbox may not read your stored login." ;;
-      *)
-        echo "The GitHub command line tool is installed but nobody is signed in, or the sign-in could not be verified: run gh auth login if signed out. Check this session's GitHub access otherwise. See manual-setup.md." ;;
-    esac
-    blocked=1
-  fi
+  gh_here=yes
+  echo "The GitHub command line tool is installed: the gate acts on GitHub with it, as its GitHub App. This report does not use your own sign-in. To see it, run gh auth status yourself."
 else
-  echo "The GitHub command line tool is missing: install it and sign in, because the pieces are kept as issues. See manual-setup.md."
-  blocked=1
+  echo "The GitHub command line tool is missing: the gate needs it to act on GitHub once its App is set up. Install it from https://cli.github.com. It does not stop founding."
 fi
 
 # 2. Whether this project still points at the kit's own repository. A project
 # founded from a whole copy of the kit can keep the kit's `origin`, and then the
 # GitHub tool would open the project's pieces as issues there, and a later push
 # would aim the person's code at it. `origin` is read with Git alone, so this
-# answers whether or not the GitHub tool is ready, and the name GitHub reports is
-# compared too. It does not stop founding, which carries on as it does with no
-# repository. With --for-run it stops the run, with exit code 3.
+# answers whether or not the GitHub tool is ready. With the App, the name GitHub
+# reports is compared too. It does not stop founding, which carries on as it
+# does with no repository. With --for-run it stops the run, with exit code 3.
 KIT_REPOSITORY=gwpicard/ai-loop-kit
 # GitHub reads owner and name in any case. The pattern spells both cases out
 # with the shell alone, so the report needs nothing beyond the tools it checks.
@@ -144,36 +133,56 @@ if [ -n "$origin_url" ] && is_kit_repository "$origin_url"; then
   kit_origin=yes
 fi
 
-# 3. What the signed-in account can do on this repository, once one is set up.
-# These need a repository and python3, so they run only when both are here. On a
-# fresh project with no repository yet, they wait until one exists.
-if [ "$gh_ready" = yes ] && command -v python3 >/dev/null 2>&1 && [ "$kit_origin" = no ]; then
-  repo_json=$(gh repo view --json nameWithOwner,hasIssuesEnabled,viewerPermission 2>/dev/null || true)
-  read_field() {
-    printf '%s' "$repo_json" \
-      | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null \
-      || true
-  }
-  if [ -n "$repo_json" ] && is_kit_repository "$(read_field nameWithOwner)"; then
-    kit_origin=yes
-  elif [ -n "$repo_json" ]; then
-    issues_on=$(read_field hasIssuesEnabled)
-    perm=$(read_field viewerPermission)
-
-    if [ "$issues_on" = "True" ]; then
-      echo "Issues are switched on for this repository."
-    else
-      echo "Issues are switched off for this repository: say so and offer to switch them on, and do not switch them on yourself."
-    fi
-
-    case "$perm" in
-      ADMIN | MAINTAIN | WRITE)
-        echo "Labels can be put in order: the signed-in account can create and delete labels here." ;;
-      *)
-        echo "Labels cannot be put in order: the signed-in account cannot create or delete labels here. Say which labels could not be made; a missing label costs a little clarity, it stops nothing." ;;
-    esac
+# 3. The repository on GitHub, read as the gate's GitHub App through
+# loop/github.py beside this report. With no App the door starts no program
+# and exits 3, and the report prints one notice. --for-run reads nothing here:
+# a run needs only the tools above. Nothing in this part sets blocked.
+# The folder is found with the shell alone, since the report may run with
+# nothing else on its PATH.
+case "$0" in
+  */*) scripts=${0%/*} ;;
+  *) scripts=. ;;
+esac
+scripts=$(CDPATH= cd -- "$scripts" && pwd)
+NO_APP="The GitHub App is not set up yet, so this report does not look at GitHub. The gate queues its GitHub writes for you to send with gate.py sync."
+if [ "$for_run" = no ] && [ "$kit_origin" = no ]; then
+  if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$scripts/loop/github.py" ] \
+    || ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "$NO_APP"
   else
-    echo "No GitHub repository is set up yet, so the issue and label checks wait until one exists."
+    repo_code=0
+    repo_json=$(PYTHONPATH="$scripts" python3 -m loop.github repo-view 2>/dev/null </dev/null) \
+      || repo_code=$?
+    read_field() {
+      printf '%s' "$repo_json" \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null \
+        || true
+    }
+    if [ "$repo_code" -eq 3 ]; then
+      echo "$NO_APP"
+    elif [ -z "$origin_url" ]; then
+      echo "No GitHub repository is set up yet, so the issue and label checks wait until one exists."
+    elif [ "$repo_code" -ne 0 ]; then
+      if [ "$gh_here" = no ]; then
+        echo "The GitHub App is set up, but the GitHub command line tool is missing, so the App cannot read the repository. Install gh, then run this report again."
+      else
+        echo "The gate's GitHub App could not read this repository: check the network and the App's access, then run this report again. It does not stop founding."
+      fi
+    elif is_kit_repository "$(read_field nameWithOwner)"; then
+      kit_origin=yes
+    else
+      if [ "$(read_field hasIssuesEnabled)" = "True" ]; then
+        echo "Issues are switched on for this repository."
+      else
+        echo "Issues are switched off for this repository: say so and offer to switch them on, and do not switch them on yourself."
+      fi
+      case "$(read_field viewerPermission)" in
+        ADMIN | MAINTAIN | WRITE)
+          echo "Labels can be put in order: the gate's App can create and delete labels here." ;;
+        *)
+          echo "Labels cannot be put in order: the gate's App cannot create or delete labels here. Say which labels could not be made; a missing label costs a little clarity, it stops nothing." ;;
+      esac
+    fi
   fi
 fi
 

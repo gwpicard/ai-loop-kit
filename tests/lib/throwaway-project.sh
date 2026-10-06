@@ -2,6 +2,7 @@
 #
 #   . "$ROOT/tests/lib/throwaway-project.sh"
 #   tp_new demo                       # a project called demo
+#   tp_app                            # give the project the stand-in App
 #   tp_issue "Title" "Body"           # open an issue through the GitHub stand-in
 #   tp_claude_script '<json>'         # script the next Claude stand-in session
 #
@@ -69,6 +70,20 @@ print(Paths.for_project(Path(sys.argv[1])).app_key_file)
 ' "$TP_ROOT")
   "$ROOT/tests/stand-ins/fake-app/make-key.sh" "$(dirname -- "$TP_APP_KEY")" >/dev/null
   export TP_APP_KEY
+}
+
+tp_app() {
+  # tp_app: give the project the stand-in App's settings, so the kit acts on
+  # the GitHub stand-in as the App. Without it the kit has no App.
+  mkdir -p "$TP_ROOT/.agents/loop"
+  python3 - "$ROOT/tests/stand-ins/fake-app/app.json" "$TP_ROOT/.agents/loop/local.json" <<'PYEOF'
+import json, sys
+app = json.load(open(sys.argv[1]))
+json.dump({"github_app": {"app_id": app["app_id"], "installation_id": app["installation_id"],
+                          "slug": app["slug"]}}, open(sys.argv[2], "w"))
+PYEOF
+  FAKE_APP_KEY=$TP_APP_KEY
+  export FAKE_APP_KEY
 }
 
 tp_issue() {

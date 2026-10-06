@@ -34,7 +34,7 @@ A one-line plain header that says what the piece is for.
 - Text before the start marker is the header. Text after the end marker is
   not part of the spec. The needs list and the fingerprint sit there.
 
-Headings follow the rules of `section()` in `kit/scripts/gate.py`. A field is
+Headings follow the rules of `section()` in `kit/scripts/loop/spec.py`. A field is
 a `## ` heading. A heading inside a fenced code block does not count.
 
 ## Fields

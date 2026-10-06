@@ -17,14 +17,25 @@ State lives in one JSON file, named by FAKE_GH_STATE, so a run can be inspected
 after it finishes.
 """
 
+import base64
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
+import tempfile
+import time
 
 STATE = os.environ.get("FAKE_GH_STATE", ".gh-fixture.json")
 LOG = os.environ.get("FAKE_GH_LOG", STATE + ".log")
+
+# The stand-in GitHub App. A call whose GH_TOKEN is a token this stand-in gave
+# out acts as the App's bot account. Any other call acts as the person.
+APP_FILE = os.environ.get("FAKE_APP_JSON") or os.path.join(
+    os.path.dirname(os.path.realpath(__file__)), "..", "fake-app", "app.json")
+TOKEN_PREFIX = "ghs_standin_"
+ACTING_AS = None
 
 
 def load():
@@ -373,9 +384,78 @@ def comment_node(number):
 
 
 def actor(state):
-    """The account the stand-in acts as: replay-person unless a scenario sets
-    another in the state file's actor."""
-    return state.get("actor") or "replay-person"
+    """The account the stand-in acts as: the App's bot when the call carries an
+    App token, else replay-person unless a scenario sets another in the state
+    file's actor."""
+    return ACTING_AS or state.get("actor") or "replay-person"
+
+
+def refuse_auth(message):
+    sys.stderr.write('{"message":"%s","status":"401"}\ngh: %s (HTTP 401)\n'
+                     % (message, message))
+    sys.exit(1)
+
+
+def b64url_decode(part):
+    return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def app_token(argv, state, installation):
+    """Trade an App JWT for an installation token, as GitHub does.
+
+    The JWT must name the stand-in App, be in date, and carry an RS256
+    signature that the public half of the key in FAKE_APP_KEY accepts.
+    """
+    with open(APP_FILE) as handle:
+        app = json.load(handle)
+    headers = flags_all(argv, "-H") + flags_all(argv, "--header")
+    bearer = [h.split("Bearer", 1)[1].strip() for h in headers
+              if h.lower().startswith("authorization:") and "Bearer" in h]
+    if not bearer:
+        refuse_auth("A JSON web token could not be decoded")
+    parts = bearer[0].split(".")
+    if len(parts) != 3:
+        refuse_auth("A JSON web token could not be decoded")
+    try:
+        header = json.loads(b64url_decode(parts[0]))
+        claims = json.loads(b64url_decode(parts[1]))
+    except ValueError:
+        refuse_auth("A JSON web token could not be decoded")
+    if header.get("alg") != "RS256" or str(claims.get("iss")) != str(app["app_id"]):
+        refuse_auth("Integration not found")
+    now = int(time.time())
+    if not (claims.get("iat", now + 1) <= now < claims.get("exp", 0)) or \
+            claims["exp"] - claims["iat"] > 600:
+        refuse_auth("'Expiration time' claim ('exp') is too far in the future")
+    if str(installation) != str(app["installation_id"]):
+        sys.stderr.write("gh: Not Found (HTTP 404)\n")
+        sys.exit(1)
+    key = os.environ.get("FAKE_APP_KEY")
+    if not key or not os.path.exists(key):
+        refuse_auth("the stand-in has no App key to check against (set FAKE_APP_KEY)")
+    folder = tempfile.mkdtemp()
+    public = os.path.join(folder, "public.pem")
+    signature = os.path.join(folder, "signature.bin")
+    made = subprocess.run(["openssl", "rsa", "-in", key, "-pubout", "-out", public],
+                          capture_output=True, check=False)
+    with open(signature, "wb") as handle:
+        handle.write(b64url_decode(parts[2]))
+    checked = subprocess.run(
+        ["openssl", "dgst", "-sha256", "-verify", public, "-signature", signature],
+        input=("%s.%s" % (parts[0], parts[1])).encode("ascii"),
+        capture_output=True, check=False)
+    for name in (public, signature):
+        os.remove(name)
+    os.rmdir(folder)
+    if made.returncode != 0 or checked.returncode != 0:
+        refuse_auth("A JSON web token could not be decoded")
+    token = TOKEN_PREFIX + secrets.token_hex(16)
+    state.setdefault("app_tokens", []).append(token)
+    save(state)
+    note("APP-TOKEN\tinstallation %s" % installation)
+    print(json.dumps({"token": token, "expires_at": time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 3600)),
+        "permissions": {"issues": "write", "contents": "write"}}))
 
 
 def comment_author(comment):
@@ -646,6 +726,17 @@ def main():
     state = load()
     command = argv[0]
 
+    # A call with a stand-in App token acts as the App's bot account. A token
+    # this stand-in never gave out is refused, as GitHub refuses a bad one.
+    global ACTING_AS
+    token = os.environ.get("GH_TOKEN", "")
+    if token.startswith(TOKEN_PREFIX):
+        if token not in state.get("app_tokens", []):
+            refuse_auth("Bad credentials")
+        with open(APP_FILE) as handle:
+            ACTING_AS = json.load(handle)["slug"] + "[bot]"
+        note("AS\t%s" % ACTING_AS)
+
     # A scenario can take GitHub away. Every call then fails the way the real
     # CLI fails with no network, so a script is seen to change nothing.
     if fault(state, "offline") and command not in ("--version", "version"):
@@ -680,11 +771,12 @@ def main():
             "isEmpty": not heads,
             # GitHub answers null for an empty repository's default branch.
             "defaultBranchRef": {"name": default} if default in heads else None,
-            "hasIssuesEnabled": True,
+            # A scenario may switch issues off, or give a lesser permission.
+            "hasIssuesEnabled": state.get("has_issues", True),
             # The rehearsal account owns the repository. The tooling check reads
             # this before founding, and refusing it left that check reporting
             # that no repository existed at all.
-            "viewerPermission": "ADMIN",
+            "viewerPermission": state.get("viewer_permission", "ADMIN"),
             "deleteBranchOnMerge": bool(state.get("delete_branch_on_merge")),
         }
         names = [n for n in (flag(argv, "--json") or "").split(",") if n]
@@ -753,6 +845,11 @@ def main():
                 path = arg
                 break
         posting = bool(re.search(r"(?:-X|--method)[= ]POST\b", " ".join(argv)))
+        # The App's JWT traded for an installation token.
+        minted = re.fullmatch(r"/?app/installations/(\d+)/access_tokens", path)
+        if minted and posting:
+            app_token(argv, state, minted.group(1))
+            return
         # Deleting a comment by its id, as a run does with its own claim
         # comment when another run claimed the piece first.
         # The comments on one piece, listed with their numeric ids, or one added.

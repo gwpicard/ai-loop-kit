@@ -26,7 +26,9 @@ What the hook refuses:
   commands that throw away Git's history;
 - a hand-written `state:`, `shaping:` or `review:` label, and the `needs-you`
   flag, in any `gh` form or GitHub tool call;
-- `gate.py sync`, which only the person runs;
+- `gate.py sync`, which only the person runs, also when reached through a
+  variable, `env -u` or a blanked agent-session variable, or `python3 -c` with
+  `runpy`;
 - a read of a real env file, the App key, the held-out folder, the `gh` config
   and the keychain, and `gh auth token`;
 - a write to the guards: the settings, the piece records, the policy file, the
@@ -887,7 +889,8 @@ def check_gh(args: Sequence[str]) -> Decision | None:
         if any(_is_state_label(n) for n in names):
             return refuse(
                 "this creates, edits or deletes a state label.",
-                "python3 kit/scripts/gate.py labels. Only the gate manages these labels.",
+                "python3 kit/scripts/gate.py labels --create. Only the gate manages these "
+                "labels.",
             )
     if group == "api":
         return _gh_api(rest[1:])
@@ -937,10 +940,70 @@ def check_gate(words: Sequence[str]) -> Decision | None:
             continue
         positional = [w for w in words[index + 1 :] if not w.startswith("-")]
         if positional[:1] == ["sync"]:
-            return refuse(
-                "gate.py sync writes to GitHub with a sign-in. Only the person runs it.",
-                "tell the person: run gate.py sync yourself, in your own terminal.",
-            )
+            return refuse(SYNC_WHAT, SYNC_NEXT)
+    return None
+
+
+SYNC_WHAT = "gate.py sync writes to GitHub with a sign-in. Only the person runs it."
+SYNC_NEXT = "tell the person: run gate.py sync yourself, in your own terminal."
+_SYNC_WORD = re.compile(r"(?<![\w.-])sync(?![\w-])")
+# Words that hide the agent session from the gate, or run a script by another road.
+_HIDES_SESSION = re.compile(
+    r"\b(?:CLAUDECODE|CLAUDE_CODE_ENTRYPOINT)\b"
+    r"|\benv\b(?:\s+-\S+)*\s+(?:-i\b|--ignore-environment\b|-(?=\s))"
+)
+_INDIRECT_RUN = re.compile(
+    r"\b(?:runpy|run_path|run_module|execfile|importlib|__import__|pty|subprocess)\b"
+    r"|\bexec\s*\(|\bos\.(?:system|exec\w*|spawn\w*|popen)\b"
+)
+_SCRIPT_THEN_SYNC = re.compile(r"\.py[\"']?\s+sync(?![\w-])")
+_VARIABLE_THEN_SYNC = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?[\"']?\s+sync(?![\w-])")
+
+
+GATE_HIDDEN_WHAT = (
+    "this gate.py command line hides a word behind a variable, a backtick, xargs, eval or an "
+    "unset or blanked agent-session variable, so it could reach gate.py sync, which only the "
+    "person runs."
+)
+GATE_HIDDEN_NEXT = (
+    "run gate.py with a literal path and a literal command, such as "
+    "python3 kit/scripts/gate.py report."
+)
+# What can build a word the text check cannot read, or hide the agent session.
+_GATE_HIDES = re.compile(
+    r"[$`]|\b(?:xargs|unset|eval)\b|\benv\b(?:\s+\S+)*?\s+(?:-[a-zA-Z]*[iu]|--unset|--ignore-environment)"
+)
+# What gives a child a pseudo-terminal, which is what sync's terminal check trusts.
+_MAKES_A_TERMINAL = re.compile(r"(?:^|[\s;&|(`])(?:script|unbuffer|expect)(?=\s|$)")
+PTY_WHAT = (
+    "script, unbuffer and expect give a program a pretend terminal, so with python or gate.py "
+    "they could pass gate.py sync's check that a person is typing."
+)
+PTY_NEXT = "run the python command or gate.py directly, without a pretend terminal."
+
+
+def check_gate_text(text: str) -> Decision | None:
+    """`gate.py sync` reached by a road the word checks cannot follow.
+
+    A `gate.py` line may not hold a variable, a backtick, `xargs`, `eval`,
+    `unset`, `env -u`, `env -i` or an agent-session name, whether or not the
+    word `sync` is in it: the skills call the gate with a literal path and a
+    literal command, so nothing real needs these. `script`, `unbuffer` and
+    `expect` are refused beside `python` or `gate.py`. A script copied under
+    another name, or Python told to run one with `sync`, is refused too. A text
+    check is never complete. The layer that holds is the sandbox, which hides
+    the person's GitHub sign-in from every agent session.
+    """
+    if _MAKES_A_TERMINAL.search(text) and re.search(r"\bpython|gate\.py", text):
+        return refuse(PTY_WHAT, PTY_NEXT)
+    if "gate.py" in text and (_GATE_HIDES.search(text) or _HIDES_SESSION.search(text)):
+        return refuse(GATE_HIDDEN_WHAT, GATE_HIDDEN_NEXT)
+    if not _SYNC_WORD.search(text):
+        return None
+    if _SCRIPT_THEN_SYNC.search(text) or _VARIABLE_THEN_SYNC.search(text):
+        return refuse(SYNC_WHAT, SYNC_NEXT)
+    if _INDIRECT_RUN.search(text) and re.search(r"\bpython", text):
+        return refuse(SYNC_WHAT, SYNC_NEXT)
     return None
 
 
@@ -1182,7 +1245,7 @@ def decide(payload: Mapping[str, Any], env: Mapping[str, str]) -> Decision:
     found: Decision | None = None
     if name == "Bash":
         command = str(tool_input.get("command") or "")
-        found = check_command(command, ctx) if command else None
+        found = (check_gate_text(command) or check_command(command, ctx)) if command else None
     elif name in WRITE_TOOLS or name in READ_TOOLS:
         keys = WRITE_TOOLS.get(name) or READ_TOOLS[name]
         for key in keys:

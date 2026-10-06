@@ -86,6 +86,14 @@ os.makedirs(BIN)
 ENV = dict(os.environ)
 ENV["PATH"] = FAKE + os.pathsep + ENV["PATH"]
 ENV["PYTHONDONTWRITEBYTECODE"] = "1"
+# The lint reads GitHub only as the gate's App, through loop/github.py. Each
+# project gets the stand-in App's settings, and the stand-in checks its key.
+ENV["PYTHONPATH"] = os.path.join(ROOT, "kit", "scripts")
+ENV["AI_LOOP_KIT_DATA"] = os.path.join(WORK, "data")
+APP = json.load(open(os.path.join(ROOT, "tests", "stand-ins", "fake-app", "app.json")))
+ENV["FAKE_APP_KEY"] = subprocess.run(
+    [os.path.join(ROOT, "tests", "stand-ins", "fake-app", "make-key.sh"),
+     os.path.join(WORK, "app")], capture_output=True, text=True, check=True).stdout.strip()
 if subprocess.run(["python3", "-m", "pytest", "--version"], capture_output=True).returncode != 0:
     print("  pytest is not here, installing it into a throwaway environment")
     venv = os.path.join(WORK, "venv")
@@ -166,6 +174,14 @@ class Project:
         subprocess.run([REAL_GIT, "init", "-q", self.dir], check=True)
         git(self.dir, "checkout", "-q", "-b", "main")
         git(self.dir, "remote", "add", "origin", self.origin)
+        os.makedirs(os.path.join(self.dir, ".agents", "loop"))
+        with open(os.path.join(self.dir, ".agents", "loop", "local.json"), "w") as handle:
+            json.dump({"github_app": {"app_id": APP["app_id"],
+                                      "installation_id": APP["installation_id"],
+                                      "slug": APP["slug"], "key_file": ENV["FAKE_APP_KEY"]}},
+                      handle)
+        with open(os.path.join(self.dir, ".git", "info", "exclude"), "a") as handle:
+            handle.write(".agents/loop/local.json\n")
         write(self.dir, {"AGENTS.md": agents(stack), "masterplan.md": masterplan,
                          "CHANGELOG.md": "# Changelog\n", "docs/working-rules.md": rules})
         write(self.dir, files)
@@ -355,7 +371,9 @@ out = passes(py, 12, [build_piece()], "a whole build piece whose check fails on 
 expect(len(lines(out)) == 1 and "Refund an order" in out,
        "a pass prints one line naming the piece", repr(out))
 with open(py.log) as handle:
-    writes = [l for l in handle if l.startswith("CALL") and re.search(
+    # The App's token request is a POST, but it writes nothing to the project.
+    writes = [l for l in handle if l.startswith("CALL") and "/access_tokens" not in l
+              and re.search(
         r"\b(issue (edit|comment|create|close)|label (create|edit|delete))\b|-X|--method", l)]
 expect(not writes, "the lint writes nothing to GitHub", str(writes))
 expect(git(py.dir, "status", "--porcelain") == "", "the lint writes nothing into the project")
@@ -628,6 +646,17 @@ code, out, err = py.lint(12, [build_piece()], faults={"offline": True})
 expect(code == 2 and len(lines(out) + lines(err)) == 1,
        "with GitHub out of reach the lint exits 2 and says so in one line", repr(out + err))
 expect(git(py.dir, "status", "--porcelain") == "", "and changes nothing in the project")
+
+# With no App the lint never runs gh, so it never uses the person's sign-in. It
+# stops with a next: line.
+settings = os.path.join(py.dir, ".agents", "loop", "local.json")
+os.rename(settings, settings + ".aside")
+code, out, err = py.lint(12, [build_piece()])
+os.rename(settings + ".aside", settings)
+calls = open(py.log).read() if os.path.exists(py.log) else ""
+expect(code == 1 and "next: " in out and "CALL" not in calls,
+       "with no App the lint starts no gh and stops with a next: line",
+       "exit %s out=%r err=%r calls=%r" % (code, out, err, calls))
 
 # The temporary checkout cannot be made: a stand-in git says the disk is full.
 with open(os.path.join(BIN, "git"), "w") as handle:
