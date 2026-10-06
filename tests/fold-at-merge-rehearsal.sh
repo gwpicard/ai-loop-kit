@@ -18,7 +18,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-. "$ROOT/.agents/tests/lib/rule-shape.sh"
+. "$ROOT/tests/lib/rule-shape.sh"
 
 SCRIPT="$ROOT/kit/scripts/bring-up-to-date.sh"
 FOLD="$ROOT/kit/scripts/fold-changes.py"
