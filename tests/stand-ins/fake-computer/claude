@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# A stand-in for `claude`, for the version only.
+case "${1:-}" in
+  --version) echo "${FAKE_CLAUDE_VERSION:-2.1.219} (Claude Code)" ;;
+  *) echo "fake-computer claude: answers --version only" >&2; exit 64 ;;
+esac

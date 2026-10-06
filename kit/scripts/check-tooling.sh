@@ -4,7 +4,7 @@
 #
 # The kit keeps a project's pieces as GitHub issues and prints them with a small
 # Python filter, so three tools have to be here before the pieces can be founded:
-# Git, the GitHub command line tool, and python3. This reports which are ready
+# Git, the GitHub command line tool, python3 and openssl. This reports which are ready
 # and which are not, in plain words, and stops with a non-zero result when one
 # that blocks founding is missing, so a gap is caught here rather than at the
 # later step that creates the issues.
@@ -12,10 +12,15 @@
 # It changes nothing. It reaches no further than the sign-in and repository
 # lookups the report needs.
 #
+# openssl makes and reads the key of the GitHub App the gate acts as.
+#
 # jq is not required. The kit filters JSON with python3 on purpose, which is
 # also what lets the test harness stand in for the GitHub command line tool.
 #
-# Run from anywhere inside the project. With --recipe <recipe file>, it also
+# Run from anywhere inside the project. With --for-run, which the pre-run check
+# passes, a project whose origin is the kit's own repository stops with exit
+# code 3 instead of carrying on, since a run would push there. With --recipe
+# <recipe file>, it also
 # reports the command-line tools that recipe's launch checks run. Those never
 # stop founding. Nor do the tools the walk-through looks with, which it always
 # reports, with the install command for each one missing.
@@ -23,10 +28,29 @@
 set -eu
 
 recipe=""
-if [ "${1:-}" = "--recipe" ]; then
-  recipe=${2:-}
-  [ -n "$recipe" ] || { echo "usage: check-tooling.sh [--recipe <recipe file>]" >&2; exit 2; }
-fi
+for_run=no
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --recipe)
+      recipe=${2:-}
+      [ -n "$recipe" ] || { echo "usage: check-tooling.sh [--for-run] [--recipe <recipe file>]" >&2; exit 2; }
+      shift 2
+      ;;
+    --for-run)
+      for_run=yes
+      shift
+      ;;
+    -h | --help)
+      sed -n '2,/^set -eu/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
+      echo "exit codes: 0 ready, 1 a tool is missing, 2 usage, 3 refused (the kit's own repository, with --for-run)"
+      exit 0
+      ;;
+    *)
+      echo "usage: check-tooling.sh [--for-run] [--recipe <recipe file>]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 blocked=0
 
@@ -63,6 +87,13 @@ else
   blocked=1
 fi
 
+if command -v openssl >/dev/null 2>&1; then
+  echo "openssl is ready: the kit makes and reads the GitHub App key with it."
+else
+  echo "openssl is missing: install it so the kit can make and read the GitHub App key. See manual-setup.md."
+  blocked=1
+fi
+
 gh_ready=no
 if command -v gh >/dev/null 2>&1; then
   if gh_status=$(gh auth status 2>&1); then
@@ -94,11 +125,11 @@ fi
 # would aim the person's code at it. `origin` is read with Git alone, so this
 # answers whether or not the GitHub tool is ready, and the name GitHub reports is
 # compared too. It does not stop founding, which carries on as it does with no
-# repository.
-KIT_REPOSITORY=gwpicard/ai-build-kit
+# repository. With --for-run it stops the run, with exit code 3.
+KIT_REPOSITORY=gwpicard/ai-loop-kit
 # GitHub reads owner and name in any case. The pattern spells both cases out
 # with the shell alone, so the report needs nothing beyond the tools it checks.
-KIT_PATTERN='[Gg][Ww][Pp][Ii][Cc][Aa][Rr][Dd]/[Aa][Ii]-[Bb][Uu][Ii][Ll][Dd]-[Kk][Ii][Tt]'
+KIT_PATTERN='[Gg][Ww][Pp][Ii][Cc][Aa][Rr][Dd]/[Aa][Ii]-[Ll][Oo][Oo][Pp]-[Kk][Ii][Tt]'
 is_kit_repository() {
   case $1 in
     $KIT_PATTERN | *[Gg][Ii][Tt][Hh][Uu][Bb].[Cc][Oo][Mm][:/]$KIT_PATTERN | \
@@ -239,7 +270,14 @@ fi
 
 if [ "$blocked" -ne 0 ]; then
   echo "A tool the kit needs to found your pieces is not ready. Set it up before going on." >&2
+  echo "next: install the missing tool, then run check-tooling.sh again" >&2
   exit 1
+fi
+
+if [ "$for_run" = yes ] && [ "$kit_origin" = yes ]; then
+  echo "A run would push to the kit's own repository, $KIT_REPOSITORY, so it will not start." >&2
+  echo "next: git remote set-url origin <your own repository>, then run check-tooling.sh --for-run again" >&2
+  exit 3
 fi
 
 echo "Every tool the kit needs to found your pieces is ready."

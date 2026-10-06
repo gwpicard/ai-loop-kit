@@ -39,6 +39,7 @@ mkdir -p "$WORK/bin"
 ln -s "$(command -v git)" "$WORK/bin/git"
 ln -s "$(command -v python3)" "$WORK/bin/python3"
 ln -s "$(command -v sh)" "$WORK/bin/sh"
+ln -s "$(command -v openssl)" "$WORK/bin/openssl"
 
 # A stand-in that answers only the sign-in and the repository lookup the report
 # makes, with echo alone so it needs nothing else on the controlled PATH.
@@ -79,6 +80,20 @@ printf '%s\n' "$out" | grep -q "Issues are switched on" \
 printf '%s\n' "$out" | grep -q "Labels can be put in order" \
   && pass "it reports the account can manage labels" \
   || fail "the labels line is missing"
+
+echo "== openssl missing =="
+
+# The App key is made and read with openssl, so a run cannot start without it.
+rm -f "$WORK/bin/openssl"
+write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+out=$(run_check) && code=0 || code=$?
+[ "$code" -ne 0 ] \
+  && pass "a missing openssl stops the report" \
+  || fail "a missing openssl did not stop the report"
+printf '%s\n' "$out" | grep -q "openssl is missing" \
+  && pass "it names openssl" \
+  || fail "the missing openssl line is missing"
+ln -s "$(command -v openssl)" "$WORK/bin/openssl"
 
 echo "== The GitHub command line tool missing =="
 
@@ -222,7 +237,7 @@ kit_case() {
   out=$(cd "$project" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" 2>&1) && code=0 || code=$?
   [ "$code" -eq 0 ] || fail "$1: the report stopped founding with $code"
   if [ "$4" = kit ]; then
-    printf '%s\n' "$out" | grep -q "still points at the kit's own repository, gwpicard/ai-build-kit: no piece is opened there and nothing is pushed there" \
+    printf '%s\n' "$out" | grep -q "still points at the kit's own repository, gwpicard/ai-loop-kit: no piece is opened there and nothing is pushed there" \
       && ! printf '%s\n' "$out" | grep -q "Issues are switched\|Labels can" \
       && pass "$1: the report names the kit's repository and skips its lookups" \
       || fail "$1: the kit's repository was not caught"
@@ -238,19 +253,35 @@ kit_case() {
       || pass "$1: the person's own repository is left alone"
   fi
 }
-KIT_JSON='{"nameWithOwner":"gwpicard/ai-build-kit","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
-OWN_JSON='{"nameWithOwner":"someone/ai-build-kit","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+KIT_JSON='{"nameWithOwner":"gwpicard/ai-loop-kit","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+OWN_JSON='{"nameWithOwner":"someone/ai-loop-kit","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
 # Where the origin names the kit, the stand-in reports a neutral name, so only
 # the origin match can catch it. The one case with no origin is the only one
 # that leans on the name GitHub reports.
 NEUTRAL_JSON='{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
-kit_case "an https origin" "https://github.com/gwpicard/ai-build-kit.git" "$NEUTRAL_JSON" kit
-kit_case "an ssh origin in capitals" "git@github.com:GWPicard/AI-Build-Kit.git" "$NEUTRAL_JSON" kit
-kit_case "an origin with no .git" "https://github.com/gwpicard/ai-build-kit" "$NEUTRAL_JSON" kit
+kit_case "an https origin" "https://github.com/gwpicard/ai-loop-kit.git" "$NEUTRAL_JSON" kit
+kit_case "an ssh origin in capitals" "git@github.com:GWPicard/AI-Loop-Kit.git" "$NEUTRAL_JSON" kit
+kit_case "an origin with no .git" "https://github.com/gwpicard/ai-loop-kit" "$NEUTRAL_JSON" kit
 kit_case "a name only GitHub reports" "" "$KIT_JSON" kit
-kit_case "a fork under another owner" "https://github.com/someone/ai-build-kit.git" "$OWN_JSON" not-kit
-kit_case "a name that only starts like the kit's" "https://github.com/gwpicard/ai-build-kit-notes.git" '{"nameWithOwner":"gwpicard/ai-build-kit-notes","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}' not-kit
+kit_case "a fork under another owner" "https://github.com/someone/ai-loop-kit.git" "$OWN_JSON" not-kit
+kit_case "a name that only starts like the kit's" "https://github.com/gwpicard/ai-loop-kit-notes.git" '{"nameWithOwner":"gwpicard/ai-loop-kit-notes","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}' not-kit
 write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+
+# Asked for a run (--for-run), the kit's own repository is a refusal, with its
+# own exit code, and a project of the person's own is not.
+kit_project="$WORK/run-on-kit"
+mkdir -p "$kit_project"
+git -C "$kit_project" init -q
+git -C "$kit_project" remote add origin "https://github.com/gwpicard/ai-loop-kit.git"
+write_gh 0 "$NEUTRAL_JSON"
+out=$(cd "$kit_project" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" --for-run 2>&1) && code=0 || code=$?
+[ "$code" -eq 3 ] \
+  && pass "--for-run refuses a project that points at the kit's own repository (exit 3)" \
+  || fail "--for-run on the kit's repository returned $code"
+out=$(cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" --for-run 2>&1) && code=0 || code=$?
+[ "$code" -eq 0 ] \
+  && pass "--for-run passes a project of the person's own" \
+  || fail "--for-run on the person's own repository returned $code"
 
 echo "== The tools a recipe's checks run =="
 
