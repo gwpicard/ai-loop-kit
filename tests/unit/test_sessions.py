@@ -361,6 +361,16 @@ class AttemptSettings(Base):
                     self.assertTrue(matcher.file_denied(
                         deny, tool, self.target(name), str(self.worktree), str(self.project)))
 
+    def test_a_new_conftest_anywhere_in_the_worktree_is_denied(self) -> None:
+        deny = self.settings()["permissions"]["deny"]
+        for name in ("conftest.py", "tests/conftest.py", "a/b/c/conftest.py"):
+            with self.subTest(name=name):
+                self.assertTrue(matcher.file_denied(
+                    deny, "Write", self.target(name), str(self.worktree), str(self.project)))
+        self.assertFalse(matcher.file_denied(
+            deny, "Write", self.target("tests/test_conftest_helper.py"), str(self.worktree),
+            str(self.project)))
+
     def test_the_deny_beats_the_allow_that_covers_the_worktree(self) -> None:
         data = self.settings()
         allow = data["permissions"]["allow"]

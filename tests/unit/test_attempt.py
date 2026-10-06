@@ -281,6 +281,23 @@ class TheFrozenBar(AttemptCase):
         self.honest(files={"pytest.ini": "[pytest]\naddopts = --reruns 5\n"})
         self.bar_fails("tool-settings")
 
+    def test_a_new_conftest_that_turns_failures_green(self) -> None:
+        self.honest(files={"conftest.py": "collect_ignore_glob = ['tests/*']\n"})
+        self.bar_fails("tool-settings")
+
+    def test_a_vite_config_with_a_test_block(self) -> None:
+        self.honest(files={"vite.config.ts": "export default { test: { retry: 5 } }\n"})
+        self.bar_fails("tool-settings")
+
+    def test_a_pytest_option_in_a_quoted_pyproject_table(self) -> None:
+        self.honest(files={"pyproject.toml":
+                           '[tool."pytest".ini_options]\naddopts = "-k not_slow"\n'})
+        self.bar_fails("tool-settings")
+
+    def test_a_test_script_changed_in_package_json(self) -> None:
+        self.honest(files={"package.json": '{"scripts": {"test": "true"}}\n'})
+        self.bar_fails("tool-settings")
+
     def test_a_suppression_added(self) -> None:
         self.honest(files={"src/app.py": "X = 1  # noqa\n"})
         self.bar_fails("suppression")

@@ -30,6 +30,15 @@ BASE_FILES = {
         "[project]\nname = \"shop\"\ndependencies = []\n\n"
         "[tool.ruff]\nline-length = 100\nselect = ['E', 'F']\n"
     ),
+    "setup.cfg": (
+        "[metadata]\nname = shop\n\n[options]\ninstall_requires =\n    requests\n\n"
+        "[flake8]\nmax-line-length = 100\n"
+    ),
+    "tox.ini": "[tox]\nenvlist = py\n",
+    "package.json": (
+        '{"name": "shop", "scripts": {"test": "jest"}, "dependencies": {}, '
+        '"jest": {"testMatch": ["**/*.test.js"]}}\n'
+    ),
     "web/__snapshots__/cart.test.js.snap": "exports[`cart 1`] = `one`;\n",
     ".github/workflows/checks.yml": "on: pull_request\njobs: {}\n",
     ".agents/tools/gate.py": "print('gate')\n",
@@ -264,7 +273,9 @@ class TheToolSettings(Case):
 
     def test_each_new_settings_file(self) -> None:
         for name in ("vitest.config.ts", "eslint.config.mjs", ".eslintrc.json",
-                     "tsconfig.build.json", ".coveragerc", "ruff.toml", "mypy.ini", "pytest.ini"):
+                     "tsconfig.build.json", ".coveragerc", "ruff.toml", "mypy.ini", "pytest.ini",
+                     "conftest.py", "tests/unit/conftest.py", ".pytest.ini", "vite.config.ts",
+                     "vite.config.mjs", "vitest.workspace.ts", "cypress.config.ts"):
             with self.subTest(name=name):
                 repo = Repo()
                 repo.attempt({name: "ignore = everything\n"})
@@ -304,6 +315,126 @@ class TheToolSettings(Case):
         self.repo.attempt({"pyproject.toml": BASE_FILES["pyproject.toml"].replace(
             "[tool.ruff]\n", "[tool.ruff]\n# a note\n")})
         self.assertEqual(self.repo.changes(), [])
+
+
+    # --- a new or edited conftest.py and the other whole files -------------------------------
+
+    def test_a_new_conftest_with_a_pytest_hook_is_a_settings_change(self) -> None:
+        hook = (
+            "import pytest\n\n\n@pytest.hookimpl(hookwrapper=True)\n"
+            "def pytest_runtest_makereport(item, call):\n    outcome = yield\n"
+            "    outcome.get_result().outcome = 'passed'\n"
+        )
+        self.repo.attempt({"conftest.py": hook})
+        self.assertIn(("tool-settings", "conftest.py"), self.repo.changes())
+
+    def test_a_new_conftest_that_ignores_tests_is_a_settings_change(self) -> None:
+        self.repo.attempt({"tests/conftest.py": "collect_ignore = ['test_orders.py']\n"})
+        self.assertIn(("tool-settings", "tests/conftest.py"), self.repo.changes())
+
+    def test_an_edited_vite_config_is_a_settings_change(self) -> None:
+        repo = Repo()
+        repo.write({"vite.config.ts": "export default { test: { retry: 0 } }\n"})
+        repo.commit("a vite config at the base")
+        repo.base = repo.git("rev-parse", "HEAD")
+        repo.attempt({"vite.config.ts": "export default { test: { retry: 5 } }\n"})
+        self.assertIn(("tool-settings", "vite.config.ts"), repo.changes())
+
+    # --- the sections of pyproject.toml and setup.cfg: an allow-list ----------------------------
+
+    def pyproject(self, text: str) -> list[tuple[str, str]]:
+        self.repo.attempt({"pyproject.toml": BASE_FILES["pyproject.toml"] + text})
+        return self.repo.changes()
+
+    def test_a_quoted_tool_header_is_still_a_tool_section(self) -> None:
+        found = self.pyproject('\n[tool."pytest".ini_options]\naddopts = "-k not_slow"\n')
+        self.assertIn(("tool-settings", "pyproject.toml"), found)
+
+    def test_a_spaced_tool_header_is_still_a_tool_section(self) -> None:
+        found = self.pyproject("\n[ tool . pytest . ini_options ]\naddopts = '-x'\n")
+        self.assertIn(("tool-settings", "pyproject.toml"), found)
+
+    def test_a_dotted_key_under_a_bare_tool_table(self) -> None:
+        found = self.pyproject('\n[tool]\npytest.ini_options.addopts = "-k not_slow"\n')
+        self.assertIn(("tool-settings", "pyproject.toml"), found)
+
+    def test_a_dotted_key_before_the_first_header(self) -> None:
+        self.repo.attempt({"pyproject.toml": 'tool.pytest.ini_options.addopts = "-x"\n'
+                           + BASE_FILES["pyproject.toml"]})
+        self.assertIn(("tool-settings", "pyproject.toml"), self.repo.changes())
+
+    def test_a_table_the_list_does_not_know_counts(self) -> None:
+        found = self.pyproject("\n[tool.hatch.envs.test]\nscripts = {test = 'true'}\n")
+        self.assertIn(("tool-settings", "pyproject.toml"), found)
+
+    def test_a_dependency_table_is_not_a_settings_change(self) -> None:
+        tables = ("[project.optional-dependencies]\ndev = ['left-pad']\n",
+                  "[ project . urls ]\nhome = 'x'\n",
+                  "[build-system]\nrequires = ['setuptools']\n",
+                  "[dependency-groups]\ndev = ['left-pad']\n",
+                  "[tool.poetry.dependencies]\nrequests = '*'\n",
+                  "[tool.poetry.dev-dependencies]\nrequests = '*'\n",
+                  "[tool.poetry.group.docs.dependencies]\nrequests = '*'\n")
+        for table in tables:
+            with self.subTest(table=table):
+                repo = Repo()
+                repo.attempt({"pyproject.toml": BASE_FILES["pyproject.toml"] + "\n" + table})
+                self.assertEqual(repo.changes(), [])
+
+    def test_a_line_added_to_setup_cfg_outside_the_dependency_sections(self) -> None:
+        for added in ("[tool:pytest]\naddopts = -x\n", "[flake8]\nignore = E501\n",
+                      "[coverage:run]\nomit = *\n"):
+            with self.subTest(added=added):
+                repo = Repo()
+                repo.attempt({"setup.cfg": BASE_FILES["setup.cfg"] + "\n" + added})
+                self.assertIn(("tool-settings", "setup.cfg"), repo.changes())
+
+    def test_a_dependency_added_to_setup_cfg_is_not_a_settings_change(self) -> None:
+        self.repo.attempt({"setup.cfg": BASE_FILES["setup.cfg"].replace(
+            "    requests\n", "    requests\n    left-pad\n")})
+        self.assertEqual(self.repo.changes(), [])
+
+    def test_tox_ini_counts_whole(self) -> None:
+        self.repo.attempt({"tox.ini": "[tox]\nenvlist = py\n\n[gh-actions]\npython = 3: py\n"})
+        self.assertIn(("tool-settings", "tox.ini"), self.repo.changes())
+
+    # --- package.json: the test keys, read as JSON ------------------------------------------------
+
+    def package(self, **keys: object) -> list[tuple[str, str]]:
+        import json
+
+        data = json.loads(BASE_FILES["package.json"])
+        data.update(keys)
+        self.repo.attempt({"package.json": json.dumps(data, indent=2) + "\n"})
+        return self.repo.changes()
+
+    def test_a_changed_test_script_in_package_json(self) -> None:
+        self.assertIn(("tool-settings", "package.json"), self.package(scripts={"test": "true"}))
+
+    def test_a_raised_timeout_under_the_jest_key(self) -> None:
+        found = self.package(jest={"testMatch": ["**/*.test.js"], "testTimeout": 999999})
+        self.assertIn(("tool-settings", "package.json"), found)
+
+    def test_each_other_test_key_of_package_json(self) -> None:
+        for key in ("mocha", "ava", "c8", "nyc", "vitest"):
+            with self.subTest(key=key):
+                repo = Repo()
+                repo.attempt({"package.json": BASE_FILES["package.json"].replace(
+                    '"dependencies"', f'"{key}": {{"retries": 9}}, "dependencies"')})
+                self.assertIn(("tool-settings", "package.json"), repo.changes())
+
+    def test_a_dependency_added_to_package_json_is_not_a_settings_change(self) -> None:
+        self.assertEqual(self.package(dependencies={"left-pad": "1.3.0"}), [])
+
+    def test_the_layout_of_package_json_is_not_a_settings_change(self) -> None:
+        self.assertEqual(self.package(), [])
+
+    def test_a_package_json_that_does_not_parse_counts_as_changed(self) -> None:
+        self.repo.attempt({"package.json": '{"scripts": {"test": "jest"},, }\n'})
+        self.assertIn(("tool-settings", "package.json"), self.repo.changes())
+
+    def test_a_package_json_deleted(self) -> None:
+        self.lists("tool-settings", "package.json", remove=("package.json",))
 
 
 class TheSnapshotsAndGuardedFiles(Case):
@@ -352,8 +483,9 @@ class WhenTheBarCannotBeRead(Case):
 
 
 class ThePathsTheFirstLayerDenies(Case):
-    def listed(self) -> list[str]:
-        return bar.paths(self.repo.root, self.repo.base, self.repo.files)
+    def listed(self, *, planned: bool = True) -> list[str]:
+        return bar.paths(self.repo.root, self.repo.base, self.repo.files,
+                         dependency_planned=planned)
 
     def test_it_holds_the_judge_files(self) -> None:
         for name in JUDGE_FILES:
@@ -367,10 +499,25 @@ class ThePathsTheFirstLayerDenies(Case):
                      ".agents/tools/gate.py"):
             self.assertIn(name, listed)
 
-    def test_it_leaves_out_source_files_and_the_shared_manifest(self) -> None:
-        listed = self.listed()
-        for name in ("app/orders.py", "README.md", "pyproject.toml"):
+    def test_it_leaves_out_source_files_and_the_shared_manifests_when_a_dependency_is_planned(
+        self,
+    ) -> None:
+        listed = self.listed(planned=True)
+        for name in ("app/orders.py", "README.md", "pyproject.toml", "setup.cfg", "package.json"):
             self.assertNotIn(name, listed)
+
+    def test_it_lists_the_manifests_when_no_dependency_is_planned(self) -> None:
+        listed = self.listed(planned=False)
+        for name in ("pyproject.toml", "setup.cfg", "tox.ini", "package.json"):
+            self.assertIn(name, listed)
+        self.assertNotIn("app/orders.py", listed)
+
+    def test_tox_ini_is_always_listed(self) -> None:
+        self.assertIn("tox.ini", self.listed(planned=True))
+
+    def test_no_dependency_is_the_default(self) -> None:
+        self.assertEqual(
+            bar.paths(self.repo.root, self.repo.base, self.repo.files), self.listed(planned=False))
 
     def test_every_listed_path_is_a_bar_change_when_it_is_edited(self) -> None:
         """The two layers agree: what the first layer denies, the second layer lists."""

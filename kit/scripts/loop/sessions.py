@@ -178,6 +178,10 @@ def bar_rules(worktree: Path, bar_paths: Sequence[str]) -> tuple[list[str], list
         absolute = str(worktree / pure)
         rules.append(f"Edit(/{absolute})")
         blocks.append(absolute)
+    if bar_paths:
+        # A new conftest.py can turn every failing test green, and a list of files cannot name
+        # a file that does not exist yet, so one rule covers each conftest.py in the worktree.
+        rules.append(f"Edit(/{worktree}/**/conftest.py)")
     return rules, blocks
 
 

@@ -19,8 +19,11 @@ every file they name. The second is `changes`, the gate's byte-for-byte check.
 - `suppression`: a lint or type suppression added to any file.
 - `tool-settings`: a test, lint, type-check or coverage tool's settings that
   gained or lost a line. Taking a setting out loosens a tool as surely as adding
-  one. In `pyproject.toml`, `setup.cfg` and `tox.ini` only the sections of those
-  tools count, so a builder may add a dependency.
+  one. A new or edited `conftest.py`, `.pytest.ini`, `tox.ini` or Vite, Vitest or
+  Cypress config counts whole. In `pyproject.toml` and `setup.cfg` every line counts
+  except those in a table where no test setting can sit (the project, build-system and
+  dependency tables), so a builder may add a dependency. In `package.json` the `scripts`
+  key and the keys of the test tools count; a file that does not parse counts as changed.
 - `snapshot`: a snapshot that existed at the base and changed.
 - `guarded-file`: a change to a workflow, a hook or the Claude Code settings.
 
@@ -35,6 +38,7 @@ pass, so the gate turns the error into a refusal.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from collections.abc import Sequence
@@ -74,14 +78,23 @@ SUPPRESS = re.compile(
 WHOLE_SETTINGS = re.compile(
     r"^(jest\.config\..+|vitest\.config\..+|playwright\.config\..+|eslint\.config\..+"
     r"|\.eslintrc.*|\.mocharc.*|\.coveragerc|\.flake8|\.pylintrc|pytest\.ini|ruff\.toml"
-    r"|\.ruff\.toml|mypy\.ini|tsconfig.*\.json)$"
+    r"|\.ruff\.toml|mypy\.ini|tsconfig.*\.json|tox\.ini"
+    r"|conftest\.py|\.pytest\.ini|vite\.config\..+|vitest\.workspace\..+"
+    r"|cypress\.config\..+)$"
 )
-# Settings files that hold other things too: only the sections of the tools count.
-SECTIONED_SETTINGS = frozenset({"pyproject.toml", "setup.cfg", "tox.ini"})
-TOOL_SECTION = re.compile(
-    r"^(tool[.:])?(pytest|ruff|mypy|coverage|pyright|flake8|pylint|isort|black|bandit|"
-    r"testenv|tox|unittest|nosetests)(?![A-Za-z0-9_])"
+# Settings files that hold other things too. In pyproject.toml and setup.cfg every line counts
+# except the lines of a table where no test setting can sit. In package.json only the keys
+# that hold a test setting count.
+SECTIONED_SETTINGS = frozenset({"pyproject.toml", "setup.cfg", "package.json"})
+# The tables that hold no test setting, by their normalised name (no spaces, no quotes).
+SAFE_TABLES = re.compile(
+    r"^(project(\..+)?|build-system|dependency-groups|tool\.poetry\.dependencies"
+    r"|tool\.poetry\.dev-dependencies|tool\.poetry\.group\.[^.]+\.dependencies"
+    r"|metadata|options(\..+)?)$"
 )
+PACKAGE_TEST_KEYS = ("scripts", "jest", "mocha", "ava", "c8", "nyc", "vitest")
+# The manifests the first layer leaves open only when the spec plans a new dependency.
+MANIFESTS = ("pyproject.toml", "setup.cfg", "package.json")
 SECTION_HEAD = re.compile(r"^\s*\[+\s*([^\]]+?)\s*\]+\s*(?:[#;].*)?$")
 
 GUARDED_PREFIXES = (
@@ -199,27 +212,58 @@ def _count(pattern: re.Pattern[str], text: str | None) -> int:
 # --- the settings of a tool ---------------------------------------------------------------
 
 
+def _table_name(head: str) -> str:
+    """A table's name with every space and quote taken out, so `[tool."pytest"]` is `tool.pytest`."""
+    return re.sub(r"[\s\"']", "", head).lower()
+
+
 def _tool_lines(text: str | None) -> list[str]:
-    """The lines inside the sections of a tool, with the section's name in front."""
+    """The lines that may hold a test setting, with the table's name in front.
+
+    An allow-list: every line counts, except the lines in a table where no test setting
+    can sit, and blank lines and comments. The lines before the first header count too.
+    TOML dotted keys cannot leave their table, so a table on the list stays safe.
+    """
     found: list[str] = []
-    section: str | None = None
+    section = ""
+    counted = True
     for raw in (text or "").splitlines():
         head = SECTION_HEAD.match(raw)
         if head:
-            section = head.group(1) if TOOL_SECTION.match(head.group(1).lower()) else None
-            if section is not None:
+            section = _table_name(head.group(1))
+            counted = SAFE_TABLES.match(section) is None
+            if counted:
                 found.append(f"[{section}]")
             continue
         line = raw.strip()
-        if section is not None and line and not line.startswith(("#", ";")):
+        if counted and line and not line.startswith(("#", ";")):
             found.append(f"{section}: {line}")
     return found
+
+
+def _package_keys(text: str | None) -> Any:
+    """The test keys of a package.json. A file that does not parse gives None."""
+    if text is None:
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return {key: data[key] for key in PACKAGE_TEST_KEYS if key in data}
 
 
 def _settings_changed(root: Any, base: str, head: str, path: str, status: str) -> bool:
     before = _text(root, base, path) if status != "A" else None
     after = _text(root, head, path) if status != "D" else None
-    if PurePosixPath(path).name in SECTIONED_SETTINGS:
+    name = PurePosixPath(path).name
+    if name == "package.json":
+        if before == after:
+            return False
+        old, new = _package_keys(before), _package_keys(after)
+        return old is None or new is None or old != new
+    if name in SECTIONED_SETTINGS:
         return _tool_lines(before) != _tool_lines(after)
     return before != after
 
@@ -227,21 +271,26 @@ def _settings_changed(root: Any, base: str, head: str, path: str, status: str) -
 # --- the listing -----------------------------------------------------------------------
 
 
-def paths(root: Any, base: str, judge_files: Sequence[str]) -> list[str]:
+def paths(
+    root: Any, base: str, judge_files: Sequence[str], *, dependency_planned: bool = False
+) -> list[str]:
     """Every path an attempt may not write: the first layer's list.
 
     It holds the judge files, and each file the base holds that is a test, a fixture, a
     snapshot, a tool's settings file or a guarded file. A new file is not on it, so a
-    builder may add tests. `pyproject.toml`, `setup.cfg` and `tox.ini` are not on it,
-    since a builder may add a dependency there; the gate's check reads their tool sections.
+    builder may add tests. `pyproject.toml`, `setup.cfg` and `package.json` are on it
+    unless the spec plans a new dependency, since only then may a builder edit them; the
+    gate's check reads their test settings either way. A new `conftest.py` is not on the list
+    (the list names files), so the session settings add one rule for it.
     """
     found = set(judge_files)
     for path in _git(root, "ls-tree", "-r", "--name-only", "-z", base).split("\0"):
         if not path:
             continue
-        sectioned = PurePosixPath(path).name in SECTIONED_SETTINGS
+        name = PurePosixPath(path).name
+        open_manifest = dependency_planned and name in MANIFESTS
         if is_test(path) or is_snapshot(path) or is_guarded(path) or (
-            is_settings(path) and not sectioned
+            is_settings(path) and not open_manifest
         ):
             found.add(path)
     return sorted(found)
