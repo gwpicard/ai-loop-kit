@@ -8,7 +8,7 @@ The source column gives a path inside that commit, written with the commit prefi
 
 | Destination | Source | Commit | Verbatim or edit | What it must shed later |
 |---|---|---|---|---|
-| `kit/scripts/gate.py` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/gate.py` | `fbdf054` | verbatim | Names `.agents/tools/` paths and carries the old product name in two lines. |
+| `kit/scripts/gate.py` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/gate.py` | `fbdf054` | adapted: Rewritten as a thin command line over `loop/states.py`, `loop/moves.py` and `loop/github.py`. It shed the old label list, the sub-state markers, the checkpoint assumptions, the always-person review stub, the `.agents/tools/` paths, the contract-hash comments, the evidence and breakage commands, and the old product name. `section()` moved to `loop/spec.py` and `chain_of()` to `loop/evidence.py`. | Nothing known. |
 | `kit/scripts/ready-lint.py` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/ready-lint.py` | `fbdf054` | edited: Renamed the variable `l` to `ln` on two lines, because ruff refuses `l`. | Reads the old project layout and prose for the contract headings. |
 | `kit/scripts/area-map.py` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/area-map.py` | `fbdf054` | verbatim | Carries the old product name in one line. |
 | `kit/scripts/bar-guard.sh` | `fbdf054:.agents/skills/section-builder/scripts/bar-guard.sh` | `fbdf054` | verbatim | Names old project paths in its guarded list. |
@@ -26,14 +26,11 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/lib/permission-matcher.py` | `fbdf054:.agents/tests/lib/permission-matcher.py` | `fbdf054` | verbatim | Nothing known. |
 | `tests/run-all.sh` | `fbdf054:.agents/tests/run-all.sh` | `fbdf054` | edited: Folder root now `..`; the loop reads `tests/*.sh`; the help line names `tests/<name>.sh`; sets `PYTHONDONTWRITEBYTECODE=1`. The `mutate` and `run-all` copy exclusions are kept. | Nothing known. |
 | `tests/rehearsal-runner.sh` | `fbdf054:.agents/tests/rehearsal-runner.sh` | `fbdf054` | edited: The throwaway tree is `$WORK/tests` (was `$WORK/.agents/tests`). | Nothing known. |
-| `tests/stand-ins/fake-github/gh` | `fbdf054:.agents/tests/replay/fake-github/gh` | `fbdf054` | edited: Renamed the variable `l` to `lbl` on four lines, because ruff refuses `l`. | Comments call it the replay harness stand-in. |
-| `tests/gate-script.sh` | `fbdf054:.agents/tests/gate-script.sh` | `fbdf054` | edited: Folder root now `..`; gate and stand-in paths point at `kit/scripts` and `tests/stand-ins`; the guards are found beside the gate; two failure messages reworded. | Carries the old product name in one line. |
+| `tests/stand-ins/fake-github/gh` | `fbdf054:.agents/tests/replay/fake-github/gh` | `fbdf054` | edited: Renamed the variable `l` to `lbl` on four lines, because ruff refuses `l`. Added the App's token exchange (`app/installations/<id>/access_tokens`, which checks the JWT's RS256 signature with openssl against `FAKE_APP_KEY`), and a call that carries a stand-in App token acts as the App's bot account. | Comments call it the replay harness stand-in. |
 | `tests/ready-lint-rehearsal.sh` | `fbdf054:.agents/tests/ready-lint-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/scripts` and `tests/stand-ins`. Removed two assertions that read Build Kit prose: that the lint's Test runner table matches `check-floor.md`, and that a design note lists the length limits. | Nothing known. |
 | `tests/area-map-rehearsal.sh` | `fbdf054:.agents/tests/area-map-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/scripts` and `kit/templates`; one failure message reworded. | Carries the old product name in two lines. |
-| `tests/frozen-bar-rehearsal.sh` | `fbdf054:.agents/tests/frozen-bar-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/scripts`, `kit/templates` and `tests/stand-ins`. | Nothing known. |
 | `tests/bar-guard-rehearsal.sh` | `fbdf054:.agents/tests/bar-guard-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the guard path is `kit/scripts`. | Nothing known. |
 | `tests/co-change-rehearsal.sh` | `fbdf054:.agents/tests/co-change-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script path is `kit/scripts/co-change.sh`. | Nothing known. |
-| `tests/test-strength-rehearsal.sh` | `fbdf054:.agents/tests/test-strength-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/scripts` and `tests/stand-ins`. Removed the lines that read `references/test-strength.md` and the report assertions built on it. | Nothing known. |
 | `tests/fake-github.sh` | `fbdf054:.agents/tests/fake-github.sh` | `fbdf054` | edited: The stand-in path is `tests/stand-ins/fake-github/gh`. One comment is reworded, "the third issue" for "issue 3", as a tidy reword. | Nothing known. |
 | `tests/push-to-main-rules.sh` | `fbdf054:.agents/tests/push-to-main-rules.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/templates` and `tests/lib`. Removed the variables and rules that read the maintain skill and `WORKFLOW.md`. | Reads wording in `blocked-commands.md`. |
 | `tests/merge-ask-rule.sh` | `fbdf054:.agents/tests/merge-ask-rule.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit`. Removed the variables and rules that read skill prose, `WORKFLOW.md`, the compatibility page and this repository's own settings. | Reads wording in `blocked-commands.md`. |
@@ -84,6 +81,9 @@ The source column gives a path inside that commit, written with the commit prefi
 |---|---|---|
 | `kit/scripts/state-guard.sh` and its source `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/state-guard.sh` | `kit/hooks/guard.py` | It matched the text of a command. The new hook reads the command, so `git -C . push origin main` and `sh -c` forms are caught. |
 | `tests/state-guard.sh` and its source `fbdf054:.agents/tests/state-guard.sh` | `tests/unit/test_guard.py` and `tests/guard-hook.sh` | They tested the old hook and its settings wiring. The unit test feeds the new hook every spelling in `blocked-commands.md`. The shell test runs it as Claude Code does. |
+| `tests/gate-script.sh` and its source `fbdf054:.agents/tests/gate-script.sh` | `tests/unit/test_states.py`, `tests/unit/test_moves.py`, `tests/unit/test_github.py` and `tests/gate.sh` | It drove the old gate's labels, sub-states and commands, which the rewritten gate no longer has. |
+| `tests/frozen-bar-rehearsal.sh` and its source `fbdf054:.agents/tests/frozen-bar-rehearsal.sh` | The attempt gate's own tests, in a later piece, which carries its cases forward from Git history | It drove the old gate's `evidence` command, which the rewritten gate no longer has. |
+| `tests/test-strength-rehearsal.sh` and its source `fbdf054:.agents/tests/test-strength-rehearsal.sh` | The attempt gate's own tests, in a later piece, which carries its cases forward from Git history | It drove the old gate's `evidence --breakage` command, which the rewritten gate no longer has. |
 
 ## New files, not borrowed
 
@@ -118,11 +118,9 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 - `kit/scripts/place-plan-helper.sh`
 - `kit/scripts/session-start.sh`
 - `kit/scripts/worktree.sh`
-- `kit/scripts/gate.py`
 - `kit/templates/checks.yml`
 - `tests/area-map-rehearsal.sh`
 - `tests/check-tooling.sh`
-- `tests/gate-script.sh`
 - `tests/kit-owns-worktrees-rehearsal.sh`
 - `tests/session-start.sh`
 - `tests/fixtures/AGENTS.md`
