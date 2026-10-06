@@ -96,7 +96,12 @@ build() {
     "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$KIT" >/dev/null 2>&1
   # The pre-push hook, and the setting that turns it on.
   mkdir -p "$TP_ROOT/.githooks"
-  cp "$KIT/templates/githooks/pre-push" "$TP_ROOT/.githooks/pre-push"
+  if [ "$1" = repo ]; then
+    cp "$KIT/templates/githooks/pre-push" "$TP_ROOT/.githooks/pre-push"
+  else
+    # /setup renders the hook with the kit folder, as a founded project holds it.
+    sed "s#{{KIT_DIR}}#$KIT#g" "$KIT/templates/githooks/pre-push" > "$TP_ROOT/.githooks/pre-push"
+  fi
   chmod +x "$TP_ROOT/.githooks/pre-push"
   git -C "$TP_ROOT" config core.hooksPath .githooks
   # The policy, from the template, with a test command that passes.
@@ -236,6 +241,10 @@ expect_refusal "the hook folder not switched on" pre-push-hook first "core.hooks
 build founded
 printf '#!/usr/bin/env sh\nexit 0\n' > "$TP_ROOT/.githooks/pre-push"
 expect_refusal "a pre-push hook that differs from the kit's" pre-push-hook first "differs"
+
+build founded
+cp "$KIT/templates/githooks/pre-push" "$TP_ROOT/.githooks/pre-push"
+expect_refusal "the raw hook template in a founded project" pre-push-hook first "differs"
 
 echo "== The installed kit folder =="
 build founded

@@ -22,21 +22,31 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   exit 1
 }
 
-# The scan lives in one of three fixed places, the same ones loop/paths.py
-# names: the project's own kit/scripts, the installed kit under the plugin
-# cache, or beside this hook. No environment variable can point the hook
-# elsewhere, so a session cannot swap the scan for another program.
+# Where the scan comes from. When /setup rendered this hook, it wrote the
+# installed kit folder in place of the placeholder below. Then only that kit's
+# scan counts, so a file written into the project cannot stand in for it. The
+# raw template, in the kit's own repository, looks in three fixed places: the
+# project's own kit/scripts, the installed kit under the plugin cache, or beside
+# this hook. No environment variable can point the hook elsewhere.
 here=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
 scan=
-for candidate in \
-  "$root/kit/scripts/secret-scan.py" \
-  "${HOME:-/nonexistent}/.claude/plugins/cache/ai-loop-kit/scripts/secret-scan.py" \
-  "${here:-/nonexistent}/secret-scan.py"; do
-  if [ -f "$candidate" ]; then
-    scan=$candidate
-    break
-  fi
-done
+kit_scan="{{KIT_DIR}}/scripts/secret-scan.py"
+case $kit_scan in
+  /*)
+    [ -f "$kit_scan" ] && scan=$kit_scan
+    ;;
+  *)
+    for candidate in \
+      "$root/kit/scripts/secret-scan.py" \
+      "${HOME:-/nonexistent}/.claude/plugins/cache/ai-loop-kit/scripts/secret-scan.py" \
+      "${here:-/nonexistent}/secret-scan.py"; do
+      if [ -f "$candidate" ]; then
+        scan=$candidate
+        break
+      fi
+    done
+    ;;
+esac
 
 if [ -z "$scan" ]; then
   echo "pre-push: cannot find secret-scan.py, so the push is stopped." >&2

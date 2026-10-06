@@ -1,233 +1,52 @@
 name: A piece of work
-description: One small, visible change, sized for a single sitting and small enough for a fresh session to hold whole.
+description: One small, visible change. It files into shaping, and the agent shapes it until the ready gate accepts it.
 title: "<what the person will be able to do>"
 body:
   - type: markdown
     attributes:
       value: |
-        Your coding agent fills this in. You can open one yourself if you
-        prefer, and the agent will read it the same way.
+        Write the idea in your own words. The title says what you will be able
+        to do. You do not need to fill in a spec: `/shape` asks what it needs
+        and writes the spec block for you. This piece files into shaping. Only
+        the gate moves it on, and it never moves a piece to ready until its
+        needs list is empty.
 
-        The title says what you will be able to do, in your words. The first
-        fields are the short header you read.
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you want, in your own words. Keep your wording. It is quoted as it is.
+      placeholder: Let people export their invoices as a CSV file.
+    validations:
+      required: true
 
   - type: textarea
     id: so-that
     attributes:
       label: So that
       description: The one outcome this exists for, in one line.
-      placeholder: freelancers stop phoning to check what is free.
-    validations:
-      required: true
-
-  - type: textarea
-    id: done-when
-    attributes:
-      label: Done when
-      description: >
-        Works: rules somebody can check by trying the tool, each naming its
-        check. If a line cannot be answered yes or no, it belongs in "So that"
-        instead.
-      placeholder: |
-        - A freelancer can book an item for a date range. Check: booking test.
-        - Booking the same item for overlapping dates is refused, naming the
-          loan in the way. Check: overlap test.
-    validations:
-      required: true
-
-  - type: textarea
-    id: not-the-normal-case
-    attributes:
-      label: When it is not the normal case
-      description: >
-        One line for each state this change can show, such as empty, failing,
-        slow or left part-way, each with its check, or "does not arise,
-        because" and the reason.
-      placeholder: |
-        - Nothing free in the range: the list says so. Check: empty-range test.
-        - Two people book the last item at once: one is refused. Check: race test.
+      placeholder: Freelancers can send their invoices to an accountant.
     validations:
       required: false
 
   - type: textarea
-    id: masterplan-change
+    id: know-already
     attributes:
-      label: Masterplan change
+      label: What you already know
       description: >
-        In plain words, name the section and what it gains, changes or loses
-        when this lands. Write "nothing" only if the masterplan already says
-        everything under Done when. A new rule, such as a sort order, is a change.
-      placeholder: What it does gains a weekly summary email.
-    validations:
-      required: true
-
-  - type: textarea
-    id: not-in-this-piece
-    attributes:
-      label: Not in this piece
-      description: >
-        The nearest things this is not, so scope does not creep in later. Where
-        Done when leaves part of So that out, name that part and the piece that
-        follows it up.
-      placeholder: Cancelling. Deposits.
-    validations:
-      required: true
-
-  - type: markdown
-    attributes:
-      value: |
-        The fields below are the agent layer. You never have to fill them in:
-        /shape does, and a session that did not shape the piece checks them
-        before it turns ready. A field that does not apply says why in one line.
-
-  - type: textarea
-    id: decided
-    attributes:
-      label: Decided
-      description: >
-        Every choice a person would notice by trying the tool, with its reason.
-      placeholder: >
-        Bookings are per item, not per kit: the tripod is lent separately from
-        the bag.
+        Limits, examples, a page or a file that shows what you mean, and anything
+        the piece must leave alone. A guess is welcome if you say it is a guess.
+      placeholder: It must not change how invoices are stored.
     validations:
       required: false
 
   - type: textarea
-    id: data
+    id: sensitive
     attributes:
-      label: Data
+      label: Does it touch money, personal data or sign-in
       description: >
-        Each stored record written or changed: where it lives, who else writes
-        it and how writes merge, order on first open, limits and what goes at
-        the limit, backup and restore, delete and undo.
-      placeholder: None; this piece stores nothing.
-    validations:
-      required: false
-
-  - type: textarea
-    id: leaves-the-tool
-    attributes:
-      label: Leaves the tool
-      description: >
-        What goes where, whether the recipient is new, which keys, the gate,
-        and whether the build path's personal-data line changes.
-      placeholder: Nothing leaves the tool.
-    validations:
-      required: false
-
-  - type: textarea
-    id: must-still-hold
-    attributes:
-      label: Must still hold
-      description: >
-        Each rule, limit or time target the change touches, with its number and
-        where it is measured, and which rule wins where two apply.
-      placeholder: An item is never in two overlapping loans.
-    validations:
-      required: false
-
-  - type: textarea
-    id: relies-on
-    attributes:
-      label: Relies on
-      description: >
-        Each existing thing the piece uses and does not build, confirmed to
-        exist and to give the data needed, by reading or trying it.
-      placeholder: The availability check, which returns every loan for an item.
-    validations:
-      required: false
-
-  - type: dropdown
-    id: loop-module
-    attributes:
-      label: Loop module
-      description: >
-        Which loop builds this piece, chosen while it is shaped. Each module
-        needs a different bar, written in the Loop field below.
-      options:
-        - fix
-        - build
-        - goal
-        - gauntlet
-    validations:
-      required: false
-
-  - type: textarea
-    id: loop
-    attributes:
-      label: Loop
-      description: >
-        The bar the loop module needs, one line for each field it names. A line
-        the module does not need is left out.
-      placeholder: "Acceptance branch: spec/12-book-a-date-range"
-    validations:
-      required: false
-
-  - type: textarea
-    id: reach
-    attributes:
-      label: Reach
-      description: >
-        Five lines: Boundary:, Reaches:, If it breaks:, Depends on: and Reach
-        derived at:. Areas are the names in the Areas section of
-        docs/working-rules.md, never a file path. Each Reaches entry starts
-        with its area and a colon.
-      placeholder: |
-        Boundary: bookings
-        Reaches: availability calendar: guarded by the calendar tests
-        If it breaks: freelancers cannot book, and a rollback undoes it.
-        Depends on: nothing
-        Reach derived at: 4f2a9c1
-    validations:
-      required: false
-
-  - type: input
-    id: crew
-    attributes:
-      label: Crew
-      description: >
-        Only where the crew differs from the loop module's default, as
-        "Crew: <step> <width>, because <reason>".
-      placeholder: "Crew: research 3, because two calendar services need comparing"
-    validations:
-      required: false
-
-  - type: textarea
-    id: needs-from-the-computer
-    attributes:
-      label: Needs from the computer
-      description: >
-        Heavy:, Dev server:, Browser:, Expected duration: and Cannot share:.
-      placeholder: |
-        Heavy: no
-        Dev server: yes
-        Browser: yes
-        Expected duration: 40 minutes
-        Cannot share: nothing
-    validations:
-      required: false
-
-  - type: textarea
-    id: under-the-hood
-    attributes:
-      label: Under the hood
-      description: >
-        The build approach, and the existing tests this piece may change, with
-        the reason. It stays collapsed, and you never have to open it.
-      placeholder: >
-        Reuses the availability check from the calendar piece. New column on the
-        bookings table; add it, migrate, then use it.
-    validations:
-      required: false
-
-  - type: textarea
-    id: evidence
-    attributes:
-      label: Evidence
-      description: >
-        The kind of proof: automated behaviour check, guided manual check,
-        source-backed fact or operational rehearsal, summarising the checks on
-        the Done when lines.
-      placeholder: Automated behaviour check, from the booking and overlap tests.
+        Say yes, no or not sure. A yes means the gate asks for your written
+        acceptance before the piece can be ready.
+      placeholder: Not sure. It shows customer names.
     validations:
       required: false
