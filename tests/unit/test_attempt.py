@@ -949,5 +949,71 @@ class TheAttemptLog(unittest.TestCase):
         self.assertNotIn("open(", text)
 
 
+class TheReRun(AttemptCase):
+    """The checks run again on another branch's head, straight after a trim (P19).
+
+    The re-run judges the head of a scratch branch with the same checks. It logs no
+    attempt, counts none and asks for no move back to shaping.
+    """
+
+    def scratch(self, files: dict[str, str]) -> str:
+        head = self.honest()
+        git(self.root, "checkout", "-q", "-b", "scratch-trim", head)
+        try:
+            for name, text in files.items():
+                target = self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8")
+            git(self.root, "add", "-A")
+            git(self.root, "commit", "-q", "-m", "Trim")
+            tip: str = git(self.root, "rev-parse", "HEAD")
+            return tip
+        finally:
+            git(self.root, "checkout", "-q", "main")
+
+    def rerun(self) -> CheckResult:
+        return attempt.rerun(self.attempt_context(), self.att.deps(), "scratch-trim")
+
+    def test_it_judges_the_head_of_the_other_branch(self) -> None:
+        head = self.scratch({"src/rename.py": "def rename(name):\n    return name.strip()\n"})
+        result = self.rerun()
+        self.assertTrue(result.ok, result.failures)
+        self.assertIn((COMMAND, head), self.att.runs)
+
+    def test_a_pass_writes_no_entry(self) -> None:
+        self.scratch({"src/rename.py": "def rename(name):\n    return name.strip()\n"})
+        self.assertNotIn("entries", self.rerun().data)
+
+    def test_a_failure_counts_no_attempt_and_asks_for_no_move(self) -> None:
+        self.scratch({"src/rename.py": "def rename(name):\n    return name.strip()\n"})
+        self.att.visible = {**passed_run(), "outcome": "failed", "failing_ids": ["FL-1"]}
+        result = self.rerun()
+        self.assertFalse(result.ok)
+        self.assertIn("visible", " ".join(result.failures))
+        for name in ("attempt", "send_back", "entries"):
+            self.assertNotIn(name, result.data)
+        self.assertTrue(result.next_command)
+
+    def test_a_frozen_bar_change_on_the_other_branch_fails(self) -> None:
+        self.scratch({"tests/test_old.py": "def test_old():\n    assert True\n"})
+        result = self.rerun()
+        self.assertFalse(result.ok)
+        self.assertIn("frozen-bar", " ".join(result.failures))
+
+    def test_a_branch_that_does_not_exist_is_a_refusal(self) -> None:
+        self.honest()
+        result = self.rerun()
+        self.assertFalse(result.ok)
+        self.assertNotIn("attempt", result.data)
+        self.assertTrue(result.next_command)
+
+    def test_the_piece_branch_is_left_as_it_was(self) -> None:
+        head = self.scratch({"src/rename.py": "def rename(name):\n    return name.strip()\n"})
+        before = git(self.root, "rev-parse", ready.branch_name(1))
+        self.rerun()
+        self.assertEqual(git(self.root, "rev-parse", ready.branch_name(1)), before)
+        self.assertNotEqual(before, head)
+
+
 if __name__ == "__main__":
     unittest.main()
