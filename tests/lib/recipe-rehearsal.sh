@@ -5,7 +5,7 @@
 #
 # 1. Where the recipe is. A recipe joins the menu, ship/recipes/, only after
 #    its real run is recorded, and there is no draft state. Until then it waits
-#    in .agents/tests/recipes-awaiting-run/, which ships nowhere. rr_locate
+#    in a folder that this repository does not carry. rr_locate
 #    finds it in one place or the other and refuses it in both.
 #
 # 2. Its shape. On the menu it must pass the shipped shape check outright.

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # check-recipes.sh: check that each recipe file has the shape the format asks for.
 #
-# The format lives in .agents/skills/ship/references/recipe-format.md. A recipe
+# The format lives in kit/templates/recipe-format.md. A recipe
 # is only worth offering if every one of the eight sections says how it works,
 # how anybody would know it did, and who runs that check, and if the file
 # carries the dates that say when it was last read and when it was really run.

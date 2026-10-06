@@ -3,8 +3,8 @@
 AI Build Kit took ideas from other people working in the open. This page names
 that work and says what each piece of it contributed. It is a credit list for
 borrowed ideas rather than a list of everything the kit depends on. Why the kit
-is shaped the way it is belongs to [PHILOSOPHY.md](PHILOSOPHY.md), so every
-line here credits a source and stops there.
+is shaped the way it is belongs to the old `PHILOSOPHY.md`, which now lives only in the tag
+`archive/build-kit-final`, so every line here credits a source and stops there.
 
 Nobody named here was asked first, and nobody named here has endorsed the kit.
 
