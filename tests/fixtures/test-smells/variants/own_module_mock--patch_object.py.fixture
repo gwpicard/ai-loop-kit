@@ -1,0 +1,9 @@
+from unittest import mock
+
+import billing.rates
+from billing import total
+
+
+def test_total_adds_prices():
+    with mock.patch.object(billing.rates.Table, "lookup", return_value=3):
+        assert total([1, 2]) == 3

@@ -1,0 +1,10 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('adds prices', () => {
+    try {
+      total(null);
+    } catch (error) {}
+    expect(total([1, 2])).toBe(3);
+  });
+});

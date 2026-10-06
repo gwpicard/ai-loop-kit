@@ -1,0 +1,19 @@
+import { total } from './billing';
+
+function checkTotal(items: number[], expected: number) {
+  expect(total(items)).toBe(expected);
+}
+
+describe('total', () => {
+  it('adds prices', () => {
+    expect(total([1, 2])).toBe(3);
+  });
+
+  it('is zero for nothing', () => {
+    checkTotal([], 0);
+  });
+
+  it('refuses a missing list', () => {
+    expect(() => total(null)).toThrow();
+  });
+});

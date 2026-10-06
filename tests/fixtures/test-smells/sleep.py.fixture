@@ -1,0 +1,8 @@
+import time
+
+from billing import total
+
+
+def test_total_adds_prices():
+    time.sleep(1)
+    assert total([1, 2]) == 3

@@ -1,0 +1,7 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('runs', () => {
+    total([1, 2, 3]);
+  });
+});

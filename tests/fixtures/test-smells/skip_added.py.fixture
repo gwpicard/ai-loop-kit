@@ -1,0 +1,7 @@
+import pytest
+from billing import total
+
+
+@pytest.mark.skip(reason="later")
+def test_total_adds_prices():
+    assert total([1, 2]) == 3
