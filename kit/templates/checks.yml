@@ -6,13 +6,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Check the area map
-        run: command -v python3 >/dev/null 2>&1 || { echo 'Check the area map needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }; python3 .agents/tools/area-map.py check
-      - name: Check the AGENTS.md ceiling
-        run: lines=$(awk 'END { print NR }' AGENTS.md) && if [ "$lines" -gt 200 ]; then echo "AGENTS.md has $lines lines, above its ceiling of 200. Type /maintain to move the detail to the file that owns it, then push again."; exit 1; fi && echo "AGENTS.md has $lines lines, within its ceiling of 200."
+      # The kit is not part of the project, so the runner fetches it. Founding
+      # replaces {{KIT_REF}} with the kit version that founded the project.
+      - uses: actions/checkout@v6
+        with:
+          repository: gwpicard/ai-loop-kit
+          ref: "{{KIT_REF}}"
+          path: .kit
+      - name: Check the records
+        run: |
+          command -v python3 >/dev/null 2>&1 || { echo 'Check the records needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }
+          kit="${CLAUDE_PLUGIN_ROOT:-.kit/kit}"
+          python3 "$kit/scripts/records-check.py"
       - name: Install and test
         run: |
-          echo "This check is still the placeholder the kit creates, so no tests have run and nothing has been verified."
-          echo "Run the setup-ai-build-kit skill's stand-up step to replace it with the project's real install and test commands."
-          echo "Red is the correct answer until then. A green tick here would mean nothing."
-          exit 1
+          command -v python3 >/dev/null 2>&1 || { echo 'Install and test needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }
+          cmd=$(python3 -c 'import json; print(json.load(open(".agents/loop/policy.json")).get("test_command", ""))') || { echo 'The policy file .agents/loop/policy.json cannot be read. Restore it, then push again.'; exit 2; }
+          if [ -z "$cmd" ]; then
+            echo 'The policy has no test_command, so no test has run and nothing is verified. Write the test command in .agents/loop/policy.json, then push again.'
+            exit 1
+          fi
+          sh -c "$cmd"
