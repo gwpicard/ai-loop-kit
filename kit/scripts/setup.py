@@ -480,33 +480,11 @@ def step_github(args: argparse.Namespace) -> dict[str, Any]:
     return {"gate": reply, "next": reply.get("next", "")}
 
 
-def first_piece_body(command: str) -> str:
-    return f"""Scaffold the project and its test runner, so every later piece has a judge.
-
-<!-- spec:start version=1 -->
-Path: quick
-
-## Goal
-The project has a structure to build in and one command that runs its tests.
-
-## Expected flow
-FL-1 The person runs the test command and sees the one first test pass.
-
-## Edge cases
-EC-1 When the test command runs on a clean copy of the branch "main", then it passes.
-
-## Must stay the same
-The README stays as it is (README.md). Check: test -f README.md
-
-## Judge
-Kind: single test
-Command: {command}
-Proves: FL-1, EC-1
-
-## Links
-Touches: project-records
-<!-- spec:end -->
-"""
+def first_piece_body(kit: Path, command: str) -> str:
+    """The first piece's text, from the kit's template. The spec format has one home."""
+    merge = load_module("merge_settings", HERE / "merge-settings.py")
+    text = (kit / "templates" / "first-piece.md").read_text("utf-8")
+    return str(merge.render(text, {"TEST_COMMAND": command}))
 
 
 def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
@@ -533,7 +511,7 @@ def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
     command = command or TEST_COMMANDS.get(str(language), "the test command the piece sets up")
     with tempfile.TemporaryDirectory() as folder:
         body = Path(folder) / "first-piece.md"
-        body.write_text(first_piece_body(command), encoding="utf-8")
+        body.write_text(first_piece_body(kit, command), encoding="utf-8")
         if args.dry_run:
             return {"captured": False, "piece": None, "dry_run_body": str(command)}
         reply = run_gate(
