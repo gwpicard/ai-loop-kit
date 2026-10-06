@@ -10,7 +10,7 @@ A fixture project whose `origin` is the kit's own repository. The person types:
 
 ## Expect
 
-1. The tooling check refuses, because a run would push to the kit's repository.
+1. The setup script's origin check refuses (it uses the exact-name rule of the tooling check), because a run would push to the kit's repository.
 2. The skill says so in plain words and gives the `next:` line: point `origin` at the
    person's own repository, then run `/setup` again.
 3. It opens no issue and creates no label.

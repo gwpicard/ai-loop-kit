@@ -13,10 +13,11 @@ FL-1 The person runs the test command and sees the one first test pass.
 EC-1 When the test command runs on a clean copy of the branch "main", then it passes.
 
 ## Must stay the same
-The README stays as it is (README.md). Check: test -f README.md
+The README stays as it is (README.md).
+Check: test -f README.md
 
 ## Judge
-Kind: single test
+Kind: scaffold
 Command: {{TEST_COMMAND}}
 Proves: FL-1, EC-1
 

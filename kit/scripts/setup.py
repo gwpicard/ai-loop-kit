@@ -30,7 +30,6 @@ import argparse
 import importlib.util
 import json
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -45,7 +44,6 @@ from loop.paths import PathError, Paths, find_project_root
 
 PROG = "setup.py"
 HERE = Path(__file__).resolve().parent
-KIT_REPOSITORY = re.compile(r"gwpicard/ai-loop-kit", re.IGNORECASE)
 LANGUAGES = ("node", "python", "go", "rust", "ruby")
 MARKERS = {
     "node": ("package.json",),
@@ -109,10 +107,14 @@ def git_out(root: Path, *args: str) -> str | None:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
-def check_tooling(root: Path) -> None:
-    """Stop with the install line when a tool the kit needs is missing."""
+def check_tooling(root: Path) -> bool:
+    """Stop with the install line when a tool the kit needs is missing.
+
+    Returns True when origin is the kit's own repository. One rule says so: the
+    exact-name rule of check-tooling.sh, which exits 3 under --for-run.
+    """
     done = subprocess.run(
-        ["sh", str(HERE / "check-tooling.sh")],
+        ["sh", str(HERE / "check-tooling.sh"), "--for-run"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -120,7 +122,9 @@ def check_tooling(root: Path) -> None:
         stdin=subprocess.DEVNULL,
     )
     if done.returncode == 0:
-        return
+        return False
+    if done.returncode == 3:
+        return True
     missing = [
         line.split(" is missing")[0]
         for line in done.stdout.splitlines()
@@ -141,7 +145,7 @@ def check_tooling(root: Path) -> None:
     )
 
 
-def check_origin(root: Path) -> None:
+def check_origin(root: Path, is_kit: bool) -> None:
     origin = git_out(root, "remote", "get-url", "origin")
     if not origin:
         raise cli.Failure(
@@ -150,7 +154,7 @@ def check_origin(root: Path) -> None:
             "your own repository>, then run /setup again",
             code=cli.ExitCode.REFUSED,
         )
-    if KIT_REPOSITORY.search(origin):
+    if is_kit:
         raise cli.Failure(
             "origin is the kit's own repository, so a run would push there. Nothing was "
             "changed",
@@ -165,6 +169,16 @@ def detect_language(root: Path) -> str | None:
         if any((root / name).exists() for name in names):
             return language
     return None
+
+
+def project_has_runner(root: Path) -> bool:
+    """True when the project's HEAD already holds a test runner. The ready gate's own rule."""
+    from loop.gates import ready
+
+    try:
+        return bool(ready.has_test_runner(root, "HEAD"))
+    except ready.GitError:
+        return False
 
 
 def kit_ref(kit: Path, given: str) -> str | None:
@@ -252,14 +266,17 @@ def place_settings(plan: Plan, kit: Path) -> None:
         plan.warnings.append(f"your own setting beats a kit guard at {line}")
 
 
-def build_policy(kit: Path, args: argparse.Namespace, mode: str) -> str:
+def build_policy(kit: Path, args: argparse.Namespace, mode: str, has_runner: bool) -> str:
     data = json.loads((kit / "templates" / "policy.json").read_text("utf-8"))
     data["billing"]["mode"] = mode
     if args.spend_cap_piece is not None:
         data["billing"]["spend_cap_per_piece_usd"] = args.spend_cap_piece
     if args.spend_cap_run is not None:
         data["billing"]["spend_cap_per_run_usd"] = args.spend_cap_run
-    if args.test_command:
+    # With no test runner the policy holds no command. The first piece carries it as its
+    # Command, and the scaffold's own change sets the policy. A command in the policy
+    # would make the ready gate treat the empty project as one with a runner.
+    if args.test_command and has_runner:
         data["test_command"] = args.test_command
     return json.dumps(data, indent=2) + "\n"
 
@@ -286,22 +303,23 @@ def write_open_questions(plan: Plan) -> None:
     plan.place(OPEN_QUESTIONS, "\n".join(lines) + "\n")
 
 
-def write_labels(plan: Plan, root: Path) -> dict[str, Any]:
-    names = [row[0] for row in states.LABELS]
-    text = "".join(f"{n}\t{c}\t{d}\n" for n, c, d in states.LABELS)
-    target = root / ".agents" / "tmp" / "labels.txt"
-    if not plan.dry_run and (not target.exists() or target.read_text("utf-8") != text):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+def label_step(root: Path) -> dict[str, Any]:
+    """The gate's label names and the command that creates them. Nothing is written."""
     return {
-        "file": ".agents/tmp/labels.txt",
-        "names": names,
-        "next": github.sync_command(root) + " (sync creates the labels too)",
+        "names": [row[0] for row in states.LABELS],
+        "next": github.sync_command(root) + " (sync creates the labels once a write is queued)",
     }
 
 
-def install_hooks(plan: Plan, kit: Path) -> None:
-    template = (kit / "templates" / "githooks" / "pre-push").read_text("utf-8")
+def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
+    raw = (kit / "templates" / "githooks" / "pre-push").read_text("utf-8")
+    if any(char in str(kit) for char in '"$`\\\n'):
+        raise cli.Failure(
+            f"the kit folder {kit} holds a character that cannot go into the pre-push hook",
+            next_command="move the kit to a folder with a plain name, then run /setup again",
+            code=cli.ExitCode.ENVIRONMENT,
+        )
+    template = str(merge.render(raw, {"KIT_DIR": str(kit)}))
     hook = plan.root / ".githooks" / "pre-push"
     existed = hook.exists()
     plan.place(".githooks/pre-push", template, executable=True)
@@ -348,8 +366,7 @@ def write_kit_record(kit: Path, root: Path, dry_run: bool) -> str:
 def step_found(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
     kit = Path(args.kit_dir).resolve() if args.kit_dir else HERE.parent
-    check_tooling(root)
-    check_origin(root)
+    check_origin(root, check_tooling(root))
     plan = Plan(root, bool(getattr(args, "dry_run", False)))
     templates = kit / "templates"
     ref = kit_ref(kit, args.kit_ref)
@@ -391,8 +408,9 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         plan.place(target, rendered(source))
     extend_ignore(plan, (templates / "gitignore").read_text("utf-8"))
     place_settings(plan, kit)
-    install_hooks(plan, kit)
-    plan.place(".agents/loop/policy.json", build_policy(kit, args, mode))
+    install_hooks(plan, kit, merge)
+    has_runner = project_has_runner(root)
+    plan.place(".agents/loop/policy.json", build_policy(kit, args, mode, has_runner))
     place_allowlist(plan, kit, language)
 
     if mode == "api_key":
@@ -410,7 +428,7 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     write_open_questions(plan)
-    labels = write_labels(plan, root)
+    labels = label_step(root)
     record = write_kit_record(kit, root, plan.dry_run)
     return {
         "project": str(root),
@@ -480,6 +498,23 @@ def step_github(args: argparse.Namespace) -> dict[str, Any]:
     return {"gate": reply, "next": reply.get("next", "")}
 
 
+def add_open_question(root: Path, text: str, *, dry_run: bool) -> None:
+    """Add one line to docs/open-questions.md, once. Make the file when it is absent."""
+    target = root / OPEN_QUESTIONS
+    line = f"- {text}\n"
+    if dry_run:
+        return
+    if target.exists():
+        old = target.read_text("utf-8")
+        if text in old:
+            return
+        target.write_text(old + ("" if old.endswith("\n") else "\n") + line, encoding="utf-8")
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    head = "# Open questions\n\nFounding asks no one twice. Each line is a question still open.\n\n"
+    target.write_text(head + line, encoding="utf-8")
+
+
 def first_piece_body(kit: Path, command: str) -> str:
     """The first piece's text, from the kit's template. The spec format has one home."""
     merge = load_module("merge_settings", HERE / "merge-settings.py")
@@ -508,7 +543,19 @@ def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
             language = json.loads(allow.read_text("utf-8")).get("language")
         except ValueError:
             language = None
-    command = command or TEST_COMMANDS.get(str(language), "the test command the piece sets up")
+    command = args.test_command or command or TEST_COMMANDS.get(str(language), "")
+    if not command:
+        note = (
+            "What command runs every test? The first piece cannot be captured until it is "
+            "known."
+        )
+        add_open_question(root, note, dry_run=args.dry_run)
+        raise cli.Failure(
+            "no test command is known, so the first piece has no judge command",
+            next_command="python3 " + shlex.quote(str(HERE / "setup.py"))
+            + ' first-piece --test-command "<the command that runs every test>"',
+            code=cli.ExitCode.REFUSED,
+        )
     with tempfile.TemporaryDirectory() as folder:
         body = Path(folder) / "first-piece.md"
         body.write_text(first_piece_body(kit, command), encoding="utf-8")
@@ -554,6 +601,7 @@ def setup(parser: argparse.ArgumentParser) -> None:
     found.add_argument("--kit-ref", default="", help="the kit version checks.yml fetches")
     first = commands.add_parser("first-piece", help="capture the first piece locally")
     _common(first)
+    first.add_argument("--test-command", default="", help="the command that runs every test")
     gh = commands.add_parser("github", help="a GitHub step, through the gate")
     gh_what = gh.add_subparsers(dest="what", required=True, metavar="step")
     labels = gh_what.add_parser("labels", help="create the gate's labels")

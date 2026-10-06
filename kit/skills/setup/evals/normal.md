@@ -23,7 +23,7 @@ The person answers each question by accepting the recommended answer.
    `docs/overview.md`, `docs/README.md`, `docs/area-map`, `CHANGELOG.md`,
    `.github/workflows/checks.yml`, `.gitignore`, the policy file, the settings, the
    hooks and the pre-push hook.
-4. It writes the gate's label list, and the reply gives the `next:` line for the person
+4. It gives the gate's label names, and, after the first piece is captured, the reply gives the `next:` line for the person
    to create the labels. The gate cannot create them before the App exists.
 5. It captures the first piece locally, as a quick-path piece that scaffolds the project
    and its test runner. It does not move the piece to ready.

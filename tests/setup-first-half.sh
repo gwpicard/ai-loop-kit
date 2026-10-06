@@ -124,6 +124,13 @@ grep -q '^next:' "$ERR" || fail "the kit-repository refusal has no next: line"
   || fail "the skill changed origin"
 ok "the kit's own repository is refused: no file, no gh call, no change to origin"
 
+# A name that only starts like the kit's is not the kit: the rule is the exact name.
+git -C "$TP_ROOT" remote set-url origin "https://github.com/gwpicard/ai-loop-kit-demo.git"
+run_setup found --dry-run
+[ "$CODE" -eq 0 ] || { cat "$ERR"; fail "gwpicard/ai-loop-kit-demo was refused as the kit's own repository (got $CODE)"; }
+ok "a repository named like the kit, but not the kit, is not refused"
+git -C "$TP_ROOT" remote set-url origin "https://github.com/gwpicard/ai-loop-kit.git"
+
 # No origin at all.
 git -C "$TP_ROOT" remote remove origin
 run_setup found
@@ -177,7 +184,14 @@ PY
 ok "the settings wire the session-start hook and carry the guards"
 
 # The pre-push hook is installed, runs, and Git is told to use it.
-cmp -s "$TP_ROOT/.githooks/pre-push" "$KIT/templates/githooks/pre-push" || fail "the pre-push hook differs from the template"
+RENDERED_HOOK="$TP_BASE/hook-rendered"
+python3 - "$KIT/templates/githooks/pre-push" "$(cd "$KIT" && pwd -P)" "$RENDERED_HOOK" <<'PY'
+import sys
+text = open(sys.argv[1]).read().replace("{{KIT_DIR}}", sys.argv[2])
+open(sys.argv[3], "w").write(text)
+PY
+cmp -s "$TP_ROOT/.githooks/pre-push" "$RENDERED_HOOK" || fail "the pre-push hook differs from the template rendered with the kit folder"
+grep -q '{{' "$TP_ROOT/.githooks/pre-push" && fail "the pre-push hook keeps a placeholder"
 [ -x "$TP_ROOT/.githooks/pre-push" ] || fail "the pre-push hook is not executable"
 [ "$(git -C "$TP_ROOT" config --get core.hooksPath)" = ".githooks" ] || fail "core.hooksPath is not .githooks"
 ok "the pre-push hook is installed and switched on"
@@ -215,9 +229,9 @@ sys.path.insert(0, sys.argv[1])
 from pathlib import Path
 from loop import policy
 data = policy.load(Path(sys.argv[2]))
-assert data["test_command"] == "sh -c 'exit 0'", data["test_command"]
+assert data["test_command"] == "", data["test_command"]
 PY
-ok "the policy is written and valid"
+ok "the policy is written and valid, and keeps test_command empty while there is no test runner"
 
 # No App step.
 [ ! -e "$TP_DATA2/app-key.pem" ] || fail "a key file was written"
@@ -234,11 +248,11 @@ if grep -qiE 'settings/apps|manifest|app-key' "$OUT"; then fail "the script show
 grep -q 'second half of `/setup`' "$SKILL" || fail "the skill does not say the App comes in the second half"
 ok "no App step: no link, no key file, no key path, and the closing names the second half"
 
-# The label list is written for the person, and the gate's next: line is given.
-[ -s "$TP_ROOT/.agents/tmp/labels.txt" ] || fail "the label list was not written"
-grep -q 'state:shaping' "$TP_ROOT/.agents/tmp/labels.txt" || fail "the label list lacks the gate's labels"
+# The gate's next: line for the labels is given. No label file is written: nothing reads one.
+[ ! -e "$TP_ROOT/.agents/tmp/labels.txt" ] || fail "an unread label file was written"
 js "$FOUND" 'd["labels"]["next"]' | grep -q 'gate.py sync' || fail "the label next: line does not name the sync command"
-ok "the label list and its next: line are written"
+js "$FOUND" 'd["labels"]["names"]' | grep -q 'state:shaping' || fail "the label names lack the gate's labels"
+ok "the label names and their next: line are given, and no label file is written"
 
 # A second run changes nothing.
 AFTER=$(snap "$TP_ROOT")
@@ -250,7 +264,7 @@ run_setup found --test-command "sh -c 'exit 0'" --billing-mode subscription \
 ok "a second run changes nothing"
 
 # The first piece, captured locally on the quick path.
-run_setup first-piece
+run_setup first-piece --test-command "sh -c 'exit 0'"
 [ "$CODE" -eq 0 ] || { cat "$ERR"; fail "first-piece failed (got $CODE)"; }
 N=$(js "$(cat "$OUT")" 'd["piece"]')
 [ -n "$N" ] || fail "first-piece printed no piece number"
@@ -258,10 +272,35 @@ SHOWN=$(cd "$TP_ROOT" && python3 "$KIT/scripts/spec.py" show "$N" --json 2>/dev/
 [ "$(js "$SHOWN" 'd.get("found")')" = "true" ] || fail "the first piece has no spec block"
 [ "$(js "$SHOWN" 'd.get("path")')" = "quick" ] || fail "the first piece is not on the quick path"
 (cd "$TP_ROOT" && python3 "$KIT/scripts/spec.py" lint "$N" >/dev/null 2>&1) || fail "the first piece's spec does not lint"
-run_setup first-piece
+run_setup first-piece --test-command "sh -c 'exit 0'"
 [ "$(js "$(cat "$OUT")" 'd["captured"]')" = "false" ] || fail "a second first-piece captured another piece"
 [ ! -s "$FAKE_GH_LOG" ] || fail "first-piece called gh"
-ok "the first piece is captured locally, once, on the quick path"
+[ "$(js "$SHOWN" 'd["judge"]["kind"]')" = "scaffold" ] || fail "the first piece's Kind is not scaffold"
+[ "$(js "$SHOWN" 'len(d.get("must_stay_checks") or [])')" -ge 1 ] 2>/dev/null || fail "the first piece's Check: line is not found by the parser"
+ok "the first piece is captured locally, once, on the quick path, as a scaffold with a Check: line"
+
+# The first piece reaches ready in an empty project, with no test runner. The gate says
+# so itself: only a quick-path scaffold piece may. The policy stays free of a command.
+set +e
+(cd "$TP_ROOT" && python3 "$KIT/scripts/gate.py" move "$N" ready --json) > "$TP_BASE/ready.out" 2> "$TP_BASE/ready.err"
+READY=$?
+set -e
+if [ "$READY" -ne 0 ]; then cat "$TP_BASE/ready.out" "$TP_BASE/ready.err" >&2; fi
+[ "$READY" -eq 0 ] || fail "the gate did not move the first piece to ready in an empty project (got $READY)"
+python3 - "$TP_ROOT/.agents/loop/policy.json" <<'PY' || fail "the first piece wrote its command into the policy"
+import json, sys
+assert json.load(open(sys.argv[1]))["test_command"] == ""
+PY
+ok "the first piece reaches ready in an empty project, and the policy still has no test command"
+
+# The scaffold piece's own change sets the policy. Here the test does it by hand.
+python3 - "$TP_ROOT/.agents/loop/policy.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["test_command"] = "sh -c 'exit 0'"
+open(p, "w").write(json.dumps(d, indent=2) + "\n")
+PY
 
 # GitHub steps with no App.
 : > "$FAKE_GH_LOG"
@@ -297,6 +336,31 @@ grep -qi 'second half' "$TP_BASE/prc.out" "$TP_BASE/prc.err" || fail "the unatte
 prc --merge-pre-approved
 [ "$PRC_CODE" -eq 3 ] || fail "a pre-approved merge was not refused"
 ok "the pre-run check passes attended with a notice, and refuses unattended and pre-approved runs"
+
+# A real push from the founded project, with the kit in a plugin folder outside it, passes
+# the secret scan the hook finds there.
+git -C "$TP_ROOT" checkout -q -b probe
+set +e
+git -C "$TP_ROOT" push origin probe > "$TP_BASE/push.out" 2>&1
+PUSH=$?
+set -e
+if [ "$PUSH" -ne 0 ]; then cat "$TP_BASE/push.out" >&2; fi
+[ "$PUSH" -eq 0 ] || fail "a real git push from the founded project was stopped (got $PUSH)"
+git -C "$TP_BASE/origin.git" rev-parse -q --verify refs/heads/probe >/dev/null || fail "the push did not arrive at the remote"
+git -C "$TP_ROOT" checkout -q main
+ok "a real git push from the founded project passes the secret scan the hook finds in the plugin folder"
+
+# The hook still fails closed when the scan is truly missing.
+mkdir -p "$TP_BASE/lonely" "$TP_BASE/nohome"
+sed "s#{{KIT_DIR}}#$TP_BASE/nowhere#" "$KIT/templates/githooks/pre-push" > "$TP_BASE/lonely/pre-push"
+set +e
+(cd "$TP_ROOT" && HOME="$TP_BASE/nohome" sh "$TP_BASE/lonely/pre-push" origin x \
+  < /dev/null) > "$TP_BASE/lonely.out" 2> "$TP_BASE/lonely.err"
+LONELY=$?
+set -e
+[ "$LONELY" -eq 1 ] || fail "the hook did not fail closed with no scan (got $LONELY)"
+grep -q 'cannot find secret-scan.py' "$TP_BASE/lonely.err" || fail "the hook gave no reason when the scan is missing"
+ok "the hook fails closed when the scan is missing"
 unset CLAUDE_PLUGIN_ROOT
 
 # --- spend caps and the free-plan warning ------------------------------------------
@@ -365,6 +429,23 @@ run_setup found
 [ -f "$TP_ROOT/docs/open-questions.md" ] || fail "an unknown language wrote no open question"
 grep -qi 'language' "$TP_ROOT/docs/open-questions.md" || fail "the open question does not name the language"
 ok "an unanswered nice-to-have becomes an open question, never a stop"
+
+# No test command and no language: first-piece stops and asks for --test-command.
+BEFORE_FP=$(snap "$TP_ROOT")
+run_setup first-piece
+[ "$CODE" -eq 3 ] || fail "first-piece with no known test command did not stop with exit 3 (got $CODE)"
+grep -q '^next:.*--test-command' "$ERR" || fail "the first-piece stop does not ask for --test-command"
+grep -qi 'every test' "$TP_ROOT/docs/open-questions.md" || fail "no open question names the test command"
+[ ! -d "$TP_ROOT/.agents/pieces" ] || fail "first-piece captured a piece with no command"
+ok "first-piece with no known command writes an open question and stops with a next: line"
+run_setup first-piece --test-command "make check"
+[ "$CODE" -eq 0 ] || { cat "$ERR"; fail "first-piece with --test-command failed"; }
+grep -rq 'Command: make check' "$TP_ROOT/.agents" || fail "the command did not reach the first piece"
+python3 - "$TP_ROOT/.agents/loop/policy.json" <<'PY' || fail "first-piece wrote the command into the policy"
+import json, sys
+assert json.load(open(sys.argv[1]))["test_command"] == ""
+PY
+ok "--test-command is carried as the first piece's Command, not as the policy's"
 
 if [ "$FAIL" -ne 0 ]; then
   echo "Setup first-half checks FAILED" >&2

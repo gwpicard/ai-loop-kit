@@ -15,7 +15,7 @@ What the first half of `/setup` asks, writes and leaves alone.
 Ask them in one batch. Each has a recommended answer. A skipped answer never stops founding: the script writes it as an open question.
 
 1. What does the product do, and who is it for? Recommended: read the README and the code first, then write your own guess and ask the person to correct it. This fills `docs/overview.md`.
-2. What command runs every test? Recommended: the language's usual one. An empty project has none, and the first piece sets it up. Pass it as `--test-command`.
+2. What command runs every test? Recommended: the language's usual one. An empty project has none, and the first piece sets it up. Pass it as `--test-command` to `first-piece`. Pass it to `found` too when the project already has a test runner.
 3. Which language? The script detects it from the files. Pass `--language` only when the project is empty and the person knows.
 4. Do you pay for Claude by subscription or by API key? Recommended: subscription. With an API key, ask for a spend cap for one piece and one for a whole run, and pass `--billing-mode api_key --spend-cap-piece N --spend-cap-run N`.
 5. Is the repository private, and is the GitHub plan free? Pass `--repo-visibility` and `--plan`. A private repository on the free plan gets a plain warning: GitHub gives it no server-side rules, so the local guards carry every rule.
@@ -33,7 +33,6 @@ It writes each file only when the file is absent.
 - `.agents/guard/blocked-commands.md`.
 - `.gitignore`: the lines it lacks are added after the person's own.
 - `docs/open-questions.md`, when an answer was missing.
-- `.agents/tmp/labels.txt`: the gate's label list, for the person.
 
 ## What stays as it is
 
