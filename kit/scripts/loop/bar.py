@@ -78,7 +78,7 @@ SUPPRESS = re.compile(
 WHOLE_SETTINGS = re.compile(
     r"^(jest\.config\..+|vitest\.config\..+|playwright\.config\..+|eslint\.config\..+"
     r"|\.eslintrc.*|\.mocharc.*|\.coveragerc|\.flake8|\.pylintrc|pytest\.ini|ruff\.toml"
-    r"|\.ruff\.toml|mypy\.ini|tsconfig.*\.json|tox\.ini"
+    r"|\.ruff\.toml|pytest\.toml|\.pytest\.toml|mypy\.ini|tsconfig.*\.json|tox\.ini"
     r"|conftest\.py|\.pytest\.ini|vite\.config\..+|vitest\.workspace\..+"
     r"|cypress\.config\..+)$"
 )
@@ -95,6 +95,9 @@ SAFE_TABLES = re.compile(
 PACKAGE_TEST_KEYS = ("scripts", "jest", "mocha", "ava", "c8", "nyc", "vitest")
 # The manifests the first layer leaves open only when the spec plans a new dependency.
 MANIFESTS = ("pyproject.toml", "setup.cfg", "package.json")
+# A test plugin loads by itself from an entry point or from package metadata on the path.
+PLUGIN = re.compile(r"pytest11|entry[-_]?points", re.IGNORECASE)
+PACKAGE_META = re.compile(r"\.(dist|egg)-info$", re.IGNORECASE)
 SECTION_HEAD = re.compile(r"^\s*\[+\s*([^\]]+?)\s*\]+\s*(?:[#;].*)?$")
 
 GUARDED_PREFIXES = (
@@ -227,7 +230,9 @@ def _tool_lines(text: str | None) -> list[str]:
     found: list[str] = []
     section = ""
     counted = True
-    for raw in (text or "").splitlines():
+    # TOML and configparser break lines on \r\n, \r and \n only. `splitlines` also breaks on
+    # U+0085, U+2028 and U+2029, which would let a line hide behind a comment.
+    for raw in re.split(r"\r\n|\r|\n", text or ""):
         head = SECTION_HEAD.match(raw)
         if head:
             section = _table_name(head.group(1))
@@ -330,6 +335,10 @@ def changes(
                 found.append(Change("skip-or-focus", path, "a skip or focus marker was added"))
         if _count(SUPPRESS, after) > _count(SUPPRESS, before):
             found.append(Change("suppression", path, "a lint or type suppression was added"))
+        if _count(PLUGIN, after) > _count(PLUGIN, before) or any(
+            PACKAGE_META.search(part) for part in PurePosixPath(path).parts[:-1]
+        ):
+            found.append(Change("tool-settings", path, "a test plugin entry point was added"))
         if is_settings(path) and _settings_changed(root, base, head, path, status):
             found.append(Change("tool-settings", path, "a tool's settings changed"))
         if is_snapshot(path) and status != "A":

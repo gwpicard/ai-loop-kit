@@ -398,6 +398,60 @@ class TheToolSettings(Case):
         self.repo.attempt({"tox.ini": "[tox]\nenvlist = py\n\n[gh-actions]\npython = 3: py\n"})
         self.assertIn(("tool-settings", "tox.ini"), self.repo.changes())
 
+    # --- a test plugin that loads by itself ----------------------------------------------------
+
+    def test_a_dist_info_folder_beside_a_root_module_is_a_plugin(self) -> None:
+        self.repo.attempt({
+            ".x-1.0.dist-info/METADATA": "Name: x\nVersion: 1.0\n",
+            ".x-1.0.dist-info/entry_points.txt": "[pytest11]\ncheat = cheatmod\n",
+            "cheatmod.py": "def pytest_runtest_makereport(item, call):\n    pass\n",
+        })
+        found = self.repo.changes()
+        self.assertIn(("tool-settings", ".x-1.0.dist-info/entry_points.txt"), found)
+
+    def test_an_egg_info_folder_is_package_metadata_too(self) -> None:
+        self.repo.attempt({"x.egg-info/entry_points.txt": "[pytest11]\ncheat = cheatmod\n"})
+        self.assertIn(("tool-settings", "x.egg-info/entry_points.txt"), self.repo.changes())
+
+    def test_a_pyproject_entry_point_in_each_spelling(self) -> None:
+        base = BASE_FILES["pyproject.toml"]
+        spellings = {
+            "table": base + '\n[project.entry-points.pytest11]\ncheat = "src.cheat"\n',
+            "dotted": base.replace(
+                '[project]\n', '[project]\nentry-points.pytest11.cheat = "src.cheat"\n'),
+            "quoted": base + '\n[project.entry-points."pytest11"]\ncheat = "src.cheat"\n',
+        }
+        for how, text in spellings.items():
+            with self.subTest(how=how):
+                repo = Repo()
+                repo.attempt({"pyproject.toml": text})
+                self.assertIn(("tool-settings", "pyproject.toml"), repo.changes())
+
+    def test_a_setup_cfg_entry_point_table(self) -> None:
+        self.repo.attempt({"setup.cfg": BASE_FILES["setup.cfg"]
+                           + "\n[options.entry_points]\npytest11 =\n    cheat = src.cheat\n"})
+        self.assertIn(("tool-settings", "setup.cfg"), self.repo.changes())
+
+    def test_a_script_entry_point_is_a_plugin_entry_point_too(self) -> None:
+        self.repo.attempt({"pyproject.toml": BASE_FILES["pyproject.toml"].replace(
+            "[project]\n", '[project]\nentry-points.console_scripts.shop = "shop:main"\n')})
+        self.assertIn(("tool-settings", "pyproject.toml"), self.repo.changes())
+
+    def test_each_pytest_toml_file(self) -> None:
+        for name in ("pytest.toml", ".pytest.toml"):
+            with self.subTest(name=name):
+                repo = Repo()
+                repo.attempt({name: '[pytest]\naddopts = ["-p", "cheatmod"]\n'})
+                self.assertIn(("tool-settings", name), repo.changes())
+
+    def test_a_line_break_only_python_sees_hides_no_setting(self) -> None:
+        for mark in ("\u0085", "\u2028", "\u2029"):
+            with self.subTest(mark=hex(ord(mark))):
+                repo = Repo()
+                repo.attempt({"pyproject.toml": BASE_FILES["pyproject.toml"]
+                              + f'# note{mark}[project]\naddopts = "-p src.cheat"\n'})
+                self.assertIn(("tool-settings", "pyproject.toml"), repo.changes())
+
     # --- package.json: the test keys, read as JSON ------------------------------------------------
 
     def package(self, **keys: object) -> list[tuple[str, str]]:

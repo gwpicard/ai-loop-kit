@@ -491,13 +491,13 @@ def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: 
                 if ctx.options.get(option):
                     argv += [f"--{option}", str(ctx.options[option])]
             # The lockfile against itself first: no new package, so no registry call. Exit 4
-            # here means the builder's own lockfile cannot be read, which is a failed attempt.
+            # here, or 1 or 3, means the builder's own lockfile cannot be read: a failed attempt.
             alone = [*argv[:5], str(after), *argv[6:]]
             self_code, _self_out = deps.dependency_check(alone, env)
             code, out = self_code, ""
             if self_code == 0:
                 code, out = deps.dependency_check(argv, env)
-            elif self_code != int(ExitCode.ENVIRONMENT):
+            elif self_code not in (1, 3, int(ExitCode.ENVIRONMENT)):
                 raise Refusal(
                     f"dependency-check.py gave exit {self_code} for {path} read against itself, "
                     "so the new packages are not proven safe",
@@ -512,7 +512,7 @@ def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: 
                 if item.is_dir():
                     item.rmdir()
             os.rmdir(folder)
-        if self_code == int(ExitCode.ENVIRONMENT):
+        if self_code != 0:
             found.add("dependency", f"{path} cannot be read by the dependency check, so the "
                       "lockfile is broken and its packages are not proven safe")
             continue
@@ -631,7 +631,9 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
             _touches(ctx, sp, facts, found)
             notes += _dependencies(ctx, sp, facts, deps, found)
     except Refusal as error:
-        return refused([str(error)], error.next_command)
+        if not found:
+            return refused([str(error)], error.next_command)
+        notes.append(f"the gate also refused: {error}")
     if found:
         return _failed(ctx, facts, found, int(loaded["attempt_limit"]), deps.today(), notes)
     item = attempt_log.entry(number=attempt_log.used(ctx.record) + 1, result="passed",
