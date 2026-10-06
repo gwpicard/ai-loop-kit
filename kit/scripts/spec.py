@@ -3,7 +3,7 @@
 """spec.py: read the spec block of a piece.
 
 Commands:
-  spec.py show <number>        read the spec in a GitHub issue
+  spec.py show <number>        read the spec of a piece (its issue, as the App)
   spec.py show --file <path>   read the spec in a file
   spec.py lint <number>        judge the spec; exit 1 when it has gaps
   spec.py needs <number>       work out what the piece still needs
@@ -13,21 +13,24 @@ format is written in kit/spec-format.md. `lint` (loop/lint.py) and `needs`
 (loop/needs.py) read through the same parser. All three change nothing.
 The type of a piece (chore, bug or feature) comes from its `type:` label, or
 from --type. It sets the length limit.
+
+A piece is read from its GitHub issue as the gate's App, through loop/github.py.
+With no App it is read from the gate's own record (.agents/pieces/<n>/), and a
+piece the record does not hold is refused. It never uses the person's sign-in.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-from loop import lint, needs
+from loop import github, lint, moves, needs
 from loop import spec as parser_module
 from loop.cli import ExitCode, Failure, run
+from loop.paths import PathError, Paths, find_project_root
 
 
 def _add_source(command: argparse.ArgumentParser) -> None:
@@ -67,38 +70,36 @@ def setup(parser: argparse.ArgumentParser) -> None:
     _add_judging(needs_parser)
 
 
-def _issue(number: str) -> tuple[str, list[str]]:
-    """The body and the label names of an issue."""
+def _issue(number: str, command: str) -> tuple[str, list[str]]:
+    """The body and the label names of a piece.
+
+    With the gate's GitHub App, read from the issue as the App. With no App the
+    gate's own record is the truth, so read its copy. Never the person's sign-in.
+    """
     try:
-        done = subprocess.run(
-            ["gh", "issue", "view", number, "--json", "body,labels"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as error:
-        raise Failure(
-            f"the GitHub command-line tool could not be started ({error})",
-            next_command="install gh from https://cli.github.com, then run spec.py show "
-            f"{number}",
-            code=ExitCode.ENVIRONMENT,
-        ) from error
-    if done.returncode != 0:
-        lines = [line.strip() for line in done.stderr.splitlines() if line.strip()]
-        raise Failure(
-            f"GitHub did not give issue {number} ({lines[0] if lines else 'no message'})",
-            next_command="gh auth status, then spec.py show " + number,
-        )
+        paths = Paths.for_project(find_project_root(Path.cwd()))
+    except PathError as error:
+        raise Failure(str(error), next_command=f"cd <the project>, then spec.py {command} "
+                      + number, code=ExitCode.ENVIRONMENT) from error
+    hub = github.GitHub(paths)
     try:
-        answer = json.loads(done.stdout)
-        body = answer["body"]
-        labels = [str(label["name"]) for label in answer.get("labels") or []]
-    except (ValueError, KeyError, TypeError) as error:
+        if hub.available:
+            issue = hub.read_issue(int(number))
+            return str(issue["body"]), list(issue["labels"])
+        piece = moves.find_piece(paths, int(number))
+    except github.GitHubError as error:
+        raise Failure(error.message, next_command=error.next_command, code=error.code) from error
+    except moves.MoveError as error:
+        raise Failure(error.message, next_command=error.next_command, code=error.code) from error
+    if piece is None:
         raise Failure(
-            f"GitHub gave an answer for issue {number} that holds no body",
-            next_command="gh issue view " + number,
-        ) from error
-    return str(body or ""), labels
+            f"the gate's GitHub App is not set up yet, so spec.py does not read GitHub, and "
+            f"the gate's record holds no piece {number}",
+            next_command=f"spec.py {command} --file <the spec>, or set up the App in the "
+            "second half of /setup",
+            code=ExitCode.REFUSED,
+        )
+    return piece.body, piece.labels()
 
 
 def _load(args: argparse.Namespace) -> tuple[str, list[str], str]:
@@ -128,7 +129,7 @@ def _load(args: argparse.Namespace) -> tuple[str, list[str], str]:
             next_command=f"spec.py {command} <number>",
             code=ExitCode.USAGE,
         )
-    body, labels = _issue(number)
+    body, labels = _issue(number, command)
     return body, labels, f"issue {number}"
 
 

@@ -24,7 +24,13 @@ the person runs `gate.py sync`, with their own sign-in (`as_person=True`).
 `credential()` refuses that in an agent session, and the guard hook refuses the
 command too.
 
-The push step runs `secret-scan.py --range` first and never pushes `main`.
+The push step runs `secret-scan.py --range` first and never pushes `main`. It
+pushes to GitHub only over https, to an address it builds from the owner and
+name, with the App's token. It never uses the person's SSH key or credential
+helper. A remote that is neither GitHub nor a folder on this computer is refused.
+
+Other kit scripts read GitHub through this module too: `spec.py`, `ready-lint.py`
+and, through `python3 -m loop.github pr-state <branch>`, `worktree.sh`.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -42,7 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from loop import cli
-from loop.paths import Paths
+from loop.paths import PathError, Paths, find_project_root
 
 Runner = Callable[..., Any]  # the shape of subprocess.run
 
@@ -59,12 +66,18 @@ class GitHubError(Exception):
     """A GitHub step that failed or was refused. Carries the exit code and the next command."""
 
     def __init__(
-        self, message: str, *, next_command: str, code: cli.ExitCode = cli.ExitCode.ENVIRONMENT
+        self,
+        message: str,
+        *,
+        next_command: str,
+        code: cli.ExitCode = cli.ExitCode.ENVIRONMENT,
+        not_found: bool = False,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.next_command = next_command
         self.code = code
+        self.not_found = not_found
 
 
 class NoApp(GitHubError):
@@ -90,11 +103,18 @@ class ReadTwiceError(GitHubError):
         )
 
 
+def gate_command(root: Path) -> str:
+    """`cd <project> && python3 <gate.py>`, quoted for a shell."""
+    return f"cd {shlex.quote(str(root))} && python3 {shlex.quote(str(GATE_PY))}"
+
+
 def sync_command(root: Path) -> str:
-    """The exact command for the person to send the queued GitHub writes."""
+    """The exact commands for the person: read every queued write first, then send them."""
+    gate = f"python3 {shlex.quote(str(GATE_PY))}"
     return (
         "tell the person to run, in their own terminal: "
-        f"cd {shlex.quote(str(root))} && python3 {shlex.quote(str(GATE_PY))} sync"
+        f"cd {shlex.quote(str(root))} && {gate} sync --dry-run, read every write it lists, "
+        f"then {gate} sync to post them in their own name"
     )
 
 
@@ -342,9 +362,40 @@ class GitHub:
             raise GitHubError(
                 f"GitHub did not answer, so nothing changed ({_first_line(done.stderr)})",
                 next_command="check the network and the App's access, then run this again",
+                not_found="404" in done.stderr or "Not Found" in done.stderr,
             )
         out: str = done.stdout
         return out
+
+    def api_json(self, path: str) -> Any:
+        """A read of `gh api <path>`, as JSON."""
+        text = self._gh(["api", path])
+        try:
+            return json.loads(text)
+        except ValueError as error:
+            raise GitHubError(
+                "GitHub answered with something that is not JSON",
+                next_command="run the same command again",
+            ) from error
+
+    def pr_state(self, branch: str) -> str:
+        """`open`, `merged <head commit>`, `closed` or `none` for the branch's pull requests."""
+        text = self._gh(["pr", "list", "--head", branch, "--state", "all",
+                         "--json", "state,headRefOid"])
+        try:
+            pulls = [dict(p) for p in json.loads(text)]
+        except (ValueError, TypeError) as error:
+            raise GitHubError(
+                "GitHub's list of pull requests cannot be read",
+                next_command="run the same command again",
+            ) from error
+        found = [str(p.get("state", "")) for p in pulls]
+        if "OPEN" in found:
+            return "open"
+        if "MERGED" in found:
+            head = next(str(p.get("headRefOid", "")) for p in pulls if p.get("state") == "MERGED")
+            return f"merged {head}"
+        return "closed" if "CLOSED" in found else "none"
 
     def read_issue(self, number: int) -> dict[str, Any]:
         text = self._gh(["api", f"repos/{{owner}}/{{repo}}/issues/{number}"])
@@ -450,6 +501,51 @@ def _git(root: Path, args: Sequence[str], runner: Runner, env: Mapping[str, str]
     )
 
 
+_GITHUB_REMOTE = re.compile(
+    r"^(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com(?::22)?/|git@github\.com:)"
+    r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/(?P<name>[A-Za-z0-9._-]+?)(?:\.git)?/?$"
+)
+
+
+def github_address(url: str) -> str | None:
+    """`https://github.com/<owner>/<name>.git` for a GitHub remote, in any spelling, or None."""
+    found = _GITHUB_REMOTE.match(url.strip())
+    if found is None or found.group("name") in (".", ".."):
+        return None
+    return f"https://github.com/{found.group('owner')}/{found.group('name')}.git"
+
+
+def is_local_path(url: str) -> bool:
+    """True for a folder on this computer: a path or a file:// address."""
+    if url.startswith("file://"):
+        return True
+    if "://" in url:
+        return False
+    # host:path is the scp spelling of an SSH address.
+    return url.startswith(("/", ".")) or ":" not in url.split("/", 1)[0]
+
+
+def _shown_url(url: str) -> str:
+    """The address without any user name or password in it."""
+    return re.sub(r"//[^@/]+@", "//", url)
+
+
+def _closed_env(env: Mapping[str, str], config: Mapping[str, str]) -> dict[str, str]:
+    """The push's environment: no prompt, no credential helper, no SSH at all."""
+    out = dict(env)
+    for name in [k for k in out if k.startswith("GIT_CONFIG_")]:
+        out.pop(name)
+    out.update(GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="", SSH_ASKPASS="",
+               GIT_SSH_COMMAND="false", GIT_SSH="false")
+    settings = {"credential.helper": "", "protocol.ssh.allow": "never",
+                "protocol.ext.allow": "never", **config}
+    out["GIT_CONFIG_COUNT"] = str(len(settings))
+    for index, (key, value) in enumerate(settings.items()):
+        out[f"GIT_CONFIG_KEY_{index}"] = key
+        out[f"GIT_CONFIG_VALUE_{index}"] = value
+    return out
+
+
 def push(
     paths: Paths,
     branch: str,
@@ -460,7 +556,10 @@ def push(
 ) -> dict[str, Any]:
     """Push one piece branch: the secret scan first, never `main`, never with force.
 
-    A push to GitHub needs the App, and acts as the App. Without it, `NoApp`.
+    A push to GitHub needs the App, and acts as the App over https, to an address
+    built from the owner and name. Without the App, `NoApp`. A folder on this
+    computer (as tests use) takes a plain push. Any other remote is refused. No
+    push ever uses a credential helper, a password prompt or SSH.
     """
     env = dict(os.environ if env is None else env)
     root = paths.root
@@ -470,24 +569,34 @@ def push(
             next_command="push a piece branch; main changes only through a merge",
             code=cli.ExitCode.REFUSED,
         )
-    found = _git(root, ["remote", "get-url", remote], runner, env)
-    if found.returncode != 0:
+    # The address as written in the config: `git remote get-url` would apply the
+    # person's own insteadOf rewrites, and the gate builds its own address.
+    found = _git(root, ["config", "--get", f"remote.{remote}.pushurl"], runner, env)
+    if found.returncode != 0 or not found.stdout.strip():
+        found = _git(root, ["config", "--get", f"remote.{remote}.url"], runner, env)
+    if found.returncode != 0 or not found.stdout.strip():
         raise GitHubError(f"there is no remote called {remote}", next_command="git remote -v")
-    url = found.stdout.strip()
-    push_env = dict(env, GIT_TERMINAL_PROMPT="0")
-    if "github.com" in url:
+    url = found.stdout.strip().splitlines()[0]
+    address = github_address(url)
+    if address is not None:
         held = credential(paths, runner=runner, env=env)
         if held is None or held.token is None:
             raise NoApp(root)
         basic = base64.b64encode(f"x-access-token:{held.token}".encode()).decode("ascii")
-        push_env.update(
-            {
-                "GIT_CONFIG_COUNT": "2",
-                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
-                "GIT_CONFIG_KEY_1": "credential.helper",
-                "GIT_CONFIG_VALUE_1": "",
-            }
+        target = address
+        push_env = _closed_env(
+            env, {"http.https://github.com/.extraheader": f"AUTHORIZATION: basic {basic}"}
+        )
+    elif is_local_path(url):
+        target = url
+        push_env = _closed_env(env, {})
+    else:
+        raise GitHubError(
+            f"the remote {remote} is at {_shown_url(url)}, which is neither GitHub nor a folder "
+            "on this computer; the gate pushes only to GitHub, as its App",
+            next_command="tell the person: the gate does not push to this remote; they push "
+            "the branch themselves if they want it there",
+            code=cli.ExitCode.REFUSED,
         )
     has_remote_main = _git(
         root, ["rev-parse", "--verify", "-q", f"refs/remotes/{remote}/main"], runner, env
@@ -518,7 +627,7 @@ def push(
             )
         scanned = span
     done = runner(
-        ["git", "-C", str(root), "push", remote, f"{branch}:refs/heads/{branch}"],
+        ["git", "-C", str(root), "push", target, f"{branch}:refs/heads/{branch}"],
         capture_output=True,
         text=True,
         check=False,
@@ -529,4 +638,32 @@ def push(
             f"git push of {branch} failed ({_first_line(done.stderr)})",
             next_command="bring the branch up to date with a merge, then push again",
         )
-    return {"pushed": branch, "remote": remote, "scanned": scanned}
+    return {"pushed": branch, "remote": remote, "to": _shown_url(target), "scanned": scanned}
+
+
+# --- a door for the shell scripts -------------------------------------------------------
+
+
+def main(argv: Sequence[str]) -> int:
+    """`python3 -m loop.github pr-state <branch>`: one read as the App, for worktree.sh.
+
+    Prints the state on standard output. With no App it starts no program and
+    exits 3, with a `next:` line on standard error.
+    """
+    if len(argv) != 2 or argv[0] != "pr-state":
+        print("usage: python3 -m loop.github pr-state <branch>", file=sys.stderr)
+        return int(cli.ExitCode.USAGE)
+    try:
+        paths = Paths.for_project(find_project_root(Path.cwd()))
+        print(GitHub(paths).pr_state(argv[1]))
+    except PathError as error:
+        print(f"{error}\nnext: cd <the project>, then run this again", file=sys.stderr)
+        return int(cli.ExitCode.ENVIRONMENT)
+    except GitHubError as error:
+        print(f"{error.message}\nnext: {error.next_command}", file=sys.stderr)
+        return int(error.code)
+    return int(cli.ExitCode.OK)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -371,7 +371,9 @@ out = passes(py, 12, [build_piece()], "a whole build piece whose check fails on 
 expect(len(lines(out)) == 1 and "Refund an order" in out,
        "a pass prints one line naming the piece", repr(out))
 with open(py.log) as handle:
-    writes = [l for l in handle if l.startswith("CALL") and re.search(
+    # The App's token request is a POST, but it writes nothing to the project.
+    writes = [l for l in handle if l.startswith("CALL") and "/access_tokens" not in l
+              and re.search(
         r"\b(issue (edit|comment|create|close)|label (create|edit|delete))\b|-X|--method", l)]
 expect(not writes, "the lint writes nothing to GitHub", str(writes))
 expect(git(py.dir, "status", "--porcelain") == "", "the lint writes nothing into the project")

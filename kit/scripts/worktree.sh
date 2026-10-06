@@ -356,23 +356,16 @@ unsaved_reason() {
 }
 
 # pr_state <branch>: open, merged <head commit>, closed or none. Fails when the
-# pull requests cannot be read.
+# pull requests cannot be read. It reads them only as the gate's GitHub App,
+# through loop/github.py beside this script. With no App it fails and starts no
+# gh, so it never uses the person's own sign-in.
 pr_state() {
-  command -v gh >/dev/null 2>&1 || return 1
-  json=$(gh pr list --head "$1" --state all --json state,headRefOid 2>/dev/null </dev/null) || return 1
-  printf '%s' "$json" | python3 -c '
-import json, sys
-pulls = json.load(sys.stdin)
-states = [p.get("state", "") for p in pulls]
-if "OPEN" in states:
-    print("open")
-elif "MERGED" in states:
-    print("merged " + next(p.get("headRefOid", "") for p in pulls if p.get("state") == "MERGED"))
-elif "CLOSED" in states:
-    print("closed")
-else:
-    print("none")
-' 2>/dev/null || return 1
+  case $0 in
+    /*) scripts=$(dirname -- "$0") ;;
+    *) scripts="${STARTED:-$MAIN}/$(dirname -- "$0")" ;;
+  esac
+  [ -f "$scripts/loop/github.py" ] || return 1
+  PYTHONPATH="$scripts" python3 -m loop.github pr-state "$1" 2>/dev/null </dev/null
 }
 
 # being_built <path> <branch>: true when an unfinished run lists a piece in

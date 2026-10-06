@@ -17,9 +17,9 @@ It prints one line and exits 0 when every rule holds. Otherwise it lists each
 gap with the next thing to do and exits 1. It exits 2, changing nothing, when
 GitHub cannot be reached or its temporary checkout cannot be made or prepared.
 
-It reads the issue through the GitHub command-line tool already signed in on
-this computer, and the project through Git, from origin/main. To run the
-acceptance checks it makes a temporary checkout of the acceptance branch in a
+It reads the issue as the gate's GitHub App, through loop/github.py, never
+with the person's own sign-in, and the project through Git, from origin/main.
+To run the acceptance checks it makes a temporary checkout of the acceptance branch in a
 folder of its own, installs the project's dependencies there, and removes the
 checkout with `git worktree remove` when it ends. It writes nothing into the
 project and nothing to GitHub. Each check, and the install, has a ten-minute
@@ -149,20 +149,33 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "no message")
 
 
-def gh_json(args: Sequence[str]) -> Any:
+def gh_json(path: str) -> Any:
+    """A read of `gh api <path>` as the gate's GitHub App, through loop/github.py.
+
+    With no App the lint reads nothing from GitHub, so it never uses the
+    person's sign-in, and it stops with a next: line.
+    """
+    scripts = os.path.dirname(os.path.abspath(__file__))
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from pathlib import Path
+
+    from loop import github  # type: ignore[import-not-found]
+    from loop.paths import PathError, Paths, find_project_root  # type: ignore[import-not-found]
     try:
-        done = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
-    except OSError as error:
-        raise CannotRun(f"the GitHub command-line tool could not be started ({error})")
-    if done.returncode != 0:
-        said = first_line(done.stderr)
-        if "404" in done.stderr or "Not Found" in done.stderr:
-            raise LookupError(said)
-        raise CannotRun(f"GitHub did not answer ({said})")
+        paths = Paths.for_project(find_project_root(Path.cwd()))
+    except PathError as error:
+        raise CannotRun(str(error))
+    hub = github.GitHub(paths)
+    if not hub.available:
+        refuse("the gate's GitHub App is not set up yet, so the lint reads nothing from GitHub",
+               "set up the App in the second half of /setup, then run ready-lint.py again")
     try:
-        return json.loads(done.stdout)
-    except ValueError:
-        raise CannotRun("GitHub answered with something that is not JSON")
+        return hub.api_json(path)
+    except github.GitHubError as error:
+        if error.not_found:
+            raise LookupError(error.message)
+        raise CannotRun(error.message)
 
 
 def git(root: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -177,10 +190,10 @@ def git_out(root: str, *args: str) -> str:
 
 def read_issue(number: int) -> dict[str, Any]:
     try:
-        data = gh_json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}"])
+        data = gh_json(f"repos/{{owner}}/{{repo}}/issues/{number}")
     except LookupError:
         refuse(f"#{number} does not exist in this repository",
-               "check the number with: gh issue list")
+               "check the number with: gate.py report")
     if not isinstance(data, dict):
         raise CannotRun("GitHub answered with something that is not an issue")
     if data.get("pull_request"):
@@ -190,8 +203,7 @@ def read_issue(number: int) -> dict[str, Any]:
 
 def blockers_of(number: int) -> list[int]:
     try:
-        listed = gh_json(["api",
-                          f"repos/{{owner}}/{{repo}}/issues/{number}/dependencies/blocked_by"])
+        listed = gh_json(f"repos/{{owner}}/{{repo}}/issues/{number}/dependencies/blocked_by")
     except LookupError:
         return []
     return [int(item["number"]) for item in listed

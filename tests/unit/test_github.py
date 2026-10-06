@@ -19,7 +19,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
-from loop import github  # noqa: E402
+from loop import cli, github  # noqa: E402
 from loop.paths import Paths  # noqa: E402
 
 STAND_IN = ROOT / "tests" / "stand-ins"
@@ -318,7 +318,10 @@ class EveryCallGoesThroughCredential(unittest.TestCase):
                     continue
                 code = "\n".join(line for line in text.splitlines()
                                  if not line.lstrip().startswith("#"))
-                if python_spawn.search(code) or shell_spawn.search(code):
+                first = text.split("\n", 1)[0]
+                shell = path.suffix == ".sh" or ("sh" in first and first.startswith("#!")
+                                                 and "python" not in first)
+                if (shell_spawn if shell else python_spawn).search(code):
                     found.append(name)
         self.assertEqual(found, [], "only loop/github.py starts gh, through credential()")
 
@@ -502,7 +505,7 @@ class Push(unittest.TestCase):
                 with self.assertRaises(github.GitHubError) as caught:
                     github.push(project.paths, "piece-5", runner=project.runner(calls),
                                 env=project.env)
-                self.assertEqual(caught.exception.code, github.cli.ExitCode.REFUSED)
+                self.assertEqual(caught.exception.code, cli.ExitCode.REFUSED)
                 self.assertFalse([c for c in calls if "push" in c["command"]])
 
     def test_a_local_remote_never_uses_a_credential_helper_or_ssh(self) -> None:
