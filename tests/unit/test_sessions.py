@@ -336,6 +336,97 @@ class Settings(Base):
         self.assertIn("NOT_A_VALUE", str(caught.exception))
 
 
+class AttemptSettings(Base):
+    """P16: each attempt's settings deny a write to every path the frozen bar lists."""
+
+    BAR = ("tests/test_old.py", "tests/acceptance/test_menu.py", "jest.config.js",
+           "web/__snapshots__/cart.test.js.snap")
+
+    def settings(self, label: str = "p7-a1", bar: Any = None) -> dict[str, Any]:
+        session = sessions.plan(
+            self.paths, run="night-1", label=label, worktree=self.worktree,
+            brief="Do the piece.\n", env=self.env, bar_paths=list(self.BAR) if bar is None else bar,
+        )
+        data: dict[str, Any] = json.loads(session.settings_file.read_text())
+        return data
+
+    def target(self, name: str) -> str:
+        return str(self.worktree / name)
+
+    def test_each_bar_path_is_denied_to_the_edit_and_write_tools(self) -> None:
+        deny = self.settings()["permissions"]["deny"]
+        for name in self.BAR:
+            for tool in ("Edit", "Write"):
+                with self.subTest(name=name, tool=tool):
+                    self.assertTrue(matcher.file_denied(
+                        deny, tool, self.target(name), str(self.worktree), str(self.project)))
+
+    def test_the_deny_beats_the_allow_that_covers_the_worktree(self) -> None:
+        data = self.settings()
+        allow = data["permissions"]["allow"]
+        self.assertTrue(matcher.file_denied(
+            allow, "Edit", self.target("src/app.py"), str(self.worktree), str(self.project)))
+        self.assertFalse(matcher.file_denied(
+            data["permissions"]["deny"], "Edit", self.target("src/app.py"), str(self.worktree),
+            str(self.project)))
+
+    def test_each_bar_path_is_write_blocked_in_the_sandbox(self) -> None:
+        blocked = self.settings()["sandbox"]["filesystem"]["denyWrite"]
+        for name in self.BAR:
+            self.assertIn(self.target(name), blocked)
+
+    def test_the_template_deny_rules_and_write_blocks_are_all_kept(self) -> None:
+        plain = self.settings(bar=[])
+        marked = self.settings()
+        for rule in plain["permissions"]["deny"]:
+            self.assertIn(rule, marked["permissions"]["deny"])
+        for entry in plain["sandbox"]["filesystem"]["denyWrite"]:
+            self.assertIn(entry, marked["sandbox"]["filesystem"]["denyWrite"])
+
+    def test_a_path_the_bar_does_not_list_stays_writable(self) -> None:
+        deny = self.settings()["permissions"]["deny"]
+        self.assertFalse(matcher.file_denied(
+            deny, "Edit", self.target("tests/test_new.py"), str(self.worktree),
+            str(self.project)))
+        blocked = self.settings()["sandbox"]["filesystem"]["denyWrite"]
+        self.assertNotIn(self.target("tests/test_new.py"), blocked)
+
+    def test_each_attempt_has_its_own_settings_file(self) -> None:
+        first = sessions.plan(self.paths, run="night-1", label="p7-a1", worktree=self.worktree,
+                              brief="x\n", env=self.env, bar_paths=["a.test.js"])
+        second = sessions.plan(self.paths, run="night-1", label="p7-a2", worktree=self.worktree,
+                               brief="x\n", env=self.env, bar_paths=["a.test.js", "b.test.js"])
+        self.assertNotEqual(first.settings_file, second.settings_file)
+        self.assertNotIn(self.target("b.test.js"),
+                         json.loads(first.settings_file.read_text())["sandbox"]["filesystem"]["denyWrite"])
+        self.assertIn(self.target("b.test.js"),
+                      json.loads(second.settings_file.read_text())["sandbox"]["filesystem"]["denyWrite"])
+        self.assertEqual(first.command[first.command.index("--settings") + 1],
+                         str(first.settings_file))
+
+    def test_a_bar_path_that_is_not_relative_to_the_worktree_is_refused(self) -> None:
+        for bad in ("/etc/passwd", "../outside.py", "a/../../b.py", ""):
+            with self.subTest(bad=bad), self.assertRaises(sessions.SessionError):
+                self.settings(bar=[bad])
+
+    def test_a_path_with_a_wildcard_is_refused_so_it_denies_exactly_one_file(self) -> None:
+        with self.assertRaises(sessions.SessionError):
+            self.settings(bar=["tests/*.py"])
+
+    def test_with_no_bar_paths_the_settings_are_the_templates(self) -> None:
+        self.assertEqual(self.settings(bar=[]), self.rendered_plain())
+
+    def rendered_plain(self) -> dict[str, Any]:
+        data: dict[str, Any] = json.loads(self.plan().settings_file.read_text())
+        return data
+
+    def test_the_rendered_settings_have_no_placeholder_and_absolute_write_blocks(self) -> None:
+        text = json.dumps(self.settings())
+        self.assertNotIn("{{", text)
+        for entry in self.settings()["sandbox"]["filesystem"]["denyWrite"]:
+            self.assertTrue(entry.startswith("/"), entry)
+
+
 class DataBlocks(unittest.TestCase):
     def test_outside_text_sits_inside_one_marked_block(self) -> None:
         block = sessions.data_block("spec", HOSTILE_TEXT)
