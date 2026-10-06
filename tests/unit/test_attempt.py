@@ -220,17 +220,6 @@ class ThePassingAttempt(AttemptCase):
         self.assertIn((COMMAND, head), self.att.runs)
         self.assertIn(("pytest tests/test_old.py", head), self.att.runs)
 
-    def test_each_hidden_case_runs_alone_on_the_head_with_its_file_laid_over_it(self) -> None:
-        head = self.honest()
-        self.passes()
-        held = [(c, r) for c, r in self.att.runs if c.startswith("pytest tests/held_out/")]
-        self.assertEqual(len(held), 2)
-        for command, ref in held:
-            path = command.split()[-1]
-            self.assertEqual(git(self.root, "rev-parse", f"{ref}^"), head)
-            self.assertIn("def test_hidden_", git(self.root, "show", f"{ref}:{path}"))
-            self.assertNotIn(path, git(self.root, "ls-tree", "-r", "--name-only", head))
-
     def test_the_project_folder_and_the_branch_are_left_as_they_were(self) -> None:
         head = self.honest()
         self.passes()

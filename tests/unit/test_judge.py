@@ -238,17 +238,17 @@ class RunInCheckout(unittest.TestCase):
         self.assertEqual(len(listed.strip().splitlines()), 1)
 
     def test_extra_files_are_written_into_the_checkout_and_never_into_git(self) -> None:
-        root = self.make_project('test "$(cat held/case.txt)" = "secret-case-text"\n')
+        root = self.make_project("grep -q 'zebra-quartz-99[3]1' held/case.txt\n")
         result = judge.run(
             "sh check.sh", root, "main", time_limit=30,
-            extra_files={"held/case.txt": "secret-case-text"},
+            extra_files={"held/case.txt": "zebra-quartz-9931"},
         )
         self.assertEqual(result["outcome"], "passed")
         objects = subprocess.run(
             ["git", "-C", str(root), "cat-file", "--batch-all-objects", "--batch"],
             capture_output=True, check=True,
         ).stdout
-        self.assertNotIn(b"secret-case-text", objects)
+        self.assertNotIn(b"zebra-quartz-9931", objects)
         plain = judge.run("sh check.sh", root, "main", time_limit=30)
         self.assertNotEqual(plain["outcome"], "passed")
 
