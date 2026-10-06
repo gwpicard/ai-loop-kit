@@ -1,0 +1,5 @@
+{
+  "name": "dual",
+  "time": {"created": "2022-02-02T10:00:00.000Z", "1.1.0": "2022-02-02T10:00:00.000Z"},
+  "versions": {"1.1.0": {"name": "dual", "version": "1.1.0", "license": "(MIT OR GPL-3.0-only)"}}
+}

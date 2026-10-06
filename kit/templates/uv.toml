@@ -1,0 +1,11 @@
+# Supply chain settings for uv. Copy this file to uv.toml in the project.
+#
+# exclude-newer: uv does not pick a release younger than 30 days.
+# A number of days needs a recent uv. An older uv takes only a date here, such as
+# "2026-09-01T00:00:00Z", and fails with a parse error on this line. If that
+# happens, write a date and move it forward by hand.
+exclude-newer = "30 days"
+#
+# no-build: uv installs only built wheels, so no package runs a build script
+# from a source download. A package with no wheel is refused.
+no-build = true
