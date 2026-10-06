@@ -17,6 +17,11 @@ ran in, the run's name and a retry count. The retry count is the number of earli
 lines in the same session with the same command and event, so a refused command
 that comes back shows 1, then 2.
 
+A call that carries a call ID is logged once for each event, even when the hook
+runs twice for it at the same time, as it does when a session loads the plugin and
+`--settings` both. A marker file in `claims/` next to the log settles the race.
+A call with no ID is always logged.
+
 The run's name is the `AI_LOOP_KIT_RUN` variable. The session starter sets it.
 Without it, or with a name `loop/paths.py` refuses, the line goes to the run named
 `attended`.
@@ -27,6 +32,7 @@ never stops a call: any fault here is swallowed, and `main()` always exits 0.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -133,6 +139,25 @@ def _retries(log: Path, session: str, command: str, event: str) -> int:
     return count
 
 
+def _claim(log: Path, session: str, call_id: str, event: str) -> bool:
+    """Claim this call and event. True for the first claimant, False for any later one.
+
+    A builder session gets the hooks from `--settings`. If the plugin is loaded
+    too, each hook runs twice for one call, and Claude Code runs them at the same
+    time. Both runs carry the same call ID. A marker file made with O_CREAT and
+    O_EXCL lets exactly one of them go on, with no read-then-write gap.
+    """
+    key = hashlib.sha256(f"{session}\0{call_id}\0{event}".encode()).hexdigest()[:32]
+    folder = log.parent / "claims"
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(folder / key, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    os.close(fd)
+    return True
+
+
 def record(
     payload: Mapping[str, Any], event: str, reason: str, env: Mapping[str, str]
 ) -> None:
@@ -147,6 +172,9 @@ def record(
         log = paths.command_log(name)
         session = str(payload.get("session_id") or "")
         command = scrub(_target(payload))
+        call_id = str(payload.get("tool_use_id") or "")
+        if call_id and not _claim(log, session, call_id, event):
+            return
         row = {
             "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "session": session,
@@ -158,6 +186,8 @@ def record(
             "run": name,
             "retry": _retries(log, session, command, event),
         }
+        if call_id:
+            row["call"] = call_id
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")

@@ -2,14 +2,19 @@
 """A stand-in for the `claude` command, for tests that must not call a model.
 
 It does not think. It replays one scripted attempt, named by FAKE_CLAUDE_SCRIPT,
-a JSON file with three optional parts:
+a JSON file with four optional parts:
 
   files    a map of project-relative path to the text to write
   commits  a list of {"message": ..., "paths": [...]}; each is one commit
   handoff  {"path": ..., "content": ...}; written and left unsaved
+  runs     a list of command lines, each a list of words, run in order in the
+           project folder with the environment the stand-in was given. A builder
+           uses this to run the hand-off script. A command that fails ends the
+           session with exit code 1.
 
 It writes one JSON line for each call to FAKE_CLAUDE_LOG (the arguments, the
-folder and whether a script was set), and prints a result in the shape of
+folder, the names of the environment variables, never their values, and whether
+a script was set), and prints a result in the shape of
 `claude -p --output-format json`.
 
 It refuses, with exit code 3, a script that writes outside the project, and,
@@ -29,7 +34,12 @@ def log(argv: list[str], script: str | None) -> None:
     target = os.environ.get("FAKE_CLAUDE_LOG")
     if not target:
         return
-    entry = {"argv": argv, "cwd": os.getcwd(), "script": script}
+    entry = {
+        "argv": argv,
+        "cwd": os.getcwd(),
+        "script": script,
+        "env_keys": sorted(os.environ),
+    }
     with open(target, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
 
@@ -75,6 +85,11 @@ def replay(project: Path, script: dict[str, Any]) -> list[str]:
     if handoff:
         write(project, handoff["path"], handoff["content"])
         done.append(f"left a hand-off at {handoff['path']}")
+    for words in script.get("runs", []):
+        ran = subprocess.run(words, cwd=project, check=False, capture_output=True, text=True)
+        if ran.returncode != 0:
+            raise RuntimeError(f"{words[-1:]} exited {ran.returncode}: {ran.stderr.strip()}")
+        done.append(f"ran {Path(words[1]).name if len(words) > 1 else words[0]}")
     return done
 
 
@@ -95,6 +110,9 @@ def main() -> int:
     except PermissionError as exc:
         sys.stderr.write(f"claude (stand-in): refused. {exc}\n")
         return 3
+    except RuntimeError as exc:
+        sys.stderr.write(f"claude (stand-in): a scripted command failed. {exc}\n")
+        return 1
     except subprocess.CalledProcessError as exc:
         sys.stderr.write(f"claude (stand-in): git failed: {exc.stderr.decode(errors='replace')}\n")
         return 1
