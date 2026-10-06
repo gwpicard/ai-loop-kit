@@ -156,7 +156,7 @@ class Base(unittest.TestCase):
         self.spawned: list[list[str]] = []
         self.hub: Any = FakeHub() if self.app else no_app_hub(self.paths, self.spawned)
         self.gate = moves.Gate(self.paths, self.hub, loader=self.loader, today=lambda: TODAY,
-                               env={})
+                               env={}, terminal=lambda: True)
         self.reasons = 0
 
     def capture(self, body: str = BODY) -> int:
@@ -453,6 +453,32 @@ class RepeatCounter(Base):
         self.assertEqual((result["move"], result["asked"]), (13, 12))
         self.assertEqual(self.gate.piece(piece).state, "shaping")
 
+    def test_after_a_reshaping_move_7_works_again(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "building")
+        for n in range(3):
+            self.gate.move(piece, "ready", reason=f"environment fault {n}")
+            self.gate.move(piece, "building")
+        result = self.gate.move(piece, "ready", reason="environment fault 3")
+        self.assertEqual((result["move"], result["asked"]), (6, 7))
+        # The piece is reshaped and made ready, so the counter starts again.
+        self.gate.move(piece, "ready")
+        self.gate.move(piece, "building")
+        result = self.gate.move(piece, "ready", reason="environment fault 4")
+        self.assertEqual((result["move"], result["to"]), (7, "ready"))
+        self.assertEqual(self.gate.piece(piece).state, "ready")
+        for n in range(5, 7):
+            self.gate.move(piece, "building")
+            self.gate.move(piece, "ready", reason=f"environment fault {n}")
+        self.gate.move(piece, "building")
+        result = self.gate.move(piece, "ready", reason="environment fault 7")
+        self.assertEqual((result["move"], result["asked"]), (6, 7),
+                         "the limit holds again, and the gate's own reason is new")
+        moved = [e for e in evidence.read(self.paths, piece) if e["kind"] == "move"][-1]
+        self.assertIn("environment fault 4", moved["reason"])
+        self.assertNotIn("environment fault 0", moved["reason"],
+                         "only the moves since the piece last left shaping count")
+
     def test_other_moves_back_have_no_counter(self) -> None:
         piece = self.capture()
         for n in range(4):
@@ -516,8 +542,66 @@ class Fingerprints(Base):
     def test_answer_to_a_question_the_spec_does_not_hold_is_refused(self) -> None:
         piece = self.capture()
         with self.assertRaises(moves.MoveError) as caught:
-            self.gate.answer(piece, question="What colour is it?", answer="blue")
+            self.gate.answer(piece, question="What colour is it?", answer="blue",
+                             by="the person")
         self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+
+
+class SpecDoor(Base):
+    """Only `answer` closes an open question. `gate.py spec` cannot remove one."""
+
+    def without(self, body: str, words: str) -> str:
+        item = next(q for q in spec.parse(body).open_questions if words in q)
+        return spec.remove_list_item(body, "open_questions", item)
+
+    def test_spec_cannot_remove_an_open_question(self) -> None:
+        piece = self.capture()
+        before = evidence.read(self.paths, piece)
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.set_spec(piece, self.without(self.gate.piece(piece).body, QUESTION))
+        self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+        self.assertIn("gate.py answer", caught.exception.next_command)
+        self.assertEqual(evidence.read(self.paths, piece), before)
+        self.assertTrue(self.gate.piece(piece).needs_you)
+
+    def test_spec_cannot_remove_a_question_the_gate_wrote(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "ready")
+        self.gate.move(piece, "shaping", reason="the export format is still unclear")
+        body = self.without(self.gate.piece(piece).body, "the export format is still unclear")
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.set_spec(piece, body)
+        self.assertIn("gate.py answer", caught.exception.next_command)
+
+    def test_spec_may_keep_every_question_and_add_one(self) -> None:
+        piece = self.capture()
+        body = spec.add_list_item(self.gate.piece(piece).body, "open_questions",
+                                  "Which months does the export cover?")
+        result = self.gate.set_spec(piece, body)
+        self.assertTrue(result["needs_you"])
+
+
+class WhoAnswered(Base):
+    def test_an_agent_session_cannot_record_the_person(self) -> None:
+        gate = moves.Gate(self.paths, self.hub, loader=self.loader, today=lambda: TODAY,
+                          env={"CLAUDECODE": "1"}, terminal=lambda: True)
+        piece = self.capture()
+        for who in ("the person", "The person", "person"):
+            with self.assertRaises(moves.MoveError) as caught:
+                gate.answer(piece, question=QUESTION, answer="no", by=who)
+            self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+        gate.answer(piece, question=QUESTION, answer="no", by="the agent")
+        entry = [e for e in evidence.read(self.paths, piece) if e["kind"] == "answer"][-1]
+        self.assertEqual(entry["by"], "the agent")
+        self.assertEqual(entry["recorded_in"], "an agent session")
+        decisions = spec.parse(self.gate.piece(piece).body).decisions
+        self.assertTrue(any("Decided by the agent" in d for d in decisions))
+
+    def test_the_person_in_their_own_terminal_records_the_person(self) -> None:
+        piece = self.capture()
+        self.gate.answer(piece, question=QUESTION, answer="no", by="the person")
+        entry = [e for e in evidence.read(self.paths, piece) if e["kind"] == "answer"][-1]
+        self.assertEqual((entry["by"], entry["recorded_in"]), ("the person", "a terminal"))
 
 
 class Labels(Base):
@@ -667,6 +751,67 @@ class WithoutTheApp(Base):
         )
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("gate.py sync", done.stderr)
+
+
+class WhatSyncShows(Base):
+    app = False
+
+    def test_the_dry_run_lists_every_queued_write_in_full(self) -> None:
+        piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
+        self.gate.comment(piece, "Looks good, merge it")
+        self.gate.move(piece, "dropped", reason="not wanted any more")
+        result = self.gate.sync(FakeHub(), dry_run=True)
+        self.assertEqual(result["pieces"][0]["piece"], piece)
+        writes = result["pieces"][0]["writes"]
+        kinds = [w["op"] for w in writes]
+        self.assertEqual(kinds[0], "issue")
+        for kind in ("comment", "labels", "close"):
+            self.assertIn(kind, kinds)
+        shown = json.dumps(writes)
+        self.assertIn("Looks good, merge it", shown)
+        self.assertIn("not wanted any more", shown)
+        self.assertIn("state:dropped", shown)
+        self.assertIn(QUESTION, shown, "the issue body is shown in full")
+        self.assertTrue(self.gate.piece(piece).queue, "a dry run sends nothing")
+
+    def test_the_next_line_names_the_dry_run_first(self) -> None:
+        result = self.gate.capture(title="t", body=BODY, issue_type="feature")
+        line = result["next"]
+        first = line.index("sync --dry-run")
+        self.assertRegex(line[first + len("sync --dry-run"):], r"gate\.py sync(\s|$)")
+
+    def test_sync_refuses_without_a_person_at_a_terminal(self) -> None:
+        int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
+        gate = moves.Gate(self.paths, self.hub, loader=self.loader, today=lambda: TODAY,
+                          env={}, terminal=lambda: False)
+        person = FakeHub()
+        with self.assertRaises(moves.MoveError) as caught:
+            gate.sync(person)
+        self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+        self.assertIn("terminal", caught.exception.message)
+        self.assertEqual(person.calls, [])
+        self.assertTrue(gate.sync(person, dry_run=True)["pieces"], "the dry run still shows")
+
+
+class EitherNumber(Base):
+    app = False
+
+    def test_move_takes_the_local_number_or_the_synced_issue_number(self) -> None:
+        piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
+        person = FakeHub()
+        person.next = 57
+        self.gate.sync(person)
+        self.assertEqual(self.gate.piece(piece).issue, 57)
+        result = self.gate.move(57, "ready")
+        self.assertEqual((result["piece"], self.gate.piece(piece).state), (piece, "ready"))
+        self.gate.move(piece, "shaping", reason="a new need came up")
+        self.assertEqual(self.gate.piece(piece).state, "shaping")
+
+    def test_a_number_that_is_neither_is_refused(self) -> None:
+        int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.move(58, "ready")
+        self.assertIn("not in the gate's record", caught.exception.message)
 
 
 class WithTheAppAfterwards(Base):

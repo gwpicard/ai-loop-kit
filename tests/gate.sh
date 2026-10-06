@@ -205,7 +205,36 @@ set -e
 [ "$code" -eq 3 ] || fail "gate.py sync in an agent session exited $code, not 3"
 ok "gate.py sync refuses to run in an agent session"
 
-python3 "$GATE" sync --json > "$TP_BASE/sync.json" || fail "the person's sync failed: $(cat "$TP_BASE/sync.json")"
+python3 "$GATE" comment 1 --text "Looks good, merge it" --json > /dev/null \
+  || fail "a comment with no App was not queued"
+python3 "$GATE" sync --dry-run --json > "$TP_BASE/dry.json" \
+  || fail "sync --dry-run failed: $(cat "$TP_BASE/dry.json")"
+for words in "Looks good, merge it" "Not wanted." "state:dropped" "Export invoices"; do
+  grep -qF "$words" "$TP_BASE/dry.json" || fail "sync --dry-run does not show \"$words\""
+done
+ok "sync --dry-run lists every queued write in full"
+
+set +e
+python3 "$GATE" sync --json < /dev/null > /dev/null 2> "$TP_BASE/sync-pipe.err"
+code=$?
+set -e
+[ "$code" -eq 3 ] || fail "gate.py sync with no terminal exited $code, not 3"
+grep -q "terminal" "$TP_BASE/sync-pipe.err" || fail "the refusal does not name the terminal"
+ok "gate.py sync refuses unless a person is at a terminal"
+
+# The person at a terminal: a pseudo-terminal stands in for one.
+python3 - "$GATE" "$TP_BASE/sync.out" <<'PYEOF' || fail "the person's sync failed: $(cat "$TP_BASE/sync.out")"
+import os, pty, sys
+gate, out = sys.argv[1:3]
+captured = bytearray()
+def read(fd):
+    data = os.read(fd, 1024)
+    captured.extend(data)
+    return data
+status = pty.spawn([sys.executable, gate, "sync"], read)
+open(out, "wb").write(bytes(captured))
+sys.exit(os.waitstatus_to_exitcode(status))
+PYEOF
 [ "$(py_state 'sorted(issue(1)["labels"])')" = '["state:dropped", "type:feature"]' ] \
   || fail "after sync the labels are $(py_state 'sorted(issue(1)["labels"])')"
 [ "$(py_state 'issue(1)["state"]')" = "closed" ] || fail "sync did not close the dropped issue"

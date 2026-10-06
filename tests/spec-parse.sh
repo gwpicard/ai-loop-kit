@@ -26,6 +26,7 @@ SPEC="$ROOT/kit/scripts/spec.py"
 FIX="$ROOT/tests/fixtures/specs"
 
 tp_new demo
+tp_app
 cd "$TP_ROOT"
 
 url=$(tp_issue "Export a month's invoices as one CSV file" "$(cat "$FIX/example-issue.md")")
@@ -73,6 +74,25 @@ code=0
 "$SPEC" show 999 --json >/dev/null 2>"$TP_BASE/gone.err" || code=$?
 [ "$code" != 0 ] && pass "a missing issue fails" || fail "a missing issue did not fail"
 grep -q '^next: ' "$TP_BASE/gone.err" && pass "the failure has a next: line" || fail "no next: line for a missing issue"
+
+# With no App, spec.py reads the gate's own record and never the person's
+# sign-in. A piece the gate does not hold stops with a next: line.
+tp_new demo-no-app
+unset FAKE_APP_KEY
+cd "$TP_ROOT"
+python3 "$ROOT/kit/scripts/gate.py" capture --title "Export invoices" \
+  --body-file "$FIX/example-issue.md" --json > /dev/null || fail "capture with no App failed"
+: > "$FAKE_GH_LOG"
+"$SPEC" show 1 --json > "$TP_BASE/show.json" || fail "show with no App failed on a captured piece"
+check "with no App, show reads the gate's record" 'd["ok"] is True and len(d["open_questions"]) == 1'
+code=0
+"$SPEC" show 7 --json >/dev/null 2>"$TP_BASE/no-app.err" || code=$?
+[ "$code" = 3 ] && pass "with no App, a piece the gate does not hold is refused" \
+  || fail "with no App, show 7 exited $code, not 3"
+grep -q '^next: .*--file' "$TP_BASE/no-app.err" && pass "the refusal names spec.py show --file" \
+  || fail "no next: line naming --file: $(cat "$TP_BASE/no-app.err")"
+grep -q '^CALL' "$FAKE_GH_LOG" && fail "spec.py started gh with no App: $(cat "$FAKE_GH_LOG")" \
+  || pass "with no App, spec.py starts no gh"
 
 [ "$FAIL" = 0 ] || exit 1
 echo "ok: spec-parse passed"

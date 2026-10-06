@@ -51,11 +51,19 @@ chmod +x "$WORK/bin/git"
 
 # The stand-in answers `gh pr list --head <branch> ...` from $WORK/prs, whose
 # lines are "<branch> <state> <head commit>". GH_FAIL makes it fail, as a
-# signed-out tool does.
+# signed-out tool does. The script reads pull requests only as the gate's App,
+# through loop/github.py, so the stand-in hands out an App token and answers
+# only a call that carries it.
 cat > "$WORK/bin/gh" <<SH
 #!/usr/bin/env sh
 printf '%s\n' "\$*" >> "$WORK/gh.log"
 [ -z "\${GH_FAIL:-}" ] || exit 1
+case "\$*" in
+  "api --method POST app/installations/"*"/access_tokens"*)
+    echo '{"token": "rehearsal-app-token"}'
+    exit 0 ;;
+esac
+[ "\${GH_TOKEN:-}" = rehearsal-app-token ] || exit 1
 [ "\$1 \$2" = "pr list" ] || exit 1
 head=""
 while [ \$# -gt 0 ]; do
@@ -78,6 +86,10 @@ chmod +x "$WORK/bin/gh"
 PATH="$WORK/bin:$PATH"
 export PATH
 : > "$WORK/prs"
+# A stand-in App key, and a data folder of the rehearsal's own.
+APP_KEY=$("$ROOT/tests/stand-ins/fake-app/make-key.sh" "$WORK/app")
+AI_LOOP_KIT_DATA="$WORK/data"
+export AI_LOOP_KIT_DATA
 
 run() {
   # run <project> <args...>: the script from the project's main folder.
@@ -107,6 +119,11 @@ project() {
   git -C "$1" push -q -u origin main 2>/dev/null
   echo "SECRET_KEY=not-a-real-secret" > "$1/.env"
   echo "LOCAL_KEY=not-a-real-secret" > "$1/.env.local"
+  # The gate's App settings, which git never sees.
+  mkdir -p "$1/.agents/loop"
+  printf '{"github_app": {"app_id": 1, "installation_id": 2, "key_file": "%s"}}\n' \
+    "$APP_KEY" > "$1/.agents/loop/local.json"
+  echo ".agents/loop/local.json" >> "$1/.git/info/exclude"
 }
 
 # commit_in <worktree> <file>: one saved change in a worktree.
@@ -228,6 +245,13 @@ pr "17-squashed MERGED $(git -C "$P/.agents/worktrees/17-squashed" rev-parse HEA
 out=$(GH_FAIL=1; export GH_FAIL; run "$P" tidy)
 [ -d "$W" ] && case $out in *"Could not read"*) true ;; *) false ;; esac && r=yes || r=no
 check "with no pull requests to read, nothing is removed" "$r"
+
+mv "$P/.agents/loop/local.json" "$P/.agents/loop/local.json.aside"
+: > "$WORK/gh.log"
+out=$(run "$P" tidy)
+mv "$P/.agents/loop/local.json.aside" "$P/.agents/loop/local.json"
+[ -d "$W" ] && [ ! -s "$WORK/gh.log" ] && case $out in *"Could not read"*) true ;; *) false ;; esac && r=yes || r=no
+check "with no App, gh never runs, so the person's sign-in is never used, and nothing is removed" "$r"
 
 out=$(run "$P" tidy)
 [ ! -d "$W" ] && r=yes || r=no

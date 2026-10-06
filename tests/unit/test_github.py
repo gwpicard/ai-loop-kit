@@ -294,17 +294,57 @@ class EveryCallGoesThroughCredential(unittest.TestCase):
         self.assertEqual({e["actor"] for e in issue["events"]}, {APP["slug"] + "[bot]"})
         self.assertEqual(issue["comments"][0]["author"], APP["slug"] + "[bot]")
 
-    def test_no_gate_file_starts_gh_itself(self) -> None:
-        scripts = ROOT / "kit" / "scripts"
-        files = [scripts / "gate.py", *sorted((scripts / "loop").rglob("*.py"))]
-        spawn = re.compile(r"""\[\s*["']gh["']""")
-        found = [str(f.relative_to(ROOT)) for f in files
-                 if f.name != "github.py" and spawn.search(f.read_text(encoding="utf-8"))]
+    def test_no_kit_script_or_hook_starts_gh_itself(self) -> None:
+        """Every agent script reaches GitHub through loop/github.py, so through credential()."""
+        # Borrowed files that a later piece adapts. Each is named with that piece.
+        later = {
+            # Setup's tooling report reads the person's own sign-in, for the
+            # person, before the App exists. P13 adapts it.
+            "kit/scripts/check-tooling.sh",
+        }
+        python_spawn = re.compile(r"""[\[(]\s*["']gh["']""")
+        shell_spawn = re.compile(r"""(^|[;&|(`]|\$\(|\bthen|\bdo)\s*gh\s+[a-z]""", re.MULTILINE)
+        found = []
+        for folder in (ROOT / "kit" / "scripts", ROOT / "kit" / "hooks"):
+            for path in sorted(folder.rglob("*")):
+                if not path.is_file() or "__pycache__" in path.parts:
+                    continue
+                name = str(path.relative_to(ROOT))
+                if name == "kit/scripts/loop/github.py" or name in later:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    continue
+                code = "\n".join(line for line in text.splitlines()
+                                 if not line.lstrip().startswith("#"))
+                if python_spawn.search(code) or shell_spawn.search(code):
+                    found.append(name)
         self.assertEqual(found, [], "only loop/github.py starts gh, through credential()")
 
     def test_the_wrapper_starts_gh_in_one_place(self) -> None:
         text = (ROOT / "kit" / "scripts" / "loop" / "github.py").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"""\[\s*["']gh["']""", text)), 1)
+
+
+class PullRequestState(unittest.TestCase):
+    def test_with_the_app_the_state_is_read_as_the_app(self) -> None:
+        project = Project()
+        github.forget_tokens()
+        state = {"repo": "someone/project", "next": 1, "issues": [], "pull_requests": [
+            {"number": 1, "head": "piece-1", "state": "MERGED", "head_oid": "abc123"}]}
+        project.state.write_text(json.dumps(state), encoding="utf-8")
+        hub = github.GitHub(project.paths, runner=project.runner(), env=project.env)
+        self.assertEqual(hub.pr_state("piece-1"), "merged abc123")
+        self.assertEqual(hub.pr_state("piece-2"), "none")
+
+    def test_without_the_app_the_state_is_not_read(self) -> None:
+        project = Project(app=False)
+        spawned: list[dict[str, Any]] = []
+        hub = github.GitHub(project.paths, runner=project.runner(spawned), env=project.env)
+        with self.assertRaises(github.NoApp):
+            hub.pr_state("piece-1")
+        self.assertEqual(spawned, [])
 
 
 class NoApp(unittest.TestCase):
@@ -391,6 +431,89 @@ class Push(unittest.TestCase):
         project = Project(app=False)
         with self.assertRaises(github.GitHubError):
             github.push(project.paths, "main", runner=project.runner(), env=project.env)
+
+    def _fake_github(self, project: Project) -> Path:
+        """A bare repository that git reaches for https://github.com/someone/project.git.
+
+        The test's own git config rewrites that address to a local folder, so the
+        push the gate builds runs for real and reaches no network.
+        """
+        hosted = project.base / "hosted" / "someone" / "project.git"
+        hosted.parent.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(hosted)],
+                       check=True, env=GIT_ENV)
+        git(project.root, "push", "-q", str(hosted), "main")
+        config = project.base / "gitconfig"
+        config.write_text(f'[url "file://{project.base}/hosted/"]\n'
+                          "\tinsteadOf = https://github.com/\n", encoding="utf-8")
+        project.env["GIT_CONFIG_GLOBAL"] = str(config)
+        return hosted
+
+    def _push_call(self, calls: list[dict[str, Any]]) -> dict[str, Any]:
+        found = [c for c in calls if "push" in c["command"] and c["command"][0] == "git"]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    def _config(self, env: dict[str, str]) -> dict[str, str]:
+        count = int(env.get("GIT_CONFIG_COUNT", "0"))
+        return {env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(count)}
+
+    def test_an_ssh_remote_is_pushed_over_https_as_the_app(self) -> None:
+        for remote in ("git@github.com:someone/project.git",
+                       "ssh://git@github.com/someone/project.git",
+                       "https://github.com/someone/project"):
+            with self.subTest(remote=remote):
+                project = Project()
+                github.forget_tokens()
+                hosted = self._fake_github(project)
+                self._branch(project, "piece-4", "plain words\n")
+                git(project.root, "remote", "set-url", "origin", remote)
+                calls: list[dict[str, Any]] = []
+                result = github.push(project.paths, "piece-4", runner=project.runner(calls),
+                                     env=project.env)
+                self.assertEqual(result["pushed"], "piece-4")
+                call = self._push_call(calls)
+                self.assertIn("https://github.com/someone/project.git", call["command"])
+                self.assertNotIn(remote, call["command"])
+                self.assertNotIn("origin", call["command"])
+                env = call["env"]
+                self.assertEqual(env.get("GIT_TERMINAL_PROMPT"), "0")
+                config = self._config(env)
+                self.assertEqual(config.get("credential.helper"), "")
+                self.assertEqual(config.get("protocol.ssh.allow"), "never")
+                self.assertIn("false", env.get("GIT_SSH_COMMAND", ""))
+                token = github.credential(project.paths, runner=project.runner(),
+                                          env=project.env)
+                assert token is not None and token.token
+                header = config.get("http.https://github.com/.extraheader", "")
+                basic = base64.b64encode(f"x-access-token:{token.token}".encode()).decode()
+                self.assertIn(basic, header, "the push carries the stand-in App's token")
+                heads = git(project.root, "ls-remote", "--heads", str(hosted))
+                self.assertIn("refs/heads/piece-4", heads)
+
+    def test_a_remote_that_is_neither_github_nor_a_local_path_is_refused(self) -> None:
+        for remote in ("git@gitlab.com:someone/project.git", "https://example.com/x/y.git",
+                       "https://github.com.evil.example/someone/project.git"):
+            with self.subTest(remote=remote):
+                project = Project()
+                self._branch(project, "piece-5", "plain\n")
+                git(project.root, "remote", "set-url", "origin", remote)
+                calls: list[dict[str, Any]] = []
+                with self.assertRaises(github.GitHubError) as caught:
+                    github.push(project.paths, "piece-5", runner=project.runner(calls),
+                                env=project.env)
+                self.assertEqual(caught.exception.code, github.cli.ExitCode.REFUSED)
+                self.assertFalse([c for c in calls if "push" in c["command"]])
+
+    def test_a_local_remote_never_uses_a_credential_helper_or_ssh(self) -> None:
+        project = Project(app=False)
+        self._branch(project, "piece-6", "plain\n")
+        calls: list[dict[str, Any]] = []
+        github.push(project.paths, "piece-6", runner=project.runner(calls), env=project.env)
+        env = self._push_call(calls)["env"]
+        self.assertEqual(env.get("GIT_TERMINAL_PROMPT"), "0")
+        self.assertEqual(self._config(env).get("credential.helper"), "")
+        self.assertIn("false", env.get("GIT_SSH_COMMAND", ""))
 
     def test_a_github_remote_without_the_app_waits_for_the_person(self) -> None:
         project = Project(app=False)

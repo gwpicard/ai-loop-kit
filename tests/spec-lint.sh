@@ -29,6 +29,7 @@ SPEC="$ROOT/kit/scripts/spec.py"
 FIX="$ROOT/tests/fixtures/specs"
 
 tp_new demo
+tp_app
 cd "$TP_ROOT"
 
 url1=$(tp_issue "Rename a report" "$(cat "$FIX/ready.md")")
