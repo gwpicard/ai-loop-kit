@@ -19,7 +19,9 @@ what v1 is. `build-plan.md` tells you what to build next.
   and the research drafts. `decisions-2026-10-05.md` wins where files disagree.
 - `docs/SOURCES.md`: credits for ideas v1 borrowed.
 - `.agents/maintainer-skills/`: three skills for the maintainer. They are
-  `humanizer`, `review-issues` and `stack-research`.
+  `humanizer`, `review-issues` and `stack-research`. Load `review-issues` from
+  `.agents/maintainer-skills/review-issues/SKILL.md` and `stack-research` from
+  `.agents/maintainer-skills/stack-research/SKILL.md`.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
 - `.githooks/commit-msg`: strips model attribution from commit messages.
 

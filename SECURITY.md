@@ -25,8 +25,8 @@ suggest a fix. A clear description of behaviour that looks wrong is enough.
 ## What to expect
 
 You will get an acknowledgement. Then the maintainer will assess the report. If
-the report is right, a fix will be merged and the notes will credit you, unless
-you ask them not to.
+the report is right, the maintainer will fix it in a pull request. Tell us if
+you want credit for the report, and we will name you.
 
 This is a small project with no paid support. There is no response-time
 promise. Every report is read.
