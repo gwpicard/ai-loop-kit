@@ -149,10 +149,12 @@ def _show(root: Path, again: str, ref: str, path: str) -> str:
     return done.stdout.decode("utf-8", "replace")
 
 
-def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any]) -> Facts:
+def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any],
+           head_ref: str | None = None) -> Facts:
+    """What the gate reads. `head_ref` names another branch to judge in place of the piece's."""
     root, number = ctx.paths.root, ctx.number
     again = f"gate.py move {number} review"
-    branch = ready_gate.branch_name(number)
+    branch = head_ref or ready_gate.branch_name(number)
     code, _ = ready_gate._git(root, "rev-parse", "--verify", "-q", f"refs/heads/{branch}")
     if code != 0:
         raise Refusal(
@@ -586,8 +588,11 @@ def _failed(
     return CheckResult(ok=False, failures=tuple(lines), next_command=nxt, data=data)
 
 
-def run(ctx: CheckContext, deps: Deps) -> CheckResult:
-    """The checks of move 5, with the given stand-ins."""
+def run(ctx: CheckContext, deps: Deps, head_ref: str | None = None) -> CheckResult:
+    """The checks of move 5, with the given stand-ins.
+
+    `head_ref` is for `rerun`: a branch to judge in place of the piece branch.
+    """
     sp = ctx.spec
     number = ctx.number
     root = ctx.paths.root
@@ -616,7 +621,7 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     runs: list[dict[str, Any]] = []
     notes: list[str] = []
     try:
-        facts = _facts(ctx, sp, recorded)
+        facts = _facts(ctx, sp, recorded, head_ref)
         unsaved = _uncommitted(root, facts)
         if unsaved:
             notes.append(unsaved)
@@ -641,6 +646,29 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     entries = [item, *(judge.evidence_entry(r, fingerprint=str(recorded["fingerprint"]))
                        for r in runs)]
     return passed(entries=entries, notes=notes)
+
+
+def rerun(ctx: CheckContext, deps: Deps, head_ref: str) -> CheckResult:
+    """The checks of move 5 on the head of another branch, with no attempt counted.
+
+    The trim pass (P19) calls this straight after a trim, on the scratch branch. It is the
+    same judging as `run`, but the result holds no attempt entry, no judge-run entry and no
+    `send_back`, so nothing is logged and no piece moves. A failure or a refusal is the trim's
+    to lose: the scratch branch is left, and the piece goes on untrimmed.
+    """
+    result = run(ctx, deps, head_ref)
+    if result.ok:
+        return passed(notes=list(result.data.get("notes", [])))
+    if "attempt" not in result.data:
+        return result
+    failures = tuple(result.failures[1:])  # the first line counts an attempt that is not one
+    return CheckResult(
+        ok=False,
+        failures=failures,
+        next_command=(f"the trim is thrown away: the scratch branch {head_ref} is left, and "
+                      "the piece goes on untrimmed"),
+        data={},
+    )
 
 
 # --- the real stand-ins --------------------------------------------------------------------
