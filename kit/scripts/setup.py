@@ -276,7 +276,12 @@ def place_allowlist(plan: Plan, kit: Path, language: str | None) -> None:
 def write_open_questions(plan: Plan) -> None:
     if not plan.open_questions:
         return
-    lines = ["# Open questions", "", "Founding asks no one twice. Each line is a question still open.", ""]
+    lines = [
+        "# Open questions",
+        "",
+        "Founding asks no one twice. Each line is a question still open.",
+        "",
+    ]
     lines += [f"- {question}" for question in plan.open_questions]
     plan.place(OPEN_QUESTIONS, "\n".join(lines) + "\n")
 
@@ -365,7 +370,8 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
             "Which language is this project written in? The network allowlist is empty until "
             "it is known. Run setup.py found --language <name>."
         )
-    mode = args.billing_mode or ("api_key" if os.environ.get("ANTHROPIC_API_KEY") else "subscription")
+    keyed = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    mode = args.billing_mode or ("api_key" if keyed else "subscription")
     if not args.test_command:
         plan.open_questions.append(
             "What command runs every test? The policy's test_command is empty until it is "
@@ -399,7 +405,9 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     if args.repo_visibility == "private" and args.plan == "free":
         plan.warnings.append(FREE_PLAN_WARNING)
     if not args.repo_visibility or not args.plan:
-        plan.asks.append("repo_visibility and plan, to say whether the repository has server-side rules")
+        plan.asks.append(
+            "repo_visibility and plan, to say whether the repository has server-side rules"
+        )
 
     write_open_questions(plan)
     labels = write_labels(plan, root)
@@ -545,7 +553,9 @@ def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
 
 def _common(command: argparse.ArgumentParser) -> None:
     command.add_argument("--project", default=".", help="a folder inside the project")
-    command.add_argument("--kit-dir", default="", help="the installed kit folder (default: this script's)")
+    command.add_argument(
+        "--kit-dir", default="", help="the installed kit folder (default: this script's)"
+    )
     command.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                          help="print JSON on standard output")
     command.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS,
