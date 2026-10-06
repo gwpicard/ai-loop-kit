@@ -43,30 +43,53 @@
       "Bash(gh label edit review:**)",
       "Bash(gh label delete review:**)",
       "Bash(gh api *issues/*/labels*)",
-      "Edit(//**/.agents/pieces/**)"
-    ]
+      "Bash(git commit --no-verify*)",
+      "Bash(git commit * --no-verify*)",
+      "Bash(git commit -n*)",
+      "Bash(git config core.hooksPath*)",
+      "Bash(git config * core.hooksPath*)",
+      "Bash(git config alias.*)",
+      "Bash(git config * alias.*)",
+      "Edit(//**/.agents/pieces/**)",
+      "Edit(//**/.claude/settings.json)",
+      "Edit(//**/.claude/settings.local.json)",
+      "Edit(//**/.github/workflows/**)",
+      "Edit(//**/.githooks/**)",
+      "Edit(//**/.agents/loop/policy.json)",
+      "Edit(//**/.agents/loop/local.json)",
+      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Read(//**/.env)",
+      "Read(//**/.env.*)",
+      "Bash(cat *.env*)",
+      "Bash(head *.env*)",
+      "Bash(tail *.env*)",
+      "Bash(less *.env*)",
+      "Bash(more *.env*)",
+      "Bash(grep *.env*)",
+      "Bash(rg *.env*)",
+      "Bash(sed *.env*)",
+      "Bash(awk *.env*)",
+      "Bash(bat *.env*)",
+      "Bash(cp *.env*)",
+      "Bash(source *.env*)"
+    ],
+    "disableBypassPermissionsMode": "disable"
   },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "hook=\"$CLAUDE_PROJECT_DIR/.agents/hooks/state-guard.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; fi"
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "hook=\"$CLAUDE_PROJECT_DIR/.agents/hooks/session-start.sh\"; if [ -x \"$hook\" ]; then \"$hook\" --claude-hook; fi"
+            "command": "sh \"{{KIT_DIR}}/scripts/session-start.sh\" --claude-hook"
           }
         ]
       }
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false
   }
 }

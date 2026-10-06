@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Bash(python3 {{KIT_DIR}}/scripts/handoff.py:*)",
+      "Edit(/{{WORKTREE}}/**)"
+    ],
+    "deny": [
+      "Bash(git reset --hard:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push * +main)",
+      "Bash(git push * +main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push *refs/heads/main)",
+      "Bash(git push *refs/heads/main *)",
+      "Bash(git clean -f:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(rm -rf:*)",
+      "Bash(rm -r:*)",
+      "Bash(rm -R:*)",
+      "Bash(rm -fr:*)",
+      "Bash(rm -Rf:*)",
+      "Bash(rm -fR:*)",
+      "Bash(rm --recursive:*)",
+      "Bash(git reflog expire:*)",
+      "Bash(git gc*--prune*)",
+      "Bash(gh issue edit * --add-label state:**)",
+      "Bash(gh issue edit * --remove-label state:**)",
+      "Bash(gh issue create * --label state:**)",
+      "Bash(gh label create state:**)",
+      "Bash(gh label edit state:**)",
+      "Bash(gh label delete state:**)",
+      "Bash(gh issue edit * --add-label shaping:**)",
+      "Bash(gh issue edit * --remove-label shaping:**)",
+      "Bash(gh issue create * --label shaping:**)",
+      "Bash(gh label create shaping:**)",
+      "Bash(gh label edit shaping:**)",
+      "Bash(gh label delete shaping:**)",
+      "Bash(gh issue edit * --add-label review:**)",
+      "Bash(gh issue edit * --remove-label review:**)",
+      "Bash(gh issue create * --label review:**)",
+      "Bash(gh label create review:**)",
+      "Bash(gh label edit review:**)",
+      "Bash(gh label delete review:**)",
+      "Bash(gh api *issues/*/labels*)",
+      "Bash(git commit --no-verify*)",
+      "Bash(git commit * --no-verify*)",
+      "Bash(git commit -n*)",
+      "Bash(git config core.hooksPath*)",
+      "Bash(git config * core.hooksPath*)",
+      "Bash(git config alias.*)",
+      "Bash(git config * alias.*)",
+      "Edit(//**/.agents/pieces/**)",
+      "Edit(//**/.claude/settings.json)",
+      "Edit(//**/.claude/settings.local.json)",
+      "Edit(//**/.github/workflows/**)",
+      "Edit(//**/.githooks/**)",
+      "Edit(//**/.agents/loop/policy.json)",
+      "Edit(//**/.agents/loop/local.json)",
+      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Skill",
+      "Read(/{{DATA_DIR}}/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/Library/Keychains/**)",
+      "Read(//**/app-key.pem)",
+      "Read(//**/.agents/loop/local.json)",
+      "Edit(//**/.agents/runs/**)",
+      "Bash(gh *)",
+      "Read(/{{PROJECT_ROOT}}/.env)",
+      "Read(/{{PROJECT_ROOT}}/.env.*)",
+      "Bash(cat *{{PROJECT_ROOT}}/.env*)",
+      "Bash(head *{{PROJECT_ROOT}}/.env*)",
+      "Bash(tail *{{PROJECT_ROOT}}/.env*)",
+      "Bash(less *{{PROJECT_ROOT}}/.env*)",
+      "Bash(more *{{PROJECT_ROOT}}/.env*)",
+      "Bash(grep *{{PROJECT_ROOT}}/.env*)",
+      "Bash(rg *{{PROJECT_ROOT}}/.env*)",
+      "Bash(sed *{{PROJECT_ROOT}}/.env*)",
+      "Bash(awk *{{PROJECT_ROOT}}/.env*)",
+      "Bash(bat *{{PROJECT_ROOT}}/.env*)",
+      "Bash(cp *{{PROJECT_ROOT}}/.env*)",
+      "Bash(source *{{PROJECT_ROOT}}/.env*)"
+    ]
+  },
+  "autoMemoryEnabled": false,
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": true,
+    "filesystem": {
+      "allowWrite": [
+        "{{HANDOFF_FILE}}"
+      ],
+      "denyWrite": [
+        "{{PROJECT_ROOT}}/.claude",
+        "{{PROJECT_ROOT}}/.github/workflows",
+        "{{PROJECT_ROOT}}/.githooks",
+        "{{PROJECT_ROOT}}/.agents/loop",
+        "{{PROJECT_ROOT}}/.agents/pieces",
+        "{{WORKTREE}}/.claude",
+        "{{WORKTREE}}/.github/workflows",
+        "{{WORKTREE}}/.githooks",
+        "{{WORKTREE}}/.agents/loop",
+        "{{WORKTREE}}/.agents/pieces",
+        "{{KIT_DIR}}"
+      ],
+      "denyRead": [
+        "{{DATA_DIR}}",
+        "~/.config/gh",
+        "~/Library/Keychains",
+        "{{PROJECT_ROOT}}/.agents/loop/local.json"
+      ]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org"
+      ]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|MultiEdit|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{KIT_DIR}}/hooks/guard.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|MultiEdit|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{KIT_DIR}}/hooks/command-log.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|MultiEdit|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{KIT_DIR}}/hooks/command-log.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

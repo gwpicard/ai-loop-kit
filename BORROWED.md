@@ -14,8 +14,8 @@ The source column gives a path inside that commit, written with the commit prefi
 | `kit/scripts/bar-guard.sh` | `fbdf054:.agents/skills/section-builder/scripts/bar-guard.sh` | `fbdf054` | verbatim | Names old project paths in its guarded list. |
 | `kit/scripts/test-guard.sh` | `fbdf054:.agents/skills/section-builder/scripts/test-guard.sh` | `fbdf054` | verbatim | Nothing known. |
 | `kit/scripts/co-change.sh` | `fbdf054:.agents/skills/section-builder/scripts/co-change.sh` | `fbdf054` | verbatim | Nothing known. |
-| `kit/scripts/merge-ask-rules.py` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/merge-ask-rules.py` | `fbdf054` | verbatim | Nothing known. |
-| `kit/templates/claude-settings.json` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/claude-settings.json` | `fbdf054` | verbatim | Wires hook paths of the old project layout. |
+| `kit/scripts/merge-ask-rules.py` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/merge-ask-rules.py` | `fbdf054` | adapted: The text points at `kit/templates/merge-ask-rules.json`, and the old skill and step names are gone. The logic is unchanged. | Nothing known. |
+| `kit/templates/claude-settings.json` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/claude-settings.json` | `fbdf054` | adapted: The old state-guard hook line is gone. It now holds the session start hook with a `{{KIT_DIR}}` path, the sandbox block, bypass mode off, the deny rules for `--no-verify`, `core.hooksPath` and git aliases, and write-blocks on the settings, workflows, git hooks, policy file and installed kit. The guard and log hooks come from `kit/hooks/hooks.json`. | Nothing known. |
 | `kit/templates/merge-ask-rules.json` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/merge-ask-rules.json` | `fbdf054` | verbatim | Nothing known. |
 | `kit/templates/working-rules.md` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/working-rules.md` | `fbdf054` | verbatim | Old wording for the area map section. |
 | `kit/templates/piece-issue.yml` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/piece-issue.yml` | `fbdf054` | verbatim | Old field wording; v1 may replace the form. |
@@ -32,8 +32,8 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/bar-guard-rehearsal.sh` | `fbdf054:.agents/tests/bar-guard-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the guard path is `kit/scripts`. | Nothing known. |
 | `tests/co-change-rehearsal.sh` | `fbdf054:.agents/tests/co-change-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script path is `kit/scripts/co-change.sh`. | Nothing known. |
 | `tests/fake-github.sh` | `fbdf054:.agents/tests/fake-github.sh` | `fbdf054` | edited: The stand-in path is `tests/stand-ins/fake-github/gh`. One comment is reworded, "the third issue" for "issue 3", as a tidy reword. | Nothing known. |
-| `tests/push-to-main-rules.sh` | `fbdf054:.agents/tests/push-to-main-rules.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit/templates` and `tests/lib`. Removed the variables and rules that read the maintain skill and `WORKFLOW.md`. | Reads wording in `blocked-commands.md`. |
-| `tests/merge-ask-rule.sh` | `fbdf054:.agents/tests/merge-ask-rule.sh` | `fbdf054` | edited: Folder root now `..`; paths point at `kit`. Removed the variables and rules that read skill prose, `WORKFLOW.md`, the compatibility page and this repository's own settings. | Reads wording in `blocked-commands.md`. |
+| `tests/push-to-main-rules.sh` | `fbdf054:.agents/tests/push-to-main-rules.sh` | `fbdf054` | adapted: Folder root now `..`; paths point at `kit/templates` and `tests/lib`. Removed the variables and rules that read the maintain skill and `WORKFLOW.md`. Knows the new hook-bypass deny rules. | Reads wording in `blocked-commands.md`. |
+| `tests/merge-ask-rule.sh` | `fbdf054:.agents/tests/merge-ask-rule.sh` | `fbdf054` | adapted: Folder root now `..`; paths point at `kit`. Removed the variables and rules that read skill prose, `WORKFLOW.md`, the compatibility page and this repository's own settings. The settings template may now carry other permission keys. | Reads wording in `blocked-commands.md`. |
 | `tests/attribution-scrub.sh` | `fbdf054:.agents/tests/attribution-scrub.sh` | `fbdf054` | edited: Folder root now `..`; the closing check now asks that `tests/house-rules.sh` names no exemption for this file (it asked this of the old validator). | Nothing known. |
 | `kit/scripts/worktree.sh` | `fbdf054:.agents/skills/implement/scripts/worktree.sh` | `fbdf054` | verbatim | Carries the old product name in two lines. |
 | `kit/scripts/bring-up-to-date.sh` | `fbdf054:.agents/skills/section-builder/scripts/bring-up-to-date.sh` | `fbdf054` | edited: The fold script is found beside it (`$HERE/fold-changes.py`), because the scripts now sit in one folder. It was found under a sibling skill folder. | Its error message still says the sync skill's scripts folder. |
@@ -41,7 +41,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `kit/scripts/document-claims.py` | `fbdf054:.agents/skills/sync/scripts/document-claims.py` | `fbdf054` | verbatim | Nothing known. |
 | `kit/scripts/document-bloat.py` | `fbdf054:.agents/skills/maintain/scripts/document-bloat.py` | `fbdf054` | verbatim | Nothing known. |
 | `kit/scripts/check-tooling.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/check-tooling.sh` | `fbdf054` | verbatim | Carries the old product name in one line. |
-| `kit/scripts/session-start.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/session-start.sh` | `fbdf054` | verbatim | Carries the old product name in one line, reads the old check-up file and the `AI_BUILD_KIT_TODAY` variable, and stays silent in a folder with `release-manifest.txt`. |
+| `kit/scripts/session-start.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/session-start.sh` | `fbdf054` | adapted: The old check-up file, the `AI_BUILD_KIT_TODAY` variable, the old product name and the source-folder test are gone. It now calls `gate.py report --json --brief` and prints a fixed fallback line when that fails. | Nothing known. |
 | `kit/scripts/bootstrap-project.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/bootstrap-project.sh` | `fbdf054` | verbatim; no rehearsal drives it here | Untested in this place. It finds the guards and templates by paths under the old skill folders, so it cannot run from `kit/scripts` until those paths change. Carries the old product name in many lines. |
 | `kit/scripts/place-plan-helper.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/place-plan-helper.sh` | `fbdf054` | verbatim; no rehearsal drives it here | Untested in this place. It names the guards by paths under the old skill folders. Carries the old product name in one line. |
 | `tests/fixtures/CHANGELOG.md` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/CHANGELOG.md` | `fbdf054` | verbatim; a test fixture only, not a kit template | Nothing known. |
@@ -49,7 +49,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/fold-at-merge-rehearsal.sh` | `fbdf054:.agents/tests/fold-at-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the scripts are found under `kit/scripts` and the changelog under `tests/fixtures`. The helper is loaded from `tests/lib/rule-shape.sh`. | Nothing known. |
 | `tests/recheck-before-merge-rehearsal.sh` | `fbdf054:.agents/tests/recheck-before-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. The helper is loaded from `tests/lib/rule-shape.sh`. | Nothing known. |
 | `tests/check-tooling.sh` | `fbdf054:.agents/tests/check-tooling.sh` | `fbdf054` | edited: The root is now the folder above the tests (it was `.agents`); the checker is found under `kit/scripts`; the recipe lookup reads `kit/recipes`. The fallback to `tests/recipes-awaiting-run` is gone. A recipe missing from `kit/recipes` is a failure again (stage C2 had skipped it with a note, until the recipes arrived). | Carries the old product name in seven lines. |
-| `tests/session-start.sh` | `fbdf054:.agents/tests/session-start.sh` | `fbdf054` | edited: Rewritten to drive the hook directly. Folder root now `..`; the hook under test is `kit/scripts/session-start.sh`. Removed the release build, the checks on this repository's own settings, and the sections on the released starter and the installer route. The founded project is written inline (a masterplan line and the three check-up lines). The cadence, the 20-changes rule and the silent cases are kept. | Carries the old product name in twelve lines, mostly the check-up file name and the date variable. |
+| `tests/session-start.sh` | `fbdf054:.agents/tests/session-start.sh` | `fbdf054` | adapted: Rewritten again to drive the new hook after a compaction and at a start, against a stand-in gate. It checks the fallback line. The cadence and check-up cases are gone. | Nothing known. |
 | `tests/document-read-rehearsal.sh` | `fbdf054:.agents/tests/document-read-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. Its throwaway project keeps its own `WORKFLOW.md`, which is a fixture. | Nothing known. |
 | `tests/document-bloat-rehearsal.sh` | `fbdf054:.agents/tests/document-bloat-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. Its throwaway project keeps its own `WORKFLOW.md`, which is a fixture. | Nothing known. |
 | `kit/recipes/nextjs-supabase-on-vercel.md` | `fbdf054:.agents/skills/ship/recipes/nextjs-supabase-on-vercel.md` | `fbdf054` | verbatim | Nothing known. |
@@ -116,13 +116,11 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 - `kit/scripts/bootstrap-project.sh`
 - `kit/scripts/check-tooling.sh`
 - `kit/scripts/place-plan-helper.sh`
-- `kit/scripts/session-start.sh`
 - `kit/scripts/worktree.sh`
 - `kit/templates/checks.yml`
 - `tests/area-map-rehearsal.sh`
 - `tests/check-tooling.sh`
 - `tests/kit-owns-worktrees-rehearsal.sh`
-- `tests/session-start.sh`
 - `tests/fixtures/AGENTS.md`
 - `tests/stand-ins/prepare/live-on-vercel.sh`
 - `tests/stand-ins/prepare/live-on-vercel.after-commit.sh`

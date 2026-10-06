@@ -339,8 +339,6 @@ class MatcherCases(Cases):
             "find . -name '*.py'",
             "gh issue view 5",
             "gh issue list --label state:ready",
-            "gh issue edit 12 --add-label type:bug",
-            "gh issue edit 12 --title 'Explain state:ready on the board'",
             "gh label list",
             "gh api repos/o/r/issues/12/labels",
             "python3 kit/scripts/gate.py report",
@@ -370,6 +368,60 @@ class MatcherCases(Cases):
         ):
             with self.subTest(command=command):
                 self.expect(command, ASK)
+
+    def test_the_person_is_asked_before_anything_is_posted_in_their_name(self) -> None:
+        verbs = ("issue create", "pr create", "issue edit", "pr edit", "issue close",
+                 "pr close", "release create")
+        for verb in verbs:
+            for prefix in ("gh", "gh -R o/r", "gh --repo o/r", "gh --repo=o/r"):
+                command = f"{prefix} {verb} --title x"
+                with self.subTest(command=command):
+                    self.expect(command, ASK)
+
+    def test_every_gh_api_write_asks(self) -> None:
+        for command in (
+            "gh api -X POST repos/o/r/issues -f title=x",
+            "gh api -X post repos/o/r/issues -f title=x",
+            "gh api --method post repos/o/r/issues",
+            "gh api --method=patch repos/o/r/issues/1",
+            "gh api -X PATCH repos/o/r/issues/1",
+            "gh api -XPUT repos/o/r/pulls/1/merge",
+            "gh api -X put repos/o/r/pulls/1/merge",
+            "gh api -X DELETE repos/o/r/issues/1",
+            "gh api -X Delete repos/o/r/issues/1",
+            "gh api repos/o/r/issues -f title=x",
+            "gh api repos/o/r/issues -F title=x",
+            "gh api repos/o/r/issues --field title=x",
+            "gh api repos/o/r/issues --raw-field title=x",
+            "gh api repos/o/r/issues --input f.json",
+            "gh -R o/r api repos/o/r/issues -f title=x",
+            "gh api graphql -f query='mutation { createIssue(input: {}) { issue { id } } }'",
+            "gh api graphql -f query='mutation { createPullRequest(input: {}) { id } }'",
+            "gh api graphql -f query='mutation { closeIssue(input: {}) { id } }'",
+            "gh api graphql -f query='mutation { updateIssue(input: {}) { id } }'",
+            "gh api graphql -f query='mutation { mergePullRequest(input: {}) { id } }'",
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_an_edit_that_names_no_state_label_asks(self) -> None:
+        self.expect("gh issue edit 12 --add-label type:bug", ASK)
+        self.expect("gh issue edit 12 --title 'Explain state:ready on the board'", ASK)
+
+    def test_gh_reads_still_pass(self) -> None:
+        for command in (
+            "gh issue view 5",
+            "gh pr list",
+            "gh pr view 5",
+            "gh pr checks 5",
+            "gh release list",
+            "gh api repos/o/r",
+            "gh api repos/o/r/issues -X GET",
+            "gh api repos/o/r/issues --method get",
+            "gh api graphql -f query='query { viewer { login } }'",
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ALLOW)
 
     def test_a_command_that_cannot_be_read_asks(self) -> None:
         self.expect("echo 'unfinished", ASK)
@@ -450,6 +502,16 @@ class SecretsAndCredentials(Cases):
         other = P.data / "other-0123456789ab"
         other.mkdir(exist_ok=True)
         self.refused(f"cat {other}/app-key.pem")
+
+    def test_anything_under_the_data_folder(self) -> None:
+        key = P.key_dir / "evidence.key"
+        key.write_text("not a real key\n")
+        self.refused(f"cat {key}", f"cat {P.key_dir}/evidence-heads/1.json")
+        self.assertEqual(tool("Read", {"file_path": str(key)}).kind, DENY)
+        head = P.key_dir / "evidence-heads" / "1.json"
+        self.assertEqual(tool("Write", {"file_path": str(head), "content": "{}"}).kind, DENY)
+        later = P.key_dir / "added-later" / "x.txt"
+        self.assertEqual(tool("Read", {"file_path": str(later)}).kind, DENY)
 
     def test_held_out_folder(self) -> None:
         held = P.key_dir / "held-out"
@@ -970,6 +1032,34 @@ class CommandLog(unittest.TestCase):
         payload = {"session_id": "s", "tool_name": "Bash", "cwd": str(project),
                    "tool_input": {"command": "ls"}}
         command_log.record(payload, "pass", "", env)
+
+
+class HookBypasses(Cases):
+    """Ways to switch off the git hooks, or to hide a command behind a name."""
+
+    def test_the_refused_spellings(self) -> None:
+        self.refused(
+            "git commit --no-verify -m x",
+            "git commit -m x --no-verify",
+            "git commit -n -m x",
+            "git commit -nm x",
+            "git -C . commit --no-verify -m x",
+            "git config core.hooksPath /tmp/none",
+            "git config --global core.hooksPath /tmp/none",
+            "git config --unset core.hooksPath",
+            "git -c core.hooksPath=/tmp/none commit -m x",
+            "git config alias.st status",
+            "git config --global alias.p 'push origin main'",
+        )
+
+    def test_the_spellings_that_pass(self) -> None:
+        self.passes(
+            "git commit -m x",
+            "git commit -am 'fix the name'",
+            "git config --get core.hooksPath",
+            "git config user.name Someone",
+            "git config --get alias.st",
+        )
 
 
 if __name__ == "__main__":
