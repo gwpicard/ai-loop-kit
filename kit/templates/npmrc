@@ -1,0 +1,12 @@
+# Supply chain settings for npm and pnpm. Copy this file to .npmrc in the project.
+#
+# ignore-scripts: a package cannot run code at install time.
+ignore-scripts=true
+#
+# Minimum release age: a new release cannot be installed until it is 30 days old.
+# The two managers use two names and two units, and each one ignores the other's.
+# npm 11.10 or later reads min-release-age, in days. Older npm ignores it
+# (and may warn about an unknown setting). Check with `npm config ls -l`.
+min-release-age=30
+# pnpm 10.16 or later reads minimum-release-age, in minutes (43200 is 30 days).
+minimum-release-age=43200
