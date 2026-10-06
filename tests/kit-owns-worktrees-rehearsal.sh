@@ -4,12 +4,13 @@
 #
 # kit-owns-worktrees.sh holds the rules as written. This half runs the shipped
 # `worktree.sh` the rules name, because the promises that matter are about what
-# happens on disk: git ignores the folder, the .env arrives as a link and never
-# as a copy, the main folder never moves off its branch, and a worktree is
-# removed after its pull request closes only when nothing in it is unsaved.
-# Removing the wrong worktree loses somebody's work, and nothing would say so.
+# happens on disk: git ignores the folder, the worktree gets throwaway values
+# under the kit's marker line and never the real env file, the main folder never
+# moves off its branch, and a worktree is removed after its pull request closes
+# only when nothing in it is unsaved. Removing the wrong worktree loses
+# somebody's work, and nothing would say so.
 #
-# It also runs the worktree-links line, which links ignored build files such
+# It also runs the worktree-links line, in `.agents/loop/worktree-links.txt`, which links ignored build files such
 # as fonts into each worktree and refuses confidential, env, tracked, outside
 # and missing paths by name, and a sibling worktree standing for another
 # tool's, which the script must never list, change or remove.
@@ -32,7 +33,8 @@ check() { if [ "$2" = yes ]; then ok "$1"; else fail "$1"; fi; }
 [ -f "$SCRIPT" ] || fail "there is no worktree script at $SCRIPT"
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT INT TERM
+# The folder is left in place for you to read, as tests/lib/throwaway-project.sh
+# leaves its own. Nothing here deletes it.
 
 REAL_GIT=$(command -v git)
 mkdir -p "$WORK/bin"
@@ -100,7 +102,7 @@ project() {
   # A Next.js project keeps its keys in .env.local, and ignores it.
   echo ".env.local" >> "$1/.gitignore"
   echo "tool" > "$1/tool.txt"
-  echo "SAMPLE_KEY=" > "$1/.env.example"
+  printf 'SAMPLE_KEY=changeme\nPORT=3000\n' > "$1/.env.example"
   git -C "$1" add -A
   git -C "$1" commit -q -m "Project"
   git -C "$1" remote add origin "$1.git"
@@ -136,22 +138,43 @@ check "nothing tracked changed in the main folder" "$r"
 [ -z "$(git -C "$W" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" ] && r=yes || r=no
 check "the piece's branch does not track main" "$r"
 
-[ -L "$W/.env" ] && [ -L "$W/.env.local" ] && r=yes || r=no
-check "the worktree's .env and .env.local are links" "$r"
-[ "$(readlink "$W/.env")" = "../../../.env" ] && \
-  [ "$(cd "$W/../../.." && pwd -P)" = "$(cd "$P" && pwd -P)" ] && r=yes || r=no
-check "the link leads to the main folder's .env" "$r"
-cmp -s "$W/.env" "$P/.env" && r=yes || r=no
-check "the worktree reads the main folder's secret through the link" "$r"
+MARKER=$(PYTHONPATH="$ROOT/kit/hooks" python3 -c 'import guard; print(guard.THROWAWAY_MARKER)' 2>/dev/null || true)
+[ -n "$MARKER" ] || fail "the guard hook names no THROWAWAY_MARKER"
+[ -f "$W/.env" ] && [ ! -L "$W/.env" ] && r=yes || r=no
+check "the worktree's .env is a real file of its own, not a link" "$r"
+[ "$(sed -n '1p' "$W/.env")" = "$MARKER" ] && r=yes || r=no
+check "its first line is exactly the guard's marker line" "$r"
+[ "$(sed -n '2,$p' "$W/.env")" = "$(cat "$W/.env.example")" ] && r=yes || r=no
+check "the rest are the values of the tracked .env.example" "$r"
+[ ! -e "$W/.env.local" ] && r=yes || r=no
+check "the real .env.local is not brought into the worktree, by link or copy" "$r"
+grep -rq "not-a-real-secret" "$W" 2>/dev/null && r=no || r=yes
+check "no value from the main folder's real env files reaches the worktree" "$r"
+[ "$(git -C "$W" status --porcelain --ignored | grep -c '^!! .env$')" = 1 ] && r=yes || r=no
+check "git ignores the throwaway .env" "$r"
 [ ! -L "$W/.env.example" ] && [ -f "$W/.env.example" ] && r=yes || r=no
 check "a tracked .env.example is checked out, not linked" "$r"
-copies=$(find "$WORK" -name '.env' -type f | grep -v "^$P/.env\$" || true)
-[ -z "$copies" ] && r=yes || r=no
-check "no copy of .env exists outside the main folder" "$r"
-case $out in *"Linked"*) r=yes ;; *) r=no ;; esac
-check "it says the .env was linked" "$r"
+links=$(find "$W" -type l 2>/dev/null | grep -v '/\.git$' || true)
+[ -z "$links" ] && r=yes || r=no
+check "the worktree holds no link to the main folder at all" "$r"
+case $out in *"throwaway"*) r=yes ;; *) r=no ;; esac
+check "it says the .env holds throwaway values" "$r"
 [ -z "$(git -C "$W" status --porcelain)" ] && r=yes || r=no
-check "the links are not unsaved work" "$r"
+check "the throwaway .env is not unsaved work" "$r"
+run "$P" unsaved "$W" >/dev/null && r=yes || r=no
+check "and the unsaved check agrees" "$r"
+
+echo "== A file in .agents/tmp never reaches git =="
+
+mkdir -p "$W/.agents/tmp"
+echo "scratch" > "$W/.agents/tmp/scratch.md"
+[ -z "$(git -C "$W" status --porcelain)" ] && r=yes || r=no
+check "a file in .agents/tmp does not show as a change" "$r"
+git -C "$W" add -A
+[ -z "$(git -C "$W" diff --cached --name-only)" ] && r=yes || r=no
+check "git add -A does not stage it" "$r"
+git -C "$W" reset -q
+rm -f "$W/.agents/tmp/scratch.md"
 
 echo "== A piece that stacks on another =="
 
@@ -298,31 +321,34 @@ out=$(run "$P" remove "$P") && code=0 || code=$?
 [ "$code" -eq 1 ] && [ -d "$P/.git" ] && r=yes || r=no
 check "the main folder itself can never be removed" "$r"
 
-echo "== No .env, and no ignore line =="
+echo "== No .env.example, and no ignore line =="
 
 Q="$WORK/bare-project"
 grep -v '^\.agents/worktrees/$' "$IGNORE" > "$WORK/gitignore-older"
 project "$Q" "$WORK/gitignore-older"
-rm -f "$Q/.env" "$Q/.env.local"
+git -C "$Q" rm -q .env.example
+git -C "$Q" commit -q -m "No example"
+git -C "$Q" push -q origin main 2>/dev/null
 out=$(run "$Q" open 21-first 21-first origin/main)
-[ ! -e "$Q/.agents/worktrees/21-first/.env" ] && case $out in *"nothing was linked"*) true ;; *) false ;; esac && r=yes || r=no
-check "with no .env in the main folder, nothing is linked" "$r"
+[ ! -e "$Q/.agents/worktrees/21-first/.env" ] && case $out in *"No .env.example"*) true ;; *) false ;; esac && r=yes || r=no
+check "with no .env.example, no .env is made, and it says so" "$r"
 git -C "$Q" check-ignore -q .agents/worktrees/21-first && [ -f "$Q/.agents/worktrees/.gitignore" ] && r=yes || r=no
 check "an older project with no ignore line gets a folder that ignores itself" "$r"
 [ -z "$(git -C "$Q" status --porcelain)" ] && r=yes || r=no
 check "and nothing tracked changes" "$r"
 
-echo "== A link that cannot be made =="
+echo "== A .env that git does not ignore =="
+
+U="$WORK/unignored-project"
+grep -v '^\.env$' "$IGNORE" > "$WORK/gitignore-no-env"
+project "$U" "$WORK/gitignore-no-env"
+out=$(run "$U" open 23-open-env 23-open-env origin/main)
+[ ! -e "$U/.agents/worktrees/23-open-env/.env" ] && case $out in *"does not ignore .env"*) true ;; *) false ;; esac && r=yes || r=no
+check "where git would show .env as new, none is written, and it says why" "$r"
 
 mkdir -p "$WORK/noln"
 printf '#!/usr/bin/env sh\nexit 1\n' > "$WORK/noln/ln"
 chmod +x "$WORK/noln/ln"
-echo "SECRET_KEY=not-a-real-secret" > "$Q/.env"
-out=$(PATH="$WORK/noln:$PATH"; export PATH; run "$Q" open 22-no-link 22-no-link origin/main) && code=0 || code=$?
-[ "$code" -eq 0 ] && [ ! -e "$Q/.agents/worktrees/22-no-link/.env" ] && r=yes || r=no
-check "where the link cannot be made, no copy is made either" "$r"
-case $out in *"runs without secrets"*"flag anything"*) r=yes ;; *) r=no ;; esac
-check "it says the piece runs without secrets and to flag what needs a key" "$r"
 
 echo "== A free port =="
 
@@ -373,34 +399,59 @@ out=$(run "$R" remove "$N") && code=0 || code=$?
 [ "$code" -eq 1 ] && [ -f "$N/.agents/tmp/note.md" ] && r=yes || r=no
 check "remove, at the end of a run or on a yes, keeps it too" "$r"
 
-echo "== A copy of .env where a link would go =="
+echo "== A walk-through picture outlives the worktree =="
+
+# A builder saves its walk-through pictures in the main folder's .agents/tmp,
+# which it finds with the lookup worktree.sh itself uses: the first worktree git
+# lists is the main folder, from inside any worktree.
+LOOKUP="git worktree list --porcelain | sed -n '1s/^worktree //p'"
+run "$R" open 40-walkthrough 40-walkthrough origin/main >/dev/null
+K="$R/.agents/worktrees/40-walkthrough"
+main=$(cd "$K" && sh -c "$LOOKUP")
+[ "$(cd "$main" && pwd -P)" = "$(cd "$R" && pwd -P)" ] && r=yes || r=no
+check "from inside a worktree, the lookup names the main folder" "$r"
+mkdir -p "$main/.agents/tmp/walkthrough/40"
+echo "picture" > "$main/.agents/tmp/walkthrough/40/step-1.png"
+[ -z "$(git -C "$R" status --porcelain)" ] && r=yes || r=no
+check "a picture in the main folder's .agents/tmp never reaches git" "$r"
+[ ! -e "$K/.agents/tmp/walkthrough" ] && r=yes || r=no
+check "and nothing was written inside the worktree" "$r"
+pr "40-walkthrough MERGED $(git -C "$K" rev-parse HEAD)"
+out=$(run "$R" remove "$K") && code=0 || code=$?
+[ "$code" -eq 0 ] && [ ! -d "$K" ] && r=yes || r=no
+check "the worktree is cleared away once its pull request closes" "$r"
+[ -f "$R/.agents/tmp/walkthrough/40/step-1.png" ] && r=yes || r=no
+check "and the picture outlives it" "$r"
+
+echo "== A .env already in the worktree =="
 
 run "$R" open 31-copy 31-copy origin/main >/dev/null
 C="$R/.agents/worktrees/31-copy"
+run "$R" unsaved "$C" >/dev/null && r=yes || r=no
+check "the throwaway .env a worktree starts with is not unsaved work" "$r"
+sed -i.bak 's/PORT=3000/PORT=4567/' "$C/.env"
+rm -f "$C/.env.bak"
+out=$(run "$R" open --resume 31-copy 31-copy origin/main) && code=0 || code=$?
+grep -q "PORT=4567" "$C/.env" && [ "$(sed -n '1p' "$C/.env")" = "$MARKER" ] && r=yes || r=no
+check "a throwaway .env the builder edited is kept as it is on a resume" "$r"
 rm -f "$C/.env"
 cp "$R/.env" "$C/.env"
 out=$(run "$R" unsaved "$C") && code=0 || code=$?
 [ "$code" -eq 1 ] && r=yes || r=no
-check "a copy of .env in a worktree is unsaved work, so it is never removed" "$r"
+check "a copy of the real .env in a worktree is unsaved work, so it is never removed" "$r"
 out=$(run "$R" open --resume 31-copy 31-copy origin/main) && code=0 || code=$?
-case $out in *"A copy of .env already sits in this worktree"*"copy outside the main folder"*) r=yes ;; *) r=no ;; esac
-check "an existing copy of .env is named and not linked" "$r"
-case $out in *"No .env in the main folder"*) r=no ;; *) r=yes ;; esac
-check "and it is never called a missing .env" "$r"
-[ ! -L "$C/.env" ] && r=yes || r=no
-check "the copy is left as it is" "$r"
+case $out in *"already sits in this worktree"*"does not start with the kit's marker line"*"Flag the piece"*) r=yes ;; *) r=no ;; esac
+check "a .env without the marker line is named, and the piece flagged" "$r"
+cmp -s "$C/.env" "$R/.env" && [ ! -L "$C/.env" ] && r=yes || r=no
+check "the file is left as it is, never overwritten" "$r"
 rm -f "$C/.env"
-
-T="$WORK/nested-project"
-project "$T" "$IGNORE"
-rm -f "$T/.env" "$T/.env.local"
-mkdir -p "$T/app"
-echo "SECRET_KEY=not-a-real-secret" > "$T/app/.env"
-out=$(run "$T" open 32-nested 32-nested origin/main)
-case $out in *"A .env sits in app rather than at the top"*) r=yes ;; *) r=no ;; esac
-check "a .env only in a subfolder is named, and nothing is linked" "$r"
-case $out in *"No .env in the main folder"*) r=no ;; *) r=yes ;; esac
-check "and the main folder is not said to have none" "$r"
+ln -s "../../../.env" "$C/.env"
+out=$(run "$R" open --resume 31-copy 31-copy origin/main) && code=0 || code=$?
+case $out in *"already sits in this worktree"*"marker line"*) r=yes ;; *) r=no ;; esac
+check "a link to the main folder's .env, such as an older kit made, is named too" "$r"
+[ -L "$C/.env" ] && r=yes || r=no
+check "and left for the person to clear away" "$r"
+rm -f "$C/.env"
 
 echo "== A worktree on no branch =="
 
@@ -429,7 +480,7 @@ check "a skip gives git's own reason line" "$r"
 "$REAL_GIT" -C "$R" show-ref --verify -q refs/heads/34-bad-base && r=no || r=yes
 check "a failed open leaves no branch behind" "$r"
 run "$R" open 35-gone 35-gone origin/main >/dev/null
-rm -rf "$R/.agents/worktrees/35-gone"
+mv "$R/.agents/worktrees/35-gone" "$WORK/moved-35-gone"
 out=$(run "$R" open 35-gone 35-gone origin/main) && code=0 || code=$?
 [ "$code" -eq 1 ] && case $out in *"git worktree prune"*) true ;; *) false ;; esac && r=yes || r=no
 check "a folder git still lists but is gone names git worktree prune" "$r"
@@ -516,7 +567,8 @@ echo "report" > "$L/private/report.pdf"
 echo "secret" > "$L/data/secret/list.csv"
 echo "PROD_KEY=not-a-real-secret" > "$L/.env.production"
 echo "far" > "$WORK/elsewhere.txt"
-cat >> "$L/.ai-build-kit-maintenance" <<'REC'
+mkdir -p "$L/.agents/loop"
+cat >> "$L/.agents/loop/worktree-links.txt" <<'REC'
 founded|2026-09-01
 confidential|private
 confidential|data/secret
@@ -636,8 +688,8 @@ git -C "$M" commit -q -m "Ignore fonts"
 mkdir -p "$M/fonts"
 echo "font" > "$M/fonts/Brand.ttf"
 out=$(run "$M" open 52-plain 52-plain origin/main)
-[ ! -e "$M/.agents/worktrees/52-plain/fonts" ] && [ -L "$M/.agents/worktrees/52-plain/.env" ] && r=yes || r=no
-check "with no worktree-links line only the .env files are linked" "$r"
+[ ! -e "$M/.agents/worktrees/52-plain/fonts" ] && [ -f "$M/.agents/worktrees/52-plain/.env" ] && r=yes || r=no
+check "with no worktree-links line nothing is linked, and the worktree still gets its throwaway .env" "$r"
 
 echo "== Beside another tool's worktrees =="
 
