@@ -17,8 +17,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from gate import section  # the heading rules live in gate.py; none are copied here
-
 SUPPORTED_VERSIONS = (1,)
 
 START = re.compile(r"^<!-- spec:start(?: version=(\S+))? -->\s*$")
@@ -114,6 +112,32 @@ EDGE_LINE = re.compile(r"^(EC-\d+)\s+(.*)$")
 LIST_MARK = re.compile(r"^(?:[-*]\s+|\d+[.)]\s+)")
 KEY_LINE = re.compile(r"^([A-Za-z][A-Za-z -]*?):\s*(.*)$")
 CHANGE_LABELS = ("Added", "Changed", "Removed", "Docs", "New area")
+
+
+def section(body: str, heading: str, last: bool = False) -> str | None:
+    """The text under a "## heading", or None when there is no such section.
+
+    A heading inside a fenced code block does not count. Any "# " or "## "
+    heading ends the section. With last=True only the last such section is read.
+    """
+    found: list[list[str]] = []
+    current: list[str] | None = None
+    fence = False
+    for line in body.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        if not fence and re.match(r"^#{1,2}\s", line):
+            current = None
+            if line[2:].strip().lower() == heading.lower() and line.startswith("## "):
+                current = []
+                found.append(current)
+            continue
+        if current is not None:
+            current.append(line)
+    if not found:
+        return None
+    chosen = found[-1:] if last else found
+    return "\n".join("\n".join(part) for part in chosen).strip()
 
 
 class SpecError(Exception):
@@ -470,3 +494,126 @@ def parse(body: str) -> Spec:
     spec.research = _bullets(spec.fields["research"])
     spec.open_questions = _bullets(spec.fields["open_questions"])
     return spec
+
+
+# --- edits the gate makes ----------------------------------------------------------
+#
+# The gate is the only writer of these edits. They live here because this is the
+# only module that names the spec markers.
+
+
+def _block_span(lines: list[str]) -> tuple[int, int] | None:
+    """The line numbers of the start and end markers, or None with no block."""
+    fence = False
+    start: int | None = None
+    for number, line in enumerate(lines):
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+            continue
+        if fence:
+            continue
+        if START.match(line) and start is None:
+            start = number
+        elif END.match(line) and start is not None:
+            return start, number
+    return None
+
+
+def split_after_block(body: str) -> tuple[str, str]:
+    """(the text up to and including the end marker, the text after it).
+
+    With no block it is ("", body). A block the parser refuses raises `SpecError`.
+    """
+    if _find_block(body) is None:
+        return "", body
+    lines = body.splitlines()
+    span = _block_span(lines)
+    assert span is not None
+    end = span[1]
+    return "\n".join(lines[: end + 1]), "\n".join(lines[end + 1 :])
+
+
+def _heading_of(key: str) -> str:
+    for field_key, heading in FIELDS:
+        if field_key == key:
+            return heading
+    raise KeyError(key)
+
+
+def _section_span(lines: list[str], start: int, end: int, heading: str) -> tuple[int, int] | None:
+    """(heading line, first line after the section) inside the block, or None."""
+    fence = False
+    found: int | None = None
+    for number in range(start + 1, end):
+        line = lines[number]
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        if fence or not re.match(r"^#{1,2}\s", line):
+            continue
+        if found is not None:
+            return found, number
+        if line.startswith("## ") and line[3:].strip().lower() == heading.lower():
+            found = number
+    return (found, end) if found is not None else None
+
+
+def _need_block(body: str) -> tuple[list[str], int, int]:
+    if _find_block(body) is None:
+        raise SpecError(
+            "the issue holds no spec block, so the gate cannot write into it",
+            next_command="add the spec block as kit/spec-format.md says, then run it again",
+        )
+    lines = body.splitlines()
+    span = _block_span(lines)
+    assert span is not None
+    return lines, span[0], span[1]
+
+
+def add_list_item(body: str, key: str, item: str) -> str:
+    """The body with `- item` added to a list field, made if missing. "None." goes."""
+    lines, start, end = _need_block(body)
+    heading = _heading_of(key)
+    entry = "- " + _collapse(item)
+    span = _section_span(lines, start, end, heading)
+    if span is None:
+        new = [*lines[:end], "", f"## {heading}", entry, *lines[end:]]
+        return "\n".join(new) + ("\n" if body.endswith("\n") else "")
+    first, after = span
+    content = list(range(first + 1, after))
+    while content and not lines[content[-1]].strip():
+        content.pop()
+    kept = [n for n in content if lines[n].strip().strip(".").lower() != "none"]
+    section = [lines[n] for n in kept] + [entry]
+    new = [*lines[: first + 1], *section, *([""] if after < end else []), *lines[after:]]
+    return "\n".join(new) + ("\n" if body.endswith("\n") else "")
+
+
+def remove_list_item(body: str, key: str, item: str) -> str:
+    """The body without the list item whose text (blanks collapsed) is `item`."""
+    lines, start, end = _need_block(body)
+    span = _section_span(lines, start, end, _heading_of(key))
+    if span is None:
+        return body
+    first, after = span
+    groups: list[list[int]] = []
+    for number in range(first + 1, after):
+        line = lines[number].strip()
+        if re.match(r"^[-*]\s+", line):
+            groups.append([number])
+        elif line and groups:
+            groups[-1].append(number)
+    target = _collapse(item)
+    drop: set[int] = set()
+    for group in groups:
+        text = _collapse(" ".join(lines[n].strip() for n in group))
+        if re.sub(r"^[-*]\s+", "", text) == target:
+            drop.update(group)
+            break
+    if not drop:
+        return body
+    kept = [n for n in range(first + 1, after) if n not in drop]
+    section = [lines[n] for n in kept]
+    if not any(line.strip() for line in section):
+        section = ["None.", *([""] if after < end else [])]
+    new = [*lines[: first + 1], *section, *lines[after:]]
+    return "\n".join(new) + ("\n" if body.endswith("\n") else "")

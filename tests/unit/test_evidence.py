@@ -10,7 +10,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
-import gate  # noqa: E402
 from loop import evidence  # noqa: E402
 from loop.paths import Paths  # noqa: E402
 
@@ -67,7 +66,7 @@ class Chain(unittest.TestCase):
         previous = ""
         lines = ""
         for n in (1, 2):
-            chain = gate.chain_of(previous, {"n": n})
+            chain = evidence.chain_of(previous, {"n": n})
             lines += json.dumps({"n": n, "chain": chain}, sort_keys=True) + "\n"
             previous = chain
         self.file.write_text(lines, encoding="utf-8")
@@ -102,7 +101,7 @@ class Chain(unittest.TestCase):
         previous = ""
         lines = ""
         for n in (1, 2, 3):
-            chain = gate.chain_of(previous, {"n": n, "forged": True})
+            chain = evidence.chain_of(previous, {"n": n, "forged": True})
             lines += json.dumps({"n": n, "forged": True, "chain": chain}, sort_keys=True) + "\n"
             previous = chain
         self.file.write_text(lines, encoding="utf-8")
@@ -173,6 +172,7 @@ class Chain(unittest.TestCase):
     def test_no_kit_file_outside_the_gate_calls_evidence_append(self) -> None:
         allowed = {
             ROOT / "kit" / "scripts" / "gate.py",
+            ROOT / "kit" / "scripts" / "loop" / "moves.py",  # the gate's moves
             ROOT / "kit" / "scripts" / "loop" / "evidence.py",
         }
         pattern = re.compile(

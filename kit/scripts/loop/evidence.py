@@ -35,8 +35,6 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from gate import chain_of
-
 from loop import cli
 from loop.paths import PathError, Paths, find_project_root
 
@@ -51,6 +49,11 @@ class EvidenceError(Exception):
     def __init__(self, message: str, *, next_command: str = STOP) -> None:
         super().__init__(message)
         self.next_command = next_command
+
+
+def chain_of(previous: str, entry: dict[str, Any]) -> str:
+    """The unkeyed chain token of the gate's older format. It proves nothing alone."""
+    return sha256((previous + json.dumps(entry, sort_keys=True)).encode("utf-8")).hexdigest()
 
 
 def record_path(paths: Paths, number: int) -> Path:
