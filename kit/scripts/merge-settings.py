@@ -11,7 +11,9 @@ taken out or changed:
 - an object is merged key by key;
 - a list keeps the person's entries first, then adds each template entry the
   list lacks;
-- for any other value, the person's value stays.
+- for any other value, the person's value stays. When it differs from the
+  kit's value, such as `sandbox.enabled: false`, the script reports it on
+  stderr and in `overridden`, so a person's value never beats a guard unseen.
 
 Each `--set NAME=VALUE` replaces `{{NAME}}` in the template's text before the
 merge, such as `--set KIT_DIR=/path/to/kit`. A second run with the same
@@ -34,14 +36,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop import cli
 
 
-def merge(mine: Any, template: Any, added: list[str], where: str = "") -> Any:
-    """The person's value with the template's additions. `added` collects what changed."""
+def merge(
+    mine: Any,
+    template: Any,
+    added: list[str],
+    where: str = "",
+    overridden: list[str] | None = None,
+) -> Any:
+    """The person's value with the template's additions. `added` collects what changed.
+
+    `overridden` collects each place where the person's own value differs from the kit's.
+    """
     if isinstance(mine, dict) and isinstance(template, dict):
         out = dict(mine)
         for key, value in template.items():
             here = f"{where}.{key}" if where else key
             if key in out:
-                out[key] = merge(out[key], value, added, here)
+                out[key] = merge(out[key], value, added, here, overridden)
             else:
                 out[key] = value
                 added.append(here)
@@ -53,6 +64,9 @@ def merge(mine: Any, template: Any, added: list[str], where: str = "") -> Any:
                 out_list.append(item)
                 added.append(f"{where}: {json.dumps(item)[:80]}")
         return out_list
+    if overridden is not None and mine != template:
+        theirs, kits = json.dumps(mine)[:60], json.dumps(template)[:60]
+        overridden.append(f"{where}: {theirs} (the kit's value is {kits})")
     return mine
 
 
@@ -105,7 +119,11 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
     else:
         mine = {}
     added: list[str] = []
-    merged = merge(mine, template, added)
+    overridden: list[str] = []
+    merged = merge(mine, template, added, overridden=overridden)
+    for line in overridden:
+        print(f"merge-settings.py: your value beats the kit's guard value at {line}",
+              file=sys.stderr)
     if added and not args.dry_run:
         target.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".merge-settings.")
@@ -117,7 +135,8 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
         else:
             os.chmod(temporary, 0o644)
         os.replace(temporary, target)
-    return {"target": str(target), "changed": bool(added), "added": added}
+    return {"target": str(target), "changed": bool(added), "added": added,
+            "overridden": overridden}
 
 
 def main(argv: list[str]) -> int:

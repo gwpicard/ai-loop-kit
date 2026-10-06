@@ -22,7 +22,6 @@
     {"id": "no-alias", "template": "claude-settings", "tool": "Bash", "input": "git config alias.st status", "layer1": "deny", "guard": "deny"},
     {"id": "no-alias-global", "template": "claude-settings", "tool": "Bash", "input": "git config --global alias.st status", "layer1": "deny", "guard": "deny"},
     {"id": "ask-before-merge", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr merge 12 --squash", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and a merge on GitHub that the person decides"},
-
     {"id": "guard-settings-file", "template": "claude-settings", "tool": "Edit", "input": "{main}/.claude/settings.json", "layer1": "deny", "guard": "deny"},
     {"id": "guard-local-settings-file", "template": "claude-settings", "tool": "Write", "input": "{main}/.claude/settings.local.json", "layer1": "deny", "guard": "deny"},
     {"id": "guard-settings-file-in-worktree", "template": "claude-settings", "tool": "Edit", "input": "{work}/.claude/settings.json", "layer1": "deny", "guard": "deny"},
@@ -32,7 +31,6 @@
     {"id": "guard-piece-records", "template": "claude-settings", "tool": "Edit", "input": "{main}/.agents/pieces/3/evidence.jsonl", "layer1": "deny", "guard": "deny"},
     {"id": "guard-installed-kit-hooks", "template": "claude-settings", "tool": "Edit", "input": "{kit}/hooks/guard.py", "layer1": "deny", "guard": "deny"},
     {"id": "guard-installed-kit-gate", "template": "claude-settings", "tool": "Write", "input": "{kit}/scripts/gate.py", "layer1": "deny", "guard": "deny"},
-
     {"id": "builder-no-held-out-read", "template": "builder-settings", "tool": "Read", "input": "{data}/held-out/case-1.json", "layer1": "deny", "guard": "deny"},
     {"id": "builder-no-held-out-write", "template": "builder-settings", "tool": "Write", "input": "{data}/held-out/case-1.json", "layer1": "deny", "guard": "deny"},
     {"id": "builder-no-app-key-read", "template": "builder-settings", "tool": "Read", "input": "{data}/app-key.pem", "layer1": "deny", "guard": "deny"},
@@ -40,7 +38,35 @@
     {"id": "builder-no-keychain-read", "template": "builder-settings", "tool": "Read", "input": "{home}/Library/Keychains/login.keychain-db", "layer1": "deny", "guard": "deny"},
     {"id": "builder-no-local-settings-read", "template": "builder-settings", "tool": "Read", "input": "{main}/.agents/loop/local.json", "layer1": "deny", "guard": "none", "other_layer": "the sandbox read-block on the same file"},
     {"id": "builder-no-run-folder-write", "template": "builder-settings", "tool": "Edit", "input": "{main}/.agents/runs/night-1/run.json", "layer1": "deny", "guard": "none", "other_layer": "the sandbox, which allows one hand-off file in the run folder and no other write there"},
-    {"id": "builder-no-run-log-write", "template": "builder-settings", "tool": "Write", "input": "{main}/.agents/runs/night-1/commands.log", "layer1": "deny", "guard": "none", "other_layer": "the sandbox, which allows one hand-off file in the run folder and no other write there"}
+    {"id": "builder-no-run-log-write", "template": "builder-settings", "tool": "Write", "input": "{main}/.agents/runs/night-1/commands.log", "layer1": "deny", "guard": "none", "other_layer": "the sandbox, which allows one hand-off file in the run folder and no other write there"},
+    {"id": "ask-issue-create", "template": "merge-ask-rules", "tool": "Bash", "input": "gh issue create --title x --body y", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-pr-create", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr create --fill", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-issue-comment", "template": "merge-ask-rules", "tool": "Bash", "input": "gh issue comment 12 --body hello", "layer1": "ask", "guard": "ask"},
+    {"id": "ask-pr-comment", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr comment 12 --body hello", "layer1": "ask", "guard": "ask"},
+    {"id": "ask-pr-review", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr review 12 --approve", "layer1": "ask", "guard": "ask"},
+    {"id": "ask-issue-edit", "template": "merge-ask-rules", "tool": "Bash", "input": "gh issue edit 12 --title new", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-pr-edit", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr edit 12 --title new", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-post", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api -X POST repos/o/r/issues/12", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-patch", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api -X PATCH repos/o/r/issues/12", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-put", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api -X PUT repos/o/r/issues/12", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-delete", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api -X DELETE repos/o/r/issues/12", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-long-method", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api --method POST repos/o/r/issues", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-long-method-equals", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api --method=PATCH repos/o/r/issues/12", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-joined-method", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api -XPUT repos/o/r/issues/12", "layer1": "ask", "guard": "none", "other_layer": "the person's own yes in the confirmation box, and builder settings that deny every gh call, with the gh config read-blocked, so only an attended session can post"},
+    {"id": "ask-api-comment-post", "template": "merge-ask-rules", "tool": "Bash", "input": "gh api -X POST repos/o/r/issues/12/comments -f body=hi", "layer1": "ask", "guard": "ask"},
+    {"id": "builder-no-gh-issue-create", "template": "builder-settings", "tool": "Bash", "input": "gh issue create --title x", "layer1": "deny", "guard": "none", "other_layer": "no GitHub credential in a builder session: the sandbox read-block on the gh config and keychain, and the network allowlist without github.com"},
+    {"id": "builder-no-gh-pr-create", "template": "builder-settings", "tool": "Bash", "input": "gh pr create --fill", "layer1": "deny", "guard": "none", "other_layer": "no GitHub credential in a builder session: the sandbox read-block on the gh config and keychain, and the network allowlist without github.com"},
+    {"id": "builder-no-gh-comment", "template": "builder-settings", "tool": "Bash", "input": "gh pr comment 12 --body hi", "layer1": "deny", "guard": "ask"},
+    {"id": "builder-no-gh-api-post", "template": "builder-settings", "tool": "Bash", "input": "gh api -X POST repos/o/r/issues", "layer1": "deny", "guard": "none", "other_layer": "no GitHub credential in a builder session: the sandbox read-block on the gh config and keychain, and the network allowlist without github.com"},
+    {"id": "builder-no-gh-api-read", "template": "builder-settings", "tool": "Bash", "input": "gh api repos/o/r/issues", "layer1": "deny", "guard": "none", "other_layer": "no GitHub credential in a builder session: the sandbox read-block on the gh config and keychain, and the network allowlist without github.com"},
+    {"id": "attended-no-env-read", "template": "claude-settings", "tool": "Read", "input": "{main}/.env", "layer1": "deny", "guard": "deny"},
+    {"id": "attended-no-env-local-read", "template": "claude-settings", "tool": "Read", "input": "{main}/.env.local", "layer1": "deny", "guard": "deny"},
+    {"id": "attended-no-env-cat", "template": "claude-settings", "tool": "Bash", "input": "cat {main}/.env", "layer1": "deny", "guard": "deny"},
+    {"id": "attended-no-env-grep", "template": "claude-settings", "tool": "Bash", "input": "grep KEY {main}/.env.production", "layer1": "deny", "guard": "deny"},
+    {"id": "builder-no-env-read", "template": "builder-settings", "tool": "Read", "input": "{main}/.env", "layer1": "deny", "guard": "deny"},
+    {"id": "builder-no-env-local-read", "template": "builder-settings", "tool": "Read", "input": "{main}/.env.local", "layer1": "deny", "guard": "deny"},
+    {"id": "builder-no-env-cat", "template": "builder-settings", "tool": "Bash", "input": "cat {main}/.env", "layer1": "deny", "guard": "deny"},
+    {"id": "builder-no-env-grep", "template": "builder-settings", "tool": "Bash", "input": "grep KEY {main}/.env.production", "layer1": "deny", "guard": "deny"}
   ],
   "must_pass": [
     {"template": "builder-settings", "tool": "Bash", "input": "git status"},
@@ -49,6 +75,9 @@
     {"template": "builder-settings", "tool": "Bash", "input": "git push -u origin p10-settings-wiring"},
     {"template": "builder-settings", "tool": "Edit", "input": "{work}/src/app.py"},
     {"template": "builder-settings", "tool": "Write", "input": "{work}/tests/test_app.py"},
-    {"template": "builder-settings", "tool": "Read", "input": "{work}/README.md"}
+    {"template": "builder-settings", "tool": "Read", "input": "{work}/README.md"},
+    {"template": "builder-settings", "tool": "Read", "input": "{work}/.env"},
+    {"template": "builder-settings", "tool": "Bash", "input": "cat {work}/.env"},
+    {"template": "builder-settings", "tool": "Edit", "input": "{work}/.env"}
   ]
 }

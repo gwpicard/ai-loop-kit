@@ -1,6 +1,29 @@
 {
   "ask": [
     "Bash(gh pr merge *)",
-    "Bash(gh api *pulls/*/merge*)"
+    "Bash(gh api *pulls/*/merge*)",
+    "Bash(gh issue create *)",
+    "Bash(gh pr create *)",
+    "Bash(gh issue comment *)",
+    "Bash(gh pr comment *)",
+    "Bash(gh pr review *)",
+    "Bash(gh issue edit *)",
+    "Bash(gh pr edit *)",
+    "Bash(gh api *-X POST*)",
+    "Bash(gh api *--method POST*)",
+    "Bash(gh api *--method=POST*)",
+    "Bash(gh api *-XPOST*)",
+    "Bash(gh api *-X PATCH*)",
+    "Bash(gh api *--method PATCH*)",
+    "Bash(gh api *--method=PATCH*)",
+    "Bash(gh api *-XPATCH*)",
+    "Bash(gh api *-X PUT*)",
+    "Bash(gh api *--method PUT*)",
+    "Bash(gh api *--method=PUT*)",
+    "Bash(gh api *-XPUT*)",
+    "Bash(gh api *-X DELETE*)",
+    "Bash(gh api *--method DELETE*)",
+    "Bash(gh api *--method=DELETE*)",
+    "Bash(gh api *-XDELETE*)"
   ]
 }

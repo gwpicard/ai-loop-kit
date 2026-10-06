@@ -57,7 +57,21 @@
       "Edit(//**/.githooks/**)",
       "Edit(//**/.agents/loop/policy.json)",
       "Edit(//**/.agents/loop/local.json)",
-      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)"
+      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Read(//**/.env)",
+      "Read(//**/.env.*)",
+      "Bash(cat *.env*)",
+      "Bash(head *.env*)",
+      "Bash(tail *.env*)",
+      "Bash(less *.env*)",
+      "Bash(more *.env*)",
+      "Bash(grep *.env*)",
+      "Bash(rg *.env*)",
+      "Bash(sed *.env*)",
+      "Bash(awk *.env*)",
+      "Bash(bat *.env*)",
+      "Bash(cp *.env*)",
+      "Bash(source *.env*)"
     ],
     "disableBypassPermissionsMode": "disable"
   },

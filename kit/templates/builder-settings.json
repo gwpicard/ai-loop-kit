@@ -4,7 +4,8 @@
     "defaultMode": "dontAsk",
     "disableBypassPermissionsMode": "disable",
     "allow": [
-      "Bash(python3 {{KIT_DIR}}/scripts/handoff.py:*)"
+      "Bash(python3 {{KIT_DIR}}/scripts/handoff.py:*)",
+      "Edit(/{{WORKTREE}}/**)"
     ],
     "deny": [
       "Bash(git reset --hard:*)",
@@ -69,7 +70,22 @@
       "Read(~/Library/Keychains/**)",
       "Read(//**/app-key.pem)",
       "Read(//**/.agents/loop/local.json)",
-      "Edit(//**/.agents/runs/**)"
+      "Edit(//**/.agents/runs/**)",
+      "Bash(gh *)",
+      "Read(/{{PROJECT_ROOT}}/.env)",
+      "Read(/{{PROJECT_ROOT}}/.env.*)",
+      "Bash(cat *{{PROJECT_ROOT}}/.env*)",
+      "Bash(head *{{PROJECT_ROOT}}/.env*)",
+      "Bash(tail *{{PROJECT_ROOT}}/.env*)",
+      "Bash(less *{{PROJECT_ROOT}}/.env*)",
+      "Bash(more *{{PROJECT_ROOT}}/.env*)",
+      "Bash(grep *{{PROJECT_ROOT}}/.env*)",
+      "Bash(rg *{{PROJECT_ROOT}}/.env*)",
+      "Bash(sed *{{PROJECT_ROOT}}/.env*)",
+      "Bash(awk *{{PROJECT_ROOT}}/.env*)",
+      "Bash(bat *{{PROJECT_ROOT}}/.env*)",
+      "Bash(cp *{{PROJECT_ROOT}}/.env*)",
+      "Bash(source *{{PROJECT_ROOT}}/.env*)"
     ]
   },
   "autoMemoryEnabled": false,

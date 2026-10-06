@@ -30,7 +30,10 @@ from pathlib import Path
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / "tests" / "lib"))
 sys.path.insert(0, str(root / "kit" / "scripts"))
+sys.path.insert(0, str(root / "kit" / "hooks"))
 matcher = __import__("permission-matcher")
+import re  # noqa: E402
+guard_module = __import__("guard")
 from loop import paths as loop_paths  # noqa: E402
 
 problems = []
@@ -98,6 +101,8 @@ git("add", "README.md")
 git("commit", "-q", "-m", "Start")
 work = os.path.join(main, ".agents", "worktrees", "w1")
 git("worktree", "add", "-q", work, "-b", "piece-1")
+# The kit's throwaway env file in the worktree, which a builder may read.
+Path(work, ".env").write_text(guard_module.THROWAWAY_MARKER + "\nPORT=3000\n")
 guard_env = {"PATH": os.environ["PATH"], "HOME": home, "AI_LOOP_KIT_DATA": os.path.join(base, "data"),
              "AI_LOOP_KIT_RUN": "night-1", "PYTHONDONTWRITEBYTECODE": "1"}
 paths = loop_paths.Paths.for_project(Path(main), env=guard_env)
@@ -129,11 +134,18 @@ def expand(text):
     return text
 
 
+def attended_only(rule):
+    """A rule for the person's own session. A builder's own worktree holds a throwaway .env, so
+    the builder settings name the main folder's real path instead of these floating shapes."""
+    return rule.startswith("Read(//**/.env") or re.fullmatch(r"Bash\(\w+ \*\.env\*\)", rule) is not None
+
+
 def layer1(template, tool, text):
     """deny, ask or none, as the template's rules judge the call."""
     perms = rendered[template].get("permissions", {})
     if template == "builder-settings":
-        base_rules = rendered["claude-settings"]["permissions"].get("deny", [])
+        base_rules = [r for r in rendered["claude-settings"]["permissions"].get("deny", [])
+                      if not attended_only(r)]
         perms = {"deny": perms.get("deny", []) + base_rules, "ask": perms.get("ask", [])}
     if template == "merge-ask-rules":
         perms = {"deny": [], "ask": perms["ask"]}
@@ -273,11 +285,50 @@ for label, want in [("the held-out folder and App key", str(paths.data_dir)),
     else:
         fail("the sandbox does not read-block %s (%s)" % (label, want))
 for rule in templates["claude-settings"]["permissions"]["deny"]:
+    if attended_only(rule):
+        continue
     if rule not in templates["builder-settings"]["permissions"]["deny"]:
         fail("builder settings lack the project deny rule %s" % rule)
         break
 else:
     ok("builder settings repeat every project deny rule, so they do not depend on discovery")
+
+# Network: a builder holds no GitHub credential, so no GitHub host is reachable.
+domains = sb.get("network", {}).get("allowedDomains", [])
+github_hosts = [d for d in domains if d == "github.com" or d.endswith(".github.com")
+                or d.endswith("githubusercontent.com")]
+if github_hosts:
+    fail("the builder's allowed domains name a GitHub host: %s" % ", ".join(github_hosts))
+else:
+    ok("no GitHub host is in the builder's allowed domains")
+
+# The builder's Edit and Write tools must run under dontAsk, so they are allowed in the worktree.
+allow = rendered["builder-settings"]["permissions"].get("allow", [])
+for tool in ("Edit", "Write"):
+    inside = work + "/src/app.py"
+    outside = main + "/src/app.py"
+    if any(matcher.file_rule_matches(rule, tool, inside, work, work, home, "allow") for rule in allow):
+        ok("builder allow rules let the %s tool work inside its worktree" % tool)
+    else:
+        fail("builder allow rules do not let the %s tool work inside its worktree, so dontAsk "
+             "refuses it" % tool)
+    if any(matcher.file_rule_matches(rule, tool, outside, work, work, home, "allow") for rule in allow):
+        fail("builder allow rules let the %s tool work outside its worktree" % tool)
+    if any(matcher.file_rule_matches(rule, tool, work + "/.claude/settings.json", work, work, home,
+                                     "allow") for rule in allow):
+        ok("the %s allow rule is wide, and the deny rule on .claude still wins over it" % tool)
+
+# No placeholder may survive rendering.
+for name, node in rendered.items():
+    left = re.findall(r"\{\{[A-Z_]+\}\}", json.dumps(node))
+    if left:
+        fail("%s still holds %s after rendering" % (name, sorted(set(left))))
+    else:
+        ok("%s has no placeholder left after rendering" % name)
+for name, node in templates.items():
+    unknown = set(re.findall(r"\{\{([A-Z_]+)\}\}", json.dumps(node))) - set(render_values)
+    if unknown:
+        fail("%s uses a placeholder that the renderer does not know: %s" % (name, sorted(unknown)))
 
 # --- hooks -------------------------------------------------------------------------
 def commands(hooks, event):
@@ -347,6 +398,23 @@ else:
         ok("merging twice changes nothing the second time")
     else:
         fail("merging is not idempotent")
+# A scalar of the person's that overrides a kit guard value is reported on stderr.
+override = Path(base, "override.json")
+override.write_text(json.dumps({"sandbox": {"enabled": False}}) + "\n")
+r4 = subprocess.run([sys.executable, str(merge), str(T / "claude-settings.json"), str(override)],
+                    capture_output=True, text=True, env=guard_env, check=False)
+if r4.returncode == 0 and "sandbox.enabled" in r4.stderr and "kit" in r4.stderr \
+        and json.loads(override.read_text())["sandbox"]["enabled"] is False \
+        and "sandbox.enabled" in r4.stdout:
+    ok("a person's sandbox.enabled that overrides the kit's value is reported on stderr and in the JSON")
+else:
+    fail("an override of a kit guard value was not reported: %d %r %r"
+         % (r4.returncode, r4.stderr[-200:], r4.stdout[-200:]))
+quiet = subprocess.run(args, capture_output=True, text=True, env=guard_env, check=False)
+if "sandbox" not in quiet.stderr and "overrid" not in quiet.stderr:
+    ok("a merge with no override says nothing on stderr about overrides")
+else:
+    fail("a merge with no override reported one: %r" % quiet.stderr)
 bad = Path(base, "bad.json")
 bad.write_text("{not json")
 r3 = subprocess.run([sys.executable, str(merge), str(T / "claude-settings.json"), str(bad)],
