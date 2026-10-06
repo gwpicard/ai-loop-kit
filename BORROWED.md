@@ -43,7 +43,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `kit/scripts/fold-changes.py` | `fbdf054:.agents/skills/sync/scripts/fold-changes.py` | `fbdf054` | verbatim | Nothing known. |
 | `kit/scripts/document-claims.py` | `fbdf054:.agents/skills/sync/scripts/document-claims.py` | `fbdf054` | verbatim | Nothing known. |
 | `kit/scripts/document-bloat.py` | `fbdf054:.agents/skills/maintain/scripts/document-bloat.py` | `fbdf054` | verbatim | Nothing known. |
-| `kit/scripts/check-tooling.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/check-tooling.sh` | `fbdf054` | verbatim | Carries the old product name in one line. |
+| `kit/scripts/check-tooling.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/check-tooling.sh` | `fbdf054` | adapted: The old product name is gone: the kit's own repository is now `gwpicard/ai-loop-kit`. `openssl` is a required tool. `--for-run` makes a project that points at the kit's own repository exit 3, and `--help` names the exit codes. The pre-run check calls it. | Nothing known. |
 | `kit/scripts/session-start.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/templates/foundation/session-start.sh` | `fbdf054` | adapted: The old check-up file, the `AI_BUILD_KIT_TODAY` variable, the old product name and the source-folder test are gone. It now calls `gate.py report --json --brief` and prints a fixed fallback line when that fails. | Nothing known. |
 | `kit/scripts/bootstrap-project.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/bootstrap-project.sh` | `fbdf054` | verbatim; no rehearsal drives it here | Untested in this place. It finds the guards and templates by paths under the old skill folders, so it cannot run from `kit/scripts` until those paths change. Carries the old product name in many lines. |
 | `kit/scripts/place-plan-helper.sh` | `fbdf054:.agents/skills/setup-ai-build-kit/scripts/place-plan-helper.sh` | `fbdf054` | verbatim; no rehearsal drives it here | Untested in this place. It names the guards by paths under the old skill folders. Carries the old product name in one line. |
@@ -51,7 +51,7 @@ The source column gives a path inside that commit, written with the commit prefi
 | `tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054:.agents/tests/kit-owns-worktrees-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script and the ignore template are found under `kit`. Removed the section "Walk-through pictures go to the main folder", which ran a lookup taken from the section-builder skill text. | Carries the old product name in one line. |
 | `tests/fold-at-merge-rehearsal.sh` | `fbdf054:.agents/tests/fold-at-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the scripts are found under `kit/scripts` and the changelog under `tests/fixtures`. The helper is loaded from `tests/lib/rule-shape.sh`. | Nothing known. |
 | `tests/recheck-before-merge-rehearsal.sh` | `fbdf054:.agents/tests/recheck-before-merge-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. The helper is loaded from `tests/lib/rule-shape.sh`. | Nothing known. |
-| `tests/check-tooling.sh` | `fbdf054:.agents/tests/check-tooling.sh` | `fbdf054` | edited: The root is now the folder above the tests (it was `.agents`); the checker is found under `kit/scripts`; the recipe lookup reads `kit/recipes`. The fallback to `tests/recipes-awaiting-run` is gone. A recipe missing from `kit/recipes` is a failure again (stage C2 had skipped it with a note, until the recipes arrived). | Carries the old product name in seven lines. |
+| `tests/check-tooling.sh` | `fbdf054:.agents/tests/check-tooling.sh` | `fbdf054` | adapted: The root is now the folder above the tests (it was `.agents`); the checker is found under `kit/scripts`; the recipe lookup reads `kit/recipes`. The fallback to `tests/recipes-awaiting-run` is gone. A recipe missing from `kit/recipes` is a failure again (stage C2 had skipped it with a note, until the recipes arrived). The kit's repository is `gwpicard/ai-loop-kit`. `openssl` is on the test's PATH, and a case checks that its absence stops the report. Two cases check `--for-run`. | Nothing known. |
 | `tests/session-start.sh` | `fbdf054:.agents/tests/session-start.sh` | `fbdf054` | adapted: Rewritten again to drive the new hook after a compaction and at a start, against a stand-in gate. It checks the fallback line. The cadence and check-up cases are gone. | Nothing known. |
 | `tests/document-read-rehearsal.sh` | `fbdf054:.agents/tests/document-read-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. Its throwaway project keeps its own `WORKFLOW.md`, which is a fixture. | Nothing known. |
 | `tests/document-bloat-rehearsal.sh` | `fbdf054:.agents/tests/document-bloat-rehearsal.sh` | `fbdf054` | edited: Folder root now `..`; the script is found under `kit/scripts`. Its throwaway project keeps its own `WORKFLOW.md`, which is a fixture. | Nothing known. |
@@ -114,13 +114,11 @@ These files contain the words "AI Build Kit" or the lower-case form with hyphens
 
 - `kit/scripts/area-map.py`
 - `kit/scripts/bootstrap-project.sh`
-- `kit/scripts/check-tooling.sh`
 - `kit/scripts/place-plan-helper.sh`
 - `kit/scripts/worktree.sh`
 - `kit/scripts/gate.py`
 - `kit/templates/checks.yml`
 - `tests/area-map-rehearsal.sh`
-- `tests/check-tooling.sh`
 - `tests/gate-script.sh`
 - `tests/kit-owns-worktrees-rehearsal.sh`
 - `tests/fixtures/AGENTS.md`
