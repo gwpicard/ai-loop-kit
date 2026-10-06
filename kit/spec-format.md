@@ -161,6 +161,14 @@ Sensitive areas, Decisions, Research and Open questions are lists. Each item
 starts with `- `. A line that continues an item is indented or follows it
 directly. "None." in a list field means an empty list.
 
+## Sensitive areas
+
+A sensitive area is accepted when its list item holds three things. The first
+is the label `Accepted:`. The second is the person's own words in quotes. The
+third is a date, written `YYYY-MM-DD` or `D Month YYYY`. An item without all
+three stays on the needs list for the person. The check does not judge whether
+the words are the person's. The person decides that at the gate.
+
 ## What the parser returns
 
 `to_dict()` always has the same keys: `found`, `version`, `path`, `header`,
