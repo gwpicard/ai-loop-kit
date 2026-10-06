@@ -396,11 +396,16 @@ def check_settings(root: Path, kit: Path) -> list[Refusal]:
     return refusals
 
 
-def accepted_hooks(template: Path, kit: Path) -> list[bytes]:
-    """The kit's hook as it is, and as /setup renders it: {{KIT_DIR}} filled with the kit folder."""
+def accepted_hooks(template: Path, kit: Path, root: Path) -> list[bytes]:
+    """The hook as /setup renders it: {{KIT_DIR}} filled with the kit folder.
+
+    The raw template counts only where the kit is the project's own kit/ folder.
+    """
     raw = template.read_bytes()
     folders = {str(kit), str(kit.resolve())}
-    return [raw] + [raw.replace(b"{{KIT_DIR}}", folder.encode()) for folder in sorted(folders)]
+    rendered = [raw.replace(b"{{KIT_DIR}}", folder.encode()) for folder in sorted(folders)]
+    own_kit = kit.resolve() == (root / "kit").resolve()
+    return ([raw] if own_kit else []) + rendered
 
 
 def check_pre_push(root: Path, kit: Path) -> list[Refusal]:
@@ -411,7 +416,7 @@ def check_pre_push(root: Path, kit: Path) -> list[Refusal]:
         refusals.append(first_half("pre-push-hook", "the hook .githooks/pre-push is missing"))
     elif not os.access(hook, os.X_OK):
         refusals.append(first_half("pre-push-hook", ".githooks/pre-push is not executable"))
-    elif not template.is_file() or hook.read_bytes() not in accepted_hooks(template, kit):
+    elif not template.is_file() or hook.read_bytes() not in accepted_hooks(template, kit, root):
         refusals.append(
             first_half(
                 "pre-push-hook",

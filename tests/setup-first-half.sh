@@ -350,6 +350,39 @@ git -C "$TP_BASE/origin.git" rev-parse -q --verify refs/heads/probe >/dev/null |
 git -C "$TP_ROOT" checkout -q main
 ok "a real git push from the founded project passes the secret scan the hook finds in the plugin folder"
 
+# A scan written into the project cannot stand in for the kit's.
+git -C "$TP_ROOT" checkout -q -b leak
+printf 'ghp_%s\n' "$(printf 'a%.0s' $(seq 1 36))" > "$TP_ROOT/creds.txt"
+git -C "$TP_ROOT" add creds.txt
+git -C "$TP_ROOT" commit -q -m "a secret"
+mkdir -p "$TP_ROOT/kit/scripts"
+printf 'import sys\nsys.exit(0)\n' > "$TP_ROOT/kit/scripts/secret-scan.py"
+set +e
+git -C "$TP_ROOT" push origin leak > "$TP_BASE/leak.out" 2>&1
+LEAK=$?
+set -e
+LEAK_ARRIVED=no
+git -C "$TP_BASE/origin.git" rev-parse -q --verify refs/heads/leak >/dev/null && LEAK_ARRIVED=yes
+git -C "$TP_ROOT" checkout -q main
+# Clean up the two named files, so the later steps see a clean project.
+[ ! -e "$TP_ROOT/creds.txt" ] || rm "$TP_ROOT/creds.txt"
+rm "$TP_ROOT/kit/scripts/secret-scan.py"
+rmdir "$TP_ROOT/kit/scripts" "$TP_ROOT/kit"
+[ "$LEAK" -ne 0 ] || fail "a scan written into the project let a secret through"
+[ "$LEAK_ARRIVED" = no ] || fail "the secret arrived at the remote"
+ok "a scan written into the project cannot stand in for the kit's"
+
+# The raw template is not the hook of a founded project (the kit is outside it).
+cp "$TP_ROOT/.githooks/pre-push" "$TP_BASE/hook-keep"
+cp "$KIT/templates/githooks/pre-push" "$TP_ROOT/.githooks/pre-push"
+prc
+cp "$TP_BASE/hook-keep" "$TP_ROOT/.githooks/pre-push"
+[ "$PRC_CODE" -ne 0 ] || fail "the pre-run check accepted the raw hook template in a founded project"
+grep -q 'pre-push-hook' "$TP_BASE/prc.out" "$TP_BASE/prc.err" || fail "the refusal does not name the pre-push hook"
+prc
+[ "$PRC_CODE" -eq 0 ] || fail "the pre-run check refused the rendered hook after the restore (got $PRC_CODE)"
+ok "the pre-run check refuses the raw hook template in a founded project"
+
 # The hook still fails closed when the scan is truly missing.
 mkdir -p "$TP_BASE/lonely" "$TP_BASE/nohome"
 sed "s#{{KIT_DIR}}#$TP_BASE/nowhere#" "$KIT/templates/githooks/pre-push" > "$TP_BASE/lonely/pre-push"
