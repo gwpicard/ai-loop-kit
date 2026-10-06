@@ -133,6 +133,13 @@ class TheTrimRules(Repo):
         self.assertIn("not-piece-code", [v.rule for v in found.violations])
         self.assertIn("src/app.py", " ".join(v.line() for v in found.violations))
 
+    def test_a_trim_that_only_sets_a_mode_on_a_base_file_fails(self) -> None:
+        git(self.root, "update-index", "--chmod=+x", "src/other.py")
+        git(self.root, "commit", "-q", "-m", "Trim")
+        found = self.verdict()
+        self.assertIn("not-piece-code", [v.rule for v in found.violations])
+        self.assertIn("file mode", " ".join(v.line() for v in found.violations))
+
     def test_a_trim_that_removes_a_base_line_fails(self) -> None:
         self.trim_with({"src/other.py": ""})
         self.assertIn("not-piece-code", self.rules())

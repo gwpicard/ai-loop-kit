@@ -160,9 +160,17 @@ def check(root: Path, base: str, piece_head: str, trim_head: str, *,
                                      judge_files=list(judge_files))
     except bar.BarError as error:
         raise TrimError(str(error), error.next_command) from error
-    raw = _git(root, "diff", "--no-renames", "--name-status", "-z", piece, trim, "--")[1]
+    raw = _git(root, "diff", "--no-renames", "--raw", "-z", piece, trim, "--")[1]
     parts = raw.split("\0")
-    changed = [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+    changed: list[tuple[str, str]] = []
+    modes: dict[str, tuple[str, str]] = {}
+    for i in range(0, len(parts) - 1, 2):
+        meta = parts[i].lstrip(":").split()
+        if len(meta) != 5:
+            raise TrimError(f"git diff gave a line the trim pass cannot read ({parts[i][:60]})",
+                            "check the project's git repository, then run the trim pass again")
+        changed.append((meta[4], parts[i + 1]))
+        modes[parts[i + 1]] = (meta[0], meta[1])
     counts: dict[str, tuple[str, str]] = {}
     numstat = _git(root, "diff", "--no-renames", "--numstat", "-z", piece, trim, "--")[1]
     for item in numstat.split("\0"):
@@ -187,6 +195,11 @@ def check(root: Path, base: str, piece_head: str, trim_head: str, *,
                 "not-piece-code", path,
                 f"the change has status {status}, which a trim may not make"))
             continue
+        old_mode, new_mode = modes[path]
+        if status[:1] == "M" and old_mode != new_mode:
+            verdict.violations.append(Violation(
+                "not-piece-code", path, "a trim may not change a file mode"))
+            continue
         added, removed = counts.get(path, ("0", "0"))
         if added == "-" or removed == "-":
             verdict.violations.append(Violation(
@@ -194,7 +207,12 @@ def check(root: Path, base: str, piece_head: str, trim_head: str, *,
             continue
         verdict.net += int(added) - int(removed)
         owned = _added_lines(root, base, piece, path)
-        for old_start, old_count, _start, _count in _hunks(root, piece, trim, path):
+        hunks = _hunks(root, piece, trim, path)
+        if status[:1] == "M" and not hunks:
+            verdict.violations.append(Violation(
+                "not-piece-code", path, "a trim may not change a file mode"))
+            continue
+        for old_start, old_count, _start, _count in hunks:
             if old_count == 0:
                 if owned is not None and not owned:
                     verdict.violations.append(Violation(
