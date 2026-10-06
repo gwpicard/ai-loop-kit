@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# A stand-in for Docker in a replayed launch: installed, with its engine not
+# running. The recipe's local container check then cannot run, which is a
+# warning the first launch already recorded. It also keeps a run from building
+# images on the machine that runs the harness.
+. "$(dirname -- "$0")/_common.sh"
+stand_in_or_real docker "$@"
+case "${1:-}" in
+  --version|-v) echo "Docker version 28.3.2, build 578ccf6"; exit 0 ;;
+  version) printf 'Client:\n Version:           28.3.2\n API version:       1.51\n\n' ;;
+  info) printf 'Client:\n Version:    28.3.2\n Context:    default\n Debug Mode: false\n\nServer:\n' ;;
+esac
+echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2
+exit 1

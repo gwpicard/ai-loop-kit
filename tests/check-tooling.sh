@@ -285,9 +285,7 @@ write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPe
 
 for name in nextjs-supabase-on-vercel nextjs-supabase-on-coolify; do
   recipe="$ROOT/kit/recipes/$name.md"
-  # The recipes arrive in a later stage. Until they are in kit/recipes, skip
-  # them aloud. That stage must make this a failure again.
-  [ -f "$recipe" ] || { echo "NOTE: $name is not in kit/recipes yet; skipped" >&2; continue; }
+  [ -f "$recipe" ] || fail "$name is not in kit/recipes"
   out=$(PATH="$WORK/bin" HOME="$HOME" "$CHECK" --recipe "$recipe" 2>&1) && code=0 || code=$?
   [ "$code" -eq 0 ] || fail "$name's tools stopped founding"
   for tool in supabase docker psql curl git; do
