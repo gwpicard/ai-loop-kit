@@ -378,6 +378,9 @@ The must-look reasons are exactly five, and only the gate writes them: a sensiti
 **Files.**
 - New: `kit/skills/shape/SKILL.md` (150 lines at most); `kit/skills/shape/references/questions.md`; `kit/skills/shape/references/quick-path.md`; `kit/skills/shape/scripts/find-duplicates.py`; `kit/skills/shape/evals/`; `tests/shape-skill.sh`.
 - Uses `kit/scripts/co-change.sh` unchanged to help fill the touches field.
+- `find-duplicates.py` has two commands. `search` reads open and closed issues only through `loop.github`, as the App, and also reads the gate's own record, so a dropped piece warns even with no App. With no App it reads nothing on GitHub and says so with a `next:` line. `comment <n>` calls `gate.py comment`, so the App signs it, or the gate queues it for `gate.py sync`. The gate refuses a comment on an issue it never captured, with a `next:` line, because capturing an old issue would put a state label on it.
+- The cap of five comes from `question_cap` in the policy file.
+- `kit/skills/shape/evals/` holds one file for each case: `normal.md`, `edge.md`, `refusal.md` and `triggering.md`. They need the real model, so `run-all.sh` does not run them.
 
 **Held by:** "a need clears only when its answer is written" by the gate computing needs from the spec (P8, P11); the question cap by the policy file and the eval; "never ready without the gate" by move 2 (P14); the held-out cases by the gate-only store (P9) and the ready check (P14); the yes before posting in the person's name by the ask rule (P10) and the hook (P3), while kit bookkeeping goes through the gate as the App; "silence is never an answer" by the needs list, which only a written answer clears.
 

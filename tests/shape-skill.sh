@@ -178,7 +178,6 @@ python3 -m loop.heldout store --piece 3 --case HO-1="$CASE_A" --case HO-2="$CASE
 FINGERPRINT=$(js "$TP_BASE/heldout.json" 'J["fingerprint"]')
 printf '%s' "$FINGERPRINT" | grep -qE '^[0-9a-f]{64}$' || fail "the fingerprint is not 64 hex digits"
 grep -q 'HIDDEN' "$TP_BASE/heldout.json" && fail "the store printed a case"
-[ -f "$TP_DATA/held-out/piece-3/HO-1.case" ] || ls -R "$TP_DATA" >/dev/null 2>&1
 find "$TP_DATA" -name 'HO-1.case' | grep -q . || fail "the case is not in the gate-only store"
 ok "held-out cases land in the store, and only the fingerprint is printed"
 
