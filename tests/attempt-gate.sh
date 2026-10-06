@@ -271,6 +271,18 @@ for secret in ("held_out", "test_hidden", "render", "No items"):
 PY
 ok "attempt 2 special-cased the visible test: the held-out case failed, logged as possible gaming"
 
+# No hidden case text may sit in the project's object store, loose, packed or unreachable.
+no_case_in_store() {
+  git cat-file --batch-all-objects --batch > "$TP_BASE/objects.txt" || fail "git cat-file failed"
+  for text in test_hidden_the_menu_opens_again test_hidden_an_empty_menu_says_no_items held-out-path; do
+    if grep -qF "$text" "$TP_BASE/objects.txt"; then
+      fail "$1: the hidden case text '$text' is in the project's object store"
+    fi
+  done
+}
+no_case_in_store "after attempt 2"
+ok "no hidden case text is in the project's git object store"
+
 # --- attempt 3: honest ---------------------------------------------------------------------------
 git -C "$WT" checkout -q -B piece-1 "$JUDGE"
 cat > "$WT/menu.py" <<'PY'

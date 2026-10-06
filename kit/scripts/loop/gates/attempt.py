@@ -201,38 +201,6 @@ def _uncommitted(root: Path, facts: Facts) -> None:
         )
 
 
-def _overlay(root: Path, again: str, commit: str, files: Mapping[str, str]) -> str:
-    """A commit that holds `commit` with the given files laid over it. No ref points at it."""
-    folder = tempfile.mkdtemp(prefix="attempt-")
-    index = os.path.join(folder, "index")
-    env = {**os.environ, "GIT_INDEX_FILE": index, "GIT_AUTHOR_NAME": "loop",
-           "GIT_AUTHOR_EMAIL": "loop@example.invalid", "GIT_COMMITTER_NAME": "loop",
-           "GIT_COMMITTER_EMAIL": "loop@example.invalid"}
-
-    def run(*args: str, text: str | None = None) -> str:
-        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                              check=False, env=env, input=text)
-        if done.returncode != 0:
-            raise Refusal(
-                f"git {args[0]} failed while the gate laid the held-out cases over the attempt "
-                f"({done.stderr.strip()[:120]})",
-                f"check the project's git repository, then {again}",
-            )
-        return done.stdout.strip()
-
-    try:
-        run("read-tree", commit)
-        for path, text in files.items():
-            blob = run("hash-object", "-w", "--stdin", text=text)
-            run("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}")
-        tree = run("write-tree")
-        return run("commit-tree", tree, "-p", commit, "-m", "the attempt with the held-out cases")
-    finally:
-        if os.path.exists(index):
-            os.remove(index)
-        os.rmdir(folder)
-
-
 # --- the checks ------------------------------------------------------------------------------
 
 
@@ -378,14 +346,13 @@ def _held_out(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: Deps
               found: Findings) -> None:
     cases = _held_cases(ctx, sp)
     command = str(sp["judge"]["command"] or "")
-    files = {path: text for path, text in cases.values()}
-    commit = _overlay(ctx.paths.root, facts.again, facts.head, files)
     failed = 0
-    for path, _text in cases.values():
+    for path, text in cases.values():
         try:
+            # The case is written into the judge's temporary checkout, never into git.
             verdict = deps.run_judge(
                 _held_command(command, facts.judge_files, path, ctx.number),
-                ctx.paths.root, commit,
+                ctx.paths.root, facts.head, extra_files={path: text},
             )
         except judge.JudgeError as error:
             raise Refusal(f"a held-out case could not be run: {error}",
@@ -659,8 +626,8 @@ def default_deps(paths: Paths) -> Deps:
     except policy.PolicyError:
         limit = None
 
-    def run_judge(command: str, root: Path, ref: str) -> dict[str, Any]:
-        return judge.run(command, root, ref, time_limit=limit)
+    def run_judge(command: str, root: Path, ref: str, **more: Any) -> dict[str, Any]:
+        return judge.run(command, root, ref, time_limit=limit, **more)
 
     return Deps(run_judge=run_judge, dependency_check=_run_dependency_check,
                 today=lambda: date.today().isoformat())

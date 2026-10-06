@@ -10,6 +10,7 @@ real gate end to end, and `tests/unit/test_moves.py` runs the moves around it.
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -51,12 +52,14 @@ class Stand:
         self.held: dict[str, dict[str, Any]] = {}
         self.must_stay: dict[str, Any] = passed_run()
         self.runs: list[tuple[str, str]] = []
+        self.extra: list[dict[str, str]] = []
         self.dependency: tuple[int, str] = (0, json.dumps({"ok": True, "added": []}))
         self.dependency_calls: list[dict[str, str]] = []
         self.judge_error: dict[str, judge.JudgeError] = {}
 
-    def run_judge(self, command: str, root: Path, ref: str, **_more: Any) -> dict[str, Any]:
+    def run_judge(self, command: str, root: Path, ref: str, **more: Any) -> dict[str, Any]:
         self.runs.append((command, ref))
+        self.extra.append(dict(more.get("extra_files") or {}))
         if command in self.judge_error:
             raise self.judge_error[command]
         if command == COMMAND:
@@ -387,7 +390,40 @@ class TheVisibleJudge(AttemptCase):
         self.refuses("no Command")
 
 
+def stored_objects(root: Path) -> bytes:
+    """Every object in the project's git object store, loose or packed, unreachable or not."""
+    done = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "--batch-all-objects", "--batch"],
+        capture_output=True, check=True)
+    return done.stdout
+
+
 class TheHeldOutCases(AttemptCase):
+    def test_no_hidden_case_text_ever_enters_the_object_store(self) -> None:
+        self.honest()
+        self.hidden(1)
+        self.fails("held-out", gaming=True)
+        objects = stored_objects(self.root)
+        for n in (1, 2):
+            self.assertNotIn(f"def test_hidden_{n}".encode(), objects)
+        self.assertNotIn(b"held-out-path", objects)
+
+    def test_the_cases_go_to_the_judge_as_extra_files_on_the_attempt_head(self) -> None:
+        head = self.honest()
+        self.passes()
+        held = [(c, r, e) for (c, r), e in zip(self.att.runs, self.att.extra, strict=True)
+                if "held_out" in c]
+        self.assertEqual(len(held), 2)
+        for command, ref, extra in held:
+            self.assertEqual(ref, head)
+            self.assertEqual(len(extra), 1)
+            ((path, text),) = extra.items()
+            self.assertIn(path, command)
+            self.assertEqual(text, case_text(int(path.split("_")[-1][:-3])))
+        visible = [e for (c, _r), e in zip(self.att.runs, self.att.extra, strict=True)
+                   if c == COMMAND]
+        self.assertEqual(visible, [{}])
+
     def hidden(self, *numbers: int) -> None:
         for number in numbers:
             self.att.held[HELD.format(n=number)] = test_ready.judge_result("failed")
