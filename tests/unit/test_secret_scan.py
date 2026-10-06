@@ -4,9 +4,13 @@ No fixture holds a real secret. Each fake key is built at test time from
 pieces, so this file does not match any scanner either.
 """
 
+import base64
 import importlib.util
 import json
 import os
+import random
+import shutil
+import string
 import subprocess
 import sys
 import tempfile
@@ -27,9 +31,27 @@ def load() -> ModuleType:
     return module
 
 
+ALNUM = string.ascii_letters + string.digits
+
+
+def random_text(seed: int, length: int, alphabet: str = ALNUM) -> str:
+    """Random text made at test time, so no file here holds a high-entropy value."""
+    rng = random.Random(seed)
+    while True:
+        text = "".join(rng.choice(alphabet) for _ in range(length))
+        if any(c.isdigit() for c in text) and any(c.isalpha() for c in text):
+            return text
+
+
+def aws_secret(seed: int = 5) -> str:
+    """A 40 character AWS style secret that holds a slash and a plus."""
+    body = random_text(seed, 38)
+    return body[:10] + "/" + body[10:25] + "+" + body[25:]
+
+
 def fake_keys() -> dict[str, str]:
-    """One fake key of each common kind, joined from pieces."""
-    filler = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    """One fake key of each common kind, made at test time."""
+    filler = "AbCdEf" * 6  # low entropy, so only the key shape matches
     return {
         "aws-access-key": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
         "github-token": "gh" + "p_" + filler,
@@ -38,7 +60,8 @@ def fake_keys() -> dict[str, str]:
         "google-api-key": "AI" + "za" + filler[:35],
         "anthropic-key": "sk-" + "ant-" + "api03-" + filler + "-" + filler[:20],
         "private-key": "-----BEGIN " + "RSA PRIVATE" + " KEY-----",
-        "high-entropy-string": "q8Zk3Vb7Lp2Xw9Rt5Ym1Nc4Hd6Jf0Ga8Se",
+        "aws-secret-key": "aws_secret_access_key = " + aws_secret(),
+        "high-entropy-string": random_text(1, 36),
     }
 
 
@@ -204,6 +227,127 @@ class SecretScanTest(unittest.TestCase):
         )
         found = module.scan_diff(diff)
         self.assertEqual([(f.file, f.line, f.kind) for f in found], [("x.py", 11, "stripe-key")])
+
+    def test_a_line_that_looks_like_a_header_is_still_scanned(self) -> None:
+        value = fake_keys()["github-token"]
+        for prefix in ("++ ", "+ ", "++ b/x ", "-- "):
+            with self.subTest(prefix=prefix):
+                self.stage("odd.md", f"fine\n{prefix}{value}\n")
+                done = scan(self.repo, "--staged")
+                self.assertEqual(done.returncode, 3, done.stdout + done.stderr)
+                found = json.loads(done.stdout)["findings"]
+                self.assertEqual([(f["file"], f["line"]) for f in found], [("odd.md", 2)])
+
+    def test_the_diff_is_read_by_hunk_not_by_prefix(self) -> None:
+        module = load()
+        value = fake_keys()["stripe-key"]
+        diff = (
+            "diff --git a/x.md b/x.md\n--- a/x.md\n+++ b/x.md\n@@ -0,0 +1,2 @@\n"
+            f"+++ b/fake.txt\n+x {value}\n"
+            "diff --git a/y.md b/y.md\n--- a/y.md\n+++ b/y.md\n@@ -0,0 +1 @@\n+fine\n"
+        )
+        found = module.scan_diff(diff)
+        self.assertEqual([(f.file, f.line, f.kind) for f in found], [("x.md", 2, "stripe-key")])
+
+    def test_lockfile_hashes_do_not_block(self) -> None:
+        sri = "sha512-" + base64.b64encode(random.Random(3).randbytes(64)).decode()
+        sri256 = "sha256-" + base64.b64encode(random.Random(4).randbytes(32)).decode()
+        hex_hash = random_text(6, 64, "0123456789abcdef")
+        lines = {
+            "package-lock.json": [
+                f'      "integrity": "{sri}",',
+                f'      "resolved": "https://registry.npmjs.org/a/-/a-1.0.0.tgz#{hex_hash[:40]}",',
+            ],
+            "pnpm-lock.yaml": [
+                f"    resolution: {{integrity: {sri}}}",
+                f"    resolution: {{integrity: {sri256}, tarball: https://x.test/a.tgz}}",
+            ],
+            "uv.lock": [
+                f'sdist = {{ url = "https://x.test/a.tar.gz", hash = "sha256:{hex_hash}" }}',
+            ],
+            "yarn.lock": [f"  integrity {sri}", f"  checksum {hex_hash}"],
+        }
+        for name, rows in lines.items():
+            for row in rows:
+                with self.subTest(file=name, row=row[:30]):
+                    self.stage(name, "first\n" + row + "\n")
+                    done = scan(self.repo, "--staged")
+                    self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        # The same line in any other file still blocks.
+        self.stage("notes.json", f'      "integrity": "{sri}",\n')
+        self.assertEqual(scan(self.repo, "--staged").returncode, 3)
+
+    def test_a_link_slug_is_not_a_secret(self) -> None:
+        slug = "2026-03-24-durable-execution-background-work-ai-agent-runtimes"
+        self.stage("notes.md", f"see https://example.test/research/{slug}\n")
+        done = scan(self.repo, "--staged")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        # Mixed case or a missing hyphen pattern is still scanned.
+        self.stage("notes.md", f"token {random_text(12, 40)}\n")
+        self.assertEqual(scan(self.repo, "--staged").returncode, 3)
+
+    def test_a_lockfile_still_blocks_a_real_secret(self) -> None:
+        token = fake_keys()["github-token"]
+        self.stage("package-lock.json", f'  "resolved": "https://u:{token}@host/a.tgz",\n')
+        self.assertEqual(scan(self.repo, "--staged").returncode, 3)
+        loose = random_text(8, 40)
+        self.stage("package-lock.json", f'  "note": "{loose}",\n')
+        self.assertEqual(scan(self.repo, "--staged").returncode, 3)
+
+    def test_an_aws_secret_with_a_slash_or_a_plus_is_caught(self) -> None:
+        for name, value in (
+            ("bare", aws_secret(5)),
+            ("slash", random_text(7, 19) + "/" + random_text(9, 20)),
+            ("plus", random_text(10, 19) + "+" + random_text(11, 20)),
+        ):
+            with self.subTest(name=name):
+                self.stage("c.env", f"x = {value}\n")
+                done = scan(self.repo, "--staged")
+                self.assertEqual(done.returncode, 3, done.stdout + done.stderr)
+                self.assertNotIn(value, done.stdout + done.stderr)
+
+    def test_gitleaks_that_fails_without_a_report_fails_closed(self) -> None:
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        for name, body in (("silent", "exit 2\n"), ("junk", 'echo junk > "$4"; exit 2\n')):
+            stub = bin_dir / "gitleaks"
+            stub.write_text("#!/bin/sh\n" + body)
+            stub.chmod(0o755)
+            with self.subTest(stub=name):
+                self.stage("notes.md", "fine\n")
+                env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin"}
+                done = subprocess.run(
+                    ["python3", str(SCRIPT), "--json", "--staged"],
+                    cwd=self.repo, env=env, check=False, capture_output=True, text=True,
+                )
+                self.assertEqual(done.returncode, 4, done.stdout + done.stderr)
+                self.assertIn("gitleaks", done.stderr)
+                self.assertIn("next:", done.stderr)
+
+    def test_help_names_what_the_scan_misses(self) -> None:
+        done = subprocess.run(
+            ["python3", str(SCRIPT), "--help"], check=False, capture_output=True, text=True
+        )
+        text = " ".join(done.stdout.split())
+        for phrase in ("commit message", "split across lines", "password", "64", "lockfile"):
+            self.assertIn(phrase, text)
+        self.assertIn("not covered yet", text)
+
+    def test_the_scan_passes_every_file_of_this_repository(self) -> None:
+        names = git(ROOT, "ls-files", "-co", "--exclude-standard", "-z").split("\0")
+        copy = self.tmp / "copy"
+        copy.mkdir()
+        git(copy, "init", "-q", "-b", "main")
+        for name in filter(None, names):
+            source = ROOT / name
+            if not source.is_file() and not source.is_symlink():
+                continue
+            target = copy / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target, follow_symlinks=False)
+        git(copy, "add", "-A")
+        done = scan(copy, "--staged")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
 
 if __name__ == "__main__":

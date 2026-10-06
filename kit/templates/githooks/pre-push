@@ -22,22 +22,25 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   exit 1
 }
 
-scan=${AI_LOOP_KIT_SECRET_SCAN:-}
-if [ -z "$scan" ]; then
-  for candidate in \
-    "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/secret-scan.py" \
-    "$root/kit/scripts/secret-scan.py" \
-    "$HOME/.claude/plugins/cache/ai-loop-kit/scripts/secret-scan.py"; do
-    if [ -f "$candidate" ]; then
-      scan=$candidate
-      break
-    fi
-  done
-fi
+# The scan lives in one of three fixed places, the same ones loop/paths.py
+# names: the project's own kit/scripts, the installed kit under the plugin
+# cache, or beside this hook. No environment variable can point the hook
+# elsewhere, so a session cannot swap the scan for another program.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+scan=
+for candidate in \
+  "$root/kit/scripts/secret-scan.py" \
+  "${HOME:-/nonexistent}/.claude/plugins/cache/ai-loop-kit/scripts/secret-scan.py" \
+  "${here:-/nonexistent}/secret-scan.py"; do
+  if [ -f "$candidate" ]; then
+    scan=$candidate
+    break
+  fi
+done
 
-if [ -z "$scan" ] || [ ! -f "$scan" ]; then
+if [ -z "$scan" ]; then
   echo "pre-push: cannot find secret-scan.py, so the push is stopped." >&2
-  echo "next: set AI_LOOP_KIT_SECRET_SCAN to the path of kit/scripts/secret-scan.py" >&2
+  echo "next: install the kit (kit/scripts/secret-scan.py in this project, or the plugin cache), then push again" >&2
   exit 1
 fi
 

@@ -36,17 +36,22 @@ ok() {
 tp_new secretly
 echo "Secret scan checks (project in $TP_ROOT):"
 
-# Install the hook where Git looks for it. The hook finds the scan through
-# this variable in a test, and through the kit folder in a real project.
-mkdir -p "$TP_ROOT/.githooks"
+# Install the hook where Git looks for it. The hook finds the scan only in the
+# project's kit folder, in the installed kit under HOME, or beside itself.
+# Here the kit folder is a copy of this repository's kit/scripts.
+mkdir -p "$TP_ROOT/.githooks" "$TP_ROOT/kit"
 cp "$HOOK" "$TP_ROOT/.githooks/pre-push"
 chmod +x "$TP_ROOT/.githooks/pre-push"
+cp -R "$ROOT/kit/scripts" "$TP_ROOT/kit/scripts"
 git -C "$TP_ROOT" config core.hooksPath .githooks
-AI_LOOP_KIT_SECRET_SCAN="$SCAN"
-export AI_LOOP_KIT_SECRET_SCAN
+# An old override must change nothing.
+AI_LOOP_KIT_SECRET_SCAN=/bin/true
+CLAUDE_PLUGIN_ROOT=/nonexistent
+export AI_LOOP_KIT_SECRET_SCAN CLAUDE_PLUGIN_ROOT
 
-# A fake key built from pieces.
-KEY="gh""p_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+# A fake key made at run time: a low-entropy filler, so no file here is a secret.
+FILLER=$(printf 'AbCdEf%.0s' 1 2 3 4 5 6)
+KEY="gh""p_$FILLER"
 
 # --- a clean push is allowed -------------------------------------------------
 git -C "$TP_ROOT" checkout -q -b clean
@@ -92,5 +97,21 @@ ok "the range scan gives the same refusal"
 # --- a clean range passes -----------------------------------------------------
 (cd "$TP_ROOT" && python3 "$SCAN" --json --range="main..clean" >/dev/null) || fail "the range scan refused a clean range"
 ok "a clean range passes"
+
+# --- a missing scan stops the push, and no override opens it ----------------
+mv "$TP_ROOT/kit/scripts/secret-scan.py" "$TP_ROOT/kit/scripts/secret-scan.py.away"
+git -C "$TP_ROOT" checkout -q clean
+git -C "$TP_ROOT" checkout -q -b needs-scan
+printf 'more\n' > "$TP_ROOT/more.txt"
+git -C "$TP_ROOT" add more.txt
+git -C "$TP_ROOT" commit -q -m "Add more"
+if HOME="$TP_BASE/nohome" git -C "$TP_ROOT" push -q origin needs-scan 2>"$TP_BASE/missing.err"; then
+  fail "the hook allowed a push with no scan to run"
+fi
+grep -q 'cannot find secret-scan.py' "$TP_BASE/missing.err" || { cat "$TP_BASE/missing.err"; fail "the refusal does not say the scan is missing"; }
+grep -q '^next:' "$TP_BASE/missing.err" || fail "the refusal has no next: line"
+if grep -q 'AI_LOOP_KIT_SECRET_SCAN' "$TP_BASE/missing.err"; then fail "the hook still names the override"; fi
+mv "$TP_ROOT/kit/scripts/secret-scan.py.away" "$TP_ROOT/kit/scripts/secret-scan.py"
+ok "a missing scan stops the push, even with an override set"
 
 echo "Secret scan checks passed."
