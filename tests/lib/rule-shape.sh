@@ -191,7 +191,7 @@ rs_require_load_bearing() {
 rs_require_twice() {
   # rs_require_twice <description> <file> <fixed-text>: the house rule is that a
   # behaviour is told in three places or it is not finished; the skill carries
-  # one and WORKFLOW.md carries the other two. Counts matching lines, then
+  # one and two other places carry the rest. Counts matching lines, then
   # proves the count notices when every mention but the first is taken away, so
   # the control holds however many mentions the file grows later.
   [ -z "${RS_LIST:-}" ] || return 0

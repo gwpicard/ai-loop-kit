@@ -20,7 +20,7 @@
 # repository unable to talk about its own subject.
 #
 # Git runs a hook from the folder named by core.hooksPath, which is a local
-# setting and is not carried by a clone. docs/MAINTAINING.md gives the one
+# setting and is not carried by a clone. AGENTS.md gives the one
 # command that points a fresh clone here.
 #
 # awk rather than python3, because a hook that cannot run is a hook that lets

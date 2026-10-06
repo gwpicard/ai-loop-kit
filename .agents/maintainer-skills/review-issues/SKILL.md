@@ -38,7 +38,7 @@ wrong answer that looks like a right one.
 ### What makes a piece ready
 
 A piece is shaped when its body carries a `## Done when` section, which is a
-condition somebody can check. `docs/MAINTAINING.md` owns that shape. The
+condition somebody can check. The root `AGENTS.md` owns that shape. The
 `ready` label says a person judged it shaped. Those two signals do not always
 agree here. Where they disagree, say so rather than quietly picking one, because
 a piece labelled ready with nothing checkable in it is usually worth a second
