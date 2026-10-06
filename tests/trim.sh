@@ -335,8 +335,13 @@ script_trim menu.py "$TP_BASE/folded-again.py"
 run_trim trim-5
 [ "$TRIM_CODE" -eq 0 ] || fail "the second fold exited $TRIM_CODE, not 0: $(cat "$TP_BASE/trim-5.err")"
 BRIEF=$(field "$TP_BASE/trim-5.json" brief_file)
-grep -qi "no tool" "$BRIEF" || fail "the brief does not say the project has no such tool"
-ok "a project with no tool gets a brief that says so"
+if command -v vulture >/dev/null 2>&1 || command -v knip >/dev/null 2>&1 \
+  || command -v jscpd >/dev/null 2>&1; then
+  echo "  skipped: this computer has vulture, knip or jscpd on the PATH, so the no-tool brief was not checked"
+else
+  grep -qi "no tool" "$BRIEF" || fail "the brief does not say the project has no such tool"
+  ok "a project with no tool gets a brief that says so"
+fi
 
 [ -z "$(git status --porcelain -- . ':!.agents')" ] || fail "the trim changed the project folder"
 ok "the trim left the project folder as it was"

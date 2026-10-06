@@ -130,7 +130,7 @@ class TheTrimRules(Repo):
         self.trim_with({"src/app.py": PIECE_APP.replace("return 1", "return 10")})
         found = self.verdict()
         self.assertIn("not-piece-code", [v.rule for v in found.violations])
-        self.assertIn("src/app.py", " ".join(v.text for v in found.violations))
+        self.assertIn("src/app.py", " ".join(v.line() for v in found.violations))
 
     def test_a_trim_that_removes_a_base_line_fails(self) -> None:
         self.trim_with({"src/other.py": ""})
@@ -245,6 +245,8 @@ class TheTools(unittest.TestCase):
         self.root = Path(self.dir.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        (self.root / "src").mkdir()
+        (self.root / "src" / "new.py").write_text("X = 1\n", encoding="utf-8")
 
     def tool(self, name: str, output: str, code: int = 0) -> None:
         script = self.bin / name
@@ -423,6 +425,7 @@ class TheWholePass(PassCase):
     def test_a_second_pass_makes_a_second_scratch_branch(self) -> None:
         self.folded()
         first = self.go()
+        self.script_files = {}
         again = self.go()
         self.assertNotEqual(first["scratch_branch"], again["scratch_branch"])
 
