@@ -14,12 +14,13 @@ import unittest
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import test_ready  # type: ignore[import-not-found]  # noqa: E402
+import test_ready  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
 from loop import evidence, fingerprint, github, moves, research, spec, states  # noqa: E402
 from loop.cli import ExitCode  # noqa: E402
 from loop.gates import CheckContext, CheckResult, claim, ready  # noqa: E402
@@ -59,7 +60,7 @@ class Stand:
                           today=lambda: TODAY, version_of=self.version_of)
 
 
-class ClaimCase(test_ready.Case):  # type: ignore[misc]
+class ClaimCase(test_ready.Case):  # type: ignore[misc, unused-ignore]
     """A ready piece. `make_ready` runs the real ready gate and records what it wrote."""
 
     record: list[dict[str, Any]]
@@ -217,7 +218,7 @@ class Fingerprint(ClaimCase):
 
     def test_a_judge_file_changed_after_ready(self) -> None:
         self.make_ready()
-        git(self.root, "checkout", "-q", test_ready.ready.branch_name(1))
+        git(self.root, "checkout", "-q", ready.branch_name(1))
         (self.root / test_ready.TEST_FILE).write_text(
             test_ready.TEST_TEXT + "\ndef test_more():\n    assert True\n", encoding="utf-8")
         git(self.root, "add", "-A")
@@ -227,7 +228,7 @@ class Fingerprint(ClaimCase):
 
     def test_a_judge_commit_that_is_gone(self) -> None:
         self.make_ready()
-        git(self.root, "branch", "-q", "-D", test_ready.ready.branch_name(1))
+        git(self.root, "branch", "-q", "-D", ready.branch_name(1))
         self.refuses_alone("piece branch", send_back=True)
 
     def test_a_record_with_no_fingerprint(self) -> None:
@@ -537,6 +538,17 @@ class TheFindingFormat(unittest.TestCase):
         self.assertEqual([f["kind"] for f in found], ["file"])
         self.assertEqual(found[0]["date"], "2026-10-03")
 
+    def test_a_date_not_on_the_calendar_is_not_a_date(self) -> None:
+        for text in ("Checked 31 February 2026.", "Checked 2026-02-30.", "Checked 31 Apr 2026."):
+            found = spec.parse_finding(f"A fact. Source: a.py. {text} Rests on: version 1.")
+            self.assertIsNone(found["date"], text)
+
+    def test_the_date_after_checked_wins(self) -> None:
+        found = spec.parse_finding(
+            "A fact, true since 2020-01-01. Source: a.py. Checked 3 October 2026. "
+            "Rests on: version 1.")
+        self.assertEqual(found["date"], "2026-10-03")
+
     def test_what_is_missing_is_none(self) -> None:
         found = spec.parse_finding("A fact with nothing behind it.")
         self.assertEqual((found["kind"], found["source"], found["date"]), (None, None, None))
@@ -573,6 +585,70 @@ class TheResearchModule(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("stamp", done.stdout)
+
+
+class GitSteps(ClaimCase):
+    """A git step that fails is a refusal, never a pass."""
+
+    def failing(self, word: str) -> Callable[..., tuple[int, str]]:
+        real = claim._git
+
+        def stand_in(root: Path, *args: str) -> tuple[int, str]:
+            return (128, "") if args[0] == word else real(root, *args)
+
+        return stand_in
+
+    def test_a_failed_log_is_a_refusal_that_keeps_the_piece_ready(self) -> None:
+        self.make_ready()
+        with mock.patch.object(claim, "_git", self.failing("log")):
+            result = self.refuses_alone("git log failed", send_back=False)
+        self.assertIn("git", result.next_command)
+
+    def test_a_failed_diff_tree_is_a_refusal(self) -> None:
+        self.make_ready()
+        with mock.patch.object(claim, "_git", self.failing("diff-tree")):
+            self.refuses_alone("git diff-tree failed", send_back=False)
+
+    def test_a_failed_show_is_a_refusal(self) -> None:
+        self.make_ready()
+        with mock.patch.object(claim, "_git", self.failing("show")):
+            self.refuses_alone("git show failed", send_back=False)
+
+    def test_a_failed_rev_list_is_a_refusal(self) -> None:
+        self.make_ready()
+        with mock.patch.object(claim, "_git", self.failing("rev-list")):
+            self.refuses_alone("git rev-list failed", send_back=False)
+
+    def test_two_failed_rev_parse_calls_are_a_refusal(self) -> None:
+        self.make_ready()
+        real = claim._git
+
+        def stand_in(root: Path, *args: str) -> tuple[int, str]:
+            if args[0] == "rev-parse" and "--verify" not in args:
+                return 128, ""
+            return real(root, *args)
+
+        with mock.patch.object(claim, "_git", stand_in):
+            self.refuses_alone("git rev-parse failed", send_back=False)
+
+    def test_a_judge_commit_that_deletes_a_file(self) -> None:
+        branch = ready.branch_name(1)
+        git(self.root, "branch", "-q", "-D", branch)
+        git(self.root, "checkout", "-q", "-b", branch)
+        git(self.root, "rm", "-q", "tests/test_old.py")
+        target = self.root / test_ready.TEST_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(test_ready.TEST_TEXT, encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "Judge files and a deletion")
+        git(self.root, "checkout", "-q", "main")
+        self.make_ready()
+        self.commit_main("docs/notes.md", "A change elsewhere.\n")
+        self.passing()
+        ref = self.claim_stand.judge_runs[0][1]
+        files = git(self.root, "ls-tree", "-r", "--name-only", ref)
+        self.assertNotIn("tests/test_old.py", files)
+        self.assertIn(test_ready.TEST_FILE, files)
 
 
 class SendingBackThroughTheGate(ClaimCase):

@@ -13,6 +13,7 @@ trust, such as an unknown version, raises `SpecError`.
 
 from __future__ import annotations
 
+import datetime
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -708,8 +709,7 @@ _FINDING_PRINT = re.compile(r"\bRests on:\s*fingerprint\s+([0-9a-fA-F]{7,64})\b"
 _FINDING_VERSION = re.compile(r"\bRests on:\s*version\s+(\S+)", re.IGNORECASE)
 
 
-def _finding_date(text: str) -> str | None:
-    """The first date in `text` as YYYY-MM-DD, or None."""
+def _first_date(text: str) -> str | None:
     for found in _FINDING_DATE.finditer(text):
         if found.group(1):
             year, month, day = int(found.group(1)), int(found.group(2)), int(found.group(3))
@@ -718,9 +718,24 @@ def _finding_date(text: str) -> str | None:
                                 int(found.group(4)))
         else:
             continue
-        if 1 <= month <= 12 and 1 <= day <= 31:
-            return f"{year:04d}-{month:02d}-{day:02d}"
+        try:
+            return datetime.date(year, month, day).isoformat()
+        except ValueError:
+            continue
     return None
+
+
+def _finding_date(text: str) -> str | None:
+    """The date after `Checked` as YYYY-MM-DD, else the first date in `text`, else None.
+
+    A date that is not on the calendar is not a date.
+    """
+    checked = re.search(r"\bChecked\b", text, re.IGNORECASE)
+    if checked:
+        after = _first_date(text[checked.end():])
+        if after:
+            return after
+    return _first_date(text)
 
 
 def parse_finding(item: str) -> dict[str, Any]:

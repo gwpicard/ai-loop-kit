@@ -108,13 +108,14 @@ def _judge_needs(spec: dict[str, Any]) -> list[Need]:
 def _research_needs(spec: dict[str, Any]) -> list[Need]:
     found: list[Need] = []
     for item in spec["research"]:
+        parsed = parser_module.parse_finding(item)
         lacking = []
-        if not re.search(r"\bSource:\s*\S", item):
+        if not parsed["source"]:
             lacking.append("a source")
-        if not DATE.search(item):
+        if not parsed["date"]:
             lacking.append("a date")
-        if not re.search(r"\bRests on:\s*\S", item):
-            lacking.append("what it rests on")
+        if not parsed["kind"]:
+            lacking.append("what it rests on (fingerprint <hex> or version <text>)")
         if lacking:
             found.append(
                 need(

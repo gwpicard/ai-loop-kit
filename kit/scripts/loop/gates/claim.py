@@ -206,6 +206,10 @@ def _overlay(root: Path, base: str, commit: str, files: Sequence[str]) -> str:
         run("read-tree", base)
         for path in files:
             entry = run("ls-tree", commit, "--", path)
+            if not entry:
+                # The judge commit deletes this file, so the tree for the judge lacks it too.
+                run("update-index", "--force-remove", "--", path)
+                continue
             mode, _kind, rest = entry.split(None, 2)
             run("update-index", "--add", "--cacheinfo", f"{mode},{rest.split()[0]},{path}")
         tree = run("write-tree")
@@ -227,6 +231,21 @@ def _recorded_fingerprint(record: Sequence[Any]) -> dict[str, Any] | None:
     return found
 
 
+def _git_step(
+    root: Path, number: int, faults: Faults, what: str, *args: str
+) -> str | None:
+    """Run one git step. A step that fails is a refusal that keeps the piece ready."""
+    code, text = _git(root, *args)
+    if code != 0:
+        faults.add(
+            f"git {args[0]} failed while the claim {what}, so the gate cannot tell",
+            f"check the project's git repository, then gate.py move {number} building",
+            back=False,
+        )
+        return None
+    return text
+
+
 def _judge_changed(
     root: Path, number: int, recorded: dict[str, Any], faults: Faults
 ) -> list[str] | None:
@@ -242,7 +261,10 @@ def _judge_changed(
             back=True,
         )
         return None
-    _, listing = _git(root, "rev-list", "--reverse", "--first-parent", f"{BASE}..{branch}")
+    listing = _git_step(root, number, faults, "listed the commits of the piece branch",
+                        "rev-list", "--reverse", "--first-parent", f"{BASE}..{branch}")
+    if listing is None:
+        return None
     first = listing.split()[0] if listing.split() else ""
     if first != commit:
         faults.add(
@@ -253,11 +275,17 @@ def _judge_changed(
             back=True,
         )
         return None
-    _, names = _git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit)
+    names = _git_step(root, number, faults, "listed the judge files",
+                      "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit)
+    if names is None:
+        return None
     files = names.splitlines()
     later = []
     for path in files:
-        _, hashes = _git(root, "log", "--format=%h", f"{commit}..{branch}", "--", path)
+        hashes = _git_step(root, number, faults, "checked the judge files for later changes",
+                           "log", "--format=%h", f"{commit}..{branch}", "--", path)
+        if hashes is None:
+            return None
         if hashes:
             later.append(f"{path} (in {', '.join(hashes.split())})")
     if later:
@@ -270,12 +298,22 @@ def _judge_changed(
     return files
 
 
-def _judge_tests(root: Path, commit: str, files: Sequence[str]) -> dict[str, str]:
+def _judge_tests(
+    root: Path, number: int, commit: str, files: Sequence[str], faults: Faults
+) -> dict[str, str] | None:
     tests: dict[str, str] = {}
     for path in files:
         if not ready_gate.looks_like_test(path):
             continue
-        _, text = _git(root, "show", f"{commit}:{path}")
+        held = _git_step(root, number, faults, "listed a judge file", "ls-tree", commit, "--",
+                         path)
+        if held is None:
+            return None
+        if not held:
+            continue  # the judge commit deletes this file
+        text = _git_step(root, number, faults, "read a judge file", "show", f"{commit}:{path}")
+        if text is None:
+            return None
         for name, body in lint.read_tests(text).items():
             tests[f"{path}::{name}"] = body
     return tests
@@ -436,10 +474,15 @@ def _on_main(
     if files is not None:
         commit = str(recorded["judge_commit"])
         try:
-            if _git(root, "rev-parse", f"{commit}^")[1] == _git(root, "rev-parse", BASE)[1]:
-                ref = commit
-            else:
-                ref = _overlay(root, BASE, commit, files)
+            parent_code, parent = _git(root, "rev-parse", f"{commit}^")
+            main_code, main = _git(root, "rev-parse", BASE)
+            if parent_code != 0 or main_code != 0:
+                raise ready_gate.GitError(
+                    f"git rev-parse failed while the claim compared the judge commit with "
+                    f"{BASE}, so the gate cannot tell where to run the judge",
+                    f"check the project's git repository, then gate.py move {number} building",
+                )
+            ref = commit if parent == main else _overlay(root, BASE, commit, files)
         except ready_gate.GitError as error:
             faults.add(str(error), error.next_command, back=False)
             return ref
@@ -523,7 +566,7 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     files: list[str] | None = None
     if not scaffold:
         files = _judge_changed(root, ctx.number, recorded, faults)
-    tests = (_judge_tests(root, str(recorded["judge_commit"]), files)
+    tests = (_judge_tests(root, ctx.number, str(recorded["judge_commit"]), files, faults)
              if files is not None else None)
 
     # 2. What the spec and the code under it say on today's main.
@@ -542,7 +585,9 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
     ref = _on_main(ctx, sp, deps, recorded, files, notes, faults)
     if faults:
         return faults.result()
-    main_at = _git(root, "rev-parse", BASE)[1]
+    main_at = _git_step(root, ctx.number, faults, f"read {BASE}", "rev-parse", BASE)
+    if main_at is None:
+        return faults.result()
     return passed(
         fingerprint=now,
         entries=[{"kind": "claim-check", "at": deps.today(), "main": main_at, "judge_ref": ref,

@@ -64,8 +64,8 @@ None.
 
 ## Research
 - The accounting package imports UTF-8 CSV with a header row.
-  Source: the package's import help page. Checked 3 October 2026.
-  Rests on: package version 4.2.
+  Source: https://example.invalid/import-help. Checked 3 October 2026.
+  Rests on: version 4.2.
 
 ## Open questions
 - Should cancelled invoices appear in the file? Why it matters: they

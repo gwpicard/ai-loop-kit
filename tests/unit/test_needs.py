@@ -212,6 +212,23 @@ class Research(unittest.TestCase):
             self.assertFalse(found[0]["needs_you"])
         self.assertEqual(find(done_spec(), "research_gap"), [])
 
+    def test_a_basis_the_claim_cannot_read_is_a_gap(self) -> None:
+        for basis in ("the docs", "package version 4.2", "fingerprint nonsense"):
+            body = swap(done_spec(), "Rests on: fingerprint 4c1e9a2.", f"Rests on: {basis}.")
+            found = find(body, "research_gap")
+            self.assertEqual(len(found), 1, basis)
+            self.assertIn("what it rests on", found[0]["text"])
+
+    def test_a_date_not_on_the_calendar_is_a_gap(self) -> None:
+        body = swap(done_spec(), "Checked 3 October 2026.", "Checked 31 February 2026.")
+        found = find(body, "research_gap")
+        self.assertEqual(len(found), 1)
+        self.assertIn("a date", found[0]["text"])
+
+    def test_the_example_issue_finding_is_whole(self) -> None:
+        body = (FIXTURES / "example-issue.md").read_text(encoding="utf-8")
+        self.assertEqual(find(body, "research_gap"), [])
+
     def test_an_iso_date_counts(self) -> None:
         body = swap(done_spec(), "Checked 3 October 2026.", "Checked 2026-10-03.")
         self.assertEqual(find(body, "research_gap"), [])
