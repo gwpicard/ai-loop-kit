@@ -497,6 +497,167 @@ class SecretsAndCredentials(Cases):
         self.passes("security list-keychains")
 
 
+class ShellGrammar(Cases):
+    """Keywords and grouping must not hide a command."""
+
+    def test_keywords_and_groups_do_not_hide_a_command(self) -> None:
+        self.refused(
+            "{ git push -f; }",
+            "{ git push origin main; }",
+            "if true; then git push -f; fi",
+            "if git push -f; then echo no; fi",
+            "if true; then echo a; else git reset --hard; fi",
+            "if false; then :; elif true; then git push -f; fi",
+            "for i in 1; do git push -f; done",
+            "while true; do git push -f; done",
+            "until false; do git push -f; done",
+            "case x in x) git push -f;; esac",
+            "! git push -f",
+            "f() { git push -f; }; f",
+            "function f { git push -f; }",
+            "time { git push -f; }",
+            "{ cat .env; }",
+            "if true; then gh issue edit 5 --add-label state:ready; fi",
+            "for i in 1; do rm -rf x; done",
+            "{ git reset --hard; }",
+        )
+
+    def test_harmless_keyword_forms_pass(self) -> None:
+        self.passes(
+            "{ git status; }",
+            "if true; then git push origin feature; fi",
+            "for i in 1 2; do echo $i; done",
+            "! git diff --quiet",
+        )
+
+    def test_env_split_string_is_judged(self) -> None:
+        self.refused(
+            "env -S 'git push -f'",
+            "env --split-string='git push origin main'",
+            "env -S 'FOO=1 git reset --hard'",
+            "env -Sgit\\ push\\ -f",
+            "env -i -S 'git push -f'",
+        )
+        self.passes("env -S 'git status'", "env --split-string='ls -l'")
+
+
+class TrackedFolder(Cases):
+    def test_cd_changes_where_a_relative_path_points(self) -> None:
+        self.refused(
+            f"cd {P.key_dir} && cat app-key.pem",
+            f"cd {P.key_dir}; cat ./app-key.pem",
+            f"cd {P.key_dir} && cat held-out/case1.txt",
+            f"cd {P.data} && cat */app-key.pem",
+            f"pushd {P.key_dir} && cat app-key.pem",
+            f"cd {P.home}/.config/gh && cat hosts.yml",
+            f"cd {P.root} && cat .env",
+            f"cd {P.root}/.agents && cat ../.env",
+            f"cd {P.key_dir} && cd held-out && cat case1.txt",
+        )
+        self.expect(f"cd {P.root} && cat .env", DENY, cwd=P.feature)
+
+    def test_cd_to_a_harmless_folder_still_passes(self) -> None:
+        self.passes(
+            f"cd {P.feature} && cat README.md",
+            f"cd {P.feature} && git status",
+            f"cd {P.root}; cd {P.feature}; cat .env.example",
+        )
+
+    def test_cd_changes_which_branch_a_bare_push_names(self) -> None:
+        self.expect(f"cd {P.root} && git push origin", DENY, cwd=P.feature)
+        self.expect(f"cd {P.feature} && git push origin", ALLOW, cwd=P.root)
+
+    def test_popd_returns(self) -> None:
+        self.expect(f"pushd {P.root} && popd && cat .env.example", ALLOW, cwd=P.feature)
+
+
+class ReadsByVariableGlobOrTree(Cases):
+    def test_a_variable_that_names_the_data_folder(self) -> None:
+        key = P.key_dir.name
+        self.refused(
+            f"cat $AI_LOOP_KIT_DATA/{key}/app-key.pem",
+            f"cat ${{AI_LOOP_KIT_DATA}}/{key}/app-key.pem",
+            f'cat "$AI_LOOP_KIT_DATA/{key}/app-key.pem"',
+            f"cat $AI_LOOP_KIT_DATA/{key}/held-out/case1.txt",
+            f"cd $AI_LOOP_KIT_DATA/{key} && cat app-key.pem",
+            f"D={P.data}; cat $D/{key}/app-key.pem",
+            f"export D={P.data} && cat ${{D}}/{key}/app-key.pem",
+            f"openssl rsa -in $AI_LOOP_KIT_DATA/{key}/app-key.pem",
+        )
+
+    def test_the_default_data_folder_when_the_variable_is_unset(self) -> None:
+        env = {"HOME": str(P.home)}
+        default = P.home / ".local" / "share" / "ai-loop-kit" / "k-0123456789ab"
+        default.mkdir(parents=True, exist_ok=True)
+        (default / "app-key.pem").write_text("x\n")
+        for command in (
+            f"cat {default}/app-key.pem",
+            "cat $AI_LOOP_KIT_DATA/k-0123456789ab/app-key.pem",
+            "cat ~/.local/share/ai-loop-kit/*/app-key.pem",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command, env=env).kind, DENY, command)
+
+    def test_xdg_and_gh_variables(self) -> None:
+        env = dict(P.env, XDG_CONFIG_HOME=str(P.base / "xdg"), GH_CONFIG_DIR=str(P.base / "ghc"))
+        for command in (
+            "cat $XDG_CONFIG_HOME/gh/hosts.yml",
+            "cat ${GH_CONFIG_DIR}/hosts.yml",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command, env=env).kind, DENY, command)
+
+    def test_a_glob(self) -> None:
+        self.refused(
+            f"cat {P.data}/*/app-key.pem",
+            f"cat {P.data}/*/app-key.p*",
+            f"cat {P.key_dir}/*",
+            f"cat {P.key_dir}/held-out/*",
+            f"cat {P.data}/*/held-*/case?.txt",
+            "cat $AI_LOOP_KIT_DATA/*/*",
+            f"cat {P.home}/.config/g?/*",
+        )
+
+    def test_a_recursive_read_of_a_parent_folder(self) -> None:
+        self.refused(
+            f"grep -r k {P.data}",
+            f"grep -rn secret {P.key_dir}",
+            f"grep -R k {P.data}/",
+            f"grep --recursive k {P.data}",
+            f"grep -d recurse k {P.data}",
+            "grep -r k $AI_LOOP_KIT_DATA",
+            f"rg k {P.data}",
+            f"rg k {P.home}",
+            f"grep -r token {P.home}/.config",
+            "grep -r token ~",
+            f"find {P.data} -exec cat {{}} +",
+            f"find {P.data} -type f -exec cat {{}} \\;",
+            f"find {P.home} -name hosts.yml -exec cat {{}} \\;",
+            f"find {P.key_dir} -execdir head {{}} +",
+            f"cp -r {P.data} out",
+            f"tar cf out.tar {P.data}",
+            f"cd {P.base} && grep -r k data",
+            f"cd {P.data} && grep -r k .",
+        )
+
+    def test_the_search_tools_over_a_parent_folder(self) -> None:
+        for name, keys in (("Grep", {"pattern": "k"}), ("Glob", {"pattern": "**/*"})):
+            for folder in (P.data, P.home, P.home / ".config"):
+                with self.subTest(tool=name, folder=str(folder)):
+                    self.assertEqual(tool(name, dict(keys, path=str(folder))).kind, DENY)
+        self.assertEqual(tool("Grep", {"pattern": "k", "path": str(P.feature)}).kind, ALLOW)
+
+    def test_recursive_reads_of_ordinary_folders_pass(self) -> None:
+        self.passes(
+            "grep -r TODO .",
+            f"grep -rn TODO {P.feature}",
+            f"find {P.feature} -name '*.py' -exec cat {{}} +",
+            f"find {P.home} -name notes.txt",
+            "rg TODO kit",
+            f"cp -r {P.feature} out",
+        )
+
+
 class GuardedWrites(Cases):
     def denied(self, name: str, path: Path, cwd: Path | None = None) -> None:
         with self.subTest(tool=name, path=str(path)):
@@ -615,10 +776,13 @@ class MainFunction(unittest.TestCase):
     def test_a_pass_prints_nothing(self) -> None:
         self.assertEqual(self.run_main(self.payload("git status")), (0, "", ""))
 
-    def test_input_that_is_not_json_is_not_a_refusal(self) -> None:
-        code, _, err = self.run_main(None, raw="not json")
-        self.assertEqual(code, 1)
-        self.assertIn("next:", err)
+    def test_input_that_is_not_json_fails_closed(self) -> None:
+        for raw in ("not json", "", "[1, 2]", '"text"', "null", "{"):
+            with self.subTest(raw=raw):
+                code, out, err = self.run_main(None, raw=raw)
+                self.assertEqual(code, 2)
+                self.assertEqual(out, "")
+                self.assertIn("next:", err)
 
     def test_a_missing_command_passes(self) -> None:
         payload = self.payload("")

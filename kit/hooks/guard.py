@@ -35,7 +35,7 @@ What the hook refuses:
 What it asks about: a comment or a review posted in the person's name.
 
 A line the hook cannot read asks. A fault in the hook asks. Input that is not
-JSON passes with exit 1, which Claude Code shows as a hook error.
+JSON is refused with exit 2, so a broken hook input never lets a call run.
 
 Every decision is also written to the command log by `command-log.py`.
 
@@ -53,7 +53,7 @@ import re
 import shlex
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -170,6 +170,8 @@ class Context:
     home: Path
     work_root: Path | None
     main_root: Path | None
+    # Variables set earlier on the same command line, such as `D=/some/folder`.
+    vars: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def worktrees(self) -> Path | None:
@@ -191,12 +193,25 @@ def build_context(cwd: str, env: Mapping[str, str]) -> Context:
 # --- paths named in a command ------------------------------------------------------
 
 
+VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
 def expand(token: str, ctx: Context) -> str:
+    """Replace `~` and the variables the hook knows: the environment and this line's own."""
     home = str(ctx.home)
+    known: dict[str, str] = dict(ctx.env)
+    known.setdefault(loop_paths.DATA_ENV, str(_data_folder(ctx) or ""))
+    known.update(ctx.vars)
+    known["HOME"] = home
     out = token
     if out == "~" or out.startswith("~/"):
         out = home + out[1:]
-    return out.replace("${HOME}", home).replace("$HOME", home)
+
+    def value(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        return known[name] if known.get(name) else match.group(0)
+
+    return VARIABLE.sub(value, out)
 
 
 def candidates(token: str, base: Path, ctx: Context) -> list[Path]:
@@ -274,6 +289,20 @@ def read_block(path: Path, ctx: Context, *, write: bool = False) -> Decision | N
                 "this holds a sign-in token or a keychain. A builder holds no GitHub credential.",
                 "ask the person to run the command that needs the sign-in.",
             )
+    return None
+
+
+def covers_protected(path: Path, ctx: Context) -> Decision | None:
+    """A refusal when a recursive read of this folder would reach a secret, or None."""
+    data = _data_folder(ctx)
+    reaches = data is not None and (_is_under(path, data) or _is_under(data, path))
+    reaches = reaches or any(_is_under(folder, path) for folder in _secret_folders(ctx))
+    if reaches:
+        return refuse(
+            "this reads every file under a folder that holds the App key, the held-out "
+            "folder or a sign-in token.",
+            "name the files you need, in a folder that holds no secret.",
+        )
     return None
 
 
@@ -477,9 +506,38 @@ def program_name(word: str) -> str:
     return os.path.basename(word.lstrip("\\"))
 
 
+# Words of the shell's own grammar. They come before a command but are not the command.
+KEYWORDS = frozenset(
+    {"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "esac"}
+)
+
+
+def _split_string_option(option: str, rest: list[str]) -> list[str] | None:
+    """The words of `env -S 'words'` or `env --split-string=words`, or None."""
+    text: str | None = None
+    if option in {"-S", "--split-string"}:
+        text = rest.pop(0) if rest else ""
+    elif option.startswith("--split-string="):
+        text = option.split("=", 1)[1]
+    elif option.startswith("-S"):
+        text = option[2:]
+    if text is None:
+        return None
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return []
+
+
 def unwrap(words: Sequence[str]) -> list[str]:
     rest = list(words)
     while rest:
+        if rest[0] in KEYWORDS:
+            rest.pop(0)
+            continue
+        if rest[0] == "function":
+            del rest[:2]
+            continue
         if ASSIGNMENT.match(rest[0]):
             rest.pop(0)
             continue
@@ -490,6 +548,11 @@ def unwrap(words: Sequence[str]) -> list[str]:
         rest.pop(0)
         while rest and rest[0].startswith("-") and rest[0] != "-":
             option = rest.pop(0)
+            if name == "env":
+                inner = _split_string_option(option, rest)
+                if inner is not None:
+                    rest[0:0] = inner
+                    break
             if option in value_options and rest:
                 rest.pop(0)
         for _ in range(skip):
@@ -870,9 +933,41 @@ def _write_targets(prog: str, args: Sequence[str]) -> list[str]:
     return []
 
 
+SEARCH_ALWAYS = {"rg", "ag", "ack", "tar", "bsdtar", "zip", "ditto", "rsync", "7z", "7za"}
+GREPS = {"grep", "egrep", "fgrep", "zgrep"}
+FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+
+
+def _reads_a_tree(prog: str, args: Sequence[str]) -> bool:
+    """True when the command reads every file under the folders it is given."""
+    if prog in SEARCH_ALWAYS:
+        return True
+    if prog in GREPS:
+        return any(
+            a.startswith(("--recursive", "--dereference-recursive"))
+            or _has_short(a, "r")
+            or _has_short(a, "R")
+            or a == "recurse"
+            for a in args
+        )
+    if prog in {"cp", "scp"}:
+        return any(
+            a in {"--recursive", "--archive"} or any(_has_short(a, c) for c in "rRa") for a in args
+        )
+    if prog == "find":
+        return any(a in FIND_EXEC for a in args)
+    return False
+
+
 def check_paths(
     prog: str, args: Sequence[str], redirects: Sequence[tuple[str, str]], cwd: Path, ctx: Context
 ) -> Decision | None:
+    if _reads_a_tree(prog, args):
+        for arg in args:
+            for path in candidates(arg, cwd, ctx):
+                found = covers_protected(path, ctx)
+                if found is not None:
+                    return found
     if prog not in {"echo", "printf"}:
         for arg in args:
             for path in candidates(arg, cwd, ctx):
@@ -955,8 +1050,41 @@ def check_command(
             "the command cannot be read, for example because a quote is not closed.",
             "write the command in a simpler form.",
         )
-    found = [check_words(s.words, here, ctx, s.redirects, depth) for s in simples]
+    found: list[Decision | None] = []
+    stack: list[Path] = []
+    for simple in simples:
+        found.append(check_words(simple.words, here, ctx, simple.redirects, depth))
+        here, ctx = _after(simple.words, here, ctx, stack)
     return _first_decision(found)
+
+
+def _after(
+    words: Sequence[str], here: Path, ctx: Context, stack: list[Path]
+) -> tuple[Path, Context]:
+    """The folder and variables that the next command on the line sees."""
+    rest = unwrap(words)
+    if not rest:
+        assigned = {w.split("=", 1)[0]: expand(w.split("=", 1)[1], ctx) for w in words
+                    if ASSIGNMENT.match(w)}
+        return here, replace(ctx, vars={**ctx.vars, **assigned})
+    prog, args = program_name(rest[0]), rest[1:]
+    if prog in {"export", "declare", "typeset", "local", "readonly"}:
+        assigned = {a.split("=", 1)[0]: expand(a.split("=", 1)[1], ctx) for a in args
+                    if ASSIGNMENT.match(a)}
+        return here, replace(ctx, vars={**ctx.vars, **assigned})
+    if prog == "popd":
+        return (stack.pop() if stack else here), ctx
+    if prog in {"cd", "pushd"}:
+        targets = [a for a in args if not a.startswith("-") or a == "-"]
+        text = expand(targets[0], ctx) if targets else str(ctx.home)
+        if text == "-" or "$" in text or any(ch in text for ch in "*?["):
+            return here, ctx
+        new = _real(os.path.join(here, text))
+        if new.is_dir():
+            if prog == "pushd":
+                stack.append(here)
+            return new, ctx
+    return here, ctx
 
 
 # --- tool calls --------------------------------------------------------------------
@@ -1011,6 +1139,8 @@ def decide(payload: Mapping[str, Any], env: Mapping[str, str]) -> Decision:
                     found = write_block(path, ctx) or read_block(path, ctx, write=True)
                 else:
                     found = read_block(path, ctx)
+                    if found is None and name in {"Grep", "Glob"}:
+                        found = covers_protected(path, ctx)
                 if found is not None:
                     break
             break
@@ -1051,10 +1181,11 @@ def main(
         payload = None
     if not isinstance(payload, dict):
         stderr.write(
-            "The guard could not read the hook input. It is not JSON.\n"
+            "The guard refused this call. It could not read the hook input, which is not "
+            "a JSON object.\n"
             "next: check that Claude Code runs this hook as a PreToolUse hook.\n"
         )
-        return 1
+        return 2
     try:
         decision = decide(payload, env)
     except Exception as error:
