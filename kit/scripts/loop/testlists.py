@@ -17,6 +17,7 @@ A session that leaves no hand-off, or any other outcome, gives no list.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -56,8 +57,32 @@ def template_path(paths: Paths) -> Path:
     return paths.kit_dir / "briefs" / "test-list.md"
 
 
-def worktree_name(number: int, label: str) -> str:
-    return f"p{number}-list-{label}"
+def worktree_name(number: int, label: str, attempt: int = 1) -> str:
+    return f"p{number}-list-{label}-{attempt}"
+
+
+def branch_name(number: int, label: str, attempt: int = 1) -> str:
+    return f"list-{number}-{label}-{attempt}"
+
+
+def attempt(paths: Paths, number: int) -> int:
+    """The number of this attempt: one more than the list branches the piece already has.
+
+    Each attempt gets new worktrees on new branches cut from today's main. An old branch
+    is never reset or removed, so no unsaved work is lost. `tidy` clears them later.
+    """
+    done = subprocess.run(
+        ["git", "-C", str(paths.root), "for-each-ref", "--format=%(refname:short)",
+         f"refs/heads/list-{number}-*"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        return 1
+    pattern = re.compile(rf"^list-{number}-[a-z]+-(\d+)$")
+    found = [int(m.group(1)) for line in done.stdout.split() if (m := pattern.match(line))]
+    return max(found, default=0) + 1
 
 
 def open_worktree(paths: Paths, name: str, branch: str) -> Path:
@@ -105,14 +130,15 @@ def run_two(
     )
     lists: list[list[str]] = []
     labels: list[str] = []
+    again = attempt(paths, number)
     for letter in LABELS:
-        name = worktree_name(number, letter)
+        name = worktree_name(number, letter, again)
         folder = (
             opener(name)
             if opener is not None
-            else open_worktree(paths, name, f"list-{number}-{letter}")
+            else open_worktree(paths, name, branch_name(number, letter, again))
         )
-        label = f"p{number}-list-{letter}"
+        label = name
         session = sessions.plan(
             paths,
             run=run_name(number),

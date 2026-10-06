@@ -66,7 +66,8 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
             next_command="write the spec as kit/spec-format.md says, then run it again",
             code=cli.ExitCode.REFUSED,
         )
-    labels = [testlists.worktree_name(args.piece, letter) for letter in testlists.LABELS]
+    again = testlists.attempt(paths, args.piece)
+    labels = [testlists.worktree_name(args.piece, letter, again) for letter in testlists.LABELS]
     if args.dry_run:
         return {"would_run": labels, "ids": parsed.ids}
     try:

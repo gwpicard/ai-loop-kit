@@ -4,6 +4,7 @@ The sessions are stand-ins. `tests/ready-gate.sh` runs the real session code
 with the Claude stand-in.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -124,6 +125,35 @@ class Sessions(unittest.TestCase):
         with self.assertRaises(testlists.ListError) as caught:
             self.run_two()
         self.assertIn("names no spec ID", str(caught.exception))
+
+    def git(self, *args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(self.root), "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+             "-c", "commit.gpgsign=false", *args],
+            capture_output=True, text=True, check=True,
+        )
+
+    def test_a_second_attempt_opens_new_worktrees_and_branches_from_main(self) -> None:
+        self.git("init", "-q", "-b", "main")
+        self.git("commit", "-q", "--allow-empty", "-m", "Start")
+        self.assertEqual(testlists.attempt(self.paths, 7), 1)
+        self.run_two()
+        self.assertEqual(self.opened, ["p7-list-a-1", "p7-list-b-1"])
+        # The first attempt's branches now exist, as worktree.sh would have made them.
+        for name in ("list-7-a-1", "list-7-b-1"):
+            self.git("branch", name, "main")
+        self.assertEqual(testlists.attempt(self.paths, 7), 2)
+        self.opened.clear()
+        self.started.clear()
+        self.run_two()
+        self.assertEqual(self.opened, ["p7-list-a-2", "p7-list-b-2"])
+        self.assertEqual([s.label for s in self.started], ["p7-list-a-2", "p7-list-b-2"])
+
+    def test_another_pieces_branches_are_not_counted(self) -> None:
+        self.git("init", "-q", "-b", "main")
+        self.git("commit", "-q", "--allow-empty", "-m", "Start")
+        self.git("branch", "list-70-a-1", "main")
+        self.assertEqual(testlists.attempt(self.paths, 7), 1)
 
     def test_the_brief_template_obeys_the_data_block_rule(self) -> None:
         text = (ROOT / "kit" / "briefs" / "test-list.md").read_text(encoding="utf-8")
