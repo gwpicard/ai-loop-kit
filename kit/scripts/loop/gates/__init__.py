@@ -12,7 +12,11 @@ reads and the label checks. A module holds only the checks of its own move.
 A passing result may carry data the gate records:
 
 - `fingerprint`: a fingerprint from `loop.fingerprint.take`, taken at ready;
-- `body`: a new issue body, a change the gate itself makes to the spec.
+- `body`: a new issue body, a change the gate itself makes to the spec;
+- `must_look`: the must-look reasons the ready gate wrote, a list of text. The
+  gate records them on the move, and a piece with one gets individual review;
+- `entries`: more entries for the piece record, such as the judge runs and the
+  test lists the check made. Each has a `kind` that the gate's own kinds do not use.
 """
 
 from __future__ import annotations
