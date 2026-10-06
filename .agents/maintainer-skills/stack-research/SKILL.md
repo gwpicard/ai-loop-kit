@@ -34,10 +34,9 @@ Where the folder holds no recipe yet, say so at the top of the note and carry on
 with the rest of the read. The upstream sources and the default stacks are
 still worth reading, and a new recipe can still be proposed.
 
-The kit's old hosting request now lives only in the tag
-`archive/build-kit-final`, at `.agents/skills/ship/references/hosting-request.md`.
-Read it with `git show`. It is the block of fields `/ship` writes on a
-first launch for a tool that runs on a server somebody else runs.
+The kit has no hosting request file today. A hosting request is a block of
+fields that a person carries by hand to a server somebody else runs. If v1 adds
+one, add it to this read in the same change.
 
 ## Read upstream
 
@@ -66,9 +65,10 @@ For the products the first recipes name:
 - coolify-devops at <https://github.com/KasperHonore/coolify-devops>: its
   CHANGELOG, and the fields its `host` skill expects in a hosting request. The
   fields are in `skills/host/SKILL.md`, in the section "AI Build Kit: the
-  hosting request is the report". Compare those fields with the kit's hosting request, field by field. The two
-  have drifted apart before, and a request the server's side cannot read leaves
-  a first launch waiting on an answer that never comes.
+  hosting request is the report". That is an upstream title, so leave its words
+  as they are. Note any change to the fields, because a request that the
+  server's side cannot read leaves a first launch waiting on an answer that
+  never comes.
 
 A recipe added later names its own products. Read those products' changelogs
 and documentation the same way, and add them to this list in the same change
@@ -171,7 +171,7 @@ run would need.
 ## What this read never does
 
 It changes nothing in the kit without the maintainer. It does not edit a recipe,
-a part, a rehearsal or the hosting request. It does not move a `Last checked:`
+a part or a rehearsal. It does not move a `Last checked:`
 date, open an issue, or open a pull request. Where it finds something worth
 changing, it says so in the note and leaves the decision with the maintainer.
 

@@ -1,6 +1,12 @@
 # AI Loop Kit
 
-This repository is becoming AI Loop Kit v1. AI Build Kit lives on at
-gwpicard/ai-build-kit. Its last state here is the tag `archive/build-kit-final`.
+AI Loop Kit is a way to build software with coding agents. You shape each piece
+of work until nothing in it is unclear. Then an agent builds it while you are
+away. Each piece is a GitHub issue. It moves through seven states, and only a
+gate script moves it.
 
-The design for v1 is in `docs/design/v1/`.
+It is being built. You cannot install it yet. It runs on Claude Code only.
+
+The design is in `docs/design/v1/`. Start with `design.md`.
+
+The older kit, AI Build Kit, is at gwpicard/ai-build-kit.

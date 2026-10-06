@@ -1,6 +1,6 @@
-name: Suggest a change
-description: Describe something AI Build Kit should help a person do.
-title: "[Suggestion] "
+name: Suggest an idea
+description: Describe something AI Loop Kit should help a person do.
+title: "[Idea] "
 labels:
   - enhancement
 body:
@@ -8,18 +8,13 @@ body:
     id: situation
     attributes:
       label: When would you use this?
-      description: Describe the situation and the problem you are trying to solve.
+      description: Describe the situation and the problem you want to solve.
     validations:
       required: true
   - type: textarea
     id: result
     attributes:
       label: What should the person see or do?
-      description: Describe the result in plain language. A technical design is not required.
+      description: Describe the result in plain words. You do not need a technical design.
     validations:
       required: true
-  - type: textarea
-    id: fallback
-    attributes:
-      label: What do you do today?
-      description: Leave this blank if there is no current workaround.
