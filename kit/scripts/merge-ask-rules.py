@@ -2,10 +2,10 @@
 """Add or remove the rules that make Claude Code ask before a merge.
 
 Where the masterplan's `Goes live:` line says `on every merge`, each merge puts
-the tool live. The rules in this skill's `templates/merge-ask-rules.json` make
-Claude Code show its confirmation box before any such merge. Founding, the
-merge step, /ship and /maintain all run this script, so the file changes the
-same way whoever writes the line.
+the tool live. The rules in `kit/templates/merge-ask-rules.json` make Claude
+Code show its confirmation box before any such merge. Every step that turns
+the setting on or off runs this script, so the file changes the same way
+whoever writes the line.
 
 Usage:
 
@@ -26,53 +26,58 @@ Nothing is written.
 Exit 64: the command was not given as above. Nothing is read or written.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys
 import tempfile
+from typing import Any
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "..", "templates", "merge-ask-rules.json")
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     if len(argv) != 3 or argv[1] not in ("add", "remove"):
         sys.stderr.write("usage: merge-ask-rules.py add|remove <settings file>\n")
         return 64
     action, path = argv[1], argv[2]
 
     with open(TEMPLATE) as f:
-        rules = json.load(f)["ask"]
+        rules: list[str] = json.load(f)["ask"]
 
     if not os.path.isfile(path):
-        sys.stderr.write("%s: no such file, so nothing was written\n" % path)
+        sys.stderr.write(f"{path}: no such file, so nothing was written\n")
         return 2
 
     try:
         with open(path) as f:
-            settings = json.load(f)
+            settings: Any = json.load(f)
     except (ValueError, UnicodeDecodeError) as error:
-        sys.stderr.write("%s: not valid JSON (%s), so it was left untouched\n" % (path, error))
+        sys.stderr.write(f"{path}: not valid JSON ({error}), so it was left untouched\n")
         return 1
 
-    permissions = settings.get("permissions", {}) if isinstance(settings, dict) else None
-    ask = permissions.get("ask", []) if isinstance(permissions, dict) else None
-    if not isinstance(ask, list):
-        sys.stderr.write("%s: not in the shape Claude Code reads, so it was left untouched\n" % path)
+    permissions: Any = settings.get("permissions", {}) if isinstance(settings, dict) else None
+    ask: Any = permissions.get("ask", []) if isinstance(permissions, dict) else None
+    if not isinstance(permissions, dict) or not isinstance(ask, list):
+        sys.stderr.write(
+            f"{path}: not in the shape Claude Code reads, so it was left untouched\n"
+        )
         return 1
 
-    changed = []
+    changed: list[str] = []
     if action == "add":
         for rule in rules:
             if rule not in ask:
                 ask.append(rule)
-                changed.append("added to permissions.ask: %s" % rule)
+                changed.append(f"added to permissions.ask: {rule}")
         if changed:
             permissions["ask"] = ask
             settings["permissions"] = permissions
     else:
         kept = [rule for rule in ask if rule not in rules]
-        changed = ["removed from permissions.ask: %s" % rule for rule in ask if rule in rules]
+        changed = [f"removed from permissions.ask: {rule}" for rule in ask if rule in rules]
         if changed:
             if kept:
                 permissions["ask"] = kept

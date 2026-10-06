@@ -160,7 +160,7 @@ if after.get("hooks") != before.get("hooks"):
     stop("add changed the session-start hook")
 rest_before = {k: v for k, v in before.items() if k != "permissions"}
 rest_after = {k: v for k, v in after.items() if k != "permissions"}
-if rest_before != rest_after or set(after["permissions"]) != {"deny", "ask"}:
+if rest_before != rest_after or set(after["permissions"]) != set(before["permissions"]) | {"ask"}:
     stop("add changed something besides the ask list")
 if not all(rule in out for rule in rules):
     stop("add did not print the rules it added: %r" % out)

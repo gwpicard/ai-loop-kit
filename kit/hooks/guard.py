@@ -580,6 +580,8 @@ def unwrap(words: Sequence[str]) -> list[str]:
 # --- the rules ---------------------------------------------------------------------
 
 VALUE_PUSH_OPTIONS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+HOOKS_PATH_WHAT = "core.hooksPath moves the git hooks, so the checks in them stop running."
+HOOKS_PATH_NEXT = "leave core.hooksPath alone. Ask the person to change it."
 GIT_VALUE_OPTIONS = {"-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 PUSH_NEXT = (
     "push the piece's own branch, such as git push origin <branch>, then open a pull request."
@@ -677,6 +679,12 @@ def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
             here = _real(os.path.join(here, args[i + 1]))
             i += 2
         elif args[i] in GIT_VALUE_OPTIONS:
+            if (
+                args[i] == "-c"
+                and i + 1 < len(args)
+                and args[i + 1].lower().startswith("core.hookspath")
+            ):
+                return refuse(HOOKS_PATH_WHAT, HOOKS_PATH_NEXT)
             i += 2
         else:
             i += 1
@@ -685,6 +693,23 @@ def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
     sub, rest = args[i], list(args[i + 1 :])
     if sub == "push":
         return check_push(rest, here)
+    if sub == "commit" and any(
+        a == "--no-verify" or re.fullmatch(r"-[a-zA-Z]*n[a-zA-Z]*", a) for a in rest
+    ):
+        return refuse(
+            "git commit --no-verify skips the git hooks that check the commit.",
+            "commit without --no-verify. If a hook fails, fix what it names.",
+        )
+    if sub == "config":
+        names = [a.lower() for a in rest if not a.startswith("-")]
+        reading = any(a in {"--get", "--get-all", "--list", "-l"} for a in rest)
+        if not reading and any(n.startswith("core.hookspath") for n in names):
+            return refuse(HOOKS_PATH_WHAT, HOOKS_PATH_NEXT)
+        if any(n.startswith("alias.") for n in names) and not reading:
+            return refuse(
+                "a git alias can hide a refused command behind a short name.",
+                "type the full git command. Ask the person to add an alias.",
+            )
     if sub == "reset" and "--hard" in rest:
         return refuse(
             "git reset --hard throws away work that is not saved.",
