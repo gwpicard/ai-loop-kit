@@ -120,6 +120,29 @@ for rule in $REFUSING; do
   rs_ok "with $rule switched off its planted smell passes, so the rule does the work"
 done
 
+# --- 3b. the variants of a rule ---------------------------------------------
+# A cheap way round a rule is a variant. Each planted variant is refused for its
+# own rule, and with that rule off it passes, so the rule does the work.
+VAR="$FIX/variants"
+for fixture in "$VAR"/*.fixture; do
+  base=$(basename "$fixture" .fixture)       # <rule>--<name>.<lang>
+  lang=${base##*.}
+  head=${base%.*}
+  rule=${head%%--*}
+  name=${head#*--}
+  mkdir -p "$WORK/v-$head-$lang"
+  if [ "$lang" = py ]; then vfile="$WORK/v-$head-$lang/test_$name.py"; else vfile="$WORK/v-$head-$lang/$name.test.ts"; fi
+  cp "$fixture" "$vfile"
+  run_lint "v-$head-$lang" --file "$vfile" --own-module billing --json
+  [ "$code" = 1 ] || fail "variant $head ($lang): expected exit 1, got $code"
+  mentions "$WORK/v-$head-$lang.json" "$rule" || fail "variant $head ($lang): the refusal does not name $rule"
+  mut="$WORK/mutant-$rule"
+  code=0
+  "$mut/newtest-lint.py" --file "$vfile" --own-module billing --json >"$WORK/m.json" 2>/dev/null || code=$?
+  [ "$code" = 0 ] || fail "variant $head ($lang): with $rule off the variant was still refused"
+  rs_ok "variant $head ($lang) is refused for $rule, and passes with $rule off"
+done
+
 # --- 4. the git route -------------------------------------------------------
 . "$ROOT/tests/lib/throwaway-project.sh"
 tp_new tested

@@ -1,0 +1,6 @@
+from billing import total
+
+
+def test_total_adds_prices():
+    result = total([1, 2])
+    assert (result == 4, "the total is wrong")

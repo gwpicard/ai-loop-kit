@@ -5,7 +5,11 @@ tests/fixtures/test-smells/. A fixture is judged under a logical name, because
 the folder it sits in would make every file a test file.
 """
 
+import json
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -112,6 +116,348 @@ class MutationEveryRuleIsLoadBearing(unittest.TestCase):
                 self.assertIn(severity, ("refuse", "report"))
                 self.assertTrue(message and hint)
                 self.assertNotIn("—", message + hint)
+
+
+VARIANTS = FIXTURES / "variants"
+
+
+def variant_cases() -> list[tuple[Rule, str, str, Path]]:
+    """(rule, name, language, path) for every planted variant."""
+    cases = []
+    for path in sorted(VARIANTS.glob("*.fixture")):
+        stem, language, _ = path.name.rsplit(".", 2)
+        rule, name = stem.split("--")
+        cases.append((Rule(rule), name, language, path))
+    return cases
+
+
+def judge_variant(rule: Rule, language: str, path: Path, **kwargs: object) -> list[nl.Finding]:
+    return nl.lint_text(
+        name_for(rule, language),
+        path.read_text(encoding="utf-8"),
+        own_modules=OWN,
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+class EveryVariantFires(unittest.TestCase):
+    """Cheap ways round a rule are refused too, each with its own planted example."""
+
+    def test_there_are_variants_to_judge(self) -> None:
+        names = {(rule.value, name, language) for rule, name, language, _ in variant_cases()}
+        for wanted in (
+            ("assert_true", "or_true", "py"),
+            ("assert_true", "tuple", "py"),
+            ("assert_true", "or_true", "ts"),
+            ("no_assertion", "nested_def", "py"),
+            ("no_assertion", "nested_arrow", "ts"),
+            ("own_module_mock", "sys_modules", "py"),
+            ("skip_added", "it_todo", "ts"),
+        ):
+            self.assertIn(wanted, names)
+
+    def test_each_variant_is_refused_for_its_own_rule_only(self) -> None:
+        for rule, name, language, path in variant_cases():
+            with self.subTest(rule=rule.value, variant=name, language=language):
+                self.assertEqual(refused(judge_variant(rule, language, path)), {rule.value})
+
+    def test_with_the_rule_off_each_variant_passes_so_the_rule_does_the_work(self) -> None:
+        for rule, name, language, path in variant_cases():
+            enabled = frozenset(r for r in Rule if r is not rule)
+            with self.subTest(rule=rule.value, variant=name, language=language):
+                self.assertEqual(refused(judge_variant(rule, language, path, rules=enabled)), set())
+
+
+def lint_py(text: str, **kwargs: object) -> set[str]:
+    return refused(nl.lint_text("test_a.py", text, **kwargs))  # type: ignore[arg-type]
+
+
+def lint_ts(text: str) -> set[str]:
+    return refused(nl.lint_text("a.test.ts", text))
+
+
+class AlwaysTrueByConstruction(unittest.TestCase):
+    def test_python_forms_that_cannot_fail(self) -> None:
+        for body in (
+            "assert f() == 2 or True",
+            "assert True or f() == 2",
+            "assert 1 or f()",
+            "assert (f(), 2)",
+            "assert (f() == 2,)",
+            "assert x == x",
+            "assert x.y == x.y",
+            "self.assertTrue(True)",
+        ):
+            text = f"def test_a(x):\n    {body}\n"
+            with self.subTest(body=body):
+                self.assertEqual(lint_py(text), {"assert_true"})
+
+    def test_python_forms_that_can_fail_are_left_alone(self) -> None:
+        for body in (
+            "assert f() == 2 or g() == 3",
+            "assert f() == 2 and True",
+            "assert ()",
+            "assert f() == f2()",
+            "assert f() == f()",
+        ):
+            text = f"def test_a(x):\n    {body}\n"
+            with self.subTest(body=body):
+                self.assertNotIn("assert_true", lint_py(text))
+
+    def test_typescript_forms_that_cannot_fail(self) -> None:
+        for body in (
+            "expect(f()).toBe(2) || true;",
+            "expect(f()).toBe(2) || 1;",
+            "true || expect(f()).toBe(2);",
+            "expect(true).toBeDefined();",
+            "expect(true).not.toBe(false);",
+            "expect(x).toBe(x);",
+            "expect(a.b).toEqual(a.b);",
+        ):
+            text = f"it('a', () => {{\n  {body}\n}});\n"
+            with self.subTest(body=body):
+                self.assertEqual(lint_ts(text), {"assert_true"})
+
+    def test_typescript_forms_that_can_fail_are_left_alone(self) -> None:
+        for body in (
+            "expect(f()).toBe(2) || g();",
+            "expect(true).toBe(false);",
+            "expect(a.b).toEqual(a.bc);",
+            "const y = x || true;\n  expect(y).toBe(2);",
+        ):
+            text = f"it('a', () => {{\n  {body}\n}});\n"
+            with self.subTest(body=body):
+                self.assertEqual(lint_ts(text), set())
+
+
+class AssertionsThatNeverRun(unittest.TestCase):
+    def test_a_nested_function_that_the_test_never_calls_does_not_count(self) -> None:
+        text = "def test_a():\n    def inner():\n        assert f() == 2\n    f()\n"
+        self.assertEqual(lint_py(text), {"no_assertion"})
+
+    def test_a_nested_function_that_the_test_calls_counts(self) -> None:
+        text = "def test_a():\n    def inner():\n        assert f() == 2\n    inner()\n"
+        self.assertEqual(lint_py(text), set())
+
+    def test_a_nested_function_called_by_a_called_one_counts(self) -> None:
+        text = (
+            "def test_a():\n    def deep():\n        assert f() == 2\n"
+            "    def inner():\n        deep()\n    inner()\n"
+        )
+        self.assertEqual(lint_py(text), set())
+
+    def test_an_uncalled_lambda_does_not_count_and_a_called_one_does(self) -> None:
+        unused = "def test_a(self):\n    c = lambda: self.assertEqual(f(), 2)\n    f()\n"
+        used = "def test_a(self):\n    c = lambda: self.assertEqual(f(), 2)\n    c()\n"
+        self.assertEqual(lint_py(unused), {"no_assertion"})
+        self.assertEqual(lint_py(used), set())
+
+    def test_an_assertion_in_a_nested_function_does_not_count_as_duplicate_either(self) -> None:
+        text = (
+            "def test_a():\n    def inner():\n        assert f() == 2\n"
+            "    assert f() == 2\n"
+        )
+        self.assertEqual(lint_py(text), set())
+
+    def test_an_uncalled_nested_arrow_or_function_does_not_count_in_typescript(self) -> None:
+        arrow = "it('a', () => {\n  const c = () => { expect(f()).toBe(2); };\n  f();\n});\n"
+        func = "it('a', () => {\n  function c() { expect(f()).toBe(2); }\n  f();\n});\n"
+        self.assertEqual(lint_ts(arrow), {"no_assertion"})
+        self.assertEqual(lint_ts(func), {"no_assertion"})
+
+    def test_a_called_or_passed_nested_helper_counts_in_typescript(self) -> None:
+        called = "it('a', () => {\n  const c = () => { expect(f()).toBe(2); };\n  c();\n});\n"
+        passed = (
+            "it('a', () => {\n  const c = (x) => { expect(x).toBe(2); };\n"
+            "  [f()].forEach(c);\n});\n"
+        )
+        inline = "it('a', () => {\n  [f()].forEach((x) => { expect(x).toBe(2); });\n});\n"
+        for text in (called, passed, inline):
+            with self.subTest(text=text):
+                self.assertEqual(lint_ts(text), set())
+
+
+class AssertionCallsMatchExactly(unittest.TestCase):
+    def test_a_name_that_only_starts_like_an_assertion_does_not_count(self) -> None:
+        for call in ("verify_nothing()", "failover_setup()", "expected_value()", "raisesomething()"):
+            text = f"def test_a():\n    f()\n    {call}\n"
+            with self.subTest(call=call):
+                self.assertEqual(lint_py(text), {"no_assertion"})
+
+    def test_real_assertion_calls_count(self) -> None:
+        for call in (
+            "self.assertEqual(f(), 2)",
+            "self.assertRaises(ValueError, f)",
+            "self.fail('no')",
+            "pytest.fail('no')",
+            "mock.assert_called_with(2)",
+            "assert_that(f(), 2)",
+            "np.testing.assert_allclose(f(), 2)",
+            "expect(f()).to_equal(2)",
+        ):
+            text = f"def test_a(self, mock):\n    {call}\n"
+            with self.subTest(call=call):
+                self.assertEqual(lint_py(text), set())
+
+    def test_raises_and_warns_blocks_count(self) -> None:
+        for head in ("pytest.raises(ValueError)", "pytest.warns(UserWarning)", "raises(ValueError)"):
+            text = f"def test_a():\n    with {head}:\n        f()\n"
+            with self.subTest(head=head):
+                self.assertEqual(lint_py(text), set())
+
+    def test_a_helper_named_like_an_assertion_must_assert_for_its_own_sake(self) -> None:
+        text = "def verify_it():\n    return 1\n\n\ndef test_a():\n    verify_it()\n"
+        self.assertEqual(lint_py(text), {"no_assertion"})
+
+    def test_pytest_fail_is_an_explicit_fail(self) -> None:
+        text = "def test_a():\n    f()\n    pytest.fail('stop')\n"
+        self.assertEqual(lint_py(text), set())
+
+    def test_a_typescript_method_named_fail_is_not_a_bare_fail(self) -> None:
+        text = "it('a', () => {\n  logger.fail('x');\n  f();\n});\n"
+        self.assertEqual(lint_ts(text), {"no_assertion"})
+        text = "it('a', () => {\n  f();\n  fail('x');\n});\n"
+        self.assertEqual(lint_ts(text), set())
+
+
+class OwnModuleMockSpellings(unittest.TestCase):
+    def mocked(self, text: str, own: frozenset[str] = OWN) -> set[str]:
+        return lint_py(text, own_modules=own)
+
+    def test_these_spellings_all_mock_an_own_module(self) -> None:
+        for body in (
+            'monkeypatch.setattr(billing.rates, "lookup", f)',
+            'monkeypatch.setattr(rates, "lookup", f)',
+            'monkeypatch.setattr("billing.rates.lookup", f)',
+            'mock.patch.object(billing.rates.Table, "lookup")',
+            'patch.object(rates, "lookup")',
+            'sys.modules["billing"] = Mock()',
+            'sys.modules["billing.rates"] = MagicMock(name="x")',
+            'monkeypatch.setitem(sys.modules, "billing", object())',
+            'mock.patch.dict("sys.modules", {"billing": Mock()})',
+            "create_autospec(billing.rates)",
+            "mock.create_autospec(rates, spec_set=True)",
+            'mocker.patch("billing.rates.lookup")',
+        ):
+            text = (
+                "import billing.rates\nfrom billing import rates\n\n\n"
+                f"def test_a(monkeypatch):\n    {body}\n    assert f() == 2\n"
+            )
+            with self.subTest(body=body):
+                self.assertEqual(self.mocked(text), {"own_module_mock"})
+
+    def test_these_spellings_are_not_own_modules(self) -> None:
+        for body in (
+            'monkeypatch.setattr(os.path, "exists", f)',
+            'monkeypatch.setattr("os.path.exists", f)',
+            'mock.patch.object(requests.Session, "get")',
+            'sys.modules["numpy"] = Mock()',
+            "create_autospec(requests)",
+        ):
+            text = (
+                "import os\nimport requests\nimport billing.rates\n\n\n"
+                f"def test_a(monkeypatch):\n    {body}\n    assert billing.rates.f() == 2\n"
+            )
+            with self.subTest(body=body):
+                self.assertEqual(self.mocked(text), set())
+
+    def test_a_relative_import_is_an_own_module(self) -> None:
+        text = (
+            "from . import rates\n\n\ndef test_a(monkeypatch):\n"
+            '    monkeypatch.setattr(rates, "lookup", f)\n    assert f() == 2\n'
+        )
+        self.assertEqual(self.mocked(text, frozenset()), {"own_module_mock"})
+
+
+class OwnModuleDetection(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def touch(self, rel: str, text: str = "") -> None:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_a_package_at_any_depth_is_found(self) -> None:
+        self.touch("kit/scripts/loop/__init__.py")
+        self.touch("packages/x/shop/__init__.py")
+        self.touch("packages/x/shop/inner/__init__.py")
+        self.assertEqual(nl.detect_own_modules(self.root), frozenset({"loop", "shop"}))
+
+    def test_tests_docs_and_vendor_folders_are_not_own(self) -> None:
+        self.touch("tests/helpers/__init__.py")
+        self.touch("node_modules/x/__init__.py")
+        self.touch(".venv/lib/pkg/__init__.py")
+        self.touch("src/app/__init__.py")
+        self.assertEqual(nl.detect_own_modules(self.root), frozenset({"app"}))
+
+    def test_a_root_named_in_pyproject_gives_its_modules(self) -> None:
+        self.touch("pyproject.toml", '[tool.pytest.ini_options]\npythonpath = ["lib/py", "."]\n')
+        self.touch("lib/py/helper.py")
+        self.touch("lib/py/pkg_without_init/a.py")
+        self.assertEqual(
+            nl.detect_own_modules(self.root), frozenset({"helper", "pkg_without_init"})
+        )
+
+    def test_mypy_path_in_pyproject_and_the_environment_name_roots(self) -> None:
+        self.touch("pyproject.toml", '[tool.mypy]\nmypy_path = "kit/scripts"\n')
+        self.touch("kit/scripts/spec.py")
+        self.touch("tools/other.py")
+        found = nl.detect_own_modules(self.root, environ={"MYPYPATH": "tools:missing"})
+        self.assertEqual(found, frozenset({"spec", "other"}))
+
+    def test_a_project_with_no_module_gives_an_empty_set(self) -> None:
+        self.touch("README.md")
+        self.assertEqual(nl.detect_own_modules(self.root), frozenset())
+
+
+class TheCommandSaysWhenItFoundNoModule(unittest.TestCase):
+    SCRIPT = ROOT / "kit" / "scripts" / "newtest-lint.py"
+
+    def run_cli(self, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(self.SCRIPT), *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "MYPYPATH": "", "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+
+    def test_a_python_file_with_no_module_found_says_so_and_names_the_fix(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            test = Path(folder) / "test_a.py"
+            test.write_text("def test_a():\n    assert f() == 2\n", encoding="utf-8")
+            done = self.run_cli(Path(folder), "--file", str(test), "--json")
+            body = json.loads(done.stdout)
+            self.assertEqual(done.returncode, 0)
+            self.assertIn("--own-module", " ".join(body["notes"]))
+            self.assertEqual(body["own_modules"], [])
+            self.assertIn("note: ", done.stderr)
+
+    def test_no_note_when_a_module_is_given(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            test = Path(folder) / "test_a.py"
+            test.write_text("def test_a():\n    assert f() == 2\n", encoding="utf-8")
+            done = self.run_cli(Path(folder), "--file", str(test), "--own-module", "x", "--json")
+            body = json.loads(done.stdout)
+            self.assertEqual(body["notes"], [])
+            self.assertEqual(body["own_modules"], ["x"])
+
+    def test_no_note_when_only_typescript_is_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            test = Path(folder) / "a.test.ts"
+            test.write_text("it('a', () => {\n  expect(f()).toBe(2);\n});\n", encoding="utf-8")
+            done = self.run_cli(Path(folder), "--file", str(test), "--json")
+            self.assertEqual(json.loads(done.stdout)["notes"], [])
+
+    def test_the_help_says_the_option_is_repeated(self) -> None:
+        done = self.run_cli(ROOT, "--help")
+        self.assertIn("repeat", " ".join(done.stdout.split()))
 
 
 class ReportOnly(unittest.TestCase):
