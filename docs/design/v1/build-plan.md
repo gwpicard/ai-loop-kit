@@ -402,7 +402,10 @@ The must-look reasons are exactly five, and only the gate writes them: a sensiti
 **Test.** Unit tests on `trim-check.py`: a trim that touches a test fails; one that changes a line the piece did not add fails; one that adds net lines fails; a clean fold passes. `tests/trim.sh` runs a scripted trim session on a passed piece in a throwaway project. The trim lives on a scratch branch. The gate re-runs the attempt checks straight after the trim. On green the piece branch fast-forwards to it. On red the scratch branch is left, the piece branch is unchanged, and the piece goes on untrimmed, with no attempt counted. The test also checks that unused-code and duplicated-code reports reach the trim session when the project has such tools.
 
 **Files.**
-- New: `kit/scripts/trim-check.py`; `kit/briefs/trim.md`; `tests/unit/test_trim_check.py`; `tests/trim.sh`.
+- New: `kit/scripts/trim-check.py`; `kit/scripts/loop/trim.py` (the trim rules and the whole pass); `kit/briefs/trim.md`; `tests/unit/test_trim_check.py`; `tests/trim.sh`.
+- Edited: `kit/scripts/loop/gates/attempt.py` gains `rerun`, the attempt checks on another branch's head with no attempt counted; `tests/unit/test_attempt.py` tests it.
+
+**How it runs.** The pass uses P12's session code, so the trim brief holds the spec, the diff and the reports of the project's own tools (vulture, knip, jscpd, only if installed or set up, never installed by the kit) in data blocks, and the session settings deny a write to every test and bar file. A trim must be one commit that adds no file, touches no bar file, changes only lines the piece added (read against the piece's base commit) and adds no net lines. A git error or an unreadable file is a refusal that keeps the piece untrimmed.
 
 **Held by:** `trim-check.py` and the attempt gate re-run straight after the trim (P16); the scratch branch, since `git reset --hard` is denied by P10 and refused by P3. Once the piece branch has moved on, a later failure (a trial join, review) cannot throw the trim away, because reset and revert are both forbidden. It goes back through the normal routes.
 

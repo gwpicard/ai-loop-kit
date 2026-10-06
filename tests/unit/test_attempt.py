@@ -966,7 +966,8 @@ class TheReRun(AttemptCase):
                 target.write_text(text, encoding="utf-8")
             git(self.root, "add", "-A")
             git(self.root, "commit", "-q", "-m", "Trim")
-            return git(self.root, "rev-parse", "HEAD")
+            tip: str = git(self.root, "rev-parse", "HEAD")
+            return tip
         finally:
             git(self.root, "checkout", "-q", "main")
 

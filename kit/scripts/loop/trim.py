@@ -60,7 +60,8 @@ class Violation:
     text: str
 
     def line(self) -> str:
-        return f"{self.rule}: {self.path} ({self.text})" if self.path else f"{self.rule}: {self.text}"
+        where = f" {self.path} ({self.text})" if self.path else f" {self.text}"
+        return f"{self.rule}:{where}"
 
     def as_dict(self) -> dict[str, str]:
         return {"rule": self.rule, "path": self.path, "text": self.text}
@@ -105,7 +106,7 @@ def _exists_at(root: Path, ref: str, path: str) -> bool:
 
 
 def _hunks(root: Path, old: str, new: str, path: str) -> list[tuple[int, int, int, int]]:
-    """The hunks of one file between two commits, as (old start, old count, new start, new count)."""
+    """The hunks of one file between two commits: (old start, old count, new start, new count)."""
     text = _git(root, "diff", "--no-renames", "--no-color", "--no-ext-diff", "-U0", old, new,
                 "--", path)[1]
     found: list[tuple[int, int, int, int]] = []
@@ -183,7 +184,8 @@ def check(root: Path, base: str, piece_head: str, trim_head: str, *,
             continue
         if status[:1] not in ("M", "D"):
             verdict.violations.append(Violation(
-                "not-piece-code", path, f"the change has status {status}, which a trim may not make"))
+                "not-piece-code", path,
+                f"the change has status {status}, which a trim may not make"))
             continue
         added, removed = counts.get(path, ("0", "0"))
         if added == "-" or removed == "-":
@@ -268,7 +270,9 @@ def _configured(tool: str, folders: Sequence[Path]) -> bool:
     return False
 
 
-def find_tools(root: Path, worktree: Path, env: Mapping[str, str]) -> list[tuple[str, str, str | None]]:
+def find_tools(
+    root: Path, worktree: Path, env: Mapping[str, str]
+) -> list[tuple[str, str, str | None]]:
     """Each tool the project has, as (tool, kind, program). The program is None when the tool is
     set up but not installed. A tool the project does not have is not listed."""
     folders = [worktree] if worktree == root else [worktree, root]
@@ -418,8 +422,8 @@ def run_pass(
             max_budget_usd=max_budget_usd, env=environment, bar_paths=barred)
         done = sessions.start(session, runner=runner)
     except (bar.BarError, sessions.SessionError, PathError, OSError) as error:
-        raise TrimError(str(error), getattr(error, "next_command", "")
-                        or "check the project's trim brief, then run the trim pass again") from error
+        hint = "check the project's trim brief, then run the trim pass again"
+        raise TrimError(str(error), getattr(error, "next_command", "") or hint) from error
     common.update(brief_file=str(session.brief_file), settings_file=str(session.settings_file),
                   reports=[r.tool for r in reports])
     reasons: list[str] = []

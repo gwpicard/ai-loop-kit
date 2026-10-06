@@ -77,7 +77,8 @@ class Repo(unittest.TestCase):
         for name in remove:
             git(self.root, "rm", "-q", name)
         self.commit("Trim")
-        return git(self.root, "rev-parse", "HEAD")
+        head: str = git(self.root, "rev-parse", "HEAD")
+        return head
 
     def verdict(self, head: str | None = None) -> trim.Verdict:
         found = head or git(self.root, "rev-parse", "HEAD")
@@ -336,7 +337,8 @@ class PassCase(test_attempt.AttemptCase):  # type: ignore[misc, unused-ignore]
                              runner=self.runner, env=self.env)
 
     def branch_head(self, name: str) -> str:
-        return git(self.root, "rev-parse", f"refs/heads/{name}")
+        found: str = git(self.root, "rev-parse", f"refs/heads/{name}")
+        return found
 
     def folded(self) -> None:
         self.script_files = {"src/rename.py": self.piece_files["src/rename.py"].split(
@@ -389,7 +391,8 @@ class TheWholePass(PassCase):
         self.assertNotIn("send_back", result)
 
     def test_a_trim_that_touches_a_test_is_thrown_away_before_the_rerun(self) -> None:
-        self.script_files = {"tests/test_rename_extra.py": "def test_a_name_is_trimmed():\n    pass\n"}
+        self.script_files = {
+            "tests/test_rename_extra.py": "def test_a_name_is_trimmed():\n    pass\n"}
         runs = len(self.att.runs)
         result = self.go()
         self.assertEqual(result["outcome"], "untrimmed")
@@ -435,7 +438,8 @@ class TheWholePass(PassCase):
         self.folded()
         result = self.go()
         self.assertEqual(result["outcome"], "trimmed", result)
-        self.assertEqual(git(folder, "rev-parse", "HEAD"), self.branch_head(result["scratch_branch"]))
+        self.assertEqual(git(folder, "rev-parse", "HEAD"),
+                         self.branch_head(result["scratch_branch"]))
         self.assertEqual(git(folder, "status", "--porcelain"), "")
 
     def test_the_main_folder_and_main_are_left_alone(self) -> None:
