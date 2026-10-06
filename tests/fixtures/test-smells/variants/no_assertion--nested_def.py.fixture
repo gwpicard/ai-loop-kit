@@ -1,0 +1,8 @@
+from billing import total
+
+
+def test_total_adds_prices():
+    def check():
+        assert total([1, 2]) == 4
+
+    total([1, 2])

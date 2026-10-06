@@ -1,0 +1,9 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('adds prices', () => {
+    for (const items of [[1], [2]]) {
+      expect(total(items)).toBeGreaterThan(0);
+    }
+  });
+});

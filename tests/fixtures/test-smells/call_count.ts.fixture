@@ -1,0 +1,9 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('asks once', () => {
+    const ask = jest.fn(() => 3);
+    expect(total([1, 2], ask)).toBe(3);
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+});

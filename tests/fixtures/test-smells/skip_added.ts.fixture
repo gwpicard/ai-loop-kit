@@ -1,0 +1,7 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it.skip('adds prices', () => {
+    expect(total([1, 2])).toBe(3);
+  });
+});

@@ -1,0 +1,19 @@
+import pytest
+from billing import total
+
+
+def check_total(items, expected):
+    assert total(items) == expected
+
+
+def test_total_adds_prices():
+    assert total([1, 2]) == 3
+
+
+def test_total_of_nothing_is_zero():
+    check_total([], 0)
+
+
+def test_total_refuses_a_missing_list():
+    with pytest.raises(TypeError):
+        total(None)

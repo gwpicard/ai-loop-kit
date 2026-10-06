@@ -1,0 +1,7 @@
+from billing import total
+
+
+def test_total_adds_prices():
+    for items in ([1], [2]):
+        if items:
+            assert total(items) > 0
