@@ -1,0 +1,8 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('adds prices', async () => {
+    await new Promise((done) => setTimeout(done, 500));
+    expect(total([1, 2])).toBe(3);
+  });
+});

@@ -1,0 +1,7 @@
+from billing import total
+
+
+def test_total_of_three_orders():
+    assert total([3, 4]) == 7
+    assert total([40, 2]) == 42
+    assert total([98, 1]) == 99

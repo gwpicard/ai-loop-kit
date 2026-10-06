@@ -1,0 +1,9 @@
+from unittest.mock import patch
+
+from billing import total
+
+
+def test_total_adds_prices():
+    with patch("billing.rates.lookup") as lookup:
+        lookup.return_value = 3
+        assert total([1, 2]) == lookup.return_value

@@ -1,0 +1,11 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('fills the receipt', () => {
+    expect(total(receipt.a)).toBe(expected.a);
+    expect(total(receipt.b)).toBe(expected.b);
+    expect(total(receipt.c)).toBe(expected.c);
+    expect(total(receipt.d)).toBe(expected.d);
+    expect(total(receipt.e)).toBe(expected.e);
+  });
+});

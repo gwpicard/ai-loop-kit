@@ -1,0 +1,9 @@
+from unittest.mock import create_autospec
+
+import billing.rates
+from billing import total
+
+
+def test_total_adds_prices():
+    fake = create_autospec(billing.rates)
+    assert total([1, 2], fake) == 3

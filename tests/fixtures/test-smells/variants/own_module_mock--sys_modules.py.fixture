@@ -1,0 +1,9 @@
+import sys
+from unittest.mock import MagicMock
+
+
+def test_total_adds_prices():
+    sys.modules["billing"] = MagicMock()
+    from billing import total
+
+    assert total([1, 2]) == 3

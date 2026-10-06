@@ -1,0 +1,9 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('adds prices', () => {
+    expect(total([1, 2])).toBe(3);
+  });
+
+  it.todo('adds prices with a discount');
+});

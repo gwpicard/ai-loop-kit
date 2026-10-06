@@ -1,0 +1,12 @@
+import billing.rates
+
+from billing import total
+
+
+def test_total_adds_prices(monkeypatch):
+    monkeypatch.setattr(
+        billing.rates,
+        "lookup",
+        lambda: 3,
+    )
+    assert total([1, 2]) == 3

@@ -1,0 +1,9 @@
+import unittest
+
+from billing import total
+
+
+class TotalTest(unittest.TestCase):
+    def test_total_adds_prices(self):
+        check = lambda: self.assertEqual(total([1, 2]), 4)
+        total([1, 2])

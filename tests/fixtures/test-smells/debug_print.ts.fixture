@@ -1,0 +1,9 @@
+import { total } from './billing';
+
+describe('total', () => {
+  it('adds prices', () => {
+    const result = total([1, 2]);
+    console.log(result);
+    expect(result).toBe(3);
+  });
+});

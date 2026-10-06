@@ -1,0 +1,9 @@
+from billing import total
+
+
+def test_total_fills_the_receipt(receipt, expected):
+    assert total(receipt.a) == expected.a
+    assert total(receipt.b) == expected.b
+    assert total(receipt.c) == expected.c
+    assert total(receipt.d) == expected.d
+    assert total(receipt.e) == expected.e

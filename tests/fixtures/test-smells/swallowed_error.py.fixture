@@ -1,0 +1,9 @@
+from billing import total
+
+
+def test_total_adds_prices():
+    try:
+        total(None)
+    except Exception:
+        pass
+    assert total([1, 2]) == 3

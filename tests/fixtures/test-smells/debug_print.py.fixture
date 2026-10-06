@@ -1,0 +1,7 @@
+from billing import total
+
+
+def test_total_adds_prices():
+    result = total([1, 2])
+    print(result)
+    assert result == 3
