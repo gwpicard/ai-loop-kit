@@ -5,6 +5,7 @@
 Run from inside the project, before `run.py` starts any builder:
 
     pre-run-check.py [--project DIR] [--run NAME] [--unattended] [--merge-pre-approved]
+                     [--pieces N,N] [--session-command TEXT]
 
 It checks, and reports every refusal at once, each naming the guard and the
 command that puts it back:
@@ -22,8 +23,15 @@ command that puts it back:
 - the tools and the origin (`check-tooling.sh --for-run`): the project must not
   point at the kit's own repository;
 - an API key must have spend caps;
+- the builders' command line: it must not carry `--bare`, which skips the hooks (`run.py` passes
+  the command line it will use as `--session-command`; the check also reads
+  `loop.sessions.build_command`);
 - the GitHub App key. An unattended run and a pre-approved merge need it. An
   attended local run passes without it, with one notice.
+
+`--pieces` is the pieces the run will build. With no `test_command` in the policy, `main`
+cannot be shown green, unless every piece is the quick-path scaffold piece: an empty project
+has no test command until that piece lands. The check then passes with a notice.
 
 `--unattended` is what `run.py` passes for a run nobody watches.
 `--merge-pre-approved` is what it passes when the person pre-approved the merge.
@@ -51,7 +59,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from loop import cli, policy
+from loop import cli, moves, policy, sessions, spec
+from loop.gates import ready as ready_gate
 from loop.paths import PathError, Paths, find_project_root
 
 FIRST_HALF = "the first half of /setup (shape and run locally)"
@@ -614,6 +623,79 @@ def check_main(root: Path, command: str, timeout: int) -> tuple[list[Refusal], s
     ], str(folder)
 
 
+def check_bare(command: list[str], env: dict[str, str] | os._Environ[str]) -> list[Refusal]:
+    """Refuse a session command line that carries `--bare`, or an environment that means it.
+
+    `--bare` skips the hooks, the settings discovery and the rules, so every guard that works
+    through them would be off. `CLAUDE_CODE_SIMPLE` is the same switch set in the environment.
+    """
+    refusals: list[Refusal] = []
+    if any(word == "--bare" or word.startswith("--bare=") for word in command):
+        refusals.append(
+            other(
+                "bare",
+                "the builders' command line carries --bare, which skips the hooks, so no guard "
+                "that works through them would hold",
+                "take --bare off the command line the run starts builders with, then run "
+                "pre-run-check.py again",
+            )
+        )
+    if env.get("CLAUDE_CODE_SIMPLE", "").strip() not in ("", "0", "false"):
+        refusals.append(
+            other(
+                "bare",
+                "CLAUDE_CODE_SIMPLE is set, which is --bare in the environment: it skips the "
+                "hooks, so no guard that works through them would hold",
+                "unset CLAUDE_CODE_SIMPLE, then run pre-run-check.py again",
+            )
+        )
+    return refusals
+
+
+def check_bare_text(text: str, env: dict[str, str] | os._Environ[str]) -> list[Refusal]:
+    """`check_bare` for a command line given as text. Text that cannot be read is refused."""
+    try:
+        words = shlex.split(text)
+    except ValueError as error:
+        return [
+            other(
+                "bare",
+                f"the builders' command line cannot be read ({error}), so it cannot be shown to "
+                "be free of --bare",
+                "pass the command line as plain words, then run pre-run-check.py again",
+            )
+        ]
+    return check_bare(words, env)
+
+
+def all_scaffold(bodies: list[str]) -> bool:
+    """True when there is at least one piece and every one is the quick-path scaffold piece."""
+    if not bodies:
+        return False
+    for body in bodies:
+        try:
+            parsed = spec.parse(body).to_dict()
+        except spec.SpecError:
+            return False
+        if not parsed["found"] or not ready_gate._is_scaffold(parsed) or parsed["path"] != "quick":
+            return False
+    return True
+
+
+def piece_bodies(paths: Paths, numbers: list[int]) -> list[str] | None:
+    """The spec text of each piece in the gate's record, or None when one cannot be read."""
+    bodies: list[str] = []
+    for number in numbers:
+        try:
+            found = moves.find_piece(paths, number)
+        except moves.MoveError:
+            return None
+        if found is None:
+            return None
+        bodies.append(found.body)
+    return bodies
+
+
 def check_tooling(root: Path) -> list[Refusal]:
     script = HERE / "check-tooling.sh"
     try:
@@ -748,11 +830,32 @@ def setup(parser: argparse.ArgumentParser) -> None:
         help="the run is not watched (run.py passes this): the App key is needed",
     )
     parser.add_argument(
+        "--pieces",
+        default="",
+        help="the pieces this run builds, as 1,2,3 (run.py passes this): with no test command "
+        "in the policy, only the scaffold piece may be the whole run",
+    )
+    parser.add_argument(
+        "--session-command",
+        default="",
+        help="the command line the run starts builders with (run.py passes this): "
+        "it must not carry --bare",
+    )
+    parser.add_argument(
         "--merge-pre-approved",
         action="store_true",
         dest="merge_pre_approved",
         help="the person pre-approved the merge for this run: the App key is needed",
     )
+
+
+def scaffold_only(paths: Paths, pieces: str) -> bool:
+    """True when `--pieces` names pieces and every one of them is the scaffold piece."""
+    words = [w for w in pieces.replace(",", " ").split() if w]
+    if not words or not all(w.lstrip("#").isdigit() for w in words):
+        return False
+    bodies = piece_bodies(paths, [int(w.lstrip("#")) for w in words])
+    return bodies is not None and all_scaffold(bodies)
 
 
 def handler(args: argparse.Namespace) -> dict[str, Any]:
@@ -788,9 +891,20 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
     )
     refusals += app_refusals
     notices += app_notices
-    main_refusals, main_folder = check_main(
-        root, merged["test_command"], merged["test_timeout_seconds"]
-    )
+    refusals += check_bare(
+        sessions.build_command(Path("settings.json")), os.environ
+    ) + (check_bare_text(args.session_command, os.environ) if args.session_command else [])
+    main_refusals: list[Refusal] = []
+    main_folder = ""
+    if not str(merged["test_command"]).strip() and scaffold_only(paths, args.pieces):
+        notices.append(
+            "main is not tested: the policy has no test command yet, and every piece in this "
+            "run is the scaffold piece that sets the test command up"
+        )
+    else:
+        main_refusals, main_folder = check_main(
+            root, merged["test_command"], merged["test_timeout_seconds"]
+        )
     refusals += main_refusals
 
     if refusals:
