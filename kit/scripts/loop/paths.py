@@ -8,6 +8,7 @@ them by accident.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Mapping
@@ -68,8 +69,14 @@ def _check_run_name(name: str) -> str:
     return name
 
 
-_data_home = data_home
-_kit_dir = kit_dir
+def project_key(root: Path) -> str:
+    """A folder name for a project: its name plus a hash of its full path.
+
+    Two projects with the same folder name at different paths get different keys.
+    """
+    resolved = root.resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    return f"{resolved.name}-{digest}"
 
 
 @dataclass(frozen=True)
@@ -85,8 +92,8 @@ class Paths:
         cls,
         root: Path,
         *,
-        data_home: Path | None = None,
-        kit_dir: Path | None = None,
+        data_base: Path | None = None,
+        kit_folder: Path | None = None,
         env: Mapping[str, str] | None = None,
     ) -> Paths:
         """Build the paths for the project at `root`.
@@ -95,9 +102,9 @@ class Paths:
         (the real environment by default).
         """
         env = os.environ if env is None else env
-        base = data_home if data_home is not None else _data_home(env)
-        kit = kit_dir if kit_dir is not None else _kit_dir(root, env)
-        return cls(root=root, data_dir=base / root.name, kit_dir=kit)
+        base = data_base if data_base is not None else data_home(env)
+        kit = kit_folder if kit_folder is not None else kit_dir(root, env)
+        return cls(root=root, data_dir=base / project_key(root), kit_dir=kit)
 
     # --- inside the project -------------------------------------------------
 

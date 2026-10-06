@@ -17,7 +17,7 @@ class ProjectPaths(unittest.TestCase):
         self.root.mkdir()
         self.data = Path(tempfile.mkdtemp())
         self.kit = Path(tempfile.mkdtemp())
-        self.p = paths.Paths.for_project(self.root, data_home=self.data, kit_dir=self.kit)
+        self.p = paths.Paths.for_project(self.root, data_base=self.data, kit_folder=self.kit)
 
     def test_run_folder_and_record(self) -> None:
         self.assertEqual(self.p.run_dir("night-1"), self.root / ".agents/runs/night-1")
@@ -39,10 +39,26 @@ class ProjectPaths(unittest.TestCase):
         self.assertEqual(self.p.local_settings, self.root / ".agents/loop/local.json")
 
     def test_held_out_and_key_sit_outside_the_project_and_side_by_side(self) -> None:
-        self.assertEqual(self.p.held_out_dir, self.data / "demo" / "held-out")
-        self.assertEqual(self.p.app_key_file, self.data / "demo" / "app-key.pem")
+        folder = self.data / paths.project_key(self.root)
+        self.assertEqual(self.p.held_out_dir, folder / "held-out")
+        self.assertEqual(self.p.app_key_file, folder / "app-key.pem")
         self.assertEqual(self.p.held_out_dir.parent, self.p.app_key_file.parent)
         self.assertNotIn(self.root, self.p.held_out_dir.parents)
+
+    def test_same_name_at_different_paths_gets_different_folders(self) -> None:
+        other = Path(tempfile.mkdtemp()) / "demo"
+        other.mkdir()
+        q = paths.Paths.for_project(other, data_base=self.data, kit_folder=self.kit)
+        self.assertEqual(other.name, self.root.name)
+        self.assertNotEqual(q.data_dir, self.p.data_dir)
+        self.assertNotEqual(q.app_key_file, self.p.app_key_file)
+
+    def test_same_path_gives_the_same_folder_every_time(self) -> None:
+        again = paths.Paths.for_project(self.root, data_base=self.data, kit_folder=self.kit)
+        self.assertEqual(again.data_dir, self.p.data_dir)
+        key = paths.project_key(self.root)
+        self.assertRegex(key, r"^demo-[0-9a-f]{12}$")
+        self.assertEqual(key, paths.project_key(self.root))
 
     def test_kit_folder_is_the_one_given(self) -> None:
         self.assertEqual(self.p.kit_dir, self.kit)
@@ -108,9 +124,8 @@ class Resolution(unittest.TestCase):
         old = os.environ.get("AI_LOOP_KIT_DATA")
         os.environ["AI_LOOP_KIT_DATA"] = "/somewhere/data"
         try:
-            self.assertEqual(
-                paths.Paths.for_project(root).app_key_file, Path("/somewhere/data/p/app-key.pem")
-            )
+            want = Path("/somewhere/data") / paths.project_key(root) / "app-key.pem"
+            self.assertEqual(paths.Paths.for_project(root).app_key_file, want)
         finally:
             if old is None:
                 del os.environ["AI_LOOP_KIT_DATA"]
