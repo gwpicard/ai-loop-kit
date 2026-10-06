@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """List the names a project's documents mention that no longer exist.
 
-Reads README.md and every document AGENTS.md points at. Where AGENTS.md points
-at `docs/README.md`, the list of the project's concept files, each document
-that list names is read too, since the list is how AGENTS.md points at them.
-Nothing else under `docs/` is read. For each line it looks
+Reads README.md, AGENTS.md, docs/overview.md and every document AGENTS.md points
+at. Where AGENTS.md points at `docs/README.md`, the list of the project's area
+docs, each document that list names is read too, since the list is how AGENTS.md
+points at them. Nothing else under `docs/` is read. For each line it looks
 for five kinds of name and checks that each still exists: a file or folder, a
 link to another file, an `npm run`, `pnpm run`, `yarn run` or `make` command,
 and an environment variable. It prints one line per name that does not exist,
@@ -29,8 +29,12 @@ says where to look first and is never printed.
 
 It reads the project and writes nothing. Run it from the project root:
 
-    python3 <sync skill folder>/scripts/document-claims.py
+    python3 <kit folder>/scripts/document-claims.py
+
+`records-check.py` runs it, and reports each line as a fault of the rule `names`.
 """
+
+from __future__ import annotations
 
 import functools
 import json
@@ -42,6 +46,7 @@ import sys
 KIT_OWNED = {"WORKFLOW.md", "AGENTS.md", "masterplan.md", "CHANGELOG.md", "plan.local.md"}
 CHANGES = "changes"
 CONCEPTS = os.path.join("docs", "README.md")
+OVERVIEW = os.path.join("docs", "overview.md")
 EXTENSIONS = (
     ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".rb", ".go", ".rs",
     ".java", ".kt", ".cs", ".php", ".md", ".json", ".yml", ".yaml", ".toml",
@@ -52,19 +57,24 @@ LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 COMMAND = re.compile(r"\b(npm|pnpm|yarn) run ([\w:.-]+)|\bmake ([\w.-]+)")
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
 
+Claim = tuple[int, str, str]
 
-def git(*args):
-    result = subprocess.run(["git", *args], capture_output=True, text=True)
+
+def git(*args: str) -> str:
+    result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
     return result.stdout if result.returncode == 0 else ""
 
 
-def ignored(path):
-    return subprocess.run(
-        ["git", "check-ignore", "-q", path], capture_output=True
-    ).returncode == 0
+def ignored(path: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "check-ignore", "-q", path], capture_output=True, check=False
+        ).returncode
+        == 0
+    )
 
 
-def named_documents(source, found):
+def named_documents(source: str, found: list[str]) -> None:
     """Add each Markdown document `source` names that exists, in order."""
     with open(source, encoding="utf-8") as handle:
         text = handle.read()
@@ -77,19 +87,24 @@ def named_documents(source, found):
         candidates = [os.path.normpath(name)]
         if source != "AGENTS.md":
             candidates.append(os.path.normpath(os.path.join(os.path.dirname(source), name)))
-        for name in candidates:
-            if os.path.basename(name) in KIT_OWNED or name.startswith((".agents", CHANGES + "/")):
+        for candidate in candidates:
+            if os.path.basename(candidate) in KIT_OWNED or candidate.startswith(
+                (".agents", CHANGES + "/")
+            ):
                 break
-            if os.path.isfile(name):
-                if name not in found:
-                    found.append(name)
+            if os.path.isfile(candidate):
+                if candidate not in found:
+                    found.append(candidate)
                 break
 
 
-def documents():
-    found = []
+def documents() -> list[str]:
+    found: list[str] = []
     if os.path.isfile("README.md"):
         found.append("README.md")
+    for own in ("AGENTS.md", OVERVIEW):
+        if os.path.isfile(own):
+            found.append(own)
     if os.path.isfile("AGENTS.md"):
         named_documents("AGENTS.md", found)
     if CONCEPTS in found:
@@ -97,7 +112,7 @@ def documents():
     return found
 
 
-def package_scripts():
+def package_scripts() -> set[str] | None:
     try:
         with open("package.json", encoding="utf-8") as handle:
             return set(json.load(handle).get("scripts", {}))
@@ -105,7 +120,7 @@ def package_scripts():
         return None
 
 
-def make_targets():
+def make_targets() -> set[str] | None:
     try:
         with open("Makefile", encoding="utf-8") as handle:
             return {m.group(1) for m in re.finditer(r"^([\w.-]+)\s*:", handle.read(), re.M)}
@@ -113,7 +128,7 @@ def make_targets():
         return None
 
 
-def looks_like_path(name):
+def looks_like_path(name: str) -> bool:
     if " " in name or name.startswith(("http:", "https:", "-", "$")):
         return False
     if any(mark in name for mark in "<>*?{}|=@~"):
@@ -128,17 +143,17 @@ def looks_like_path(name):
     return name.endswith(EXTENSIONS) or name.endswith("/")
 
 
-@functools.lru_cache(maxsize=None)
-def saved_paths():
+@functools.cache
+def saved_paths() -> set[str]:
     """Every file git tracks, and every folder holding one."""
-    paths = set()
+    paths: set[str] = set()
     for path in git("ls-files").split("\n"):
         parts = [part for part in path.split("/") if part]
         paths.update("/".join(parts[:end]) for end in range(1, len(parts) + 1))
     return paths
 
 
-def path_exists(name, document):
+def path_exists(name: str, document: str) -> bool:
     bare = name.split("#")[0].split(":")[0].rstrip("/")
     if not bare:
         return True
@@ -154,13 +169,18 @@ def path_exists(name, document):
     return any(path == tail or path.endswith("/" + tail) for path in saved_paths())
 
 
-def env_named_in_code(name, documents_read):
+def env_named_in_code(name: str, documents_read: list[str]) -> bool:
     hits = git("grep", "-l", "-w", "-F", name).split()
     return any(hit not in documents_read and not hit.endswith(".md") for hit in hits)
 
 
-def claims(document, documents_read, scripts, targets):
-    missing = []
+def claims(
+    document: str,
+    documents_read: list[str],
+    scripts: set[str] | None,
+    targets: set[str] | None,
+) -> list[Claim]:
+    missing: list[Claim] = []
     fenced = False
     with open(document, encoding="utf-8") as handle:
         lines = handle.read().split("\n")
@@ -190,7 +210,7 @@ def claims(document, documents_read, scripts, targets):
     return missing
 
 
-def commits_since(document):
+def commits_since(document: str) -> int:
     last = git("log", "-1", "--format=%H", "--", document).strip()
     if not last:
         return 0
@@ -198,10 +218,10 @@ def commits_since(document):
     return int(count) if count.isdigit() else 0
 
 
-def main():
+def main() -> int:
     read = documents()
     scripts, targets = package_scripts(), make_targets()
-    found = []
+    found: list[tuple[int, str, int, str, str]] = []
     for document in read:
         for number, kind, name in claims(document, read, scripts, targets):
             found.append((commits_since(document), document, number, kind, name))
