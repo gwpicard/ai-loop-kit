@@ -1,0 +1,4 @@
+# Hosts a builder's sandbox may reach for ruby projects: the package registry and the toolchain.
+# One host a line. No GitHub host belongs here: the builders hold no GitHub credential.
+rubygems.org
+index.rubygems.org
