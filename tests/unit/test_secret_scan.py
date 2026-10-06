@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,7 @@ def load() -> ModuleType:
     spec = importlib.util.spec_from_file_location("secret_scan", SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules["secret_scan"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -108,7 +110,8 @@ class SecretScanTest(unittest.TestCase):
                 self.assertNotIn(value[8:], json.dumps(body))
 
     def test_a_clean_change_passes(self) -> None:
-        self.stage("notes.md", "Nothing secret here.\nsha 0123456789abcdef0123456789abcdef01234567\n")
+        sha = "0123456789abcdef" * 2 + "01234567"
+        self.stage("notes.md", f"Nothing secret here.\nsha {sha}\n")
         done = scan(self.repo, "--staged")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         body = json.loads(done.stdout)
@@ -137,8 +140,9 @@ class SecretScanTest(unittest.TestCase):
         done = scan(self.repo, f"--range={base}..{head}")
         self.assertEqual(done.returncode, 3, done.stdout + done.stderr)
         found = json.loads(done.stdout)["findings"]
-        self.assertEqual([(f["file"], f["line"], f["kind"]) for f in found],
-                         [("b.txt", 2, "aws-access-key")])
+        self.assertEqual(
+            [(f["file"], f["line"], f["kind"]) for f in found], [("b.txt", 2, "aws-access-key")]
+        )
 
     def test_a_clean_range_passes(self) -> None:
         base = git(self.repo, "rev-parse", "HEAD")

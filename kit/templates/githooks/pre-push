@@ -1,0 +1,61 @@
+#!/usr/bin/env sh
+# pre-push: refuse a push that carries a secret.
+#
+# Git gives this hook one line on standard input for each ref it will push:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# For each one, this hook scans the commits the push would add. A hit stops
+# the push. The scan names the file, the line and the kind, and never the
+# value. The gate's push step runs the same scan, so a secret meets it in two
+# places.
+#
+# This hook fails closed. If it cannot find the scan, it stops the push and
+# says where to look.
+#
+# A fresh clone runs `git config core.hooksPath .githooks` once.
+
+set -u
+
+zero=0000000000000000000000000000000000000000
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "pre-push: this is not a Git project. Run the push from inside the project." >&2
+  exit 1
+}
+
+scan=${AI_LOOP_KIT_SECRET_SCAN:-}
+if [ -z "$scan" ]; then
+  for candidate in \
+    "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/secret-scan.py" \
+    "$root/kit/scripts/secret-scan.py" \
+    "$HOME/.claude/plugins/cache/ai-loop-kit/scripts/secret-scan.py"; do
+    if [ -f "$candidate" ]; then
+      scan=$candidate
+      break
+    fi
+  done
+fi
+
+if [ -z "$scan" ] || [ ! -f "$scan" ]; then
+  echo "pre-push: cannot find secret-scan.py, so the push is stopped." >&2
+  echo "next: set AI_LOOP_KIT_SECRET_SCAN to the path of kit/scripts/secret-scan.py" >&2
+  exit 1
+fi
+
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] || continue
+  # Deleting a ref sends no commits.
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" = "$zero" ]; then
+    # A new branch: every commit that no remote branch holds yet.
+    range="$local_sha --not --remotes"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+  (cd "$root" && python3 "$scan" --range="$range" >/dev/null) || status=1
+done
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: the push is stopped. Remove the secret, then push again." >&2
+fi
+exit "$status"
