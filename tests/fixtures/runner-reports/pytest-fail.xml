@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.024" timestamp="2026-10-06T13:54:16.557671+02:00" hostname="host"><testcase classname="test_fail" name="test_menu_opens" time="0.000"><failure message="AssertionError: FL-1 the user opens the menu&#xA;assert False is True&#xA; +  where False = opens()">def test_menu_opens():
+&gt;       assert opens() is True, "FL-1 the user opens the menu"
+E       AssertionError: FL-1 the user opens the menu
+E       assert False is True
+E        +  where False = opens()
+
+test_fail.py:5: AssertionError</failure></testcase></testsuite></testsuites>
