@@ -97,8 +97,8 @@ PY
 EVFILE="$TP_ROOT/.agents/pieces/7/evidence.jsonl"
 [ -f "$EVFILE" ] && pass "the evidence entry is written under .agents/pieces/7/" \
   || fail "no evidence file"
-grep -q '"outcome": "failed"' "$EVFILE" && grep -q '"chain"' "$EVFILE" \
-  && pass "the entry holds the outcome and a chain hash" || fail "the entry is wrong"
+grep -q '"outcome": "failed"' "$EVFILE" && grep -q '"mac"' "$EVFILE" \
+  && pass "the entry holds the outcome and a mac" || fail "the entry is wrong"
 python3 -m loop.evidence show --json --piece 7 > "$TP_BASE/ev.json" \
   && pass "the chain reads back" || fail "the chain did not read back"
 sed 's/"outcome": "failed"/"outcome": "passed"/' "$EVFILE" > "$TP_BASE/edited.jsonl"

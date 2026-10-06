@@ -6,9 +6,16 @@ runner's report. The answer is one of:
 
 - `passed`: the command exited 0 and no failure was reported;
 - `failed`: every reported failure was an assertion (the right way to be red);
+- `failed_no_id`: every reported failure was an assertion, but none names a spec
+  ID (`FL-` or `EC-`). It is not the right failure. Callers treat it like
+  `errored`;
 - `errored`: something other than an assertion broke, such as an import, or no
   report was written;
 - `timeout`: the command ran past the limit and was stopped.
+
+Only `passed` and `failed` give an answer a caller can use. `RIGHT_FAILURES`
+holds the outcomes that count as failing for the right reason, and it holds only
+`failed`.
 
 pytest, Vitest, Jest and the Node runner write reports, and the report tells an
 assertion from an error. Any other runner falls back to the exit code, with a
@@ -225,6 +232,10 @@ def _kind_of(text: str) -> str:
     return OTHER_ERROR
 
 
+OUTCOMES = ("passed", "failed", "failed_no_id", "errored", "timeout")
+RIGHT_FAILURES = ("failed",)
+
+
 def _ids_in(*texts: str) -> list[str]:
     found: list[str] = []
     for text in texts:
@@ -271,8 +282,15 @@ def interpret(
     result["failures"] = failures
     if failures:
         if all(f["assertion"] for f in failures):
-            result["outcome"] = "failed"
             result["failing_ids"] = _ids_in(*(i for f in failures for i in f["ids"]))
+            if result["failing_ids"]:
+                result["outcome"] = "failed"
+            else:
+                result["outcome"] = "failed_no_id"
+                result["note"] = (
+                    "the failure is an assertion, but it names no spec ID (FL- or EC-), "
+                    "so it is not the right failure"
+                )
         else:
             first = next(f for f in failures if not f["assertion"])
             result["kind"] = first["kind"]
@@ -351,6 +369,9 @@ class Checkout:
     note = ""
 
 
+GRACE = 3  # seconds to collect output after the kill
+
+
 def run_limited(argv: list[str], cwd: str, limit: int) -> tuple[int, str, bool]:
     """Run a command under the time limit, stopping everything it started when over."""
     env = dict(os.environ)
@@ -368,7 +389,16 @@ def run_limited(argv: list[str], cwd: str, limit: int) -> tuple[int, str, bool]:
     except subprocess.TimeoutExpired:
         with contextlib.suppress(OSError):
             os.killpg(process.pid, signal.SIGKILL)
-        output, _ = process.communicate()
+        try:
+            output, _ = process.communicate(timeout=GRACE)
+        except subprocess.TimeoutExpired:
+            # A process that left the group still holds the pipe. Let go of it.
+            output = ""
+            if process.stdout is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    process.stdout.close()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=GRACE)
         return -1, output or "", True
 
 
@@ -495,9 +525,10 @@ def _handle(args: argparse.Namespace) -> dict[str, Any]:
     if outcome == "passed":
         return result
     if outcome == "failed":
-        ids = ", ".join(result["failing_ids"]) or "no ID"
         raise cli.Failure(
-            f"the judge failed on an assertion naming {ids}",
+            "the judge failed"
+            + (f" on an assertion naming {', '.join(result['failing_ids'])}"
+               if result["failing_ids"] else f" ({result['note']})"),
             next_command="build until the judge passes, then run the same command again",
             code=cli.ExitCode.FAILURE,
             data=result,

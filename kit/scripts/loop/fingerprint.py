@@ -7,7 +7,7 @@ gate refuses to trust the old evidence.
 Two parts go in:
 
 - the spec block, read through the one parser (`loop.spec`), cut to the text
-  between the markers, with blanks collapsed and the lines the gate writes
+  between the markers, with blanks collapsed (not inside quotes) and the lines the gate writes
   itself (`Fails today:`) left out;
 - the commit that last touched the judge files.
 
@@ -28,6 +28,16 @@ from loop import cli, spec
 
 GATE_KEYS = ("fails today",)
 _KEY = re.compile(r"^([A-Za-z][A-Za-z -]*?):")
+_QUOTED = re.compile(r"""("[^"]*"|'[^']*')""")
+
+
+def _squeeze(raw: str) -> str:
+    """Collapse blanks outside quotes. Text inside quotes stays as written."""
+    parts = _QUOTED.split(raw.strip())
+    return "".join(
+        part if index % 2 else " ".join(part.split()) + (" " if part[-1:].isspace() else "")
+        for index, part in enumerate(parts)
+    ).strip()
 
 
 class FingerprintError(Exception):
@@ -47,7 +57,7 @@ def normalise(block: str) -> str:
     kept: list[str] = []
     skipping = False
     for raw in block.splitlines():
-        line = " ".join(raw.split())
+        line = _squeeze(raw)
         if not line:
             continue
         match = _KEY.match(line)

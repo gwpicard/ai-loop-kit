@@ -5,10 +5,13 @@ Node runner, and written to the shape Vitest and Jest document. No test needs
 the tools installed, except the ones that run `python3 -m pytest` itself.
 """
 
+import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -43,6 +46,24 @@ class ReadReports(unittest.TestCase):
                 self.assertEqual(result["failing_ids"], [])
                 self.assertTrue(result["failures"])
                 self.assertFalse(any(f["assertion"] for f in result["failures"]))
+
+    def test_an_assertion_that_names_no_id_is_not_the_right_failure(self) -> None:
+        for runner in SUFFIX:
+            with self.subTest(runner=runner):
+                source = report(runner, "fail")
+                text = source.read_text(encoding="utf-8").replace("FL-1", "nothing")
+                with tempfile.TemporaryDirectory() as folder:
+                    copy = Path(folder) / source.name
+                    copy.write_text(text, encoding="utf-8")
+                    result = judge.interpret(runner, copy, 1, "")
+                self.assertEqual(result["outcome"], "failed_no_id")
+                self.assertEqual(result["failing_ids"], [])
+                self.assertIn("FL-", result["note"])
+
+    def test_the_outcome_list_names_failed_no_id(self) -> None:
+        self.assertIn("failed_no_id", judge.__doc__ or "")
+        self.assertIn("failed_no_id", judge.OUTCOMES)
+        self.assertNotIn("failed_no_id", judge.RIGHT_FAILURES)
 
     def test_error_kind_is_named(self) -> None:
         for runner in ("pytest", "vitest", "jest"):
@@ -158,6 +179,46 @@ class RunInCheckout(unittest.TestCase):
         self.assertEqual(result["outcome"], "timeout")
         self.assertTrue(result["timed_out"])
         self.assertIn("1 second", result["note"])
+
+    def _reap(self, pid: int) -> None:
+        if not self._gone(pid):
+            os.kill(pid, signal.SIGKILL)
+
+    def _gone(self, pid: int) -> bool:
+        for _ in range(20):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.1)
+        return False
+
+    def test_the_time_limit_kills_a_grandchild_too(self) -> None:
+        pids = Path(tempfile.mkdtemp()) / "pid"
+        root = self.make_project(f"sleep 25 &\necho $! > {pids}\nwait\n")
+        started = time.monotonic()
+        result = judge.run("sh check.sh", root, "main", time_limit=1)
+        took = time.monotonic() - started
+        pid = int(pids.read_text(encoding="utf-8"))
+        self.addCleanup(self._reap, pid)
+        self.assertEqual(result["outcome"], "timeout")
+        self.assertLess(took, 8)
+        self.assertTrue(self._gone(pid), "the grandchild outlived the time limit")
+
+    def test_a_process_that_left_the_group_cannot_hold_the_run(self) -> None:
+        pids = Path(tempfile.mkdtemp()) / "pid"
+        script = (
+            "python3 -c \"import os,time; os.setsid(); open('" + str(pids) + "','w')"
+            ".write(str(os.getpid())); time.sleep(25)\" &\nwait\n"
+        )
+        root = self.make_project(script)
+        started = time.monotonic()
+        result = judge.run("sh check.sh", root, "main", time_limit=1)
+        took = time.monotonic() - started
+        pid = int(pids.read_text(encoding="utf-8"))
+        self.addCleanup(self._reap, pid)
+        self.assertEqual(result["outcome"], "timeout")
+        self.assertLess(took, 10)
 
     def test_exit_code_fallback_for_a_shell_check(self) -> None:
         root = self.make_project("exit 1\n")

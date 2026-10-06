@@ -52,6 +52,16 @@ class Fingerprint(unittest.TestCase):
         self.assertEqual(fingerprint.take(SPEC, "c1")["fingerprint"],
                          fingerprint.take(edited, "c1")["fingerprint"])
 
+    def test_spaces_inside_quoted_command_text_count(self) -> None:
+        one = SPEC.replace("Command: pytest tests/test_menu.py", 'Command: grep "a b" menu.txt')
+        two = SPEC.replace("Command: pytest tests/test_menu.py", 'Command: grep "a  b" menu.txt')
+        self.assertNotEqual(fingerprint.take(one, "c1")["fingerprint"],
+                            fingerprint.take(two, "c1")["fingerprint"])
+        spaced = SPEC.replace("Command: pytest tests/test_menu.py",
+                              '  Command:   grep "a b"   menu.txt  ')
+        self.assertEqual(fingerprint.take(one, "c1")["fingerprint"],
+                         fingerprint.take(spaced, "c1")["fingerprint"])
+
     def test_not_with_the_line_the_gate_writes(self) -> None:
         edited = SPEC.replace("Proves: FL-1\n", "Proves: FL-1\nFails today: yes, at abc\n")
         self.assertEqual(fingerprint.take(SPEC, "c1")["fingerprint"],
