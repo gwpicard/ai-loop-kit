@@ -230,6 +230,7 @@ def offered(rule):
 
 # The state guard's rules on gh are left out too, and so are the rules that
 # keep the git hooks switched on (no --no-verify, no core.hooksPath, no alias)
+# the rules on real env files (Read, and the commands that read a file),
 # and the file rules on the guards, such as .agents/pieces/, which only a
 # project founded with this kit keeps. The gh rules guard the labels of a project founded with this kit,
 # and a project founded before them keeps its older labels, which those rules
@@ -239,7 +240,8 @@ for rule in left_out:
     if not any(rule.startswith(p) for p in ("Bash(git push --force", "Bash(git push -f",
                                             "Bash(git reset", "Bash(git clean",
                                             "Bash(git commit", "Bash(git config",
-                                            "Bash(gh ", "Edit(")):
+                                            "Bash(gh ", "Edit(", "Read(")) \
+            and ".env" not in rule:
         print("the monthly offer would leave out %s, which step 2 names no kind for" % rule)
         sys.exit(1)
 for rule in expected_delete:
