@@ -1,0 +1,6 @@
+# Hosts a builder's sandbox may reach for rust projects: the package registry and the toolchain.
+# One host a line. No GitHub host belongs here: the builders hold no GitHub credential.
+crates.io
+index.crates.io
+static.crates.io
+static.rust-lang.org

@@ -1,0 +1,3 @@
+# Hosts a builder's sandbox may reach for node projects: the package registry and the toolchain.
+# One host a line. No GitHub host belongs here: the builders hold no GitHub credential.
+registry.npmjs.org
