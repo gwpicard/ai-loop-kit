@@ -222,8 +222,11 @@ set -e
 grep -q "terminal" "$TP_BASE/sync-pipe.err" || fail "the refusal does not name the terminal"
 ok "gate.py sync refuses unless a person is at a terminal"
 
-# The person at a terminal: a pseudo-terminal stands in for one.
-python3 - "$GATE" "$TP_BASE/sync.out" <<'PYEOF' || fail "the person's sync failed: $(cat "$TP_BASE/sync.out")"
+# The person at a terminal: a pseudo-terminal stands in for one. sync needs
+# the digest the dry run printed, so a queue that grew after the person read
+# it is refused.
+person_sync() {
+  python3 - "$GATE" "$TP_BASE/sync.out" "$@" <<'PYEOF'
 import os, pty, sys
 gate, out = sys.argv[1:3]
 captured = bytearray()
@@ -231,10 +234,32 @@ def read(fd):
     data = os.read(fd, 1024)
     captured.extend(data)
     return data
-status = pty.spawn([sys.executable, gate, "sync"], read)
+status = pty.spawn([sys.executable, gate, "sync", *sys.argv[3:]], read)
 open(out, "wb").write(bytes(captured))
 sys.exit(os.waitstatus_to_exitcode(status))
 PYEOF
+}
+digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["digest"])' "$TP_BASE/dry.json") \
+  || fail "sync --dry-run printed no digest"
+set +e
+person_sync
+code=$?
+set -e
+[ "$code" -eq 3 ] || fail "gate.py sync with no --confirm exited $code, not 3"
+python3 "$GATE" comment 1 --text "A comment added after the dry run" --json > /dev/null \
+  || fail "a second comment with no App was not queued"
+set +e
+person_sync --confirm "$digest"
+code=$?
+set -e
+[ "$code" -eq 3 ] || fail "gate.py sync with the digest of a changed queue exited $code, not 3"
+grep -q "changed" "$TP_BASE/sync.out" || fail "the refusal does not say the queue changed"
+[ ! -f "$FAKE_GH_STATE" ] || [ "$(py_state 'len(S.get("issues", []))')" = 0 ] \
+  || fail "a refused sync opened an issue"
+ok "gate.py sync needs the digest of the dry run, and refuses a changed queue"
+python3 "$GATE" sync --dry-run --json > "$TP_BASE/dry.json"
+digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["digest"])' "$TP_BASE/dry.json")
+person_sync --confirm "$digest" || fail "the person's sync failed: $(cat "$TP_BASE/sync.out")"
 [ "$(py_state 'sorted(issue(1)["labels"])')" = '["state:dropped", "type:feature"]' ] \
   || fail "after sync the labels are $(py_state 'sorted(issue(1)["labels"])')"
 [ "$(py_state 'issue(1)["state"]')" = "closed" ] || fail "sync did not close the dropped issue"

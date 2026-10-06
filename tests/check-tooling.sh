@@ -7,9 +7,10 @@
 # ready. A grep over the script cannot judge that. This runs it against a set of
 # throwaway PATHs and reads what it does.
 #
-# A stand-in for the GitHub command line tool supplies the sign-in and the
-# repository. The report asks gh for JSON and filters it with python3, which is
-# what makes that substitution honest.
+# The report never uses the person's own GitHub sign-in. With no App it asks
+# GitHub nothing at all, so a stand-in for the GitHub command line tool that
+# logs every call shows an empty log. With the stand-in App, the repository is
+# read through loop/github.py, as the App, with the full GitHub stand-in.
 #
 # Everything here runs in a throwaway directory. No network, no account.
 
@@ -41,18 +42,22 @@ ln -s "$(command -v python3)" "$WORK/bin/python3"
 ln -s "$(command -v sh)" "$WORK/bin/sh"
 ln -s "$(command -v openssl)" "$WORK/bin/openssl"
 
-# A stand-in that answers only the sign-in and the repository lookup the report
-# makes, with echo alone so it needs nothing else on the controlled PATH.
+# A stand-in that logs every call and answers as a signed-in account would.
+# The report must never call it, so the log is the evidence.
 write_gh() {
   cat >"$WORK/bin/gh" <<SH
 #!/usr/bin/env sh
+echo "\$*" >> "$WORK/gh.log"
 case "\$1 \$2" in
-  "auth status") exit $1 ;;
-  "repo view") echo '$2' ;;
+  "auth status") exit 0 ;;
+  "repo view") echo '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}' ;;
   *) echo '{}' ;;
 esac
 SH
   chmod +x "$WORK/bin/gh"
+}
+gh_untouched() {
+  [ ! -s "$WORK/gh.log" ]
 }
 
 run_check() {
@@ -60,13 +65,19 @@ run_check() {
   # of it is genuinely missing. The report reads `origin`, so it runs from a
   # folder of its own: run from this repository, it would find the kit's own
   # repository and rightly skip the checks these cases are about.
-  (cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" 2>&1)
+  (cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" "$CHECK" 2>&1)
 }
 mkdir -p "$WORK/plain"
+git -C "$WORK/plain" init -q
+git init -q --bare "$WORK/plain-origin.git"
+git -C "$WORK/plain" remote add origin "$WORK/plain-origin.git"
 
-echo "== Everything ready =="
+NOTICE="The GitHub App is not set up yet, so this report does not look at GitHub"
 
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+echo "== Everything ready, no App =="
+
+write_gh
+: > "$WORK/gh.log"
 out=$(run_check) && code=0 || code=$?
 [ "$code" -eq 0 ] \
   && pass "the report returns cleanly when every tool is ready" \
@@ -74,18 +85,25 @@ out=$(run_check) && code=0 || code=$?
 printf '%s\n' "$out" | grep -q "Every tool the kit needs" \
   && pass "it says the tools are ready" \
   || fail "the ready summary is missing"
-printf '%s\n' "$out" | grep -q "Issues are switched on" \
-  && pass "it reports issues switched on" \
-  || fail "the issues-on line is missing"
-printf '%s\n' "$out" | grep -q "Labels can be put in order" \
-  && pass "it reports the account can manage labels" \
-  || fail "the labels line is missing"
+printf '%s\n' "$out" | grep -qF "$NOTICE" \
+  && pass "with no App it prints the one notice" \
+  || fail "the no-App notice is missing: $out"
+gh_untouched \
+  && pass "with no App the report starts no gh at all, so it never uses the person's sign-in" \
+  || fail "the report called gh with no App: $(cat "$WORK/gh.log")"
+printf '%s\n' "$out" | grep -q "gh auth status" \
+  && pass "it names gh auth status for the person to run, and does not run it" \
+  || fail "the report does not name gh auth status for the person"
+
+out=$(cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" "$CHECK" --for-run 2>&1) && code=0 || code=$?
+[ "$code" -eq 0 ] && gh_untouched \
+  && pass "--for-run with no App passes and starts no gh" \
+  || fail "--for-run with no App returned $code or called gh: $(cat "$WORK/gh.log")"
 
 echo "== openssl missing =="
 
 # The App key is made and read with openssl, so a run cannot start without it.
 rm -f "$WORK/bin/openssl"
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
 out=$(run_check) && code=0 || code=$?
 [ "$code" -ne 0 ] \
   && pass "a missing openssl stops the report" \
@@ -97,65 +115,92 @@ ln -s "$(command -v openssl)" "$WORK/bin/openssl"
 
 echo "== The GitHub command line tool missing =="
 
+# Before the App exists a project shapes and runs locally, so a missing gh is
+# named and blocks nothing, in either mode.
 rm -f "$WORK/bin/gh"
 out=$(run_check) && code=0 || code=$?
-[ "$code" -ne 0 ] \
-  && pass "a missing GitHub command line tool stops founding" \
-  || fail "a missing GitHub command line tool did not stop the report"
+[ "$code" -eq 0 ] \
+  && pass "a missing GitHub command line tool does not stop founding" \
+  || fail "a missing GitHub command line tool returned $code"
 printf '%s\n' "$out" | grep -q "GitHub command line tool is missing" \
   && pass "it names the missing tool" \
   || fail "the missing-tool line is missing"
+out=$(cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" "$CHECK" --for-run 2>&1) && code=0 || code=$?
+[ "$code" -eq 0 ] \
+  && pass "--for-run with no gh and no App still starts a local run" \
+  || fail "--for-run with no gh returned $code"
 
-echo "== Installed but signed out =="
+echo "== Signed out, offline or refused: never asked =="
 
-write_gh 1 '{}'
-out=$(run_check) && code=0 || code=$?
-[ "$code" -ne 0 ] \
-  && pass "nobody signed in stops founding" \
-  || fail "signed out did not stop the report"
-printf '%s\n' "$out" | grep -q "nobody is signed in" \
-  && pass "it says nobody is signed in" \
-  || fail "the signed-out line is missing"
-
-echo "== Access failures are not called signed out =="
-
-for reason in network permission; do
-  case "$reason" in
-    network) message='error connecting to api.github.com' ;;
-    permission) message='HTTP 403: Resource not accessible by integration' ;;
-  esac
-  cat >"$WORK/bin/gh" <<SH
+# A gh that fails every call, as one signed out or offline does. The report
+# never calls it, so nothing about the sign-in sets blocked.
+cat >"$WORK/bin/gh" <<SH
 #!/usr/bin/env sh
-echo '$message' >&2
-exit 1
-SH
-  chmod +x "$WORK/bin/gh"
-  out=$(run_check) && code=0 || code=$?
-  [ "$code" -ne 0 ] && printf '%s\n' "$out" | grep -q "$reason" \
-    && ! printf '%s\n' "$out" | grep -q 'nobody is signed in' \
-    && pass "$reason failure blocks founding with the correct recovery" \
-    || fail "$reason failure was called signed out or did not block founding: $out"
-done
-
-echo "== Authentication cannot be verified inside the session =="
-cat >"$WORK/bin/gh" <<'SH'
-#!/usr/bin/env sh
+echo "\$*" >> "$WORK/gh.log"
 echo 'HTTP 401: Requires authentication' >&2
 exit 1
 SH
 chmod +x "$WORK/bin/gh"
+: > "$WORK/gh.log"
 out=$(run_check) && code=0 || code=$?
-[ "$code" -ne 0 ] && printf '%s\n' "$out" | grep -q 'GH_TOKEN' \
-  && ! printf '%s\n' "$out" | grep -q 'nobody is signed in' \
-  && pass "authentication refusal asks about credential sources without claiming sign-out" \
-  || fail "authentication refusal skipped credential diagnosis: $out"
+[ "$code" -eq 0 ] && gh_untouched \
+  && pass "a signed-out gh is never asked and stops nothing" \
+  || fail "a signed-out gh returned $code or was called: $(cat "$WORK/gh.log")"
+write_gh
 
-echo "== Signed in, but a soft repository state =="
+echo "== With the App: the repository is read as the App =="
 
-# Issues off and a read-only account do not block founding: the report says so
-# and returns cleanly, because the pieces still become issues.
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":false,"viewerPermission":"READ"}'
-out=$(run_check) && code=0 || code=$?
+# The full GitHub stand-in, a stand-in App key, and the App's settings in the
+# project. The bin holds the stand-in gh beside the real tools.
+APP_BIN="$WORK/app-bin"
+mkdir -p "$APP_BIN"
+for tool in git python3 sh openssl; do
+  ln -s "$(command -v "$tool")" "$APP_BIN/$tool"
+done
+ln -s "$ROOT/tests/stand-ins/fake-github/gh" "$APP_BIN/gh"
+APP_KEY=$("$ROOT/tests/stand-ins/fake-app/make-key.sh" "$WORK/app-key")
+APP_PROJECT="$WORK/app-project"
+git init -q --bare "$WORK/app-origin.git"
+git -C "$WORK/app-origin.git" symbolic-ref HEAD refs/heads/main
+git init -q "$APP_PROJECT"
+git -C "$APP_PROJECT" remote add origin "$WORK/app-origin.git"
+mkdir -p "$APP_PROJECT/.agents/loop"
+python3 - "$ROOT/tests/stand-ins/fake-app/app.json" "$APP_KEY" "$APP_PROJECT/.agents/loop/local.json" <<'PY'
+import json, sys
+app = json.load(open(sys.argv[1]))
+json.dump({"github_app": {"app_id": app["app_id"], "installation_id": app["installation_id"],
+                          "slug": app["slug"], "key_file": sys.argv[2]}}, open(sys.argv[3], "w"))
+PY
+app_check() {
+  # app_check <state json> [args...]
+  printf '%s\n' "$1" > "$WORK/app-state.json"
+  shift
+  : > "$WORK/app-gh.log"
+  (cd "$APP_PROJECT" && PATH="$APP_BIN" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" \
+    FAKE_GH_STATE="$WORK/app-state.json" FAKE_GH_LOG="$WORK/app-gh.log" FAKE_APP_KEY="$APP_KEY" \
+    "$CHECK" "$@" 2>&1)
+}
+out=$(app_check '{"repo": "someone/project", "next": 1, "issues": []}') && code=0 || code=$?
+[ "$code" -eq 0 ] \
+  && pass "with the App the report returns cleanly" \
+  || fail "with the App the report returned $code: $out"
+printf '%s\n' "$out" | grep -q "Issues are switched on" \
+  && pass "it reports issues switched on, read as the App" \
+  || fail "the issues-on line is missing: $out"
+printf '%s\n' "$out" | grep -q "Labels can be put in order" \
+  && pass "it reports the labels can be put in order" \
+  || fail "the labels line is missing: $out"
+printf '%s\n' "$out" | grep -qF "$NOTICE" \
+  && fail "the no-App notice was printed with the App set up" \
+  || pass "with the App there is no no-App notice"
+grep -q "APP-TOKEN" "$WORK/app-gh.log" && grep -q "^AS	ai-loop-kit-stand-in\[bot\]" "$WORK/app-gh.log" \
+  && pass "the repository facts come through the App's token" \
+  || fail "the repository was not read as the App: $(cat "$WORK/app-gh.log")"
+grep -q "auth status" "$WORK/app-gh.log" \
+  && fail "the report asked for the person's sign-in" \
+  || pass "the report never asks for the person's sign-in"
+
+out=$(app_check '{"repo": "someone/project", "next": 1, "issues": [], "has_issues": false, "viewer_permission": "READ"}') && code=0 || code=$?
 [ "$code" -eq 0 ] \
   && pass "issues off and read-only access do not stop founding" \
   || fail "a soft repository state returned $code"
@@ -163,8 +208,20 @@ printf '%s\n' "$out" | grep -q "Issues are switched off" \
   && pass "it reports issues switched off" \
   || fail "the issues-off line is missing"
 printf '%s\n' "$out" | grep -q "cannot create or delete labels" \
-  && pass "it reports the account cannot manage labels" \
+  && pass "it reports the labels cannot be put in order" \
   || fail "the no-labels line is missing"
+
+out=$(app_check '{"repo": "someone/project", "next": 1, "issues": []}' --for-run) && code=0 || code=$?
+[ "$code" -eq 0 ] && ! grep -q "repo view" "$WORK/app-gh.log" \
+  && pass "--for-run checks only that gh is installed, and reads no repository" \
+  || fail "--for-run with the App returned $code or read the repository: $(cat "$WORK/app-gh.log")"
+
+rm -f "$APP_BIN/gh"
+out=$(app_check '{"repo": "someone/project", "next": 1, "issues": []}') && code=0 || code=$?
+[ "$code" -eq 0 ] && printf '%s\n' "$out" | grep -q "GitHub command line tool is missing" \
+  && pass "with the App and no gh, the report names gh and still founds" \
+  || fail "with the App and no gh the report returned $code: $out"
+ln -s "$ROOT/tests/stand-ins/fake-github/gh" "$APP_BIN/gh"
 
 echo "== A Git older than worktrees =="
 
@@ -172,7 +229,7 @@ echo "== A Git older than worktrees =="
 # `git worktree remove`, which Git has had since 2.17. An older Git still
 # founds and builds, one piece after another in one folder, so the report
 # names the version and blocks nothing.
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+write_gh
 out=$(run_check) && code=0 || code=$?
 printf '%s\n' "$out" | grep -q "older than 2.17" \
   && fail "a current Git was reported as older than 2.17" \
@@ -195,77 +252,55 @@ printf '%s\n' "$out" | grep -q "Git is version 2.16.4, older than 2.17" \
 rm -f "$WORK/bin/git"
 ln -s "$real_git" "$WORK/bin/git"
 
-echo "== Signed in, no repository yet =="
+echo "== The App, no repository yet =="
 
 # A fresh project has no repository, so the issue and label checks wait.
-write_gh 0 ''
-out=$(run_check) && code=0 || code=$?
+git -C "$APP_PROJECT" remote remove origin
+out=$(app_check '{"repo": "someone/project", "next": 1, "issues": []}') && code=0 || code=$?
 [ "$code" -eq 0 ] \
   && pass "a fresh project with no repository still returns cleanly" \
   || fail "no repository returned $code"
 printf '%s\n' "$out" | grep -q "No GitHub repository is set up yet" \
   && pass "it says the repository checks wait until one exists" \
-  || fail "the no-repository line is missing"
+  || fail "the no-repository line is missing: $out"
+git -C "$APP_PROJECT" remote add origin "$WORK/app-origin.git"
 
 echo "== A whole copy that still points at the kit's own repository =="
 
 # Founding from a whole copy of the kit can keep the kit's `origin`. The GitHub
 # tool would then open the person's pieces on the kit's repository, so the
-# report says so and skips the lookups, and founding asks for their own. It
-# does not stop founding. A fork under another owner is the person's own and
-# is left alone. The stand-in logs every call, so a lookup made anyway shows.
-write_logging_gh() {
-  cat >"$WORK/bin/gh" <<SH
-#!/usr/bin/env sh
-echo "\$*" >> "$WORK/gh.log"
-case "\$1 \$2" in
-  "auth status") exit 0 ;;
-  "repo view") echo '$1' ;;
-  *) echo '{}' ;;
-esac
-SH
-  chmod +x "$WORK/bin/gh"
-}
+# report says so, and founding asks for their own. It does not stop founding.
+# A fork under another owner is the person's own and is left alone. `origin`
+# is read with Git alone. The stand-in logs every call, so a GitHub call made
+# anyway shows.
 kit_case() {
-  # kit_case <description> <origin url> <what gh reports> <kit|not-kit>
+  # kit_case <description> <origin url> <kit|not-kit>
   project="$WORK/copy-$(printf '%s' "$1" | tr -c 'a-z' '-')"
   mkdir -p "$project"
   git -C "$project" init -q
-  [ -z "$2" ] || git -C "$project" remote add origin "$2"
-  write_logging_gh "$3"
+  git -C "$project" remote add origin "$2"
   : > "$WORK/gh.log"
-  out=$(cd "$project" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" 2>&1) && code=0 || code=$?
+  out=$(cd "$project" && PATH="$WORK/bin" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" "$CHECK" 2>&1) && code=0 || code=$?
   [ "$code" -eq 0 ] || fail "$1: the report stopped founding with $code"
-  if [ "$4" = kit ]; then
+  if [ "$3" = kit ]; then
     printf '%s\n' "$out" | grep -q "still points at the kit's own repository, gwpicard/ai-loop-kit: no piece is opened there and nothing is pushed there" \
       && ! printf '%s\n' "$out" | grep -q "Issues are switched\|Labels can" \
       && pass "$1: the report names the kit's repository and skips its lookups" \
       || fail "$1: the kit's repository was not caught"
-    # Where `origin` names the kit, the report must not ask GitHub at all.
-    if [ -n "$2" ]; then
-      grep -q "repo view" "$WORK/gh.log" \
-        && fail "$1: the report asked GitHub about the kit's repository anyway" \
-        || pass "$1: the report asks GitHub nothing about it"
-    fi
   else
     printf '%s\n' "$out" | grep -q "kit's own repository" \
       && fail "$1: a repository of the person's own was taken for the kit's" \
       || pass "$1: the person's own repository is left alone"
   fi
+  gh_untouched \
+    && pass "$1: the report asks GitHub nothing" \
+    || fail "$1: the report called gh: $(cat "$WORK/gh.log")"
 }
-KIT_JSON='{"nameWithOwner":"gwpicard/ai-loop-kit","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
-OWN_JSON='{"nameWithOwner":"someone/ai-loop-kit","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
-# Where the origin names the kit, the stand-in reports a neutral name, so only
-# the origin match can catch it. The one case with no origin is the only one
-# that leans on the name GitHub reports.
-NEUTRAL_JSON='{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
-kit_case "an https origin" "https://github.com/gwpicard/ai-loop-kit.git" "$NEUTRAL_JSON" kit
-kit_case "an ssh origin in capitals" "git@github.com:GWPicard/AI-Loop-Kit.git" "$NEUTRAL_JSON" kit
-kit_case "an origin with no .git" "https://github.com/gwpicard/ai-loop-kit" "$NEUTRAL_JSON" kit
-kit_case "a name only GitHub reports" "" "$KIT_JSON" kit
-kit_case "a fork under another owner" "https://github.com/someone/ai-loop-kit.git" "$OWN_JSON" not-kit
-kit_case "a name that only starts like the kit's" "https://github.com/gwpicard/ai-loop-kit-notes.git" '{"nameWithOwner":"gwpicard/ai-loop-kit-notes","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}' not-kit
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+kit_case "an https origin" "https://github.com/gwpicard/ai-loop-kit.git" kit
+kit_case "an ssh origin in capitals" "git@github.com:GWPicard/AI-Loop-Kit.git" kit
+kit_case "an origin with no .git" "https://github.com/gwpicard/ai-loop-kit" kit
+kit_case "a fork under another owner" "https://github.com/someone/ai-loop-kit.git" not-kit
+kit_case "a name that only starts like the kit's" "https://github.com/gwpicard/ai-loop-kit-notes.git" not-kit
 
 # Asked for a run (--for-run), the kit's own repository is a refusal, with its
 # own exit code, and a project of the person's own is not.
@@ -273,12 +308,11 @@ kit_project="$WORK/run-on-kit"
 mkdir -p "$kit_project"
 git -C "$kit_project" init -q
 git -C "$kit_project" remote add origin "https://github.com/gwpicard/ai-loop-kit.git"
-write_gh 0 "$NEUTRAL_JSON"
-out=$(cd "$kit_project" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" --for-run 2>&1) && code=0 || code=$?
+out=$(cd "$kit_project" && PATH="$WORK/bin" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" "$CHECK" --for-run 2>&1) && code=0 || code=$?
 [ "$code" -eq 3 ] \
   && pass "--for-run refuses a project that points at the kit's own repository (exit 3)" \
   || fail "--for-run on the kit's repository returned $code"
-out=$(cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" "$CHECK" --for-run 2>&1) && code=0 || code=$?
+out=$(cd "$WORK/plain" && PATH="$WORK/bin" HOME="$HOME" AI_LOOP_KIT_DATA="$WORK/data" "$CHECK" --for-run 2>&1) && code=0 || code=$?
 [ "$code" -eq 0 ] \
   && pass "--for-run passes a project of the person's own" \
   || fail "--for-run on the person's own repository returned $code"
@@ -289,7 +323,7 @@ echo "== The tools a recipe's checks run =="
 # for only when a recipe is named, and a missing one never stops founding, since
 # a project that uses no recipe needs none of them. The real recipes are read
 # where they are, on the menu or still waiting for their real run.
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+write_gh
 out=$(run_check) && code=0 || code=$?
 printf '%s\n' "$out" | grep -q "launch checks" \
   && fail "a project that names no recipe was asked about recipe tools" \
@@ -307,12 +341,12 @@ printf '%s\n' "$out" | grep -q "^stand-in-deploy-tool is missing: .*before the f
   && pass "it names a missing recipe tool as needed before the first launch" \
   || fail "the missing recipe tool line is missing"
 
-rm -f "$WORK/bin/gh"
+rm -f "$WORK/bin/openssl"
 out=$(PATH="$WORK/bin" HOME="$HOME" "$CHECK" --recipe "$WORK/recipe.md" 2>&1) && code=0 || code=$?
 [ "$code" -ne 0 ] \
   && pass "naming a recipe does not excuse a missing founding tool" \
-  || fail "a recipe hid the missing GitHub command line tool"
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+  || fail "a recipe hid the missing openssl"
+ln -s "$(command -v openssl)" "$WORK/bin/openssl"
 
 for name in nextjs-supabase-on-vercel nextjs-supabase-on-coolify; do
   recipe="$ROOT/kit/recipes/$name.md"
@@ -357,7 +391,7 @@ eyes_line() {
   printf '%s\n' "$out" | grep -F -- "$1" >/dev/null
 }
 
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+write_gh
 out=$(run_check) && code=0 || code=$?
 [ "$code" -eq 0 ] \
   && pass "with no renderer at all, founding is not stopped" \
@@ -417,13 +451,14 @@ eyes_line "magick is ready" \
   || fail "convert was not taken for magick"
 
 # A missing founding tool still stops founding with every renderer ready.
-rm -f "$WORK/bin/gh"
+rm -f "$WORK/bin/openssl"
 out=$(run_check) && code=0 || code=$?
 [ "$code" -ne 0 ] \
   && pass "renderers being ready do not excuse a missing founding tool" \
-  || fail "ready renderers hid the missing GitHub command line tool"
+  || fail "ready renderers hid the missing openssl"
+ln -s "$(command -v openssl)" "$WORK/bin/openssl"
 rm -f "$WORK/bin/pdftoppm" "$WORK/bin/libreoffice" "$WORK/bin/convert" "$WORK/bin/npx"
-write_gh 0 '{"nameWithOwner":"someone/project","hasIssuesEnabled":true,"viewerPermission":"ADMIN"}'
+write_gh
 
 echo
 if [ "$FAIL" -eq 0 ]; then

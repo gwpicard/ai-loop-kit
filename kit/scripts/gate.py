@@ -17,7 +17,7 @@ Commands:
   gate.py report [<number>] [--brief]
   gate.py labels --create
   gate.py branch <number> [--push]
-  gate.py sync [--dry-run]
+  gate.py sync (--dry-run | --confirm <digest>)
 
 A <number> is the piece's local number or, once sync has opened its issue, the
 issue's number.
@@ -26,9 +26,11 @@ The gate acts on GitHub only as its GitHub App, set up in the second half of
 /setup. Before the App exists it makes every move in the piece record
 (.agents/pieces/<n>/), queues the GitHub writes there, and its next: line names
 gate.py sync. Only the person runs gate.py sync, with their own sign-in. They
-run gate.py sync --dry-run first, which lists every queued write in full. Sync
-refuses unless a person is at a terminal (standard input and output both a
-terminal), it refuses in an agent session, and the guard hook refuses it too.
+run gate.py sync --dry-run first, which lists every queued write in full and
+prints a digest of the queue. Sync needs --confirm with that digest, and
+refuses a queue that changed since. It also refuses unless a person is at a
+terminal (standard input and output both a terminal), it refuses in an agent
+session, and the guard hook refuses it too.
 
 Every command prints JSON when standard output is not a terminal, and takes
 --dry-run where it changes state.
@@ -101,7 +103,7 @@ def setup(parser: argparse.ArgumentParser) -> None:
     answer.add_argument("--question", required=True, help="the open question it answers")
     answer.add_argument("--answer", required=True)
     answer.add_argument("--by", required=True,
-                        help="who answered; an agent session cannot record the person")
+                        help='who answered; an agent session records only "the agent"')
     _common(answer)
 
     spec_cmd = commands.add_parser("spec", help="hand the gate a new spec for a piece in shaping")
@@ -132,6 +134,8 @@ def setup(parser: argparse.ArgumentParser) -> None:
     _common(branch)
 
     sync = commands.add_parser("sync", help="the person sends the queued GitHub writes")
+    sync.add_argument("--confirm", metavar="DIGEST",
+                      help="the digest that sync --dry-run printed for the queue")
     _common(sync)
 
 
@@ -235,7 +239,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
                     "runs it, never an agent session",
                     next_command=github.sync_command(paths.root),
                 )
-            return gate.sync(hub, dry_run=dry)
+            return gate.sync(hub, dry_run=dry, confirm=args.confirm)
     except moves.MoveError as error:
         raise Failure(error.message, next_command=error.next_command, code=error.code,
                       data=error.data) from error

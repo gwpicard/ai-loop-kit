@@ -296,13 +296,6 @@ class EveryCallGoesThroughCredential(unittest.TestCase):
 
     def test_no_kit_script_or_hook_starts_gh_itself(self) -> None:
         """Every agent script reaches GitHub through loop/github.py, so through credential()."""
-        # Borrowed files that a later piece adapts. Each is named with that piece.
-        later = {
-            # It only reads `gh auth status` and `gh repo view`, to report
-            # readiness. pre-run-check.py (an agent script) also calls it, with
-            # --for-run, before a run. That call is open for the maintainer to judge.
-            "kit/scripts/check-tooling.sh",
-        }
         python_spawn = re.compile(r"""[\[(]\s*["']gh["']""")
         shell_spawn = re.compile(r"""(^|[;&|(`]|\$\(|\bthen|\bdo)\s*gh\s+[a-z]""", re.MULTILINE)
         found = []
@@ -311,7 +304,7 @@ class EveryCallGoesThroughCredential(unittest.TestCase):
                 if not path.is_file() or "__pycache__" in path.parts:
                     continue
                 name = str(path.relative_to(ROOT))
-                if name == "kit/scripts/loop/github.py" or name in later:
+                if name == "kit/scripts/loop/github.py":
                     continue
                 try:
                     text = path.read_text(encoding="utf-8")
@@ -349,6 +342,43 @@ class PullRequestState(unittest.TestCase):
         with self.assertRaises(github.NoApp):
             hub.pr_state("piece-1")
         self.assertEqual(spawned, [])
+
+
+class RepositoryView(unittest.TestCase):
+    """`python3 -m loop.github repo-view`: what check-tooling.sh reports, read as the App."""
+
+    def test_with_the_app_the_repository_is_read_as_the_app(self) -> None:
+        project = Project()
+        github.forget_tokens()
+        state = {"repo": "someone/project", "next": 1, "issues": []}
+        project.state.write_text(json.dumps(state), encoding="utf-8")
+        hub = github.GitHub(project.paths, runner=project.runner(), env=project.env)
+        facts = hub.repo_view()
+        self.assertEqual(facts["nameWithOwner"], "someone/project")
+        self.assertIn("hasIssuesEnabled", facts)
+        log = project.log.read_text(encoding="utf-8")
+        self.assertIn("AS\t" + APP["slug"] + "[bot]", log, "the read carries the App's token")
+        self.assertNotIn("auth status", log)
+
+    def test_without_the_app_nothing_is_read(self) -> None:
+        project = Project(app=False)
+        spawned: list[dict[str, Any]] = []
+        hub = github.GitHub(project.paths, runner=project.runner(spawned), env=project.env)
+        with self.assertRaises(github.NoApp):
+            hub.repo_view()
+        self.assertEqual(spawned, [])
+
+    def test_the_door_exits_3_with_no_app_and_starts_nothing(self) -> None:
+        project = Project(app=False)
+        done = subprocess.run(
+            [sys.executable, "-m", "loop.github", "repo-view"],
+            cwd=str(project.root), capture_output=True, text=True, check=False,
+            env={**project.env, "PYTHONPATH": str(ROOT / "kit" / "scripts"),
+                 "AI_LOOP_KIT_DATA": str(project.base / "data")},
+        )
+        self.assertEqual(done.returncode, int(cli.ExitCode.REFUSED), done.stderr)
+        self.assertIn("next:", done.stderr)
+        self.assertEqual(project.gh_calls(), [])
 
 
 class NoApp(unittest.TestCase):
@@ -458,6 +488,10 @@ class Push(unittest.TestCase):
         self.assertEqual(len(found), 1)
         return found[0]
 
+    def _pairs(self, env: dict[str, str]) -> list[tuple[str, str]]:
+        count = int(env.get("GIT_CONFIG_COUNT", "0"))
+        return [(env[f"GIT_CONFIG_KEY_{i}"], env[f"GIT_CONFIG_VALUE_{i}"]) for i in range(count)]
+
     def _config(self, env: dict[str, str]) -> dict[str, str]:
         count = int(env.get("GIT_CONFIG_COUNT", "0"))
         return {env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(count)}
@@ -489,7 +523,11 @@ class Push(unittest.TestCase):
                 token = github.credential(project.paths, runner=project.runner(),
                                           env=project.env)
                 assert token is not None and token.token
-                header = config.get("http.https://github.com/.extraheader", "")
+                pairs = self._pairs(env)
+                headers = [v for k, v in pairs if k == "http.https://github.com/.extraheader"]
+                self.assertEqual(headers[0], "", "an empty header first drops the person's own")
+                self.assertEqual(len(headers), 2)
+                header = headers[-1]
                 basic = base64.b64encode(f"x-access-token:{token.token}".encode()).decode()
                 self.assertIn(basic, header, "the push carries the stand-in App's token")
                 heads = git(project.root, "ls-remote", "--heads", str(hosted))

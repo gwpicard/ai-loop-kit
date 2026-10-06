@@ -58,6 +58,10 @@
       "Edit(//**/.agents/loop/policy.json)",
       "Edit(//**/.agents/loop/local.json)",
       "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/Library/Keychains/**)",
+      "Bash(gh auth token*)",
+      "Bash(security find-*)",
       "Read(//**/.env)",
       "Read(//**/.env.*)",
       "Bash(cat *.env*)",
@@ -90,6 +94,12 @@
   "sandbox": {
     "enabled": true,
     "failIfUnavailable": true,
-    "allowUnsandboxedCommands": false
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "~/.config/gh",
+        "~/Library/Keychains"
+      ]
+    }
   }
 }

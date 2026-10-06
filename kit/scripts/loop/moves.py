@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
 import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -273,7 +274,14 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-_PERSON = re.compile(r"\b(person|user|owner|human|me|i|myself)\b")
+AGENT = "the agent"  # the only name an agent session may record an answer under
+
+
+def queue_digest(pieces: Sequence[Piece]) -> str:
+    """A short digest of every queued write, so sync sends only what the dry run showed."""
+    queued = [[p.number, p.issue, p.queue] for p in pieces]
+    text = json.dumps(queued, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 def _shown(op: Mapping[str, Any]) -> dict[str, Any]:
@@ -842,13 +850,13 @@ class Gate:
                             next_command=f'gate.py answer {number} --question "<q>" '
                             '--answer "<a>" --by "<who answered>"', code=ExitCode.USAGE)
         agent = github.in_agent_session(self.env)
-        if agent and _PERSON.search(by.casefold()):
+        if agent and " ".join(by.split()).casefold() != AGENT:
             raise MoveError(
-                f"an agent session cannot record that {by.strip()!r} answered; only the person "
-                "records the person's answer, in their own terminal",
-                next_command="tell the person to run, in their own terminal: "
+                f"an agent session records an answer only --by {AGENT!r}, not {by.strip()!r}; "
+                "any other name is the person's to record, in their own terminal",
+                next_command="tell the person to run it themselves, in their own terminal: "
                 f"{github.gate_command(self.paths.root)} answer {number} --question "
-                '"<q>" --answer "<a>" --by "the person"; or record it --by "the agent"',
+                f'"<q>" --answer "<a>" --by "<their name>"; or record it --by "{AGENT}"',
             )
         by = by.strip()
         piece = self._sync_if_able(self.piece(number), dry_run)
@@ -964,8 +972,15 @@ class Gate:
         return {"created": [row[0] for row in missing],
                 "present": sorted(present & {row[0] for row in states.LABELS})}
 
-    def sync(self, person: Hub, *, dry_run: bool = False) -> dict[str, Any]:
-        """Send every queued GitHub write with the person's own sign-in. The person runs it."""
+    def sync(
+        self, person: Hub, *, dry_run: bool = False, confirm: str | None = None
+    ) -> dict[str, Any]:
+        """Send every queued GitHub write with the person's own sign-in. The person runs it.
+
+        The dry run prints a digest of the queue. A real sync needs that digest
+        in `confirm`, and refuses when the queue has changed since, so it sends
+        only the writes the person read.
+        """
         if github.in_agent_session(self.env):
             raise MoveError(
                 "gate.py sync acts with the person's own sign-in, so only the person runs it, "
@@ -976,15 +991,29 @@ class Gate:
         refusals: list[dict[str, Any]] = []
         pending = [p for p in (read_piece(self.paths, n) for n in self.numbers())
                    if p is not None and p.queue]
+        digest = queue_digest(pending)
         if dry_run:
             return {
                 "pieces": [{"piece": p.number, "issue": p.issue, "queued": len(p.queue),
                             "writes": [_shown(op) for op in p.queue]} for p in pending],
                 "refused": [],
+                "digest": digest,
                 "listing": _listing(pending) or "Nothing is waiting.",
                 "next": "read every write above. Each is posted in your own name. If you want "
-                f"them all, run: {github.gate_command(self.paths.root)} sync",
+                f"them all, run: {github.gate_command(self.paths.root)} sync --confirm {digest}",
             }
+        if confirm is None:
+            raise MoveError(
+                "gate.py sync sends only the writes the person read, so it needs --confirm with "
+                "the digest that gate.py sync --dry-run printed",
+                next_command=github.sync_command(self.paths.root),
+            )
+        if confirm.strip().casefold() != digest:
+            raise MoveError(
+                "the queue changed after the dry run that printed this digest, so sync sends "
+                "nothing; read the queue again",
+                next_command=github.sync_command(self.paths.root),
+            )
         if not self.terminal():
             raise MoveError(
                 "gate.py sync posts in the person's name, so it runs only with a person at a "

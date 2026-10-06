@@ -247,6 +247,14 @@ other label still runs, such as `gh issue edit 12 --add-label type:bug`, and
 so do `gh issue list --label state:ready`, `gh label list` and every
 `gate.py` command except `gate.py sync`, which only the person runs.
 
+Call `gate.py` with a literal path and a literal command. The hook refuses a
+`gate.py` line that holds a variable, a backtick, `xargs`, `eval`, `unset`,
+`env -u` or `env -i`, since any of these can hide `sync`. It also refuses
+`script`, `unbuffer` or `expect` beside `python` or `gate.py`, since these fake
+the terminal that `sync` checks for. A text check is never complete. The layer
+that holds is the sandbox: it hides `~/.config/gh` and the keychain from every
+agent session, so `gh` has no sign-in of the person's to use.
+
 The settings run the hook only when it is present and runnable, so a missing
 copy never blocks every command. `/maintain` puts a missing hook back. Another
 coding agent runs neither the hook nor the deny rules. There this written rule

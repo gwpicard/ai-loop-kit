@@ -254,6 +254,12 @@ project_checks = [
     (csb.get("allowUnsandboxedCommands") is False, "project sandbox lacks allowUnsandboxedCommands: false"),
     (c.get("permissions", {}).get("disableBypassPermissionsMode") == "disable",
      "project settings leave bypass mode on"),
+    # An agent session never uses the person's GitHub sign-in, by any spelling:
+    # the sandbox hides the gh config and the keychain from every command.
+    ("~/.config/gh" in csb.get("filesystem", {}).get("denyRead", []),
+     "the project sandbox does not read-block the gh config"),
+    ("~/Library/Keychains" in csb.get("filesystem", {}).get("denyRead", []),
+     "the project sandbox does not read-block the keychain"),
 ]
 for good, message in project_checks:
     if not good:

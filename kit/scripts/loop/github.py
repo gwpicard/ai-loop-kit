@@ -29,8 +29,9 @@ pushes to GitHub only over https, to an address it builds from the owner and
 name, with the App's token. It never uses the person's SSH key or credential
 helper. A remote that is neither GitHub nor a folder on this computer is refused.
 
-Other kit scripts read GitHub through this module too: `spec.py`, `ready-lint.py`
-and, through `python3 -m loop.github pr-state <branch>`, `worktree.sh`.
+Other kit scripts read GitHub through this module too: `spec.py`, `ready-lint.py`,
+`worktree.sh` (through `python3 -m loop.github pr-state <branch>`) and
+`check-tooling.sh` (through `python3 -m loop.github repo-view`).
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ def sync_command(root: Path) -> str:
     return (
         "tell the person to run, in their own terminal: "
         f"cd {shlex.quote(str(root))} && {gate} sync --dry-run, read every write it lists, "
-        f"then {gate} sync to post them in their own name"
+        f"then {gate} sync --confirm <the digest it printed> to post them in their own name"
     )
 
 
@@ -397,6 +398,28 @@ class GitHub:
             return f"merged {head}"
         return "closed" if "CLOSED" in found else "none"
 
+    def repo_view(self) -> dict[str, Any]:
+        """The repository's name, whether issues are on, and the access, read as the App."""
+        text = self._gh(["repo", "view", "--json",
+                         "nameWithOwner,hasIssuesEnabled,viewerPermission"])
+        try:
+            data = json.loads(text)
+        except ValueError as error:
+            raise GitHubError(
+                "GitHub's answer about the repository is not JSON",
+                next_command="run the same command again",
+            ) from error
+        if not isinstance(data, dict):
+            raise GitHubError(
+                "GitHub's answer about the repository cannot be read",
+                next_command="run the same command again",
+            )
+        return {
+            "nameWithOwner": str(data.get("nameWithOwner") or ""),
+            "hasIssuesEnabled": bool(data.get("hasIssuesEnabled")),
+            "viewerPermission": str(data.get("viewerPermission") or ""),
+        }
+
     def read_issue(self, number: int) -> dict[str, Any]:
         text = self._gh(["api", f"repos/{{owner}}/{{repo}}/issues/{number}"])
         try:
@@ -530,17 +553,25 @@ def _shown_url(url: str) -> str:
     return re.sub(r"//[^@/]+@", "//", url)
 
 
-def _closed_env(env: Mapping[str, str], config: Mapping[str, str]) -> dict[str, str]:
-    """The push's environment: no prompt, no credential helper, no SSH at all."""
+GITHUB_HEADER = "http.https://github.com/.extraheader"
+
+
+def _closed_env(env: Mapping[str, str], config: Sequence[tuple[str, str]]) -> dict[str, str]:
+    """The push's environment: no prompt, no credential helper, no SSH at all.
+
+    An empty value resets a list setting, so an empty credential helper drops
+    the person's own helpers, and an empty GitHub extra header drops any header
+    of their own before the App's is added.
+    """
     out = dict(env)
     for name in [k for k in out if k.startswith("GIT_CONFIG_")]:
         out.pop(name)
     out.update(GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="", SSH_ASKPASS="",
                GIT_SSH_COMMAND="false", GIT_SSH="false")
-    settings = {"credential.helper": "", "protocol.ssh.allow": "never",
-                "protocol.ext.allow": "never", **config}
+    settings = [("credential.helper", ""), ("protocol.ssh.allow", "never"),
+                ("protocol.ext.allow", "never"), (GITHUB_HEADER, ""), *config]
     out["GIT_CONFIG_COUNT"] = str(len(settings))
-    for index, (key, value) in enumerate(settings.items()):
+    for index, (key, value) in enumerate(settings):
         out[f"GIT_CONFIG_KEY_{index}"] = key
         out[f"GIT_CONFIG_VALUE_{index}"] = value
     return out
@@ -584,12 +615,10 @@ def push(
             raise NoApp(root)
         basic = base64.b64encode(f"x-access-token:{held.token}".encode()).decode("ascii")
         target = address
-        push_env = _closed_env(
-            env, {"http.https://github.com/.extraheader": f"AUTHORIZATION: basic {basic}"}
-        )
+        push_env = _closed_env(env, [(GITHUB_HEADER, f"AUTHORIZATION: basic {basic}")])
     elif is_local_path(url):
         target = url
-        push_env = _closed_env(env, {})
+        push_env = _closed_env(env, [])
     else:
         raise GitHubError(
             f"the remote {remote} is at {_shown_url(url)}, which is neither GitHub nor a folder "
@@ -644,18 +673,28 @@ def push(
 # --- a door for the shell scripts -------------------------------------------------------
 
 
-def main(argv: Sequence[str]) -> int:
-    """`python3 -m loop.github pr-state <branch>`: one read as the App, for worktree.sh.
+USAGE = "usage: python3 -m loop.github (pr-state <branch> | repo-view)"
 
-    Prints the state on standard output. With no App it starts no program and
-    exits 3, with a `next:` line on standard error.
+
+def main(argv: Sequence[str]) -> int:
+    """A door for the shell scripts. Each read is made as the App.
+
+    `pr-state <branch>`, for worktree.sh, prints the branch's pull request state.
+    `repo-view`, for check-tooling.sh, prints the repository's name, whether
+    issues are on and the access, as JSON. With no App either one starts no
+    program and exits 3, with a `next:` line on standard error.
     """
-    if len(argv) != 2 or argv[0] != "pr-state":
-        print("usage: python3 -m loop.github pr-state <branch>", file=sys.stderr)
+    wanted = list(argv)
+    if not (wanted[:1] == ["pr-state"] and len(wanted) == 2) and wanted != ["repo-view"]:
+        print(USAGE, file=sys.stderr)
         return int(cli.ExitCode.USAGE)
     try:
         paths = Paths.for_project(find_project_root(Path.cwd()))
-        print(GitHub(paths).pr_state(argv[1]))
+        hub = GitHub(paths)
+        if wanted[0] == "pr-state":
+            print(hub.pr_state(wanted[1]))
+        else:
+            print(json.dumps(hub.repo_view()))
     except PathError as error:
         print(f"{error}\nnext: cd <the project>, then run this again", file=sys.stderr)
         return int(cli.ExitCode.ENVIRONMENT)

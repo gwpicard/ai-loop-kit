@@ -332,6 +332,29 @@ class MatcherCases(Cases):
             "python3 -c 'import runpy,sys; sys.argv=[\"g\",\"sync\"]; "
             "runpy.run_path(sys.argv[0])'",
             "cp kit/scripts/gate.py /tmp/g.py && python3 /tmp/g.py sync",
+            # The round 2 review's spellings: the word split by a variable or a
+            # backtick, fed through xargs, and the combined command it ran.
+            "a=syn; python3 kit/scripts/gate.py ${a}c",
+            "python3 kit/scripts/gate.py `printf syn`c",
+            "echo sync | xargs python3 kit/scripts/gate.py",
+            "a=syn; script -q /dev/null env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT "
+            "python3 kit/scripts/gate.py ${a}c",
+            "python3 kit/scripts/gate.py $(printf sync)",
+            "printf sync | xargs -I{} python3 kit/scripts/gate.py {}",
+            "env -i PATH=/usr/bin python3 kit/scripts/gate.py report",
+            "env -u CLAUDECODE python3 kit/scripts/gate.py report",
+            "unset CLAUDECODE; python3 kit/scripts/gate.py report",
+            "eval 'python3 kit/scripts/gate.py sy''nc'",
+            "eval python3 kit/scripts/gate.py report",
+        )
+
+    def test_a_pseudo_terminal_with_python_or_the_gate_is_refused(self) -> None:
+        self.refused(
+            "script -q /dev/null python3 kit/scripts/gate.py report",
+            "script -q /dev/null python3 -c 'print(1)'",
+            "unbuffer python3 kit/scripts/gate.py report",
+            "expect -c 'spawn python3 g.py'",
+            "unbuffer kit/scripts/gate.py report",
         )
 
     def test_gate_commands_that_are_not_sync_pass(self) -> None:

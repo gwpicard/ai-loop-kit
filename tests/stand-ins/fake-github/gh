@@ -771,11 +771,12 @@ def main():
             "isEmpty": not heads,
             # GitHub answers null for an empty repository's default branch.
             "defaultBranchRef": {"name": default} if default in heads else None,
-            "hasIssuesEnabled": True,
+            # A scenario may switch issues off, or give a lesser permission.
+            "hasIssuesEnabled": state.get("has_issues", True),
             # The rehearsal account owns the repository. The tooling check reads
             # this before founding, and refusing it left that check reporting
             # that no repository existed at all.
-            "viewerPermission": "ADMIN",
+            "viewerPermission": state.get("viewer_permission", "ADMIN"),
             "deleteBranchOnMerge": bool(state.get("delete_branch_on_merge")),
         }
         names = [n for n in (flag(argv, "--json") or "").split(",") if n]

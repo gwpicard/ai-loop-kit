@@ -68,6 +68,8 @@
       "Read(/{{DATA_DIR}}/**)",
       "Read(~/.config/gh/**)",
       "Read(~/Library/Keychains/**)",
+      "Bash(gh auth token*)",
+      "Bash(security find-*)",
       "Read(//**/app-key.pem)",
       "Read(//**/.agents/loop/local.json)",
       "Edit(//**/.agents/runs/**)",

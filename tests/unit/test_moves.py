@@ -147,6 +147,12 @@ ROUTE = {
 }
 
 
+
+def send(gate: moves.Gate, person: Any) -> dict[str, Any]:
+    """The person's sync: the dry run first, then sync with the digest it printed."""
+    digest = gate.sync(person, dry_run=True)["digest"]
+    return gate.sync(person, confirm=digest)
+
 class Base(unittest.TestCase):
     app = True
 
@@ -586,10 +592,14 @@ class WhoAnswered(Base):
         gate = moves.Gate(self.paths, self.hub, loader=self.loader, today=lambda: TODAY,
                           env={"CLAUDECODE": "1"}, terminal=lambda: True)
         piece = self.capture()
-        for who in ("the person", "The person", "person"):
+        # Only "the agent" is accepted: any other name, a person's own name
+        # included, is the person's to record in their own terminal.
+        for who in ("the person", "The person", "person", "Guillaume", "the maintainer",
+                    "the agent and the person"):
             with self.assertRaises(moves.MoveError) as caught:
                 gate.answer(piece, question=QUESTION, answer="no", by=who)
             self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+            self.assertIn("their own terminal", caught.exception.next_command)
         gate.answer(piece, question=QUESTION, answer="no", by="the agent")
         entry = [e for e in evidence.read(self.paths, piece) if e["kind"] == "answer"][-1]
         self.assertEqual(entry["by"], "the agent")
@@ -709,25 +719,25 @@ class WithoutTheApp(Base):
         self.gate.move(piece, "ready")
         person = FakeHub()
         person.actor = "the-person"
-        result = self.gate.sync(person)
+        result = send(self.gate, person)
         self.assertEqual(result["pieces"][0]["piece"], piece)
         self.assertEqual(self.gate.piece(piece).queue, [])
         issue = self.gate.piece(piece).issue
         assert issue is not None
         self.assertEqual(sorted(person.issues[issue]["labels"]),
                          ["needs-you", "state:ready", "type:feature"])
-        self.assertEqual(self.gate.sync(person)["pieces"], [], "a second sync does nothing")
+        self.assertEqual(send(self.gate, person)["pieces"], [], "a second sync does nothing")
 
     def test_sync_reports_a_label_changed_by_hand_and_does_not_overwrite_it(self) -> None:
         piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
         person = FakeHub()
-        self.gate.sync(person)
+        send(self.gate, person)
         self.gate.move(piece, "ready")
         issue = self.gate.piece(piece).issue
         assert issue is not None
         person.issues[issue]["labels"].remove("state:shaping")
         person.issues[issue]["labels"].append("state:building")
-        result = self.gate.sync(person)
+        result = send(self.gate, person)
         self.assertTrue(result["refused"])
         self.assertIn("state:building", person.issues[issue]["labels"])
         self.assertNotIn("state:ready", person.issues[issue]["labels"])
@@ -774,6 +784,28 @@ class WhatSyncShows(Base):
         self.assertIn(QUESTION, shown, "the issue body is shown in full")
         self.assertTrue(self.gate.piece(piece).queue, "a dry run sends nothing")
 
+    def test_sync_needs_the_digest_the_dry_run_printed(self) -> None:
+        piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
+        person = FakeHub()
+        dry = self.gate.sync(person, dry_run=True)
+        digest = dry["digest"]
+        self.assertRegex(digest, r"^[0-9a-f]{12}$")
+        self.assertIn(f"sync --confirm {digest}", dry["next"])
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.sync(person)
+        self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+        self.assertIn("sync --dry-run", caught.exception.next_command)
+        self.assertEqual(person.calls, [], "nothing is sent without the digest")
+        # The queue grows after the person read the dry run: the old digest is refused.
+        self.gate.comment(piece, "Looks good, merge it")
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.sync(person, confirm=digest)
+        self.assertEqual(caught.exception.code, ExitCode.REFUSED)
+        self.assertIn("changed", caught.exception.message)
+        self.assertEqual(person.calls, [], "a changed queue sends nothing")
+        self.assertNotEqual(self.gate.sync(person, dry_run=True)["digest"], digest)
+        self.assertTrue(send(self.gate, person)["pieces"])
+
     def test_the_next_line_names_the_dry_run_first(self) -> None:
         result = self.gate.capture(title="t", body=BODY, issue_type="feature")
         line = result["next"]
@@ -785,8 +817,9 @@ class WhatSyncShows(Base):
         gate = moves.Gate(self.paths, self.hub, loader=self.loader, today=lambda: TODAY,
                           env={}, terminal=lambda: False)
         person = FakeHub()
+        digest = gate.sync(person, dry_run=True)["digest"]
         with self.assertRaises(moves.MoveError) as caught:
-            gate.sync(person)
+            gate.sync(person, confirm=digest)
         self.assertEqual(caught.exception.code, ExitCode.REFUSED)
         self.assertIn("terminal", caught.exception.message)
         self.assertEqual(person.calls, [])
@@ -800,7 +833,7 @@ class EitherNumber(Base):
         piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
         person = FakeHub()
         person.next = 57
-        self.gate.sync(person)
+        send(self.gate, person)
         self.assertEqual(self.gate.piece(piece).issue, 57)
         result = self.gate.move(57, "ready")
         self.assertEqual((result["piece"], self.gate.piece(piece).state), (piece, "ready"))
