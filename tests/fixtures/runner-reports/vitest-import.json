@@ -1,0 +1,1 @@
+{"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"success":false,"testResults":[{"name":"/tmp/project/menu.test.js","status":"failed","message":"Failed to resolve import \"./menu\" from \"menu.test.js\". Does the file exist?","assertionResults":[]}]}

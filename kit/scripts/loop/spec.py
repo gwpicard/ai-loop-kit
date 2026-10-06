@@ -145,6 +145,7 @@ class Spec:
     version: int | None = None
     path: str | None = None
     header: str = ""
+    block: str = ""  # the raw text between the markers; the fingerprint reads it, to_dict does not
     fields: dict[str, str] = field(default_factory=lambda: {k: "" for k, _ in FIELDS})
     missing: list[str] = field(default_factory=list)
     flow: list[dict[str, str]] = field(default_factory=list)
@@ -416,6 +417,7 @@ def parse(body: str) -> Spec:
     spec.found = True
     spec.version = _check_version(version_text)
     spec.header = header
+    spec.block = inner
     spec.path = _path_of(inner)
 
     for key, heading in FIELDS:

@@ -1,0 +1,1 @@
+{"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"success":false,"testResults":[{"name":"/tmp/project/menu.test.js","status":"failed","message":"  Cannot find module './menu' from 'menu.test.js'","assertionResults":[]}]}
