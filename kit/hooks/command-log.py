@@ -19,7 +19,8 @@ that comes back shows 1, then 2.
 
 A call that carries a call ID is logged once for each event, even when the hook
 runs twice for it at the same time, as it does when a session loads the plugin and
-`--settings` both. A marker file in `claims/` next to the log settles the race. A call with no ID is always logged.
+`--settings` both. A marker file in `claims/` next to the log settles the race.
+A call with no ID is always logged.
 
 The run's name is the `AI_LOOP_KIT_RUN` variable. The session starter sets it.
 Without it, or with a name `loop/paths.py` refuses, the line goes to the run named
