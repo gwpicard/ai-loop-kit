@@ -20,12 +20,12 @@ ordinary work on a branch, through a pull request.
 
 ## Read the recipes first
 
-Read `.agents/skills/ship/references/recipe-format.md` before anything else.
+Read `kit/templates/recipe-format.md` before anything else.
 Every proposal is made against that format, so a proposal that breaks it is no
 use.
 
-Then read every recipe in `.agents/skills/ship/recipes/` and every part in
-`.agents/skills/ship/recipes/parts/`. For each, note its `Last checked:` date,
+Then read every recipe in `kit/recipes/` and every part in
+`kit/recipes/parts/`. For each, note its `Last checked:` date,
 the products it names, and the `How it works:` line of each section. For a
 recipe, note which sections link a shared part rather than carrying their own
 lines, since a change to that part reaches every recipe that links it.
@@ -34,10 +34,10 @@ Where the folder holds no recipe yet, say so at the top of the note and carry on
 with the rest of the read. The upstream sources and the default stacks are
 still worth reading, and a new recipe can still be proposed.
 
-Read the kit's hosting request in
-`.agents/skills/ship/references/hosting-request.md` as well. It is
-the block of fields `/ship` writes on a first launch for a tool that runs on a
-server somebody else runs.
+The kit's old hosting request now lives only in the tag
+`archive/build-kit-final`, at `.agents/skills/ship/references/hosting-request.md`.
+Read it with `git show`. It is the block of fields `/ship` writes on a
+first launch for a tool that runs on a server somebody else runs.
 
 ## Read upstream
 
