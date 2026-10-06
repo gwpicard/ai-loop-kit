@@ -48,9 +48,8 @@ still apply:
   pull request, so shared work reaches it by merge rather than by a direct push.
   The one exception is the project's first upload: after the person's yes,
   and only when the remote lists no branch, `main` is created through the
-  GitHub API at the commit the piece's branch was cut from, as
-  section-builder's "The first upload" describes. It is never written by a
-  `git push`;
+  GitHub API at the commit the piece's branch was cut from. It is never
+  written by a `git push`;
 - never force or automate a merge over a required review;
 - never activate flagged work before its recorded condition is met or the
   person has accepted the risk on the record;
@@ -59,14 +58,12 @@ still apply:
   build path names;
 - never post in the person's name to anyone else, or change the title or scope
   of an issue or a pull request another account opened, without a yes that
-  covers the words. The `setup-ai-build-kit` skill's
-  `references/pieces.md` says what counts, under "Speaking for the person";
+  covers the words. The guard hook, `kit/hooks/guard.py`, asks before
+  `gh issue comment`, `gh pr comment` and `gh pr review`;
 - never install, replace, download to run, or remove software outside the
   project folder without a yes that names what it is, where it goes and how to
   undo it. A removal that needs a recursive delete is the person's to run, as
-  the refused-command rule at the top says. The `change-triage` skill says how
-  such work is kept apart from the project, under "Work on this computer
-  outside the project".
+  the refused-command rule at the top says.
 - never update the kit with a bare `npx skills update`, which can drop a
   renamed skill without a word and leave the kit half updated; the kit is
   updated only through `/maintain`, which uses the route the project installed
@@ -155,9 +152,9 @@ These spellings are not refused, and the rule above still forbids them:
 ## Changing a piece's state by hand
 
 A piece's state lives in its `state:`, `shaping:` and `review:` labels, and
-only the gate script, `.agents/tools/gate.py`, changes them. It checks that
+only the gate script, `kit/scripts/gate.py`, changes them. It checks that
 the move is allowed before it writes. The Claude Code settings the kit
-installs run a hook, `.agents/hooks/state-guard.sh`, before each command and
+installs run a hook, `kit/hooks/guard.py`, before each command and
 each GitHub tool call, and carry deny rules that read the command as written.
 Both refuse a direct change to one of those labels, and the hook names the
 gate command to run instead. Run that command. If the gate refuses the move

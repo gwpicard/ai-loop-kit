@@ -139,14 +139,18 @@ class ReferenceSpellings(Cases):
 
     def test_push_spellings_the_rules_refuse(self) -> None:
         listed = self.read(
-            "These spellings are refused", "A direct push to `main`", lambda s: "push" in s
+            "These spellings are refused",
+            "A direct push to `main`",
+            lambda s: "push" in s and " " in s,
         )
         self.assertGreater(len(listed), 8)
         self.refused(*listed)
 
     def test_push_spellings_the_rules_miss(self) -> None:
         listed = self.read(
-            "These spellings are not refused", "A direct push to `main`", lambda s: "push" in s
+            "These spellings are not refused",
+            "A direct push to `main`",
+            lambda s: "push" in s and " " in s,
         )
         for command in listed:
             with self.subTest(command=command):
@@ -303,7 +307,7 @@ class MatcherCases(Cases):
             "gh api --method=PUT repos/o/r/issues/5/labels --input labels.json",
             "gh api repos/o/r/issues/5/labels -f labels[]=bug",
             "gh api -X POST repos/o/r/labels -f name=needs-you",
-            "gh api graphql -f query='mutation { addLabelsToLabelable(input: {}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { addLabelsToLabelable(input: {}) { id } }'",
         )
 
     def test_gate_sync_is_for_the_person(self) -> None:
@@ -612,7 +616,7 @@ class MainFunction(unittest.TestCase):
         self.assertEqual(self.run_main(self.payload("git status")), (0, "", ""))
 
     def test_input_that_is_not_json_is_not_a_refusal(self) -> None:
-        code, out, err = self.run_main(None, raw="not json")
+        code, _, err = self.run_main(None, raw="not json")
         self.assertEqual(code, 1)
         self.assertIn("next:", err)
 

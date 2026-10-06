@@ -107,10 +107,10 @@ printf 'SECRET=real\n' > "$TP_ROOT/.env"
 run_guard Bash command "cat .env" "$TP_ROOT"
 [ "$CODE" -eq 2 ] && ok "cat .env in the main folder is refused" || fail "exit code $CODE, not 2"
 MARKER=$(python3 -c '
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("guard", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-print(m.THROWAWAY_MARKER)
+import os, sys
+sys.path.insert(0, os.path.dirname(sys.argv[1]))
+import guard
+print(guard.THROWAWAY_MARKER)
 ' "$GUARD")
 printf '%s\nPORT=3000\n' "$MARKER" > "$TP_ROOT/.agents/worktrees/w1/.env"
 run_guard Bash command "cat .env" "$TP_ROOT/.agents/worktrees/w1"
