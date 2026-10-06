@@ -263,8 +263,10 @@ scripts = {
                        done("menu", "menu.py", sleep=0.3)]},
     "3": only("bar-is-wrong", "--evidence", "FL-1 and EC-1 cannot both hold", sleep=0.3),
     "4": only("needs-the-person", "--question", "Which colour should it be?", sleep=0.3),
-    # The first session is slow, so the test can end the run script while it is in flight.
-    "5": {"sequence": [only("blocked-by-environment", "--reason", "npm is refused", sleep=6),
+    # The first session is slow, so the test can end the run script while it is in flight. The
+    # second copy of the run starts after the pre-run check, which can take many seconds on a busy
+    # computer, so the sleep must outlast it. The test ends the run script anyway.
+    "5": {"sequence": [only("blocked-by-environment", "--reason", "npm is refused", sleep=30),
                        only("blocked-by-environment", "--reason", "npm is refused")]},
     "6": done("sync", "sync_it.py"),
     "7": only("done", "--summary", "never reached", sleep=60),
@@ -352,11 +354,16 @@ poll 90 'all(d["pieces"][n]["status"] in ("built","sent-back","parked-needs-pers
 poll 20 'True' "$RECORD" || fail "no run record"
 grep -q "/5-run-net" "$FAKE_CLAUDE_LOG" || fail "piece 5 has no session in flight"
 
-# A second copy of the same live run is refused by the lock.
+# A second copy of the same live run is refused by the lock. The first run must hold the lock for
+# the whole step: its process is alive before and after, or the step proves nothing.
+kill -0 "$RUN_PID" 2>/dev/null || fail "the first run ended before the second copy started"
+[ -f "$TP_ROOT/.agents/runs/night-1/lock" ] || fail "the first run holds no lock file"
 set +e
 python3 "$RUN" --run night-1 --json > "$TP_BASE/second.json" 2> "$TP_BASE/second.err"
 code=$?
 set -e
+kill -0 "$RUN_PID" 2>/dev/null \
+  || fail "the first run ended while the second copy was checking, so the lock step proves nothing"
 [ "$code" -eq 3 ] || fail "a second copy of a live run exited $code, not 3: $(cat "$TP_BASE/second.err")"
 grep -qF '"lock": true' "$TP_BASE/second.json" || fail "the refusal does not name the lock: $(cat "$TP_BASE/second.json")"
 ok "a second copy of a live run is refused by the lock file"
@@ -385,7 +392,7 @@ wait "$RUN_PID" 2>/dev/null || true
 [ -f "$TP_ROOT/.agents/runs/night-1/lock" ] || fail "a killed run took its lock with it, which only a clean exit does"
 # The stand-in session that was in flight finishes by itself. Wait for its hand-off.
 i=0
-while [ ! -f "$TP_ROOT/.agents/runs/night-1/handoff-p5-a1.json" ] && [ "$i" -lt 60 ]; do
+while [ ! -f "$TP_ROOT/.agents/runs/night-1/handoff-p5-a1.json" ] && [ "$i" -lt 160 ]; do
   i=$((i + 1))
   sleep 0.5
 done
