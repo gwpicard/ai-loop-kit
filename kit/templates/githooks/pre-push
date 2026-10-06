@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+# pre-push: refuse a push that carries a secret.
+#
+# Git gives this hook one line on standard input for each ref it will push:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# For each one, this hook scans the commits the push would add. A hit stops
+# the push. The scan names the file, the line and the kind, and never the
+# value. The gate's push step runs the same scan, so a secret meets it in two
+# places.
+#
+# This hook fails closed. If it cannot find the scan, it stops the push and
+# says where to look.
+#
+# A fresh clone runs `git config core.hooksPath .githooks` once.
+
+set -u
+
+zero=0000000000000000000000000000000000000000
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "pre-push: this is not a Git project. Run the push from inside the project." >&2
+  exit 1
+}
+
+# The scan lives in one of three fixed places, the same ones loop/paths.py
+# names: the project's own kit/scripts, the installed kit under the plugin
+# cache, or beside this hook. No environment variable can point the hook
+# elsewhere, so a session cannot swap the scan for another program.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+scan=
+for candidate in \
+  "$root/kit/scripts/secret-scan.py" \
+  "${HOME:-/nonexistent}/.claude/plugins/cache/ai-loop-kit/scripts/secret-scan.py" \
+  "${here:-/nonexistent}/secret-scan.py"; do
+  if [ -f "$candidate" ]; then
+    scan=$candidate
+    break
+  fi
+done
+
+if [ -z "$scan" ]; then
+  echo "pre-push: cannot find secret-scan.py, so the push is stopped." >&2
+  echo "next: install the kit (kit/scripts/secret-scan.py in this project, or the plugin cache), then push again" >&2
+  exit 1
+fi
+
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] || continue
+  # Deleting a ref sends no commits.
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" = "$zero" ]; then
+    # A new branch: every commit that no remote branch holds yet.
+    range="$local_sha --not --remotes"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+  (cd "$root" && python3 "$scan" --range="$range" >/dev/null) || status=1
+done
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: the push is stopped. Remove the secret, then push again." >&2
+fi
+exit "$status"
