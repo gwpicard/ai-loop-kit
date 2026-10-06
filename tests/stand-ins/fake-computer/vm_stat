@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# A stand-in for macOS vm_stat. Free memory is all in the "free" pages.
+mb=${FAKE_COMPUTER_FREE_MB:-8192}
+page=16384
+pages=$((mb * 1024 * 1024 / page))
+echo "Mach Virtual Memory Statistics: (page size of $page bytes)"
+echo "Pages free:                               $pages."
+echo "Pages active:                             400000."
+echo "Pages inactive:                                0."
+echo "Pages speculative:                             0."
+echo "Pages wired down:                         200000."
