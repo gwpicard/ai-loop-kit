@@ -14,6 +14,10 @@ the design's order:
    commit of the piece with `git show`, never from the builder's tree.
 7. A new dependency is planned in the spec and passes `dependency-check.py`.
 
+A check that review added (a `review-test` entry in the piece record, written by move 8) is part
+of the bar: its file is frozen byte for byte with the judge files (step 2), and its command runs
+on every attempt and must pass (a `review-check` finding).
+
 Every fault of steps 3 to 7 is reported together. Metric targets, the hypothesis
 list and mutation testing wait for later pieces (L5 and L7).
 
