@@ -182,7 +182,7 @@ def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any]
         names = _git(root, again, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root",
                      judge_commit)
         files = names.splitlines()
-    since = _stack_base(ctx, root, again, base, head)
+    since = _stack_base(ctx, root, again, base, head, judge_commit)
     return Facts(number=number, branch=branch, head=head, base=base, judge_commit=judge_commit,
                  judge_files=files, scaffold=scaffold, again=again, since=since)
 
@@ -190,14 +190,19 @@ def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any]
 STACK_SUBJECT = "Stack on piece "
 
 
-def _stack_base(ctx: CheckContext, root: Path, again: str, base: str, head: str) -> str:
+def _stack_base(ctx: CheckContext, root: Path, again: str, base: str, head: str,
+                judge_commit: str) -> str:
     """The stacking merge a dependent was built on, from the option `stack_base`, or "".
 
     The run stacks a dependent on its dependency's branch with one merge commit whose subject
     starts `Stack on piece`. The diff checks measure from that merge, so the dependency's own
     changes are not charged to the dependent. The option is checked against the branch: it must
     be a merge commit on the first-parent line of the piece branch. Anything else is a
-    refusal, so a wrong value can never widen what the piece may change.
+    refusal, so a wrong value can never widen what the piece may change. The merge must also be
+    the first thing on the branch after the judge commit: every first-parent commit before it is
+    the judge commit or an earlier stacking merge, so no change of the piece's own hides before
+    it. Its second parent must be the tip of the branch of a dependency the run recorded, from
+    the option `stacked_on` (piece numbers, comma separated).
     """
     wanted = str(ctx.options.get("stack_base", "")).strip()
     if not wanted:
@@ -219,7 +224,41 @@ def _stack_base(ctx: CheckContext, root: Path, again: str, base: str, head: str)
             f"not start with {STACK_SUBJECT.strip()!r}), so the gate will not measure from it",
             f"the run stacks a dependent again, then gate.py move {ctx.number} review",
         )
+    _stack_is_clean(ctx, root, again, base, found, judge_commit)
     return found
+
+
+def _stack_is_clean(ctx: CheckContext, root: Path, again: str, base: str, merge: str,
+                    judge_commit: str) -> None:
+    """Refuse a stacking merge that follows a commit of the piece's own, or merges anything but
+    the tip of a recorded dependency's branch."""
+    fix = f"the run stacks a dependent again, then gate.py move {ctx.number} review"
+    earlier = _git(root, again, "rev-list", "--first-parent", "--parents", f"{base}..{merge}^1")
+    for row in earlier.splitlines():
+        sha, *parents = row.split()
+        if sha == judge_commit:
+            continue
+        subject = _git(root, again, "log", "-1", "--format=%s", sha)
+        if len(parents) >= 2 and subject.startswith(STACK_SUBJECT):
+            continue
+        raise Refusal(
+            f"the commit {sha[:7]} comes before the stacking merge on the piece branch and is "
+            "neither the judge commit nor a stacking merge, so the gate will not measure from "
+            "the merge: it could hide that commit's changes",
+            fix)
+    wanted = [w.strip() for w in str(ctx.options.get("stacked_on", "")).split(",") if w.strip()]
+    tips = set()
+    for number in wanted:
+        code, tip = ready_gate._git(root, "rev-parse", "--verify", "-q",
+                                    f"refs/heads/piece-{number}^{{commit}}")
+        if code == 0:
+            tips.add(tip)
+    second = _git(root, again, "rev-parse", f"{merge}^2")
+    if second not in tips:
+        raise Refusal(
+            f"the stacking merge {merge[:7]} does not merge the tip of the branch of a "
+            "dependency the run recorded for this piece, so the gate will not measure from it",
+            fix)
 
 
 def _uncommitted(root: Path, facts: Facts) -> str | None:

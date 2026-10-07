@@ -649,6 +649,10 @@ class TheNewAreaOfAPiece(AttemptCase):
 class TheStackedAttempt(AttemptCase):
     """A dependent is built on its dependency's branch, and judged on its own changes only."""
 
+    def setUp(self) -> None:
+        super().setUp()
+        self.options["stacked_on"] = "7"
+
     def stack(self) -> str:
         """Another piece's branch with a file outside this piece's touches, merged in first."""
         git(self.root, "checkout", "-q", "-b", "piece-7", "main")
@@ -693,6 +697,39 @@ class TheStackedAttempt(AttemptCase):
         self.stack()
         self.honest()
         self.options["stack_base"] = git(self.root, "rev-parse", "main")
+        self.refuses("stack")
+
+    def test_a_fake_stacking_merge_after_the_pieces_own_commit_is_a_refusal(self) -> None:
+        """The piece's own bar change, test edit and outside file hide before the merge."""
+        self.honest(files={"tests/test_old.py": "def test_old():\n    assert True\n",
+                           "billing/evil.py": "X = 1\n"})
+        self.options["stack_base"] = self.stack()
+        result = self.judge_attempt()
+        self.assertFalse(result.ok)
+        self.assertNotIn("attempt", result.data, "a refusal of the gate's own, not a judged attempt")
+        self.assertIn("stack", " ".join(result.failures))
+        self.assertTrue(result.next_command)
+
+    def test_a_stack_base_without_the_dependencies_the_run_recorded_is_a_refusal(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        del self.options["stacked_on"]
+        self.refuses("stack")
+
+    def test_a_merge_of_a_branch_that_is_not_a_recorded_dependency_is_a_refusal(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        self.options["stacked_on"] = "9"
+        self.refuses("stack")
+
+    def test_a_merge_of_a_dependency_commit_that_is_not_its_tip_is_a_refusal(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        git(self.root, "checkout", "-q", "piece-7")
+        (self.root / "billing" / "more.py").write_text("Z = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "A later change on the dependency")
+        git(self.root, "checkout", "-q", "main")
         self.refuses("stack")
 
 
