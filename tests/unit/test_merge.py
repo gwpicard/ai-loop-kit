@@ -1377,7 +1377,7 @@ class OpeningPullRequests(Running):
         self.build([10])
         step = self.step(app=False)
         view = FakeLoop(self).reader(1)
-        step.loop.reader = lambda n: dataclasses.replace(view, issue=None)
+        step.loop.reader = lambda n: dataclasses.replace(view, issue=None)  # type: ignore[method-assign, unused-ignore]
         report = step.open_all()
         self.assertEqual(report[0]["status"], "waiting")
         self.assertIn("gate.py", report[0]["next"])
