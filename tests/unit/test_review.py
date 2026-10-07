@@ -277,6 +277,7 @@ class ReviewCase(test_integrate.IntegrationCase):  # type: ignore[misc, unused-i
         self.move_reply = Reply(0, {"ok": True, "to": "building"})
         self.rounds_asked = 0
         self.test_outcome = "failed"
+        self.test_runner: str | None = "pytest"
         self.test_runs: list[tuple[str, dict[str, str]]] = []
         self.exit_code = 0
         self.cost: float | None = None
@@ -327,7 +328,8 @@ class ReviewCase(test_integrate.IntegrationCase):  # type: ignore[misc, unused-i
 
     def judge_review(self, command: str, root: Path, ref: str, **more: Any) -> dict[str, Any]:
         self.test_runs.append((command, dict(more.get("extra_files") or {})))
-        return {"command": command, "ref": ref, "outcome": self.test_outcome, "exit_code": 1,
+        return {"command": command, "ref": ref, "outcome": self.test_outcome,
+                "runner": self.test_runner, "exit_code": 1,
                 "failing_ids": [], "note": ""}
 
     def review_mover(self, number: int, target: str, reason: str,
@@ -518,6 +520,35 @@ class AFailingCheckFinding(ReviewCase):
         notes = self.run_record.data["integration"]["worth_knowing"]
         self.assertTrue(any("did not fail" in n["text"] and n["piece"] == 2 for n in notes), notes)
 
+    def test_a_test_from_a_runner_with_no_report_is_a_note_and_never_frozen(self) -> None:
+        """A bare exit code cannot tell an assertion from a crash, so it proves nothing."""
+        loop = self.joined_and_green()
+        self.test_runner = None
+        self.script = [document(finding(2, "failing-check", "missing", "A blank name passes."))]
+        result = self.reviewer(loop).review("main")
+        self.assertEqual(result.status, "clean")
+        self.assertEqual(self.moves, [])
+        self.assertEqual(loop.joined(), [1, 2])
+        self.assertEqual(self.restarted, [])
+        notes = self.run_record.data["integration"]["worth_knowing"]
+        mine = [n for n in notes if n.get("source") == "review" and n["piece"] == 2]
+        self.assertEqual(len(mine), 1, notes)
+        self.assertIn("not proved", mine[0]["text"])
+        self.assertIn("pytest", mine[0]["text"])
+
+    def test_a_failure_that_names_no_spec_id_is_a_note_and_never_frozen(self) -> None:
+        loop = self.joined_and_green()
+        self.test_outcome = "failed_no_id"
+        self.script = [document(finding(2, "failing-check", "missing", "A blank name passes."))]
+        result = self.reviewer(loop).review("main")
+        self.assertEqual(result.status, "clean")
+        self.assertEqual(self.moves, [])
+        self.assertEqual(loop.joined(), [1, 2])
+        notes = self.run_record.data["integration"]["worth_knowing"]
+        mine = [n for n in notes if n.get("source") == "review" and n["piece"] == 2]
+        self.assertEqual(len(mine), 1, notes)
+        self.assertIn("FL- or EC-", mine[0]["text"])
+
     def test_a_test_that_could_not_run_is_a_refusal_and_nothing_moves(self) -> None:
         loop = self.joined_and_green()
         self.test_outcome = "errored"
@@ -661,6 +692,27 @@ class TheRoundCap(ReviewCase):
         self.assertEqual(self.verdict(2)["verdict"], "shaping")
         self.assertEqual(self.run_record.status(2), record.SENT_BACK)
         self.assertEqual(self.rounds_asked, 1)
+
+    def test_a_replay_that_restarts_a_piece_in_the_last_round_is_not_accepted(self) -> None:
+        loop, reviewer = self.second_round()
+        self.move_reply = Reply(0, {"ok": True, "to": "shaping", "move": 9})
+        self.script = [document(finding(2, "wrong-spec", "contradicts", "Two flows disagree."))]
+        real = loop.leave
+
+        def leave(number: int, reason: str) -> integrate.JoinResult:
+            found: integrate.JoinResult = real(number, reason)
+            found.restarted = [1]  # the replay sent a dependent back, and it will be built again
+            return found
+
+        loop.leave = leave  # type: ignore[method-assign]
+        reviewer.review("main")
+        self.assertEqual(loop.finish()["main"]["status"], "green")
+        started = len(self.sessions_started)
+        with self.assertRaises(review.ReviewRefusal) as caught:
+            reviewer.review("main")
+        self.assertIn("no round is left", str(caught.exception))
+        self.assertEqual(len(self.sessions_started), started)
+        self.assertNotEqual(self.state()["status"], "clean")
 
     def test_the_branch_without_the_piece_is_accepted_once_its_checks_are_green(self) -> None:
         loop, reviewer = self.second_round()

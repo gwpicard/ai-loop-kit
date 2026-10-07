@@ -81,7 +81,9 @@ GAPS = ("missing", "partial", "contradicts", "unrequested")
 FINDINGS_ENV = "AI_LOOP_KIT_FINDINGS_FILE"
 DEFAULT_ROUNDS = 2
 REASON_LIMIT = 900
-FAILING = ("failed", "failed_no_id")  # the outcomes of a test that fails on an assertion
+# The one outcome that proves a finding: a failed assertion that names a spec ID, read from a
+# runner whose report the gate reads (`judge.REPORT_RUNNERS`). Nothing else freezes a test.
+FAILING = ("failed",)
 FINDING_KEYS = {"kind", "gap", "piece", "evidence", "check", "justification"}
 CHECK_KEYS = {"path", "text", "command"}
 MAIN_TRACK = integrate.MAIN_TRACK
@@ -271,7 +273,7 @@ class Plan:
     building: dict[int, tuple[list[Finding], Finding]] = field(default_factory=dict)
     shaping: dict[int, list[Finding]] = field(default_factory=dict)
     notes: dict[int, list[Finding]] = field(default_factory=dict)
-    demoted: list[Finding] = field(default_factory=list)
+    demoted: list[tuple[Finding, str]] = field(default_factory=list)
 
 
 class Reviewer:
@@ -474,7 +476,7 @@ class Reviewer:
                           f"{now['fingerprint'][:12]}), so someone edited the spec and the gate "
                           "did not make the change. The piece leaves the combined branch and "
                           "goes back to shaping.")
-            if self._leave_to_shaping(key, piece, reason, number, []):
+            if self._leave_to_shaping(key, piece, reason, number, [])[0]:
                 gone.append(piece)
             self._verdict(piece, "shaping", number, [reason])
         return gone
@@ -624,18 +626,24 @@ class Reviewer:
             chosen: Finding | None = None
             for item in items:
                 assert item.check is not None
-                verdict = self._prove(item.check, head)
+                verdict, why = self._prove(item.check, head)
                 if verdict == "proved":
                     chosen = item
                     break
-                plan.demoted.append(item)
+                plan.demoted.append((item, why))
             if chosen is None:
                 continue
             plan.building[piece] = (items, chosen)
         return plan
 
-    def _prove(self, check: Check, head: str) -> str:
-        """Run the reviewer's test on the combined head. It must fail on an assertion."""
+    def _prove(self, check: Check, head: str) -> tuple[str, str]:
+        """Run the reviewer's test on the combined head.
+
+        It is proved only when the runner is one whose report the gate reads and the test fails
+        on an assertion that names a spec ID (FL- or EC-). A pass, a bare exit code from another
+        runner, or a failure with no spec ID is not proved: the finding is refused with a note
+        and no test is frozen. A test that cannot run is a refusal of the whole review.
+        """
         try:
             verdict = self.judge_run(check.command, self.root, head,
                                      extra_files={check.path: check.text})
@@ -644,10 +652,19 @@ class Reviewer:
                 f"the reviewer's test {check.path} could not be run ({error}), so the finding "
                 "is not proved", error.next_command) from error
         outcome = str(verdict.get("outcome"))
-        if outcome in FAILING:
-            return "proved"
+        runner = verdict.get("runner")
         if outcome == "passed":
-            return "passed"
+            return "passed", "did not fail on the combined branch"
+        if outcome in ("failed", "failed_no_id") and runner not in judge.REPORT_RUNNERS:
+            return "unproved", (
+                f"was run by {runner or 'a runner the gate does not know'}, which writes no "
+                f"report the gate reads ({', '.join(judge.REPORT_RUNNERS)} do), so a failure "
+                "cannot be told from a crash")
+        if outcome == "failed_no_id":
+            return "unproved", ("failed, but on no assertion that names a spec ID "
+                                "(FL- or EC-), so it is not the right failure")
+        if outcome in FAILING:
+            return "proved", ""
         raise ReviewRefusal(
             f"the reviewer's test {check.path} did not fail on an assertion (it {outcome}), so "
             "it is not a failing check and the gate cannot tell whether the finding is true",
@@ -691,12 +708,12 @@ class Reviewer:
     def _act(self, key: str, pieces: Sequence[int], branch: str, head: str, number: int,
              last: bool, plan: Plan) -> TrackReport:
         report = TrackReport("clean", key, number)
-        for demoted in plan.demoted:
+        restarted = False  # a call that left the round sent another piece to be built again
+        for demoted, why in plan.demoted:
             self.loop.worth_knowing(
-                f"The reviewer's check for piece {demoted.piece} did not fail on the combined "
-                f"branch, so the finding is not proved and nothing was sent back: "
-                f"{demoted.evidence}", source="review", piece=demoted.piece, gap=demoted.gap,
-                round=number)
+                f"The reviewer's check for piece {demoted.piece} {why}, so the finding is not "
+                f"proved and nothing was sent back: {demoted.evidence}", source="review",
+                piece=demoted.piece, gap=demoted.gap, round=number)
         for piece in pieces:
             notes = [f.evidence for f in plan.notes.get(piece, [])]
             for item in plan.notes.get(piece, []):
@@ -705,8 +722,10 @@ class Reviewer:
             if piece in plan.shaping:
                 items = plan.shaping[piece]
                 reason = self._shaping_reason(piece, branch, items, number, last)
-                if self._leave_to_shaping(key, piece, reason, number,
-                                          [f.evidence for f in items]):
+                moved, again = self._leave_to_shaping(key, piece, reason, number,
+                                                      [f.evidence for f in items])
+                restarted = restarted or bool(again)
+                if moved:
                     report.sent[piece] = "shaping"
                     removed = [*self._state(key).get("removed", []), piece]
                     self._set(key, removed=removed)
@@ -720,7 +739,8 @@ class Reviewer:
                 self._verdict(piece, "clean", number, (), notes)
         if report.sent:
             report.status = "sent"
-            self._set(key, status="open", accept=last and any(
+            # A branch that changed for any other reason than the removal was never read.
+            self._set(key, status="open", accept=last and not restarted and any(
                 v == "shaping" for v in report.sent.values()))
             self.ask_round()
         else:
@@ -750,22 +770,27 @@ class Reviewer:
         return text if len(text) <= REASON_LIMIT else text[:REASON_LIMIT - 3].rstrip() + "..."
 
     def _leave_to_shaping(self, key: str, piece: int, reason: str, number: int,
-                          findings: Sequence[str]) -> bool:
-        """Take the piece out of the combined branch, then move 9. Returns True when it left."""
+                          findings: Sequence[str]) -> tuple[bool, list[int]]:
+        """Take the piece out of the combined branch, then move 9.
+
+        Returns whether the piece moved, and the pieces the rebuild replay sent back to be built
+        again (`left.restarted`). Such a piece rejoins on a new head that no reviewer reads.
+        """
         left = self.loop.leave(piece, reason)
         if left.status != "rebuilt":
             raise self._refuse(key, left.message, left.next_command)
+        again = list(left.restarted)
         with self.gate_lock:
             reply = self.mover(piece, "shaping", reason, {})
         if not reply.ok:
             self._wait(piece, f"the gate refused to send piece {piece} to shaping: "
                        f"{reply.message}", reply.next_command or
                        f"gate.py move {piece} shaping --reason <the finding>")
-            return False
+            return False, again
         self.record.set_status(piece, run_record.SENT_BACK, reason=reason)
         self.record.add_decision(piece, "run", f"Sent piece {piece} to shaping after review "
                                  f"round {number}. {reason}")
-        return True
+        return True, again
 
     def _send_to_building(self, key: str, piece: int, branch: str, items: Sequence[Finding],
                           chosen: Finding, number: int) -> bool:

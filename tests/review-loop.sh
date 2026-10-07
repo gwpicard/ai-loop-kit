@@ -296,7 +296,7 @@ def done(name, files, **more):
 
 def check(piece, path, needs, evidence):
     text = ("import os\n\n\ndef test_" + path.split("/")[-1][5:-3] + "():\n"
-            f"    assert os.path.exists('{needs}'), 'the blank command is not handled'\n")
+            f"    assert os.path.exists('{needs}'), 'EC-1: the blank command is not handled'\n")
     return {"kind": "failing-check", "gap": "missing", "piece": piece, "evidence": evidence,
             "check": {"path": path, "text": text, "command": f"python3 -m pytest {path}"},
             "justification": f"Edge case EC-1 of piece {piece} says a blank command is "

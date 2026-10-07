@@ -90,8 +90,12 @@ not a clean review: the run refuses it.
   what nobody asked).
 - `piece` is one of {{PIECES}}.
 - A `failing-check` needs a new test file. The path must be a new file in a folder where tests
-  live. The test must fail today on an assertion that names what is wrong. The command must
-  name the file. The loop runs the test, and a test that passes is not a finding.
+  live. The test must fail today on an assertion that names what is wrong. The assertion
+  message must name a spec ID from the spec (an `FL-` or `EC-` ID). Run it with pytest, vitest,
+  jest or node, because the loop reads only their reports. The command must name the file. The
+  loop runs the test once. A test that passes, that fails with no spec ID in the message, or
+  that runs under another runner is not a finding. The loop keeps it as a note and sends
+  nothing back.
 - Give each piece at most one `failing-check` that matters most. Put the rest in `evidence`.
 - No other key is allowed. A finding that does not follow this shape is refused, and a refused
   file is a failed review.
