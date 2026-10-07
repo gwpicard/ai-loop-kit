@@ -295,7 +295,7 @@ class AfterTheRunTest(Base):
         self.assertIn("ready", body)
 
     def test_a_refusal_by_the_gate_keeps_the_answer_and_the_piece_parked(self) -> None:
-        self.gateway.answer = Reply(3, {"ok": False, "error": "the spec holds no open question",
+        self.gateway.answer = Reply(3, {"ok": False, "error": "the gate is busy",
                                         "next": "gate.py report 1"})
         done = inbox.after_run(self.context())
         self.assertEqual(self.rec.status(1), record.PARKED_PERSON)
@@ -305,6 +305,23 @@ class AfterTheRunTest(Base):
         self.assertIn("did not write the answer", self.notes())
         self.assertIn("gate.py report 1", self.rec.piece(1)["next"])
         self.assertEqual(done[0]["result"], "answer-refused")
+
+    def test_a_question_the_spec_does_not_hold_goes_through_shaping(self) -> None:
+        replies = [Reply(3, {"ok": False, "error": "the spec of piece 1 holds no open question "
+                             "like 'x'", "next": "n"}), Reply(0, {"ok": True})]
+        calls: list[Any] = []
+
+        def call(script: str, args: list[str]) -> Reply:
+            calls.append((script, args[0]))
+            return replies.pop(0)
+
+        self.gateway._call = call  # type: ignore[method-assign,assignment]
+        done = inbox.after_run(self.context())
+        self.assertEqual(calls, [("gate.py", "answer"), ("gate.py", "answer")])
+        self.assertEqual([c[1][:2] for c in self.gateway.calls], [["1", "shaping"], ["1", "ready"]])
+        self.assertEqual(self.rec.status(1), record.RETURNED)
+        self.assertEqual(done[0]["result"], "ready")
+        self.assertIn("through shaping", " ".join(d["text"] for d in self.rec.data["decisions"]))
 
     def test_a_refusal_of_move_7_is_a_note_with_the_next_command(self) -> None:
         self.gateway.move_reply = Reply(3, {"ok": False, "error": "no", "next": "gate.py report"})

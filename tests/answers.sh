@@ -2,16 +2,16 @@
 # answers.sh: the person's answers, read from GitHub comments as the gate's App.
 #
 # The project is a throwaway one with the GitHub stand-in, the stand-in App credential and the
-# Claude stand-in. A builder parks a piece with a question that the piece's spec also holds as an
-# open question. The person answers in a comment, in the stand-in, and:
+# Claude stand-in. A builder parks a piece with a question. The person answers in a comment, in the stand-in, and:
 #
 #   - during the run, a comment on the piece's issue and a comment on a pull request made
 #     directly in the stand-in (the run's own pull request comes with the pull request piece)
 #     each resume the parked piece, and the answer reaches the builder only inside the marked
 #     data block of its brief. Nothing writes the answer into the spec while the run goes;
 #   - after the run, a comment on the issue of a parked piece goes in through `gate.py answer`,
-#     which writes it into the spec; the piece goes to ready by move 7; and the person is told
-#     in a comment, made as the App.
+#     which writes it into the spec (the spec holds no open question for a builder's question, so
+#     move 6 puts it there first); the piece goes back to ready; and the person is told in a
+#     comment, made as the App.
 #
 # With no App, inbox.py reads nothing from GitHub: tests/unit/test_inbox.py checks that.
 #
@@ -59,22 +59,15 @@ tp_app
 python3 "$GATE" labels --create --json >/dev/null || fail "gate.py labels failed"
 for item in $PIECES; do
   name=${item%%:*}; rest=${item#*:}; file=${rest%%:*}; area=${rest#*:}
-  case $name in
-    ask) SPEC_QUESTION="Which colour should it be?" ;;
-    late) SPEC_QUESTION="What size is it?" ;;
-    font) SPEC_QUESTION="Which font should it use?" ;;
-    *) SPEC_QUESTION="" ;;
-  esac
-  export SPEC_QUESTION
   num=$(make_piece "$name" "$file" "$area" issue) || fail "the piece $name could not be made"
   eval "P_$name=$num"
 done
-unset SPEC_QUESTION FAKE_CLAUDE_SCRIPT
+unset FAKE_CLAUDE_SCRIPT
 [ "$P_ask,$P_hold,$P_late,$P_font" = "1,2,3,4" ] || fail "the pieces are not 1 to 4"
 for n in 1 2 3 4; do
   [ "$(state_of $n)" = ready ] || fail "piece $n is not ready"
 done
-ok "four pieces, each with an issue, are ready; three of them hold an open question"
+ok "four pieces, each with an issue, are ready"
 
 FAKE="$TP_BASE/fake-claude"
 mkdir -p "$FAKE"
@@ -224,6 +217,13 @@ held ans-2 'd["status"] == "finished" and d["pieces"]["'"$P_late"'"]["status"] =
   "the piece is not parked when the run ends"
 [ "$(state_of "$P_late")" = building ] || fail "the parked piece is not inside building"
 comment "$P_late" "A size of 4, please."
+# The ready gate asks for two test lists, so the stand-in builder writes them.
+tp_claude_script "$(python3 - "$KIT" <<'PY'
+import json, sys
+print(json.dumps({"runs": [["python3", sys.argv[1] + "/scripts/handoff.py", "done", "--summary",
+                            "FL-1: test_works\nEC-1: test_edge"]]}))
+PY
+)"
 python3 "$KIT/scripts/loop/run/inbox.py" --run ans-2 --project "$TP_ROOT" --json \
   > "$TP_BASE/inbox.json" 2> "$TP_BASE/inbox.err" \
   || { cat "$TP_BASE/inbox.err" >&2; cat "$TP_BASE/inbox.json" >&2; fail "inbox.py failed after the run"; }
@@ -231,12 +231,10 @@ python3 "$KIT/scripts/loop/run/inbox.py" --run ans-2 --project "$TP_ROOT" --json
 python3 "$GATE" report "$P_late" --json | python3 -c '
 import json, sys
 moves = json.load(sys.stdin)["pieces"][0]["moves"]
-assert moves[-1] == 7, moves
-' || fail "the piece did not go to ready by move 7"
+assert moves[-2:] == [6, 2], moves
+' || fail "the piece did not go back to ready"
 body_of_issue "$P_late" | grep -q "What size is it?.*A size of 4, please." \
   || fail "the gate did not write the answer under Decisions"
-body_of_issue "$P_late" | grep -qE "^- .*What size is it\?" \
-  && ! body_of_issue "$P_late" | grep -q "Open questions.*What size is it" || true
 held ans-2 'd["pieces"]["'"$P_late"'"]["status"] == "returned-ready"' "the run record does not say the piece is back in ready"
 python3 - "$FAKE_GH_STATE" "$P_late" <<'PY' || fail "the person was not told in a comment as the App"
 import json, sys
@@ -247,7 +245,7 @@ assert len(told) == 1, [c["body"][:60] for c in issue["comments"]]
 assert told[0]["author"].endswith("[bot]"), told[0]
 PY
 grep -q "ready" "$runs/ans-2/summary.md" || fail "the summary does not say the piece is ready again"
-ok "after the run the answer went in through gate.py answer, the piece went to ready by move 7, and the person was told as the App"
+ok "after the run the answer went in through gate.py answer, the piece went back to ready, and the person was told as the App"
 
 # A second call finds nothing more to do, and changes nothing.
 python3 "$KIT/scripts/loop/run/inbox.py" --run ans-2 --project "$TP_ROOT" --json \

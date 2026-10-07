@@ -17,8 +17,8 @@ Inside a run, the engine calls `run_hook` and this module does three jobs.
    comment on the pull request names its piece: `piece 4: blue`.
 3. At the end of the run, a parked piece that has an answer is not resumed (no run is left to
    build it). The answer goes in through `gate.py answer`, which writes it into the spec and
-   takes a new fingerprint; the piece goes back to ready by move 7; and the person is told in a
-   comment, as the App. This is also what the command line does, for an answer that comes after
+   takes a new fingerprint; the piece goes back to ready (by move 7, or by shaping when the spec
+   holds no open question for the answer); and the person is told in a comment, as the App. This is also what the command line does, for an answer that comes after
    the run has ended.
 
 The text of a comment is data. It is never run, never put in a command, and never written into a
@@ -317,8 +317,18 @@ def _gate_answer(context: Any, gateway: Gateway, hub: github.GitHub, number: int
     by = f"{answer.get('by') or 'the person'} (written by the run from {answer.get('source')})"
     args = ["answer", str(number), "--question", question, "--answer", str(answer["text"]),
             "--by", by]
+    via_shaping = False
     with context.gate_lock:
         reply = gateway._call("gate.py", args)
+        if not reply.ok and "no open question" in reply.message:
+            # A ready piece holds no open question, so the builder's question is not in its spec.
+            # Move 6 puts the question in the spec as a need, and then the gate can close it.
+            sent = gateway.move(number, "shaping", reason=question)
+            if sent.ok:
+                via_shaping = True
+                reply = gateway._call("gate.py", args)
+            else:
+                reply = sent
         if not reply.ok:
             rec.note(f"the gate did not write the answer of piece {number}: {reply.message}. "
                      f"The answer is kept, and the piece stays parked. next: {reply.next_command}")
@@ -327,6 +337,11 @@ def _gate_answer(context: Any, gateway: Gateway, hub: github.GitHub, number: int
             return {**said, "result": "answer-refused", "error": reply.message}
         back = gateway.move(number, "ready",
                             reason=f"the person answered the question after the run: {question}")
+        if via_shaping and back.ok:
+            rec.add_decision(number, "run",
+                             f"Piece {number} went to ready through shaping, since its spec held "
+                             "no open question for the gate to close: move 6, the answer, then the "
+                             "ready gate.")
     if not back.ok:
         rec.note(f"the gate wrote the answer of piece {number} but refused move 7: "
                  f"{back.message}. next: {back.next_command}")
