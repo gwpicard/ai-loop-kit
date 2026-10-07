@@ -12,9 +12,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
@@ -23,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_moves  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
 from loop import closing, github, moves, pulls  # noqa: E402
 from loop.gates import merge as merge_gate  # noqa: E402
+from loop.gates import recheck as recheck_gate  # noqa: E402
+from loop.gates import review as review_gate  # noqa: E402
 
 
 class TheClosingWords(unittest.TestCase):
@@ -296,6 +299,7 @@ class Repo:
         self.git("init", "-q", "-b", "main")
         self.git("remote", "add", "origin", str(self.base / "o.git"))
         self.write("README.md", "start\n")
+        self.write(".gitignore", ".agents/\n")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "Start")
         self.git("push", "-q", "origin", "main")
@@ -447,6 +451,379 @@ class TheFetch(unittest.TestCase):
             github.fetch(paths, "--upload-pack=x", env=r.env)
         with self.assertRaises(github.GitHubError):
             github.fetch(paths, "main", remote="nowhere", env=r.env)
+
+
+class FakePulls:
+    """The pull request calls, answered from a dictionary the test edits."""
+
+    def __init__(self) -> None:
+        self.view_of: dict[int, pulls.PullRequest] = {}
+        self.green = True
+        self.merged: list[tuple[int, str]] = []
+        self.merge_error: github.GitHubError | None = None
+
+    def view(self, ref: int | str) -> pulls.PullRequest:
+        return self.view_of[int(ref)]
+
+    def checks(self, number: int) -> tuple[bool, str]:
+        return (True, "1 check(s) passed") if self.green else (False, "a check failed")
+
+    def merge(self, number: int, *, head_commit: str) -> None:
+        if self.merge_error is not None:
+            raise self.merge_error
+        self.merged.append((number, head_commit))
+
+
+class GateWith:
+    """A loader that runs the real checks of moves 10, 11 and 12 and stubs for the rest."""
+
+    def __init__(self, stubs: Any) -> None:
+        self.stubs = stubs
+
+    def __call__(self, name: str) -> Callable[[Any], Any]:
+        real = {"merge": merge_gate.check, "review": review_gate.check,
+                "recheck": recheck_gate.check}
+        return real[name] if name in real else self.stubs(name)
+
+
+class Merging(test_moves.Base):  # type: ignore[misc, unused-ignore]
+    """One piece in review, one combined branch with its join and its docs commit."""
+
+    run_name = "r1"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.gate.loader = GateWith(self.loader)
+        self.repo = Repo(self.paths.root)
+        r = self.repo
+        self.piece = self.capture()
+        self.walk(self.piece, "review")
+        self.issue = self.gate.piece(self.piece).issue
+        r.branch("piece-1")
+        r.commit("src/report.txt", "the rename\n")
+        r.git("checkout", "-q", "main")
+        r.branch("combined-r1", "main")
+        r.join("piece-1", self.piece)
+        self.head = r.commit("docs/reports.md", "- The rename exists (piece 1)\n", "Docs")
+        r.git("checkout", "-q", "main")
+        self.pulls = FakePulls()
+        for patch in (mock.patch.object(merge_gate, "make_pulls", lambda paths: self.pulls),
+                      mock.patch.object(merge_gate, "fetch_main", lambda paths: None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.write_run(merge_pre_approved=False)
+        self.pulls.view_of[7] = self.pr()
+
+    def write_run(self, *, merge_pre_approved: bool, green: bool = True, clean: bool = True,
+                  verdict: str = "clean", order: Sequence[int] = (1,)) -> None:
+        data = {
+            "merge_pre_approved": merge_pre_approved, "order": list(order),
+            "integration": {"final": {"main": {
+                "status": "green" if green else "red", "head": self.head,
+                "branch": "combined-r1"}}},
+            "review": {"tracks": {"main": {"status": "clean" if clean else "open",
+                                           "reviewed": self.head}},
+                       "verdicts": {"1": {"verdict": verdict}}},
+        }
+        target = self.paths.run_record(self.run_name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(data))
+
+    def pr(self, **more: Any) -> pulls.PullRequest:
+        fields: dict[str, Any] = {
+            "number": 7, "url": "https://github.com/o/r/pull/7", "state": "OPEN", "title": "A run",
+            "body": f"Piece 1.\n\nCloses #{self.issue}\n", "head_branch": "combined-r1",
+            "head_oid": self.head, "base": "main"}
+        fields.update(more)
+        return pulls.PullRequest(**fields)
+
+    def options(self, **more: str) -> dict[str, str]:
+        given = {"run": self.run_name, "track": "main", "part": "1", "parts": "1",
+                 "pull_request": "7", "branch": "combined-r1", "head": self.head,
+                 "base": "main", "since": "main", "stack_head": self.head, "base_pr": "",
+                 "pieces": str(self.piece), "stack": str(self.piece)}
+        given.update(more)
+        return given
+
+    def open_pull_request(self) -> None:
+        self.gate.move(self.piece, "approval", options=self.options())
+
+    def refusal(self, *args: Any, **kwargs: Any) -> str:
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.move(*args, **kwargs)
+        return str(caught.exception.message) + " | " + str(caught.exception.next_command)
+
+
+class MoveTenOpensThePullRequest(Merging):
+    def test_a_pull_request_that_holds_every_fact_passes_and_is_written_down(self) -> None:
+        self.open_pull_request()
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+        entry = merge_gate.latest_entry(self.gate.piece(self.piece).record)
+        assert entry is not None
+        self.assertEqual((entry["head"], entry["pull_request"], entry["pieces"]),
+                         (self.head, 7, [self.piece]))
+        self.assertEqual(entry["url"], "https://github.com/o/r/pull/7")
+
+    def test_options_the_run_did_not_give_are_a_refusal(self) -> None:
+        options = self.options()
+        del options["head"]
+        text = self.refusal(self.piece, "approval", options=options)
+        self.assertIn("head", text)
+        self.assertEqual(self.gate.piece(self.piece).state, "review")
+
+    def test_a_final_check_that_was_not_green_is_a_refusal(self) -> None:
+        self.write_run(merge_pre_approved=False, green=False)
+        self.assertIn("final combined check", self.refusal(
+            self.piece, "approval", options=self.options()))
+
+    def test_a_review_that_was_not_clean_is_a_refusal(self) -> None:
+        self.write_run(merge_pre_approved=False, clean=False)
+        self.assertIn("review of main was not clean", self.refusal(
+            self.piece, "approval", options=self.options()))
+        self.write_run(merge_pre_approved=False, verdict="needs-work")
+        self.assertIn("verdict of piece 1", self.refusal(
+            self.piece, "approval", options=self.options()))
+
+    def test_a_run_record_that_cannot_be_read_is_a_refusal_and_never_a_pass(self) -> None:
+        self.paths.run_record(self.run_name).write_text("not json")
+        self.assertIn("cannot be read", self.refusal(
+            self.piece, "approval", options=self.options()))
+
+    def test_a_pull_request_that_is_not_the_tested_commit_is_a_refusal(self) -> None:
+        self.pulls.view_of[7] = self.pr(head_oid="0" * 40)
+        self.assertIn("not the tested commit", self.refusal(
+            self.piece, "approval", options=self.options()))
+
+    def test_a_pull_request_on_the_wrong_base_or_branch_is_a_refusal(self) -> None:
+        self.pulls.view_of[7] = self.pr(base="other", head_branch="elsewhere")
+        text = self.refusal(self.piece, "approval", options=self.options())
+        self.assertIn("based on other", text)
+        self.assertIn("cut from elsewhere", text)
+
+    def test_a_branch_that_moved_off_the_tested_commit_is_a_refusal(self) -> None:
+        self.repo.git("branch", "-f", "combined-r1", "main")
+        self.assertIn("does not point at the tested commit", self.refusal(
+            self.piece, "approval", options=self.options()))
+
+    def test_a_named_doc_the_pull_request_did_not_change_is_refused(self) -> None:
+        r = self.repo
+        r.git("checkout", "-q", "-b", "combined-nodocs", "main")
+        r.join("piece-1", self.piece)
+        nodocs = r.git("rev-parse", "HEAD")
+        r.git("checkout", "-q", "main")
+        self.write_run(merge_pre_approved=False)
+        run = json.loads(self.paths.run_record(self.run_name).read_text())
+        run["integration"]["final"]["main"]["head"] = nodocs
+        run["review"]["tracks"]["main"]["reviewed"] = nodocs
+        self.paths.run_record(self.run_name).write_text(json.dumps(run))
+        self.pulls.view_of[7] = self.pr(head_oid=nodocs, head_branch="combined-nodocs")
+        text = self.refusal(self.piece, "approval", options=self.options(
+            branch="combined-nodocs", head=nodocs, stack_head=nodocs))
+        self.assertIn("names the doc docs/reports.md", text)
+        self.assertIn("did not change it", text)
+
+    def test_a_closing_word_anywhere_else_is_refused(self) -> None:
+        self.pulls.view_of[7] = self.pr(body=f"Closes #{self.issue}\nThis fixes #4 too.")
+        self.assertIn("closing word", self.refusal(
+            self.piece, "approval", options=self.options()))
+        self.pulls.view_of[7] = self.pr(title="Closes #4")
+        self.assertIn("title", self.refusal(self.piece, "approval", options=self.options()))
+        self.pulls.view_of[7] = self.pr(body="Piece one without a line.")
+        self.assertIn("no Closes line", self.refusal(
+            self.piece, "approval", options=self.options()))
+
+    def test_a_piece_the_pull_request_does_not_hold_is_refused(self) -> None:
+        self.assertIn("not one of the pieces", self.refusal(
+            self.piece, "approval", options=self.options(pieces="9", stack="9")))
+
+    def test_a_dry_run_writes_nothing(self) -> None:
+        self.gate.move(self.piece, "approval", options=self.options(), dry_run=True)
+        self.assertEqual(self.gate.piece(self.piece).state, "review")
+        self.assertIsNone(merge_gate.latest_entry(self.gate.piece(self.piece).record))
+
+
+class MoveElevenMerges(Merging):
+    def setUp(self) -> None:
+        super().setUp()
+        self.open_pull_request()
+
+    def test_a_pull_request_the_person_merged_on_the_tested_commit_passes(self) -> None:
+        self.pulls.view_of[7] = self.pr(state="MERGED", merge_commit="c0ffee")
+        self.gate.move(self.piece, "done")
+        self.assertEqual(self.gate.piece(self.piece).state, "done")
+        self.assertEqual(self.pulls.merged, [], "the gate does not merge what is merged")
+        kinds = [e["kind"] for e in self.gate.piece(self.piece).record]
+        self.assertIn("merged", kinds)
+
+    def test_a_merge_of_another_commit_is_a_refusal_that_names_the_check_on_main(self) -> None:
+        self.pulls.view_of[7] = self.pr(state="MERGED", head_oid="0" * 40)
+        text = self.refusal(self.piece, "done")
+        self.assertIn("not the tested commit", text)
+        self.assertIn("check-main", text)
+
+    def test_a_closed_pull_request_points_to_move_13(self) -> None:
+        self.pulls.view_of[7] = self.pr(state="CLOSED")
+        self.assertIn("move 13", self.refusal(self.piece, "done"))
+
+    def test_an_open_pull_request_waits_for_the_person(self) -> None:
+        text = self.refusal(self.piece, "done")
+        self.assertIn("waits for the person's merge", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_the_agent_merges_the_exact_tested_commit_when_the_person_says_merge(self) -> None:
+        self.gate.move(self.piece, "done", options={
+            "merge": "agent", "said": "Yes, merge pull request 7."})
+        self.assertEqual(self.pulls.merged, [(7, self.head)])
+        self.assertEqual(self.gate.piece(self.piece).state, "done")
+
+    def test_a_yes_that_does_not_name_the_merge_is_refused(self) -> None:
+        text = self.refusal(self.piece, "done", options={
+            "merge": "agent", "said": "Yes, put it live."})
+        self.assertIn("do not name the merge", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_dry_run_never_merges(self) -> None:
+        self.gate.move(self.piece, "done", options={
+            "merge": "agent", "said": "merge it"}, dry_run=True)
+        self.assertEqual(self.pulls.merged, [])
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+
+    def test_a_merge_github_refuses_leaves_the_piece_in_approval(self) -> None:
+        self.pulls.merge_error = github.GitHubError(
+            "Head branch was modified", next_command="read the pull request")
+        text = self.refusal(self.piece, "done", options={"merge": "agent", "said": "merge"})
+        self.assertIn("Head branch was modified", text)
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+
+    def test_main_that_moved_after_the_final_check_refuses_every_merge(self) -> None:
+        self.repo.commit("other/work.txt", "someone else\n", "Work that the tests never saw")
+        for options in ({"merge": "agent", "said": "merge"}, {"merge": "pre-approved"}):
+            with self.subTest(options=options):
+                self.write_run(merge_pre_approved=True)
+                text = self.refusal(self.piece, "done", options=options)
+                self.assertIn("main moved after the final check", text)
+                self.assertIn("move 12", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_pull_request_with_no_checks_or_red_checks_is_refused(self) -> None:
+        self.pulls.green = False
+        self.assertIn("checks on the pull request are not green", self.refusal(
+            self.piece, "done", options={"merge": "agent", "said": "merge"}))
+
+    def test_a_pull_request_whose_head_moved_is_refused(self) -> None:
+        self.pulls.view_of[7] = self.pr(head_oid="1" * 40)
+        self.assertIn("not the tested commit", self.refusal(
+            self.piece, "done", options={"merge": "agent", "said": "merge"}))
+
+    def test_an_irreversible_data_change_is_always_the_persons_merge(self) -> None:
+        with mock.patch.object(merge_gate, "piece_specs", lambda paths, numbers: {
+                n: {"changes": {"docs": [], "not_reversible": ["yes"]}} for n in numbers}):
+            text = self.refusal(self.piece, "done", options={"merge": "agent", "said": "merge"})
+        self.assertIn("irreversible", text)
+
+    def test_a_stacked_pull_request_never_merges_before_its_base(self) -> None:
+        entry = merge_gate.latest_entry(self.gate.piece(self.piece).record)
+        assert entry is not None
+        self.pulls.view_of[3] = self.pr(number=3, state="OPEN")
+        with mock.patch.object(merge_gate, "latest_entry", lambda record: dict(
+                entry, base_pr=3, part=2, parts=2)):
+            text = self.refusal(self.piece, "done", options={"merge": "agent", "said": "merge"})
+        self.assertIn("stacked on pull request 3", text)
+        self.pulls.view_of[3] = self.pr(number=3, state="MERGED")
+        self.pulls.view_of[7] = self.pr(base="part-1")
+        with mock.patch.object(merge_gate, "latest_entry", lambda record: dict(
+                entry, base_pr=3, part=2, parts=2, base="part-1")):
+            text = self.refusal(self.piece, "done", options={"merge": "agent", "said": "merge"})
+        self.assertIn("retargeted", text)
+
+    def test_a_pre_approved_merge_needs_the_run_to_say_so(self) -> None:
+        text = self.refusal(self.piece, "done", options={"merge": "pre-approved"})
+        self.assertIn("was not pre-approved", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_pre_approved_merge_goes_ahead_when_every_condition_holds(self) -> None:
+        self.write_run(merge_pre_approved=True)
+        self.add_attempt("passed")
+        self.gate.move(self.piece, "done", options={"merge": "pre-approved"})
+        self.assertEqual(self.pulls.merged, [(7, self.head)])
+
+    def add_attempt(self, result: str, gaming: bool = False) -> None:
+        from loop import attempt_log, evidence
+
+        evidence.append(self.paths, self.piece, [attempt_log.entry(
+            number=1, result=result, head="h", base="b", at="2026-10-07",
+            findings=[attempt_log.finding("frozen-bar", "edited", gaming=True)] if gaming else [])])
+
+    def test_a_pre_approved_merge_waits_for_a_piece_with_a_must_look_reason(self) -> None:
+        self.write_run(merge_pre_approved=True)
+        self.add_attempt("passed")
+        other = self.capture()
+        self.loader.data["ready"] = {"must_look": ["a sensitive area"]}
+        self.walk(other, "review")
+        self.write_run(merge_pre_approved=True, order=(1, other))
+        text = self.refusal(self.piece, "done", options={"merge": "pre-approved"})
+        self.assertIn("must-look reason", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_pre_approved_merge_waits_when_the_last_attempt_is_not_a_clean_pass(self) -> None:
+        self.write_run(merge_pre_approved=True)
+        self.add_attempt("failed")
+        self.assertIn("not a pass", self.refusal(
+            self.piece, "done", options={"merge": "pre-approved"}))
+        self.add_attempt("passed", gaming=True)
+        self.assertIn("possible gaming", self.refusal(
+            self.piece, "done", options={"merge": "pre-approved"}))
+
+
+class MoveTwelveRechecks(Merging):
+    def setUp(self) -> None:
+        super().setUp()
+        self.open_pull_request()
+
+    def approved(self) -> int:
+        """Another piece, taken to approval by stub checks (it has no pull request here)."""
+        other = self.capture()
+        real, self.gate.loader = self.gate.loader, self.loader
+        try:
+            self.walk(other, "approval")
+        finally:
+            self.gate.loader = real
+        return int(other)
+
+    def test_main_that_moved_sends_the_piece_back_to_review(self) -> None:
+        self.repo.commit("other/work.txt", "someone else\n", "Work")
+        self.gate.move(self.piece, "review", reason="main moved after the final check")
+        self.assertEqual(self.gate.piece(self.piece).state, "review")
+        last = [e for e in self.gate.piece(self.piece).record if e.get("kind") == "recheck"][-1]
+        self.assertEqual(last["because"], "main-moved")
+
+    def test_a_tested_tree_that_did_not_change_has_no_reason_to_go_back(self) -> None:
+        text = self.refusal(self.piece, "review", reason="a feeling")
+        self.assertIn("main did not move", text)
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+
+    def test_a_rejected_piece_sends_the_others_back(self) -> None:
+        other = self.approved()
+        entry = merge_gate.latest_entry(self.gate.piece(self.piece).record)
+        assert entry is not None
+        self.gate.loader = self.loader
+        self.gate.move(other, "building", reason="the person rejected piece two")
+        self.gate.loader = GateWith(self.loader)
+        with mock.patch.object(merge_gate, "latest_entry", lambda record: dict(
+                entry, pieces=[self.piece, other], stack=[self.piece, other])):
+            self.gate.move(self.piece, "review", reason="piece two was rejected",
+                           options={"rejected": str(other)})
+        self.assertEqual(self.gate.piece(self.piece).state, "review")
+
+    def test_a_piece_that_is_still_in_approval_was_not_rejected(self) -> None:
+        other = self.approved()
+        entry = merge_gate.latest_entry(self.gate.piece(self.piece).record)
+        assert entry is not None
+        with mock.patch.object(merge_gate, "latest_entry", lambda record: dict(
+                entry, stack=[self.piece, other])):
+            text = self.refusal(self.piece, "review", reason="a feeling",
+                                options={"rejected": str(other)})
+        self.assertIn("was not rejected", text)
 
 
 if __name__ == "__main__":
