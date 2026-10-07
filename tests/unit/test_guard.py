@@ -366,6 +366,68 @@ class MatcherCases(Cases):
             "python3 -c 'print(1)'",
         )
 
+    def test_a_merge_is_for_the_person(self) -> None:
+        self.refused(
+            "gh pr merge 5 --squash",
+            "gh pr merge",
+            "gh pr merge --auto 5",
+            "gh -R o/r pr merge 5",
+            "gh --repo=o/r pr merge 5",
+            "/opt/homebrew/bin/gh pr merge 5",
+            "sh -c 'gh pr merge 5'",
+            "env X=1 gh pr merge 5",
+            "gh api -X PUT repos/o/r/pulls/5/merge",
+            "gh api -XPUT repos/o/r/pulls/1/merge",
+            "gh api -X put repos/o/r/pulls/1/merge",
+            "gh api --method=PUT repos/o/r/pulls/1/merge -f sha=abc",
+            "gh api repos/o/r/pulls/1/merge -f sha=abc",
+            "gh api graphql -f query='mutation { mergePullRequest(input: {}) { id } }'",
+            "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { id } }'",
+        )
+
+    def test_the_pull_request_script_merge_is_for_the_person(self) -> None:
+        self.refused(
+            "python3 -m loop.run.pull_request merge --run r --said merge",
+            "cd kit/scripts && python3 -m loop.run.pull_request merge --run r --pre-approved",
+            "PYTHONPATH=kit/scripts python3 -m loop.run.pull_request --json merge --run r",
+            "python3 kit/scripts/loop/run/pull_request.py merge --run r",
+            "env PYTHONPATH=kit/scripts python3 -m loop.run.pull_request merge --run r",
+            "G=loop.run.pull_request; python3 -m $G merge --run r",
+            "python3 -m loop.run.pull_request $(printf merge) --run r",
+            "env -u CLAUDECODE python3 -m loop.run.pull_request merge --run r",
+            "unset CLAUDECODE; python3 -m loop.run.pull_request merge --run r",
+            "script -q /dev/null python3 -m loop.run.pull_request merge --run r",
+            "echo merge | xargs python3 -m loop.run.pull_request",
+            "python3 -c \"import runpy, sys; sys.argv = ['p', 'merge', '--run', 'r']; "
+            "runpy.run_module('loop.run.pull_request', run_name='__main__')\"",
+            "python3 -c 'import sys; sys.argv=[\"p\",\"merge\"]; "
+            "from loop.run import pull_request as p; p.main(sys.argv[1:])'",
+        )
+
+    def test_gate_move_to_done_is_for_the_person(self) -> None:
+        self.refused(
+            "python3 kit/scripts/gate.py move 3 done --option merge=agent --option said='merge it'",
+            "python3 kit/scripts/gate.py move 3 done",
+            "kit/scripts/gate.py move 3 done --dry-run",
+            "cd x && python3 gate.py move 12 done --option merge=pre-approved",
+            "python3 kit/scripts/gate.py --json move 3 done",
+        )
+
+    def test_the_pull_request_script_and_the_gate_still_read(self) -> None:
+        self.passes(
+            "python3 -m loop.run.pull_request status --run r",
+            "python3 -m loop.run.pull_request open --run r",
+            "python3 -m loop.run.pull_request sweep --run r --json",
+            "python3 kit/scripts/gate.py move 3 review",
+            "python3 kit/scripts/gate.py move 3 building --reason 'merge conflict is done'",
+            "python3 kit/scripts/run.py --merge-pre-approved --pieces 1,2",
+            "gh pr view 5 --json state,mergeable",
+            "gh pr checks 5",
+            "gh api repos/o/r/pulls/5/merge",
+            "git merge --no-ff piece-3",
+            "grep -n merge kit/scripts/loop/run/pull_request.py",
+        )
+
     def test_the_labels_hint_names_labels_create(self) -> None:
         got = bash("gh label create state:ready --color 000000")
         self.assertEqual(got.kind, DENY)
@@ -439,8 +501,6 @@ class MatcherCases(Cases):
             "gh api --method post repos/o/r/issues",
             "gh api --method=patch repos/o/r/issues/1",
             "gh api -X PATCH repos/o/r/issues/1",
-            "gh api -XPUT repos/o/r/pulls/1/merge",
-            "gh api -X put repos/o/r/pulls/1/merge",
             "gh api -X DELETE repos/o/r/issues/1",
             "gh api -X Delete repos/o/r/issues/1",
             "gh api repos/o/r/issues -f title=x",
@@ -453,7 +513,6 @@ class MatcherCases(Cases):
             "gh api graphql -f query='mutation { createPullRequest(input: {}) { id } }'",
             "gh api graphql -f query='mutation { closeIssue(input: {}) { id } }'",
             "gh api graphql -f query='mutation { updateIssue(input: {}) { id } }'",
-            "gh api graphql -f query='mutation { mergePullRequest(input: {}) { id } }'",
         ):
             with self.subTest(command=command):
                 self.expect(command, ASK)
