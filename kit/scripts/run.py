@@ -232,14 +232,16 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
     if args.dry_run:
         return {**shown, "pre_run_check": "not run in a plan: run.py runs it before it starts"}
 
-    notices = _pre_run_check(paths, name, numbers, args, _first_command(paths, name))
-    try:
-        lock = record.acquire_lock(paths, name)
-    except record.LockHeld as error:
-        raise _fail(str(error), error.next_command, lock=True) from error
+    # The pre-run check refuses a computer that nothing holds awake, so caffeinate starts first.
     awake, awake_line = _caffeinate()
     sys.stderr.write(awake_line + "\n")
+    lock: record.Lock | None = None
     try:
+        notices = _pre_run_check(paths, name, numbers, args, _first_command(paths, name))
+        try:
+            lock = record.acquire_lock(paths, name)
+        except record.LockHeld as error:
+            raise _fail(str(error), error.next_command, lock=True) from error
         run = existing or record.RunRecord.create(
             paths, name, numbers, attended=not args.unattended,
             merge_pre_approved=args.merge_pre_approved)
@@ -268,7 +270,8 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
             for sig, previous in saved.items():
                 signal.signal(sig, previous)
     finally:
-        lock.release()
+        if lock is not None:
+            lock.release()
         if awake is not None:
             awake.terminate()
             awake.wait()

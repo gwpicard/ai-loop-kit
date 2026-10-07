@@ -335,11 +335,12 @@ class RealStopsTest(Base):
         watch.run_hook(self.context(), "session-ended", piece=1, result=self.result(""))
         self.assertIn("command log", self.notes())
 
-    def failing(self, piece: int, text: str = "Error: the database is not running") -> None:
+    def failing(self, piece: int,
+                text: str = "Error: the database is not running at port 5431") -> None:
         watch.run_hook(self.context(), "session-ended", piece=piece, result=self.result(text))
 
     def test_the_same_failure_across_three_pieces_notifies_once(self) -> None:
-        self.failing(1)
+        self.failing(1, "Error: the database is not running at port 5431")
         self.failing(2, "Error: the database is not running at port 5432")
         self.assertEqual(self.stops(), [])
         self.failing(3, "Error: the database is not running at port 5433")
@@ -347,6 +348,21 @@ class RealStopsTest(Base):
         self.assertEqual(self.stops()[0]["pieces"], [1, 2, 3])
         self.failing(4, "Error: the database is not running at port 5434")
         self.assertEqual(len(self.stops()), 1)
+
+    def test_a_hand_off_that_says_done_gives_no_failure_of_its_own(self) -> None:
+        for piece in (1, 2, 3):
+            done = {"outcome": "done", "summary": f"Built piece {piece} in its own words."}
+            watch.run_hook(self.context(), "session-ended", piece=piece,
+                           result=self.result("Error: the database is not running", handoff=done))
+        self.assertEqual([s["kind"] for s in self.stops()], ["same-failure"])
+        self.assertIn("database", self.stops()[0]["text"])
+
+    def test_gave_up_words_name_the_failure(self) -> None:
+        for piece in (1, 2, 3):
+            gave = {"outcome": "gave-up", "reason": "the database at port 543%d is down" % piece}
+            watch.run_hook(self.context(), "session-ended", piece=piece,
+                           result=self.result("", handoff=gave))
+        self.assertEqual([s["kind"] for s in self.stops()], ["same-failure"])
 
     def test_the_same_failure_on_one_piece_many_times_is_not_a_run_level_stop(self) -> None:
         for _ in range(5):
