@@ -9,8 +9,8 @@
 #     each resume the parked piece, and the answer reaches the builder only inside the marked
 #     data block of its brief. Nothing writes the answer into the spec while the run goes;
 #   - after the run, a comment on the issue of a parked piece goes in through `gate.py answer`,
-#     which writes it into the spec (the spec holds no open question for a builder's question, so
-#     move 6 puts it there first); the piece goes back to ready; and the person is told in a
+#     which writes it under Decisions (`--parked`: the spec holds no open question for a builder's
+#     question); the piece goes back to ready by move 7, never by move 6; and the person is told in a
 #     comment, made as the App.
 #
 # With no App, inbox.py reads nothing from GitHub: tests/unit/test_inbox.py checks that.
@@ -231,7 +231,7 @@ python3 "$KIT/scripts/loop/run/inbox.py" --run ans-2 --project "$TP_ROOT" --json
 python3 "$GATE" report "$P_late" --json | python3 -c '
 import json, sys
 moves = json.load(sys.stdin)["pieces"][0]["moves"]
-assert moves[-2:] == [6, 2], moves
+assert moves[-1] == 7 and 6 not in moves, moves
 ' || fail "the piece did not go back to ready"
 body_of_issue "$P_late" | grep -q "What size is it?.*A size of 4, please." \
   || fail "the gate did not write the answer under Decisions"

@@ -199,6 +199,13 @@ class StreamTest(Base):
             self.assertIsNone(engine._BUILDER_LABEL.match(other))
 
 
+class ParkedNextLineTest(Base):
+    def test_the_next_line_of_a_parked_piece_names_the_parked_form_of_the_answer(self) -> None:
+        self.engine._act(1, attempts.Route("park-person", reason="Which font?"))
+        self.assertIn("gate.py answer 1 --question <it> --answer <yours> --by <you> --parked",
+                      self.rec.piece(1)["next"])
+
+
 class AnswerInTheBriefTest(Base):
     def test_a_parked_pieces_answer_reaches_the_builder_in_the_data_block_text(self) -> None:
         self.rec.update(1, question="Which colour?",

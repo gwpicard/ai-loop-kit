@@ -614,6 +614,61 @@ class Fingerprints(Base):
         self.assertEqual(caught.exception.code, ExitCode.REFUSED)
 
 
+class ParkedAnswers(Base):
+    """A builder's question is parked in building and never in the spec: `--parked` answers it."""
+
+    ASKED = "Which font should it use?"
+
+    def building_with_print(self) -> tuple[int, str]:
+        piece, old = self.ready_with_fingerprint()
+        self.gate.move(piece, "building")
+        return piece, old
+
+    ready_with_fingerprint = Fingerprints.ready_with_fingerprint
+
+    def test_a_parked_answer_writes_only_the_decision_and_takes_a_new_fingerprint(self) -> None:
+        piece, old = self.building_with_print()
+        before = spec.parse(self.gate.piece(piece).body)
+        result = self.gate.answer(piece, question=self.ASKED, answer="Garamond",
+                                  by="the person", parked=True)
+        after = spec.parse(self.gate.piece(piece).body)
+        self.assertEqual(after.open_questions, before.open_questions)
+        self.assertEqual(len(after.decisions), len(before.decisions) + 1)
+        self.assertTrue(any(self.ASKED in d and "Garamond" in d and TODAY in d
+                            for d in after.decisions))
+        self.assertNotEqual(result["fingerprint"], old)
+        self.assertEqual(self.gate.piece(piece).fingerprint, result["fingerprint"])
+        self.assertFalse(self.gate.fingerprint_changed(piece))
+        self.assertEqual(self.gate.piece(piece).state, "building")
+        entry = [e for e in evidence.read(self.paths, piece) if e["kind"] == "answer"][-1]
+        self.assertEqual(entry["answer"], "Garamond")
+
+    def test_move_7_passes_after_a_parked_answer(self) -> None:
+        piece, _old = self.building_with_print()
+        self.gate.answer(piece, question=self.ASKED, answer="Garamond", by="the person",
+                         parked=True)
+        self.gate.move(piece, "ready", reason="the person answered the builder's question")
+        self.assertEqual(self.gate.piece(piece).state, "ready")
+
+    def test_a_parked_answer_is_refused_in_any_other_state(self) -> None:
+        shaping = self.capture()
+        ready, _old = self.ready_with_fingerprint()
+        for piece, state in ((shaping, "shaping"), (ready, "ready")):
+            before = self.gate.piece(piece).body
+            with self.assertRaises(moves.MoveError) as caught:
+                self.gate.answer(piece, question=self.ASKED, answer="Garamond",
+                                 by="the person", parked=True)
+            self.assertEqual(caught.exception.code, ExitCode.REFUSED, state)
+            self.assertTrue(caught.exception.next_command, state)
+            self.assertEqual(self.gate.piece(piece).body, before, state)
+
+    def test_a_question_in_the_spec_is_still_closed_by_the_old_way(self) -> None:
+        piece = self.capture()
+        self.gate.answer(piece, question=QUESTION, answer="no", by="the person", parked=False)
+        self.assertFalse(any(QUESTION in q for q in
+                             spec.parse(self.gate.piece(piece).body).open_questions))
+
+
 class SpecDoor(Base):
     """Only `answer` closes an open question. `gate.py spec` cannot remove one."""
 

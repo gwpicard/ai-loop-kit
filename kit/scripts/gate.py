@@ -104,6 +104,9 @@ def setup(parser: argparse.ArgumentParser) -> None:
     answer.add_argument("--answer", required=True)
     answer.add_argument("--by", required=True,
                         help='who answered; an agent session records only "the agent"')
+    answer.add_argument("--parked", action="store_true",
+                        help="the question was a builder's, parked in building; the spec does "
+                        "not hold it")
     _common(answer)
 
     spec_cmd = commands.add_parser("spec", help="hand the gate a new spec for a piece in shaping")
@@ -220,7 +223,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
             return gate.move(args.number, "dropped", reason=args.reason, dry_run=dry)
         if command == "answer":
             return gate.answer(args.number, question=args.question, answer=args.answer,
-                               by=args.by, dry_run=dry)
+                               by=args.by, parked=args.parked, dry_run=dry)
         if command == "spec":
             return gate.set_spec(args.number, _read(args.body_file), dry_run=dry)
         if command == "comment":

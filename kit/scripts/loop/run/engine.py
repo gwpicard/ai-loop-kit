@@ -977,7 +977,7 @@ class Engine:
             self.record.set_status(
                 number, record.PARKED_PERSON, question=route.reason,
                 next=f"answer the question with gate.py answer {number} --question <it> --answer "
-                f"<yours> --by <you>, then gate.py move {number} ready --reason <why>. "
+                f"<yours> --by <you> --parked, then gate.py move {number} ready --reason <why>. "
                 "An answer that comes while the run is live resumes the piece")
             return "done"
         target = route.target or ""
