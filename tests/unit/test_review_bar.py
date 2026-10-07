@@ -42,6 +42,8 @@ class ReviewStand(test_attempt.Stand):
     def run_judge(self, command: str, root: Path, ref: str, **more: Any) -> dict[str, Any]:
         if command == COMMAND:
             self.runs.append((command, ref))
+            if command in self.judge_error:
+                raise self.judge_error[command]
             return {**self.review, "command": command, "ref": ref}
         return super().run_judge(command, root, ref, **more)
 
@@ -146,7 +148,7 @@ class TheAttemptGateHoldsTheReviewTests(ReviewCase):
 
 
 class MoveEightWithAReviewTest(ReviewCase):
-    def options(self, commit: str, **more: str) -> dict[str, str]:
+    def review_options(self, commit: str, **more: str) -> dict[str, str]:
         found = {"review_test_path": PATH, "review_test_commit": commit,
                  "review_test_command": COMMAND,
                  "review_justification": "A blank name is not refused, and the spec asks it."}
@@ -163,7 +165,7 @@ class MoveEightWithAReviewTest(ReviewCase):
 
     def test_the_options_make_a_review_test_entry(self) -> None:
         commit = self.committed()
-        result = self.move_eight(**self.options(commit))
+        result = self.move_eight(**self.review_options(commit))
         self.assertTrue(result.ok, result.failures)
         entry = result.data["entries"][0]
         self.assertEqual((entry["kind"], entry["path"], entry["commit"], entry["command"]),
@@ -172,7 +174,7 @@ class MoveEightWithAReviewTest(ReviewCase):
 
     def test_a_partial_set_of_options_is_refused(self) -> None:
         commit = self.committed()
-        options = self.options(commit)
+        options = self.review_options(commit)
         del options["review_test_command"]
         result = self.move_eight(**options)
         self.assertFalse(result.ok)
@@ -181,39 +183,45 @@ class MoveEightWithAReviewTest(ReviewCase):
 
     def test_a_commit_that_is_not_on_the_piece_branch_is_refused(self) -> None:
         self.committed()
-        other = git(self.root, "rev-parse", "main")
-        result = self.move_eight(**self.options(other))
+        git(self.root, "checkout", "-q", "-b", "elsewhere", "main")
+        (self.root / "billing").mkdir(exist_ok=True)
+        (self.root / PATH).write_text(TEXT, encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "A test on another branch")
+        other = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "checkout", "-q", "main")
+        result = self.move_eight(**self.review_options(other))
         self.assertFalse(result.ok)
         self.assertIn("not on the piece branch", " ".join(result.failures))
 
     def test_a_commit_that_does_not_hold_the_file_is_refused(self) -> None:
         self.committed()
-        result = self.move_eight(**self.options(self.first))
+        result = self.move_eight(**self.review_options(self.first))
         self.assertFalse(result.ok)
         self.assertIn(PATH, " ".join(result.failures))
 
     def test_a_path_that_is_not_a_test_is_refused(self) -> None:
         commit = self.committed()
         for bad in ("src/rename.py", "/etc/test_x.py", "../test_x.py", "tests/*.py"):
-            result = self.move_eight(**self.options(commit, review_test_path=bad))
+            result = self.move_eight(**self.review_options(commit, review_test_path=bad))
             self.assertFalse(result.ok, bad)
 
     def test_a_command_that_does_not_name_the_file_is_refused(self) -> None:
         commit = self.committed()
-        result = self.move_eight(**self.options(commit, review_test_command="pytest tests"))
+        result = self.move_eight(**self.review_options(commit, review_test_command="pytest tests"))
         self.assertFalse(result.ok)
-        self.assertIn("names the file", " ".join(result.failures))
+        self.assertIn("does not name the file", " ".join(result.failures))
 
     def test_a_blank_justification_is_refused(self) -> None:
         commit = self.committed()
-        result = self.move_eight(**self.options(commit, review_justification="  "))
+        result = self.move_eight(**self.review_options(commit, review_justification="  "))
         self.assertFalse(result.ok)
         self.assertIn("justification", " ".join(result.failures))
 
     def test_a_file_that_is_already_frozen_is_refused(self) -> None:
         commit = self.committed()
         self.record.append(self.entry(commit))
-        result = self.move_eight(**self.options(commit))
+        result = self.move_eight(**self.review_options(commit))
         self.assertFalse(result.ok)
         self.assertIn("already", " ".join(result.failures))
 
