@@ -112,8 +112,10 @@ class Gateway:
 
         Each merge is a merge commit with the subject `Stack on piece <n>`, never a rebase. A
         dependency the folder already holds is skipped, so a second call changes nothing. The
-        base is the newest stacking merge on the first-parent line, or "" with a code that is
-        not 0 and the files that conflicted. A conflict leaves the folder as it was.
+        base is the last merge this call made, so it is never read from the log, where a merge
+        of the builder's own could pass for it. It is "" when this call made no merge, and when
+        the code is not 0 (with the files that conflicted). A conflict leaves the folder as it
+        was.
         """
         root = str(self.paths.root)
         where = str(folder)
@@ -123,6 +125,7 @@ class Gateway:
             return self.runner(["git", "-C", where, *quiet, *args], capture_output=True,
                                text=True, check=False, env=self.env)
 
+        made = ""
         for number in numbers:
             branch = f"piece-{number}"
             held = git("merge-base", "--is-ancestor", f"refs/heads/{branch}", "HEAD")
@@ -134,12 +137,11 @@ class Gateway:
                 git("merge", "--abort")
                 named = ", ".join(listing) or (done.stderr or done.stdout).strip()[:120]
                 return 1, f"merging {branch} conflicted in {named}", ""
-        found = git("log", "--first-parent", "--format=%H%x1f%s", "refs/heads/main..HEAD")
-        for row in found.stdout.splitlines():
-            sha, _, subject = row.partition("\x1f")
-            if subject.startswith(STACK_SUBJECT):
-                return 0, "stacked", sha
-        return 1, "no stacking merge was found after stacking", ""
+            head = git("rev-parse", "HEAD")
+            if head.returncode != 0 or not head.stdout.strip():
+                return 1, f"git could not read the stacking merge of {branch}", ""
+            made = head.stdout.strip()
+        return 0, "stacked" if made else "already stacked", made
 
     # --- the worktree ----------------------------------------------------------------
 

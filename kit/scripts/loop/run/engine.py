@@ -466,11 +466,24 @@ class Engine:
                 f"{', '.join(str(d) for d in deps)}: {text}",
                 f"look at {folder}; the dependency and this piece clash, so "
                 f"gate.py move {number} ready --reason \"<the clash>\" gives it back")
-        if base != self.record.piece(number).get("stack_base"):
+        held = self.record.piece(number).get("stack_base")
+        if base and base != held:
+            if held and not self._descends(folder, str(held), base):
+                self.record.note(f"piece {number}: the new stacking merge {base[:7]} does not "
+                                 f"descend from the recorded base {str(held)[:7]}, so the "
+                                 "recorded base stays")
+                return
             self.record.update(number, stack_base=base, stacked_on=deps)
             self.record.add_decision(
                 number, "run", f"Built piece {number} on the branch of piece "
                 f"{', '.join(str(d) for d in deps)}, which it depends on.")
+
+    def _descends(self, folder: Path, old: str, new: str) -> bool:
+        """True when `new` has `old` in its history, read by git in the piece's folder."""
+        done = self.gateway.runner(
+            ["git", "-C", str(folder), "merge-base", "--is-ancestor", old, new],
+            capture_output=True, text=True, check=False, env=self.gateway.env)
+        return done.returncode == 0
 
     def _build(self, number: int) -> None:
         piece = self._read(number)
@@ -574,9 +587,14 @@ class Engine:
         return text
 
     def _move_options(self, number: int) -> dict[str, str] | None:
-        """Options for move 5: where the stack of a dependent ends, when it has one."""
-        base = self.record.piece(number).get("stack_base")
-        return {"stack_base": str(base)} if base else None
+        """Options for move 5: where the stack of a dependent ends, and the pieces it was stacked
+        on, when it has a stack."""
+        held = self.record.piece(number)
+        base = held.get("stack_base")
+        if not base:
+            return None
+        on = ",".join(str(n) for n in held.get("stacked_on") or [])
+        return {"stack_base": str(base), "stacked_on": on}
 
     def _bar_paths(self, number: int, piece: moves.Piece) -> list[str]:
         try:

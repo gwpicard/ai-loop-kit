@@ -135,7 +135,7 @@ class StackTest(EngineCase):
         self.assertTrue((folder / "a.txt").exists(), "the dependency's work is not in the folder")
         self.assertEqual(git(folder, "rev-list", "--parents", "-n1", "HEAD").count(" "), 2)
 
-    def test_stacking_twice_makes_no_second_merge_and_finds_the_same_base(self) -> None:
+    def test_stacking_twice_makes_no_second_merge_and_reports_no_new_base(self) -> None:
         self.piece(1, {"a.txt": "one\n"})
         folder = self.piece(2, {"b.txt": "two\n"})
         loop = self.make()
@@ -145,7 +145,8 @@ class StackTest(EngineCase):
         git(folder, "commit", "-q", "-m", "More work")
         second = loop.gateway.stack(folder, [1])
         self.assertEqual(second[0], 0)
-        self.assertEqual(second[2], first[2])
+        self.assertEqual(second[2], "", "the gateway made no merge, so it names no base")
+        self.assertTrue(first[2])
 
     def test_a_conflict_stops_the_stack_and_leaves_the_folder_as_it_was(self) -> None:
         self.piece(1, {"a.txt": "one\n"})
@@ -168,11 +169,54 @@ class StackTest(EngineCase):
         self.assertEqual(loop._stack_pieces(2), [], "a dependency that is not built is skipped")
         self.assertEqual(loop._stack_pieces(1), [])
 
-    def test_move_5_is_told_where_the_stack_ends(self) -> None:
+    def test_move_5_is_told_where_the_stack_ends_and_what_it_was_stacked_on(self) -> None:
         loop = self.make()
         self.assertEqual(loop._move_options(1), None)
-        self.rec.update(1, stack_base="abc123")
-        self.assertEqual(loop._move_options(1), {"stack_base": "abc123"})
+        self.rec.update(1, stack_base="abc123", stacked_on=[3, 4])
+        self.assertEqual(loop._move_options(1),
+                         {"stack_base": "abc123", "stacked_on": "3,4"})
+
+    def stackable(self) -> tuple["engine.RunLoop", Path]:
+        infos = [plan.PieceInfo(1, issue=11), plan.PieceInfo(2, issue=12,
+                                                            blockers=frozenset({11}))]
+        self.piece(1, {"a.txt": "one\n"})
+        folder = self.piece(2, {"b.txt": "two\n"})
+        self.rec.set_status(1, record.BUILT)
+        return self.make(infos), folder
+
+    def test_the_base_is_the_merge_the_gateway_just_made(self) -> None:
+        loop, folder = self.stackable()
+        loop._stack(2, folder)
+        held = self.rec.piece(2)
+        self.assertEqual(held["stack_base"], git(folder, "rev-parse", "HEAD"))
+        self.assertEqual(held["stacked_on"], [1])
+
+    def test_a_stacking_merge_the_builder_made_is_never_taken_as_the_base(self) -> None:
+        """A merge with the right subject, made by the builder, with the piece's own work before it."""
+        loop, folder = self.stackable()
+        git(folder, "merge", "-q", "--no-ff", "-m", "Stack on piece 1", "piece-1")
+        loop._stack(2, folder)
+        self.assertNotIn("stack_base", self.rec.piece(2))
+
+    def test_a_recorded_base_stays_when_the_gateway_made_no_merge(self) -> None:
+        loop, folder = self.stackable()
+        loop._stack(2, folder)
+        recorded = self.rec.piece(2)["stack_base"]
+        (folder / "c.txt").write_text("three\n")
+        git(folder, "add", "-A")
+        git(folder, "commit", "-q", "-m", "More work")
+        loop._stack(2, folder)
+        self.assertEqual(self.rec.piece(2)["stack_base"], recorded)
+
+    def test_a_recorded_base_is_not_replaced_by_a_commit_that_does_not_descend_from_it(
+            self) -> None:
+        loop, folder = self.stackable()
+        loop._stack(2, folder)
+        recorded = self.rec.piece(2)["stack_base"]
+        stranger = git(self.root, "rev-parse", "main")
+        loop.gateway.stack = lambda *_a, **_k: (0, "stacked", stranger)  # type: ignore[method-assign]
+        loop._stack(2, folder)
+        self.assertEqual(self.rec.piece(2)["stack_base"], recorded)
 
 
 class BuiltAllRoundsTest(EngineCase):
