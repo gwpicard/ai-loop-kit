@@ -363,6 +363,17 @@ class TheWholePass(PassCase):
         git(self.root, "merge-base", "--is-ancestor", self.head, new)
         self.assertLess(result["net_lines"], 0)
 
+    def test_the_cost_the_session_reports_comes_back_as_cost_usd(self) -> None:
+        def priced(command: Any, **kw: Any) -> Any:
+            self.runner(command, **kw)
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps({"result": "ok", "total_cost_usd": 0.37}), "")
+        self.folded()
+        result = trim.run_pass(self.attempt_context(), self.att.deps(), run="night-1",
+                               runner=priced, env=self.env)
+        self.assertEqual(result["outcome"], "trimmed", result)
+        self.assertAlmostEqual(result["cost_usd"], 0.37)
+
     def test_the_trim_lives_on_a_scratch_branch_in_its_own_worktree(self) -> None:
         self.folded()
         result = self.go()
