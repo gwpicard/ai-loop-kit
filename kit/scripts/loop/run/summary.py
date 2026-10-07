@@ -47,6 +47,8 @@ def render(run: record.RunRecord) -> str:
         if piece.get("spend_usd"):
             line += f" Spend: ${float(piece['spend_usd']):.2f}."
         lines.append(line)
+        if piece.get("joined_to") and piece.get("joined"):
+            lines.append(f"  Joined to {piece['joined_to']}.")
         if piece.get("reason"):
             lines.append(f"  Why: {piece['reason']}")
         if piece.get("question"):
@@ -60,6 +62,18 @@ def render(run: record.RunRecord) -> str:
     for item in decisions:
         where = f"piece {item['piece']}" if item.get("piece") is not None else "the run"
         lines.append(f"- {item['by']}, {where}: {item['text']}")
+    integration = data.get("integration") or {}
+    final = integration.get("final") or {}
+    if final or integration.get("worth_knowing"):
+        lines += ["", "## Integration", ""]
+        for name, item in final.items():
+            lines.append(f"- {item.get('branch', name)}: the final check was "
+                         f"{item.get('status')}, and the push was {item.get('push', 'not made')}.")
+            if item.get("next"):
+                lines.append(f"  next: {item['next']}")
+    if integration.get("worth_knowing"):
+        lines += ["", "## Worth knowing", ""]
+        lines += [f"- {item['text']}" for item in integration["worth_knowing"]]
     if data.get("problems"):
         lines += ["", "## Problems", ""]
         lines += [f"- {item['text']}" for item in data["problems"]]

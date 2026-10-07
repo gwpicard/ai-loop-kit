@@ -105,6 +105,44 @@ class Gateway:
             args += ["--max-budget-usd", f"{max_budget_usd:.4f}"]
         return self._call("trim-check.py", args)
 
+    # --- the stack -------------------------------------------------------------------
+
+    def stack(self, folder: Path, numbers: Sequence[int]) -> tuple[int, str, str]:
+        """Merge each dependency's branch into the piece's worktree. Returns (code, text, base).
+
+        Each merge is a merge commit with the subject `Stack on piece <n>`, never a rebase. A
+        dependency the folder already holds is skipped, so a second call changes nothing. The
+        base is the last merge this call made, so it is never read from the log, where a merge
+        of the builder's own could pass for it. It is "" when this call made no merge, and when
+        the code is not 0 (with the files that conflicted). A conflict leaves the folder as it
+        was.
+        """
+        root = str(self.paths.root)
+        where = str(folder)
+        quiet = [*_identity(self.runner, root), "-c", "commit.gpgsign=false"]
+
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return self.runner(["git", "-C", where, *quiet, *args], capture_output=True,
+                               text=True, check=False, env=self.env)
+
+        made = ""
+        for number in numbers:
+            branch = f"piece-{number}"
+            held = git("merge-base", "--is-ancestor", f"refs/heads/{branch}", "HEAD")
+            if held.returncode == 0:
+                continue
+            done = git("merge", "--no-ff", "-q", "-m", f"{STACK_SUBJECT}{number}", branch)
+            if done.returncode != 0:
+                listing = git("diff", "--name-only", "--diff-filter=U").stdout.split()
+                git("merge", "--abort")
+                named = ", ".join(listing) or (done.stderr or done.stdout).strip()[:120]
+                return 1, f"merging {branch} conflicted in {named}", ""
+            head = git("rev-parse", "HEAD")
+            if head.returncode != 0 or not head.stdout.strip():
+                return 1, f"git could not read the stacking merge of {branch}", ""
+            made = head.stdout.strip()
+        return 0, "stacked" if made else "already stacked", made
+
     # --- the worktree ----------------------------------------------------------------
 
     def open_worktree(self, name: str, branch: str, base: str, *, resume: bool) -> tuple[int, str]:
@@ -120,6 +158,18 @@ class Gateway:
         except OSError as error:
             return 127, f"worktree.sh could not start ({error})"
         return done.returncode, ((done.stdout or "") + (done.stderr or "")).strip()
+
+
+STACK_SUBJECT = "Stack on piece "
+
+
+def _identity(runner: Runner, root: str) -> list[str]:
+    """`-c` options that give a committer when Git has none, so a stacking merge can commit."""
+    done = runner(["git", "-C", root, "var", "GIT_COMMITTER_IDENT"], capture_output=True,
+                  text=True, check=False)
+    if done.returncode == 0:
+        return []
+    return ["-c", "user.name=AI Loop Kit", "-c", "user.email=loop@localhost.invalid"]
 
 
 def worktree_path(paths: Path | Paths, name: str) -> Path:

@@ -44,6 +44,7 @@ OPTIONAL_MODULES = ("watch", "inbox", "integrate", "review", "pull_request")
 EVENTS = ("start", "tick", "session-ended", "piece-built", "built-all", "run-end")
 NO_HYPOTHESIS = "This piece has no hypothesis list. Build what the spec asks for."
 HEARTBEAT_SECONDS = 1.0
+BUILT_ALL_ROUNDS = 5  # the most times a hook may send pieces back after the last piece was built
 
 
 class EngineRefusal(Exception):
@@ -64,13 +65,22 @@ class Outcome:
 
 @dataclass
 class HookContext:
-    """What a hook module gets: the run's paths, name, record and policy."""
+    """What a hook module gets: the run's paths, name, record and policy.
+
+    `gate_lock` is the lock every call to the gate and to git goes through. `restart_piece`
+    puts a built piece back to building, so its builder starts again (the integration loop
+    uses it after it sent the piece back by move 8). `infos` is the plan's view of each piece:
+    its areas and the issues that block it.
+    """
 
     paths: Paths
     name: str
     record: record.RunRecord
     policy: Mapping[str, Any]
     resume_piece: Callable[[int], None]
+    gate_lock: Any = field(default_factory=contextlib.nullcontext)
+    restart_piece: Callable[[int], None] = field(default=lambda number: None)
+    infos: Mapping[int, plan.PieceInfo] = field(default_factory=dict)
 
 
 def slug(title: str) -> str:
@@ -178,7 +188,9 @@ class Engine:
         return found
 
     def context(self) -> HookContext:
-        return HookContext(self.paths, self.name, self.record, self.policy, self.resume_piece)
+        return HookContext(self.paths, self.name, self.record, self.policy, self.resume_piece,
+                           gate_lock=self.gate_lock, restart_piece=self.restart_piece,
+                           infos=self.infos)
 
     def hook(self, event: str, **data: Any) -> None:
         if event not in EVENTS:
@@ -207,6 +219,14 @@ class Engine:
                 self.resume_queue.append(number)
                 self.wake.set()
 
+    def restart_piece(self, number: int) -> None:
+        """A hook (the integration loop) sent a built piece back to building: build it again."""
+        with self.gate_lock:
+            if self.record.status(number) == record.BUILT:
+                self.record.set_status(number, record.BUILDING)
+                self.resume_queue.append(number)
+                self.wake.set()
+
     # --- reading the gate ------------------------------------------------------------
 
     def _read(self, number: int) -> moves.Piece:
@@ -225,6 +245,11 @@ class Engine:
         self._write_template()
         self.hook("start")
         self._reconcile_all()
+        self._rounds()
+        return self._finish()
+
+    def _rounds(self) -> None:
+        """Run the loop until no worker is left. A fault in the loop itself ends the sessions."""
         try:
             while True:
                 self._tick()
@@ -243,7 +268,6 @@ class Engine:
         finally:
             for thread in list(self.workers.values()):
                 thread.join()
-        return self._finish()
 
     def _tick(self) -> None:
         now = time.monotonic()
@@ -404,6 +428,8 @@ class Engine:
         held = self.record.piece(number)
         name = str(held.get("worktree") or f"{number}-{slug(info.title)}")
         branch = f"piece-{number}"
+        with self.gate_lock:
+            name = self._cut_afresh(number, branch, name)
         folder = self.paths.worktrees_dir / name
         with self.gate_lock:
             if not held.get("branch"):
@@ -417,7 +443,106 @@ class Engine:
             raise EngineRefusal(f"the worktree could not be opened: {text}",
                                 f"look at {folder}, then run.py --run {self.name}")
         self.record.update(number, branch=branch, worktree=name)
+        self._stack(number, folder)
         return folder
+
+    def _cut_afresh(self, number: int, branch: str, name: str) -> str:
+        """Return the worktree name to use. After a dependency moved, cut the branch afresh.
+
+        A dependent was stacked once. Its dependency then moved, and the gate gave the dependent
+        back. A new stacking merge on the old branch would sit after the dependent's own commits,
+        and the gate refuses that, because the merge could hide them. So the old branch is kept
+        under another name (a rename: no reset, no rebase, no force), a new branch with the old
+        name starts at the judge commit, and the recorded stack base is cleared. The old folder
+        stays where it is. The builder reads the new base in a new folder.
+        """
+        held = self.record.piece(number)
+        if not held.get("stack_base") or not held.get("branch"):
+            return name
+        if not any(self._moved_on(branch, d) for d in self._stack_pieces(number)):
+            return name
+        data = self._read(number).fingerprint_data or {}
+        judge = str(data.get("judge_commit", ""))
+        if not judge:
+            raise EngineRefusal(
+                f"piece {number} has no judge commit in the gate's record, so its branch cannot "
+                "start afresh on the dependency that moved",
+                f"gate.py report {number}")
+        kept = 1
+        while self._git(f"refs/heads/{branch}-stacked-{kept}", "rev-parse", "--verify", "-q"):
+            kept += 1
+        old = f"{branch}-stacked-{kept}"
+        for args in (("branch", "-m", branch, old), ("branch", branch, judge)):
+            done = self.gateway.runner(
+                ["git", "-C", str(self.paths.root), *args], capture_output=True, text=True,
+                check=False, env=self.gateway.env)
+            if done.returncode != 0:
+                raise EngineRefusal(
+                    f"git branch {' '.join(args[1:])} failed for piece {number}: "
+                    f"{(done.stderr or done.stdout).strip()[:120]}",
+                    f"git -C {self.paths.root} branch --list 'piece-{number}*'")
+        fresh = f"{re.sub(r'-r[0-9]+$', '', name)}-r{kept + 1}"
+        self.record.update(number, stack_base="", stacked_on=[], worktree=fresh)
+        self.record.note(
+            f"piece {number}: a dependency moved after the piece was stacked on it, so the "
+            f"branch starts afresh at the judge commit in the folder {fresh}. The old branch is "
+            f"kept as {old}, with the folder {name}")
+        return fresh
+
+    def _git(self, ref: str, *args: str) -> bool:
+        done = self.gateway.runner(
+            ["git", "-C", str(self.paths.root), *args, ref], capture_output=True, text=True,
+            check=False, env=self.gateway.env)
+        return done.returncode == 0
+
+    def _moved_on(self, branch: str, dependency: int) -> bool:
+        """True when the tip of the dependency's branch is not in the history of `branch`."""
+        done = self.gateway.runner(
+            ["git", "-C", str(self.paths.root), "merge-base", "--is-ancestor",
+             f"refs/heads/piece-{dependency}", f"refs/heads/{branch}"],
+            capture_output=True, text=True, check=False, env=self.gateway.env)
+        return done.returncode == 1
+
+    def _stack_pieces(self, number: int) -> list[int]:
+        """The built pieces in this run that block `number`: it is built on their branches."""
+        by_issue = {i.issue: i.number for i in self.infos.values() if i.issue is not None}
+        found = {by_issue[b] for b in self.infos[number].blockers
+                 if b in by_issue and by_issue[b] != number}
+        return sorted(n for n in found if self.record.status(n) == record.BUILT)
+
+    def _stack(self, number: int, folder: Path) -> None:
+        """Stack a dependent on its dependency's branch, once, with merge commits (never a
+        rebase). The last merge is where the dependent's own work starts: move 5 measures from
+        it, so the dependency's changes are not charged to the dependent."""
+        deps = self._stack_pieces(number)
+        if not deps:
+            return
+        with self.gate_lock:
+            code, text, base = self.gateway.stack(folder, deps)
+        if code != 0:
+            raise EngineRefusal(
+                f"piece {number} could not be stacked on piece "
+                f"{', '.join(str(d) for d in deps)}: {text}",
+                f"look at {folder}; the dependency and this piece clash, so "
+                f"gate.py move {number} ready --reason \"<the clash>\" gives it back")
+        held = self.record.piece(number).get("stack_base")
+        if base and base != held:
+            if held and not self._descends(folder, str(held), base):
+                self.record.note(f"piece {number}: the new stacking merge {base[:7]} does not "
+                                 f"descend from the recorded base {str(held)[:7]}, so the "
+                                 "recorded base stays")
+                return
+            self.record.update(number, stack_base=base, stacked_on=deps)
+            self.record.add_decision(
+                number, "run", f"Built piece {number} on the branch of piece "
+                f"{', '.join(str(d) for d in deps)}, which it depends on.")
+
+    def _descends(self, folder: Path, old: str, new: str) -> bool:
+        """True when `new` has `old` in its history, read by git in the piece's folder."""
+        done = self.gateway.runner(
+            ["git", "-C", str(folder), "merge-base", "--is-ancestor", old, new],
+            capture_output=True, text=True, check=False, env=self.gateway.env)
+        return done.returncode == 0
 
     def _build(self, number: int) -> None:
         piece = self._read(number)
@@ -511,6 +636,25 @@ class Engine:
         target.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         self._template = target
 
+    def _found_so_far(self, number: int, piece_record: Sequence[Mapping[str, Any]]) -> str:
+        """The attempt log, and the clash that sent the piece back from a trial join, if any."""
+        text = attempt_log.render(piece_record)
+        clash = self.record.piece(number).get("clash")
+        if clash:
+            text += ("\n\nThe integration loop sent this piece back after a trial join with "
+                     f"the other built pieces. What it found: {clash}")
+        return text
+
+    def _move_options(self, number: int) -> dict[str, str] | None:
+        """Options for move 5: where the stack of a dependent ends, and the pieces it was stacked
+        on, when it has a stack."""
+        held = self.record.piece(number)
+        base = held.get("stack_base")
+        if not base:
+            return None
+        on = ",".join(str(n) for n in held.get("stacked_on") or [])
+        return {"stack_base": str(base), "stacked_on": on}
+
     def _bar_paths(self, number: int, piece: moves.Piece) -> list[str]:
         try:
             parsed = spec.parse(piece.body).to_dict()
@@ -522,7 +666,8 @@ class Engine:
                                     "cannot be listed", f"gate.py report {number}")
             ctx = CheckContext(number=number, move=by_number(5), origin="building",
                                target="review", reason=None, title=piece.title, body=piece.body,
-                               spec=parsed, record=piece.record, paths=self.paths, options={})
+                               spec=parsed, record=piece.record, paths=self.paths,
+                               options=self._move_options(number) or {})
             facts = attempt_gate._facts(ctx, parsed, recorded)
             return bar.paths(self.paths.root, facts.base, facts.judge_files)
         except (spec.SpecError, attempt_gate.Refusal, bar.BarError) as error:
@@ -540,7 +685,8 @@ class Engine:
                 brief_template,
                 trusted={"PIECE": str(number),
                          "HANDOFF_COMMAND": sessions.handoff_command(self.paths.kit_dir)},
-                outside={"spec": piece.body, "attempt_log": attempt_log.render(piece.record),
+                outside={"spec": piece.body,
+                         "attempt_log": self._found_so_far(number, piece.record),
                          "hypothesis": NO_HYPOTHESIS})
             barred = self._bar_paths(number, piece)
             session = sessions.plan(
@@ -650,7 +796,7 @@ class Engine:
         if route.reason:
             self.record.note(f"piece {number}: {route.reason}")
         with self.gate_lock:
-            reply = self.gateway.move(number, "review")
+            reply = self.gateway.move(number, "review", options=self._move_options(number))
         after = self._read(number)
         judged = attempts.Judged(
             passed=reply.ok, sent_back=bool(reply.data.get("sent_back")),
@@ -677,7 +823,12 @@ class Engine:
         """After move 5: the trim pass, which never fails the piece, then built."""
         if not self.record.piece(number).get("trimmed"):
             budget = self._budget_for_trim(number)
-            if budget == "skip":
+            if self.record.piece(number).get("stack_base"):
+                self.record.note(f"piece {number}: trim skipped, because the piece is stacked on "
+                                 "another piece's branch and the trim pass measures from the "
+                                 "base, so it would take the dependency's lines for its own")
+                self.record.update(number, trimmed=True, trim="skipped")
+            elif budget == "skip":
                 self.record.note(f"piece {number}: trim skipped, because the spend cap is used "
                                  "up and the trim session must never run with no cap")
                 self.record.update(number, trimmed=True, trim="skipped")
@@ -729,8 +880,14 @@ class Engine:
         for number in self.record.with_status(record.PENDING):
             why = self.refused.get(number) or self._unmet(number)
             self.record.set_status(number, record.WAITING, reason=why)
-        if not self.stop.is_set() and not self.run_parked:
+        for _ in range(BUILT_ALL_ROUNDS):
+            if self.stop.is_set() or self.run_parked:
+                break
             self.hook("built-all", built=self.record.with_status(record.BUILT))
+            if not self.resume_queue:
+                break
+            # A hook sent a piece back to building (a red final check): build it, then again.
+            self._rounds()
         if self.stop.is_set():
             status, code = record.RUN_STOPPED, 3
             next_command = f"run.py --run {self.name} to go on from the run record"

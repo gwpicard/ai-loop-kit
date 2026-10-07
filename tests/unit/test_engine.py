@@ -53,6 +53,23 @@ class EngineTestCase(unittest.TestCase):
         return " | ".join(n["text"] for n in self.rec.data["notes"])
 
 
+class TrimOfAStackedPieceTest(EngineTestCase):
+    def test_a_stacked_piece_is_not_trimmed_because_the_trim_cannot_tell_its_own_lines(
+            self) -> None:
+        self.rec.update(1, stack_base="abc123", stacked_on=[2])
+        gateway = FakeGateway()
+        self.make(gateway=gateway)._finish_piece(1)
+        self.assertEqual(gateway.calls, [], "the trim ran over the dependency's lines")
+        self.assertEqual(self.rec.piece(1)["trim"], "skipped")
+        self.assertIn("stacked", self.notes())
+        self.assertEqual(self.rec.status(1), record.BUILT)
+
+    def test_a_piece_with_no_stack_is_still_trimmed(self) -> None:
+        gateway = FakeGateway()
+        self.make(gateway=gateway)._finish_piece(1)
+        self.assertEqual(self.rec.piece(1)["trim"], "nothing-to-trim")
+
+
 class TrimUnderACapTest(EngineTestCase):
     def test_a_trim_with_a_piece_cap_used_up_is_skipped_and_noted(self) -> None:
         self.rec.add_spend(1, 1.0)

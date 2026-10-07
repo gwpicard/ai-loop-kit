@@ -646,6 +646,121 @@ class TheNewAreaOfAPiece(AttemptCase):
         self.fails("touches", "lib/menu.py", gaming=False)
 
 
+class TheStackedAttempt(AttemptCase):
+    """A dependent is built on its dependency's branch, and judged on its own changes only."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.options["stacked_on"] = "7"
+
+    def stack(self) -> str:
+        """Another piece's branch with a file outside this piece's touches, merged in first."""
+        git(self.root, "checkout", "-q", "-b", "piece-7", "main")
+        (self.root / "billing").mkdir()
+        (self.root / "billing" / "charge.py").write_text("X = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "The dependency")
+        git(self.root, "checkout", "-q", ready.branch_name(1))
+        git(self.root, "merge", "-q", "--no-ff", "-m", "Stack on piece 7", "piece-7")
+        stacked: str = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "checkout", "-q", "main")
+        return stacked
+
+    def test_the_dependency_changes_count_against_the_touches_without_the_option(self) -> None:
+        self.stack()
+        self.honest()
+        self.fails("touches", "billing/charge.py", gaming=False)
+
+    def test_the_stack_base_leaves_the_dependency_out_of_the_diff(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        self.passes()
+
+    def test_the_frozen_bar_is_still_read_from_the_judge_commit(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest(files={"tests/test_old.py": "def test_old():\n    assert True\n"})
+        self.fails("frozen-bar", gaming=True)
+
+    def test_an_own_change_outside_the_touches_still_fails_under_the_stack_base(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest(files={"billing/other.py": "Y = 2\n"})
+        self.fails("touches", "billing/other.py", gaming=False)
+
+    def test_a_stack_base_that_is_not_a_stacking_merge_is_a_refusal_and_counts_nothing(
+            self) -> None:
+        self.stack()
+        self.honest()
+        self.options["stack_base"] = git(self.root, "rev-parse", ready.branch_name(1))
+        self.refuses("stack")
+
+    def test_a_stack_base_that_is_not_on_the_branch_is_a_refusal(self) -> None:
+        self.stack()
+        self.honest()
+        self.options["stack_base"] = git(self.root, "rev-parse", "main")
+        self.refuses("stack")
+
+    def test_a_fake_stacking_merge_after_the_pieces_own_commit_is_a_refusal(self) -> None:
+        """The piece's own bar change, test edit and outside file hide before the merge."""
+        self.honest(files={"tests/test_old.py": "def test_old():\n    assert True\n",
+                           "billing/evil.py": "X = 1\n"})
+        self.options["stack_base"] = self.stack()
+        result = self.judge_attempt()
+        self.assertFalse(result.ok)
+        self.assertNotIn("attempt", result.data, "a refusal of the gate's own")
+        self.assertIn("stack", " ".join(result.failures))
+        self.assertTrue(result.next_command)
+
+    def test_a_stack_base_without_the_dependencies_the_run_recorded_is_a_refusal(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        del self.options["stacked_on"]
+        self.refuses("stack")
+
+    def test_a_merge_of_a_branch_that_is_not_a_recorded_dependency_is_a_refusal(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        self.options["stacked_on"] = "9"
+        self.refuses("stack")
+
+    def test_a_merge_of_a_dependency_commit_that_is_not_its_tip_is_a_refusal(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        git(self.root, "checkout", "-q", "piece-7")
+        (self.root / "billing" / "more.py").write_text("Z = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "A later change on the dependency")
+        git(self.root, "checkout", "-q", "main")
+        self.refuses("stack")
+
+    def move_dependency(self) -> None:
+        """The dependency gets a new commit after the dependent was stacked on it."""
+        git(self.root, "checkout", "-q", "piece-7")
+        (self.root / "billing" / "more.py").write_text("Z = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "A later change on the dependency")
+        git(self.root, "checkout", "-q", "main")
+
+    def test_a_dependency_that_moved_gives_the_piece_back_and_names_the_dependency(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        self.move_dependency()
+        result = self.refuses("does not merge the tip")
+        self.assertIn("move 1 ready", result.next_command)
+        self.assertIn("piece-7 moved after this piece was stacked on it", result.next_command)
+
+    def test_an_own_commit_before_a_new_stacking_merge_gives_the_piece_back(self) -> None:
+        self.stack()
+        self.honest()
+        self.move_dependency()
+        git(self.root, "checkout", "-q", ready.branch_name(1))
+        git(self.root, "merge", "-q", "--no-ff", "-m", "Stack on piece 7", "piece-7")
+        self.options["stack_base"] = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "checkout", "-q", "main")
+        result = self.refuses("comes before the stacking merge")
+        self.assertIn("move 1 ready", result.next_command)
+        self.assertIn("piece-7 moved after this piece was stacked on it", result.next_command)
+
+
 class TheDependencies(AttemptCase):
     LOCK_BEFORE = '{"packages": {}}\n'
     LOCK_AFTER = '{"packages": {"node_modules/left-pad": {"version": "1.3.0"}}}\n'
