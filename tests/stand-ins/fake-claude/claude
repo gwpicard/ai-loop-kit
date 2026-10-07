@@ -15,6 +15,11 @@ a JSON file with four optional parts:
 A script may also hold these, which a run test uses:
 
   sleep      seconds to wait before anything else; a stop signal ends the wait
+  output     texts that tools print while the builder works, one tool result each, flushed one by
+             one before the result (a run that reads them sees a stuck builder as it happens)
+  usage_limit_in  seconds from now at which a usage limit resets; the result is then an error
+             that holds the limit message and that time, as `claude -p` reports it
+  sleep_after  seconds to wait after the output and before the result
   cost_usd   the cost to report as total_cost_usd, in the shape of `claude -p` output
   exit_code  the exit code to end with, after the rest of the script ran
   sequence   a list of scripts; the Nth session in the same folder replays the Nth one
@@ -27,8 +32,10 @@ chosen by the name of the folder the session runs in (a piece's worktree is `<n>
 
 It writes one JSON line for each call to FAKE_CLAUDE_LOG (the arguments, the
 folder, the names of the environment variables, never their values, and whether
-a script was set), and prints a result in the shape of
-`claude -p --output-format json`.
+a script was set). With `--output-format stream-json` (what the loop asks for) it prints what the
+real tool prints: a system line, then an assistant line and a tool-result line for each step, then
+one line of type "result". With any other format it prints that result line alone, as
+`claude -p --output-format json` does.
 
 It refuses, with exit code 3, a script that writes outside the project, and,
 with exit code 2, a call that has no script. It does not enforce the sandbox.
@@ -142,6 +149,19 @@ def choose(script: dict[str, Any], path: str) -> dict[str, Any]:
     return chosen
 
 
+def emit(event: dict[str, Any]) -> None:
+    print(json.dumps(event), flush=True)
+
+
+def step(number: int, text: str) -> None:
+    """One tool call of the builder and the result the tool printed, as the real tool writes it."""
+    use = f"toolu_{number}"
+    emit({"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": use, "name": "Bash", "input": {"command": "run the tests"}}]}})
+    emit({"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": use, "content": text, "is_error": True}]}})
+
+
 def main() -> int:
     argv = sys.argv[1:]
     if argv == ["--version"]:
@@ -170,6 +190,19 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         sys.stderr.write(f"claude (stand-in): git failed: {exc.stderr.decode(errors='replace')}\n")
         return 1
+    stream = "stream-json" in argv
+    if stream:
+        emit({"type": "system", "subtype": "init", "session_id": "stand-in-session"})
+    for number, line in enumerate(script.get("output", []), start=1):
+        if stream:
+            step(number, line)
+        else:
+            print(line, flush=True)
+    if script.get("sleep_after"):
+        time.sleep(float(script["sleep_after"]))
+    if stream:
+        emit({"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "text", "text": "; ".join(done) or "nothing to do"}]}})
     result: dict[str, Any] = {
         "type": "result",
         "subtype": "success",
@@ -177,6 +210,13 @@ def main() -> int:
         "result": "; ".join(done) or "nothing to do",
         "session_id": "stand-in-session",
     }
+    if "usage_limit_in" in script:
+        # What `claude -p --output-format json` reports at a usage limit: an error result that
+        # holds the message and the time the limit resets.
+        reset = int(time.time() + float(script["usage_limit_in"]))
+        result["is_error"] = True
+        result["subtype"] = "error_during_execution"
+        result["result"] = f"Claude AI usage limit reached|{reset}"
     if "cost_usd" in script:
         result["total_cost_usd"] = script["cost_usd"]
         result["usage"] = {"input_tokens": 100, "output_tokens": 50}

@@ -155,6 +155,23 @@ class UnreadableCostTest(EngineTestCase):
         self.make()._spend(1, self.result(None), None)
         self.assertEqual(self.rec.spend_piece(1), 0.0)
 
+    def test_the_cost_in_the_last_line_of_a_stream_is_read(self) -> None:
+        stream = "\n".join([
+            json.dumps({"type": "assistant", "message": {"content": []}}),
+            json.dumps({"type": "result", "is_error": False, "total_cost_usd": 0.4,
+                        "usage": {"input_tokens": 7}})])
+        result = sessions.Result(exit_code=0, stdout=stream, stderr="",
+                                 output=sessions.parse_output(stream), handoff=None)
+        self.make(cap_piece=2.0)._spend(1, result, 1.9)
+        self.assertAlmostEqual(self.rec.spend_piece(1), 0.4)
+
+    def test_a_stream_with_no_result_line_counts_the_budget(self) -> None:
+        stream = json.dumps({"type": "assistant", "message": {"content": []}})
+        result = sessions.Result(exit_code=1, stdout=stream, stderr="",
+                                 output=sessions.parse_output(stream), handoff=None)
+        self.make(cap_piece=2.0)._spend(1, result, 1.9)
+        self.assertAlmostEqual(self.rec.spend_piece(1), 1.9)
+
 
 class TemplateWriterTest(EngineTestCase):
     def allowlist(self, text: str) -> None:

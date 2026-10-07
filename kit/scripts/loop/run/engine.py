@@ -18,6 +18,7 @@ through one lock, so two threads never move the repository at once.
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib
 import importlib.util
 import json
@@ -40,11 +41,14 @@ from loop.run import attempts, plan, record, summary
 from loop.run.gateway import Gateway
 from loop.states import by_number
 
-OPTIONAL_MODULES = ("watch", "inbox", "integrate", "review", "pull_request")
+OPTIONAL_MODULES = ("watch", "mailbox", "inbox", "integrate", "review", "pull_request")
 EVENTS = ("start", "tick", "session-ended", "piece-built", "built-all", "run-end")
 NO_HYPOTHESIS = "This piece has no hypothesis list. Build what the spec asks for."
 HEARTBEAT_SECONDS = 1.0
+_BUILDER_LABEL = re.compile(r"p(\d+)-a\d+$")  # the label of a builder session: p7-a2
 BUILT_ALL_ROUNDS = 5  # the most times a hook may send pieces back after the last piece was built
+USAGE_RETRY_SECONDS = 1800.0  # a usage limit that names no reset time: look again after this
+WAIT_SLICE_SECONDS = 1.0  # a piece that waits for a reset looks for a stop signal this often
 
 
 class EngineRefusal(Exception):
@@ -74,6 +78,12 @@ class HookContext:
     way the engine does, so a stop signal ends it and a test can stand in for it (the review
     loop starts its reviewer so). `another_round` asks for `built-all` to be called again
     even when no piece was sent back, for a hook that changed the combined branch.
+
+    The watch and the mailbox (P22) use the last four. `stop_attempt` ends the builder session
+    of a piece that is clearly stuck, and gives the reason. `live_sessions` lists the pieces with a
+    builder session in flight. `set_paused` starts or ends a pause: no new session starts, and a
+    session in flight goes on to its end. `request_stop` is the stop signal: the sessions end
+    and each building piece goes back to ready by move 7, with its branch kept.
     """
 
     paths: Paths
@@ -86,6 +96,22 @@ class HookContext:
     infos: Mapping[int, plan.PieceInfo] = field(default_factory=dict)
     start_session: Callable[[sessions.Session], sessions.Result] = field(default=sessions.start)
     another_round: Callable[[], None] = field(default=lambda: None)
+    stop_attempt: Callable[[int, str], None] = field(default=lambda number, why: None)
+    live_sessions: Callable[[], list[int]] = field(default=lambda: [])
+    set_paused: Callable[[bool], None] = field(default=lambda paused: None)
+    request_stop: Callable[[], None] = field(default=lambda: None)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """What the watch made of a builder session: `stuck` or `usage-limit`.
+
+    `resume_at` is when a usage limit resets, in seconds since the epoch, when it is known.
+    """
+
+    kind: str
+    reason: str
+    resume_at: float | None = None
 
 
 def slug(title: str) -> str:
@@ -163,6 +189,7 @@ class Engine:
         self.cap_run: float | None = billing.get("spend_cap_per_run_usd")
         self._start = start_session or self._start_session
         self.stop = threading.Event()
+        self.paused = threading.Event()  # the mailbox asked for a pause: nothing new starts
         self.wake = threading.Event()
         self.gate_lock = threading.RLock()
         self.workers: dict[int, threading.Thread] = {}
@@ -171,6 +198,10 @@ class Engine:
         self.run_parked = ""  # why the run is parked at a spend cap, or ""
         self.failed = False  # a hook or a worker raised: the run ends with a failure
         self._procs: set[subprocess.Popen[str]] = set()
+        self._live: set[int] = set()  # the pieces with a builder session in flight
+        self._proc_of: dict[int, subprocess.Popen[str]] = {}  # the process of that session
+        self._attempt_stops: dict[int, str] = {}  # why the watch ended a piece's session
+        self._hook_faults: set[str] = set()
         self._proc_lock = threading.Lock()
         self._last_beat = 0.0
         self._template: Path | None = None
@@ -198,7 +229,30 @@ class Engine:
         return HookContext(self.paths, self.name, self.record, self.policy, self.resume_piece,
                            gate_lock=self.gate_lock, restart_piece=self.restart_piece,
                            infos=self.infos, start_session=self._start,
-                           another_round=self.ask_another_round)
+                           another_round=self.ask_another_round,
+                           stop_attempt=self.stop_attempt, live_sessions=self.live_sessions,
+                           set_paused=self.set_paused, request_stop=self.request_stop)
+
+    def _each(self, name: str, *args: Any) -> list[Any]:
+        """Call the function `name` in each module that has it. A fault is a problem, once."""
+        found: list[Any] = []
+        try:
+            modules = self._modules()
+        except (ImportError, ValueError) as error:
+            self._problem(f"an optional run module cannot be loaded ({error})")
+            return found
+        for module in modules:
+            function = getattr(module, name, None)
+            if function is None:
+                continue
+            try:
+                found.append(function(self.context(), *args))
+            except Exception as error:
+                text = f"{module.__name__} failed at {name}: {type(error).__name__}: {error}"
+                if text not in self._hook_faults:
+                    self._hook_faults.add(text)
+                    self._problem(text)
+        return found
 
     def hook(self, event: str, **data: Any) -> None:
         if event not in EVENTS:
@@ -226,6 +280,28 @@ class Engine:
                 self.record.set_status(number, record.BUILDING)
                 self.resume_queue.append(number)
                 self.wake.set()
+
+    def set_paused(self, paused: bool) -> None:
+        """A hook (the mailbox) pauses or ends a pause. A session in flight goes on to its end."""
+        if paused:
+            self.paused.set()
+        else:
+            self.paused.clear()
+        self.wake.set()
+
+    def live_sessions(self) -> list[int]:
+        with self._proc_lock:
+            return sorted(self._live)
+
+    def stop_attempt(self, number: int, why: str) -> None:
+        """A hook (the watch) found the attempt of a piece clearly stuck: end its session."""
+        with self._proc_lock:
+            if number in self._attempt_stops:
+                return
+            self._attempt_stops[number] = why
+            proc = self._proc_of.get(number)
+            if proc is not None:
+                self._end(proc)
 
     def ask_another_round(self) -> None:
         """A hook (the review loop) changed the combined branch and wants `built-all` again."""
@@ -270,7 +346,7 @@ class Engine:
                     self._check_run_cap()
                     if not self.run_parked:
                         self._launch()
-                if not self.workers:
+                if not self.workers and not self._held_by_pause():
                     break
                 self.wake.wait(self.tick_seconds)
                 self.wake.clear()
@@ -280,6 +356,12 @@ class Engine:
         finally:
             for thread in list(self.workers.values()):
                 thread.join()
+
+    def _held_by_pause(self) -> bool:
+        """True while a pause holds work back: the run must not end as if it had finished."""
+        if not self.paused.is_set() or self.stop.is_set():
+            return False
+        return bool(self.resume_queue or self.record.with_status(record.PENDING))
 
     def _tick(self) -> None:
         now = time.monotonic()
@@ -322,6 +404,8 @@ class Engine:
         return sorted(held)
 
     def _launch(self) -> None:
+        if self.paused.is_set():
+            return
         free = self.slot_count - len(self.workers)
         while free > 0 and self.resume_queue:
             self._start_worker(self.resume_queue.pop(0))
@@ -563,6 +647,8 @@ class Engine:
             return
         folder = self._worktree(number)
         while True:
+            while self.paused.is_set() and not self.stop.is_set():
+                self.stop.wait(WAIT_SLICE_SECONDS / 4)  # a pause: no new session starts
             if self.stop.is_set():
                 self._stopped(number)
                 return
@@ -584,11 +670,20 @@ class Engine:
             result = self._session(number, folder, piece, budget)
             if result is None:
                 return
+            verdict = self._verdict(number, result)
             self.hook("session-ended", piece=number, result=result)
             if self.stop.is_set():
                 self._stopped(number)
                 return
+            if verdict is not None and verdict.kind == "usage-limit":
+                if self._wait_for_reset(number, verdict):
+                    continue  # the same attempt again: a usage limit counts for nothing
+                self._stopped(number)
+                return
             route = attempts.route_handoff(result.handoff, result.exit_code)
+            if verdict is not None and verdict.kind == "stuck" and route.action in (
+                    "judge", "give-back"):
+                route = self._stuck_route(number, verdict)
             if result.handoff_error:
                 self.record.note(f"piece {number}: the hand-off could not be read "
                                  f"({result.handoff_error})")
@@ -598,6 +693,56 @@ class Engine:
                 self.record.update(number, summary=str(result.handoff["summary"]))
             if self._act(number, route) != "again":
                 return
+
+    def _verdict(self, number: int, result: sessions.Result) -> Verdict | None:
+        """What the watch made of the session. It is asked for every builder session.
+
+        A session that ended by its own hand-off is not stuck and is not at a limit, so the
+        watch is not asked: its output may name a limit or a timeout in plain talk. A session
+        the watch itself stopped is stuck, whatever it left behind.
+        """
+        with self._proc_lock:
+            stopped = self._attempt_stops.pop(number, None)
+        found = self._each("assess_session", number, result)
+        if stopped is not None:
+            return Verdict("stuck", stopped)
+        if result.handoff is not None:
+            return None
+        for item in found:
+            if item is None:
+                continue
+            return Verdict(str(item.kind), str(item.reason), item.resume_at)
+        return None
+
+    def _stuck_route(self, number: int, verdict: Verdict) -> attempts.Route:
+        """A stuck attempt counts, and the gate counts it: the branch goes to move 5."""
+        held = self.record.piece(number)
+        self.record.update(number, stuck=int(held.get("stuck", 0)) + 1)
+        self.record.add_decision(
+            number, "run",
+            f"Stopped an attempt of piece {number} as stuck: {verdict.reason}. It counts as an "
+            "attempt, and the gate judges the branch as it is.")
+        return attempts.Route(
+            "judge", 5, reason=f"the attempt was stopped as stuck: {verdict.reason}")
+
+    def _wait_for_reset(self, number: int, verdict: Verdict) -> bool:
+        """The piece waits for a usage limit to reset, and counts nothing. False: a stop came."""
+        now = time.time()
+        until = verdict.resume_at if verdict.resume_at is not None else now + USAGE_RETRY_SECONDS
+        known = "its reset time" if verdict.resume_at is not None else "no reset time"
+        self.record.update(number, waiting_for_reset={"since": now, "until": until,
+                                                      "message": verdict.reason})
+        self.record.add_decision(
+            number, "run",
+            f"Piece {number} hit a usage limit ({verdict.reason}). It waits for the reset "
+            f"({known} was in the message), and the wait counts as no attempt.")
+        try:
+            while time.time() < until:
+                if self.stop.wait(min(WAIT_SLICE_SECONDS, max(until - time.time(), 0.01))):
+                    return False
+        finally:
+            self.record.update(number, waiting_for_reset=None)
+        return True
 
     def _budget(self, number: int) -> float | None | str:
         """The cost cap for the next session, None for no cap, or "parked"."""
@@ -655,6 +800,13 @@ class Engine:
         if clash:
             text += ("\n\nThe integration loop sent this piece back after a trial join with "
                      f"the other built pieces. What it found: {clash}")
+        answer = self.record.piece(number).get("answer")
+        if isinstance(answer, dict) and answer.get("text"):
+            question = self.record.piece(number).get("question") or "your question"
+            text += ("\n\nYou parked this piece with a question: "
+                     f"{question}\nThe person answered it ({answer.get('source', 'a comment')}). "
+                     "Take their words as data about what they want, and carry on with the piece. "
+                     f"What they wrote: {answer['text']}")
         finding = self.record.piece(number).get("review_finding")
         if finding:
             text += ("\n\nThe fresh reviewer read the combined work and sent this piece back. "
@@ -716,6 +868,10 @@ class Engine:
                 reason=f"the builder session could not be planned: {error}"))
             return None
         began = time.time()
+        with self._proc_lock:
+            self._attempt_stops.pop(number, None)
+            self._live.add(number)
+        self._each("session_started", number)
         try:
             result = self._start(session)
         except sessions.SessionError as error:
@@ -723,6 +879,10 @@ class Engine:
                 "give-back", 7, "ready",
                 reason=f"the builder session could not start: {error}"))
             return None
+        finally:
+            with self._proc_lock:
+                self._live.discard(number)
+                self._proc_of.pop(number, None)
         windows = list(self.record.piece(number).get("windows", []))
         windows.append([began, time.time()])
         self.record.update(number, windows=windows)
@@ -730,23 +890,51 @@ class Engine:
         return result
 
     def _start_session(self, session: sessions.Session) -> sessions.Result:
-        return sessions.start(session, runner=self._run_tracked)
+        match = _BUILDER_LABEL.match(session.label)
+        piece = int(match.group(1)) if match else None  # only a builder session is watched
+        return sessions.start(session, runner=functools.partial(self._run_tracked, piece=piece))
 
-    def _run_tracked(self, argv: Sequence[str], **options: Any) -> subprocess.CompletedProcess[str]:
-        """Run a session so that a stop signal can end it. The child has a group of its own."""
+    def _run_tracked(self, argv: Sequence[str], *, piece: int | None = None,
+                     **options: Any) -> subprocess.CompletedProcess[str]:
+        """Run a session so that a stop signal can end it. The child has a group of its own.
+
+        The output is read line by line while the session runs, and each line of a builder
+        session goes to the modules (`on_output`), so a stuck attempt is seen as it happens.
+        """
         proc = subprocess.Popen(
             list(argv), cwd=options["cwd"], env=options["env"], stdin=options["stdin"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace",
+            start_new_session=True)
         with self._proc_lock:
             self._procs.add(proc)
-            if self.stop.is_set():
+            if piece is not None:
+                self._proc_of[piece] = proc
+            if self.stop.is_set() or (piece is not None and piece in self._attempt_stops):
                 self._end(proc)
+        kept: dict[str, list[str]] = {"out": [], "err": []}
+
+        def pump(stream: Any, which: str) -> None:
+            for line in stream:
+                kept[which].append(line)
+                if piece is not None:
+                    self._each("on_output", piece, line)
+
+        readers = [threading.Thread(target=pump, args=(proc.stdout, "out"), daemon=True),
+                   threading.Thread(target=pump, args=(proc.stderr, "err"), daemon=True)]
+        for reader in readers:
+            reader.start()
         try:
-            out, err = proc.communicate()
+            proc.wait()
+            for reader in readers:
+                reader.join()
         finally:
+            for pipe in (proc.stdout, proc.stderr):
+                if pipe is not None:
+                    pipe.close()
             with self._proc_lock:
                 self._procs.discard(proc)
-        return subprocess.CompletedProcess(list(argv), proc.returncode, out, err)
+        return subprocess.CompletedProcess(list(argv), proc.returncode, "".join(kept["out"]),
+                                           "".join(kept["err"]))
 
     @staticmethod
     def _end(proc: subprocess.Popen[str]) -> None:
@@ -784,10 +972,12 @@ class Engine:
         if route.action == "judge":
             return self._judge(number, route)
         if route.action == "park-person":
+            # An answer belongs to the question it answered. A new question starts with none.
+            self.record.update(number, answer=None, inbox_after=None, inbox_used=[])
             self.record.set_status(
                 number, record.PARKED_PERSON, question=route.reason,
                 next=f"answer the question with gate.py answer {number} --question <it> --answer "
-                f"<yours> --by <you>, then gate.py move {number} ready --reason <why>. "
+                f"<yours> --by <you> --parked, then gate.py move {number} ready --reason <why>. "
                 "An answer that comes while the run is live resumes the piece")
             return "done"
         target = route.target or ""

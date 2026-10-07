@@ -441,9 +441,9 @@ review = [c for c in calls if "/review-rev-a-main-r" in c["cwd"]]
 assert len(review) == 2, [c["cwd"] for c in calls]
 for call in review:
     argv = call["argv"]
-    assert argv[:2] == ["-p", "--settings"] and len(argv) == 9, argv
-    assert argv[3:] == ["--permission-mode", "dontAsk", "--output-format", "json",
-                        "--permission-prompts", "none"], argv
+    assert argv[:2] == ["-p", "--settings"] and len(argv) == 10, argv
+    assert argv[3:] == ["--permission-mode", "dontAsk", "--output-format",
+                        "stream-json", "--verbose", "--permission-prompts", "none"], argv
     bad = [k for k in call["env_keys"] if k.startswith(("GH_", "GITHUB_"))]
     assert not bad, bad
     assert "AI_LOOP_KIT_FINDINGS_FILE" in call["env_keys"], call["env_keys"]

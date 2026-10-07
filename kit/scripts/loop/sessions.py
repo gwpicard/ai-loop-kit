@@ -100,8 +100,11 @@ def build_command(settings_file: Path, *, max_budget_usd: float | None = None) -
         str(settings_file),
         "--permission-mode",
         "dontAsk",
+        # One JSON line for each step, as the session works, so a run can watch it. The result
+        # is the last line of type "result". `stream-json` needs `--verbose` in print mode.
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
         # Nobody can answer a prompt in an unattended run, so it is a denial.
         "--permission-prompts",
         "none",
@@ -519,6 +522,32 @@ def _move_aside(path: Path) -> Path | None:
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
+def parse_output(stdout: str) -> dict[str, Any] | None:
+    """The result of a session: the last `type: result` line of its stream, or None.
+
+    One JSON object that is not a stream (the older `--output-format json`, or a stand-in) is
+    taken as the result itself. Every reader of a session's cost, usage or result text reads this
+    one dictionary.
+    """
+    for line in reversed(stdout.splitlines()):
+        text = line.strip()
+        if not text.startswith("{"):
+            continue
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict) and parsed.get("type") == "result":
+            return parsed
+    try:
+        whole = json.loads(stdout)
+    except ValueError:
+        return None
+    if isinstance(whole, dict) and whole.get("type", "result") == "result":
+        return whole
+    return None
+
+
 def start(session: Session, *, runner: Runner = subprocess.run) -> Result:
     """Run the session and wait for it. The brief file is its input.
 
@@ -543,13 +572,7 @@ def start(session: Session, *, runner: Runner = subprocess.run) -> Result:
             f"{CLAUDE} is not on the PATH: {exc}",
             next_command="install Claude Code, then start the session again",
         ) from exc
-    output: dict[str, Any] | None = None
-    try:
-        parsed = json.loads(done.stdout)
-        if isinstance(parsed, dict):
-            output = parsed
-    except ValueError:
-        output = None
+    output = parse_output(done.stdout)
     handoff: dict[str, Any] | None = None
     problem = ""
     try:

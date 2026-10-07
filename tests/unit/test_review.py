@@ -209,7 +209,8 @@ class TheReviewersSession(unittest.TestCase):
         self.assertEqual(
             session.command,
             ["claude", "-p", "--settings", str(session.settings_file), "--permission-mode",
-             "dontAsk", "--output-format", "json", "--permission-prompts", "none"])
+             "dontAsk", "--output-format", "stream-json", "--verbose", "--permission-prompts",
+             "none"])
         names = " ".join(session.env)
         for word in ("GH_", "GITHUB_", "ASKPASS", "SSH_AUTH"):
             self.assertNotIn(word, names)
