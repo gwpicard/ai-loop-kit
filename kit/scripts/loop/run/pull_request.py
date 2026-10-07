@@ -60,7 +60,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 if __package__ in (None, ""):  # run by path: put the kit's scripts folder on the path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -78,6 +78,18 @@ TITLE_LIMIT = 120
 NOTE_LIMIT = 400
 REASON_LIMIT = 900
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")  # who may send a piece back by a comment
+
+class Api(Protocol):
+    """The pull request calls this step makes. `loop.pulls.Pulls` is the real one."""
+
+    def create(self, *, base: str, head: str, title: str, body: str) -> tuple[int, str]: ...
+
+    def view(self, ref: int | str) -> pulls.PullRequest: ...
+
+    def close(self, number: int, comment: str) -> None: ...
+
+    def set_base(self, number: int, base: str) -> None: ...
+
 
 Mover = Callable[[int, str, str | None, Mapping[str, str]], Reply]
 Push = Callable[[str], dict[str, Any]]
@@ -284,7 +296,7 @@ class PullRequests:
         policy: Mapping[str, Any],
         loop: Any,
         *,
-        api: pulls.Pulls | None = None,
+        api: Api | None = None,
         mover: Mover | None = None,
         push: Push | None = None,
         app: bool | None = None,
@@ -298,7 +310,7 @@ class PullRequests:
         self.loop = loop
         self.hub = github.GitHub(paths)
         self.app = self.hub.available if app is None else app
-        self.api = api if api is not None else pulls.Pulls(self.hub)
+        self.api: Api = api if api is not None else pulls.Pulls(self.hub)
         self.mover: Mover = mover or self._default_mover
         self.push: Push = push or self._default_push
         self.gate_lock = gate_lock if gate_lock is not None else contextlib.nullcontext()

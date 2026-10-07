@@ -6,14 +6,16 @@ here, so this file passes the house rule that no tracked file cites a number by 
 two or more digits.
 """
 
+import dataclasses
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -23,11 +25,14 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_moves  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
-from loop import closing, github, moves, pulls  # noqa: E402
+from loop import closing, github, moves, pulls, spec  # noqa: E402
 from loop.gates import merge as merge_gate  # noqa: E402
 from loop.gates import recheck as recheck_gate  # noqa: E402
 from loop.gates import review as review_gate  # noqa: E402
+from loop.run import integrate  # noqa: E402
 from loop.run import pull_request as pr_loop  # noqa: E402
+from loop.run import record as run_record  # noqa: E402
+from loop.run.gateway import Reply  # noqa: E402
 
 
 class TheClosingWords(unittest.TestCase):
@@ -1135,6 +1140,305 @@ class TheBody(unittest.TestCase):
         self.assertLessEqual(len(title), 120)
         self.assertEqual(closing.scan(title=title, body="", commits=[], changelog=[], pieces=[]),
                          [])
+
+
+class PullPulls(FakePulls):
+    """The pull request calls with a state of their own: numbers, heads, comments, closing."""
+
+    def __init__(self, repo: Repo) -> None:
+        super().__init__()
+        self.repo = repo
+        self.next_number = 7
+        self.created: list[dict[str, str]] = []
+        self.closed: list[tuple[int, str]] = []
+        self.bases: list[tuple[int, str]] = []
+        self.fail_create = False
+
+    def create(self, *, base: str, head: str, title: str, body: str) -> tuple[int, str]:
+        if self.fail_create:
+            raise github.GitHubError("GitHub did not answer", next_command="try again")
+        number = self.next_number
+        self.next_number += 1
+        self.created.append({"base": base, "head": head, "title": title, "body": body})
+        self.view_of[number] = pulls.PullRequest(
+            number=number, url=f"https://github.com/o/r/pull/{number}", state="OPEN",
+            title=title, body=body, head_branch=head,
+            head_oid=self.repo.git("rev-parse", f"refs/heads/{head}"), base=base)
+        return number, self.view_of[number].url
+
+    def close(self, number: int, comment: str) -> None:
+        self.closed.append((number, comment))
+        self.view_of[number] = dataclasses.replace(self.view_of[number], state="CLOSED")
+
+    def set_base(self, number: int, base: str) -> None:
+        self.bases.append((number, base))
+        self.view_of[number] = dataclasses.replace(self.view_of[number], base=base)
+
+    def say(self, number: int, text: str, *, author: str = "person",
+            association: str = "OWNER") -> None:
+        old = self.view_of[number]
+        comment = pulls.Comment(100 + len(old.comments), author, text, association)
+        self.view_of[number] = dataclasses.replace(old, comments=[*old.comments, comment])
+
+    def merge(self, number: int, *, head_commit: str) -> None:
+        super().merge(number, head_commit=head_commit)
+        self.view_of[number] = dataclasses.replace(self.view_of[number], state="MERGED",
+                                                   merge_commit="c0ffee")
+
+
+class FakeLoop:
+    """What the pull request step asks of the integration loop, read from the real Git."""
+
+    def __init__(self, case: Any) -> None:
+        self.case = case
+        self.left: list[tuple[int, str]] = []
+        self.refreshed: list[tuple[str, str]] = []
+        self.branch = "combined-r1"
+        self._lock = threading.RLock()
+
+    def tracks(self) -> list[str]:
+        return list(self.case.tracks)
+
+    def joined(self, key: str = "main") -> list[int]:
+        return [j.piece for j in pr_loop.joins(self.case.paths.root, self.combined(key))]
+
+    def combined(self, key: str = "main") -> str:
+        return str(self.case.tracks[key])
+
+    def reader(self, number: int) -> integrate.PieceView:
+        piece = self.case.gate.piece(number)
+        parsed = spec.parse(piece.body).to_dict()
+        return integrate.PieceView(
+            number=number, title=piece.title, state=piece.state, issue=piece.issue,
+            individual=piece.individual_review, issue_type="feature", spec=parsed,
+            record=tuple(piece.record), body=piece.body)
+
+    def leave(self, number: int, reason: str) -> Any:
+        self.left.append((number, reason))
+
+    def refresh(self, key: str, reason: str) -> Any:
+        self.refreshed.append((key, reason))
+
+
+class Running(test_moves.Base):  # type: ignore[misc, unused-ignore]
+    """Pieces in review, joined on a combined branch, with the pull request step on top."""
+
+    run_name = "r1"
+    app = True
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.gate.loader = GateWith(self.loader)
+        self.repo = Repo(self.paths.root)
+        self.tracks = {"main": "combined-r1"}
+        self.pulls = PullPulls(self.repo)
+        self.pushed: list[str] = []
+        self.moves_made: list[tuple[int, str, str | None, dict[str, str]]] = []
+        for patch in (mock.patch.object(merge_gate, "make_pulls", lambda paths: self.pulls),
+                      mock.patch.object(merge_gate, "fetch_main", lambda paths: None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.numbers: list[int] = []
+
+    def build(self, sizes: Sequence[int], *, track: str = "main", branch: str = "combined-r1"
+              ) -> list[int]:
+        r = self.repo
+        numbers: list[int] = []
+        for size in sizes:
+            number = self.capture()
+            self.walk(number, "review")
+            numbers.append(number)
+            r.branch(f"piece-{number}")
+            r.commit(f"src/piece{number}.txt", "line\n" * size)
+            r.git("checkout", "-q", "main")
+        r.branch(branch, "main")
+        for number in numbers:
+            r.join(f"piece-{number}", number)
+        self.head = r.commit("docs/reports.md", "- the docs (piece 1)\n", "Docs")
+        r.git("checkout", "-q", "main")
+        if track != "main":
+            self.tracks.pop("main", None)
+        self.tracks[track] = branch
+        self.numbers += numbers
+        self.write_run(track, branch, numbers)
+        return numbers
+
+    def write_run(self, track: str, branch: str, numbers: Sequence[int], *,
+                  pre_approved: bool = False) -> None:
+        head = self.repo.git("rev-parse", f"refs/heads/{branch}")
+        target = self.paths.run_record(self.run_name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(target.read_text()) if target.exists() else {
+            "version": 1, "run": self.run_name, "order": [], "pieces": {}, "status": "finished",
+            "merge_pre_approved": pre_approved, "decisions": [], "notes": [], "problems": [],
+            "integration": {"final": {}, "worth_knowing": []},
+            "review": {"tracks": {}, "verdicts": {}}}
+        data["merge_pre_approved"] = pre_approved or data["merge_pre_approved"]
+        data["order"] = sorted({*data["order"], *numbers})
+        for n in numbers:
+            data["pieces"][str(n)] = {"status": "built"}
+            data["review"]["verdicts"][str(n)] = {"verdict": "clean", "round": 1, "notes": [],
+                                                  "findings": []}
+        data["integration"]["final"][track] = {
+            "status": "green", "head": head, "branch": branch, "checked": {"checks": 4,
+                                                                           "held_out": 2}}
+        data["review"]["tracks"][track] = {"status": "clean", "reviewed": head, "rounds": 1}
+        target.write_text(json.dumps(data))
+
+    def mover(self, number: int, target: str, reason: str | None,
+              options: Mapping[str, str]) -> Reply:
+        self.moves_made.append((number, target, reason, dict(options)))
+        try:
+            done = self.gate.move(number, target, reason=reason, options=options)
+        except moves.MoveError as error:
+            return Reply(3, {"ok": False, "error": error.message, "next": error.next_command})
+        return Reply(0, {"ok": True, **done})
+
+    def push(self, branch: str) -> dict[str, Any]:
+        self.pushed.append(branch)
+        return {}
+
+    def step(self, *, limit: int = 800, app: bool = True) -> pr_loop.PullRequests:
+        run = run_record.RunRecord.load(self.paths, self.run_name)
+        self.loop = FakeLoop(self)
+        made = pr_loop.PullRequests(
+            self.paths, self.run_name, run, {"pull_request_size_limit": limit}, self.loop,
+            api=self.pulls, mover=self.mover, push=self.push, app=app)
+        return made
+
+
+class OpeningPullRequests(Running):
+    def test_a_clean_branch_opens_one_pull_request_with_every_piece(self) -> None:
+        numbers = self.build([10, 20])
+        report = self.step().open_all()
+        self.assertEqual(report[0]["status"], "opened")
+        created = self.pulls.created
+        self.assertEqual(len(created), 1)
+        self.assertEqual((created[0]["base"], created[0]["head"]), ("main", "combined-r1"))
+        for number in numbers:
+            self.assertEqual(self.gate.piece(number).state, "approval")
+            self.assertIn(f"Closes #{self.gate.piece(number).issue}", created[0]["body"])
+        self.assertEqual(self.pushed, ["combined-r1"])
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(saved["pull_requests"]["main"]["state"], "open")
+
+    def test_asking_again_opens_nothing_new(self) -> None:
+        self.build([10])
+        self.step().open_all()
+        again = self.step().open_all()
+        self.assertEqual(again[0]["status"], "already")
+        self.assertEqual(len(self.pulls.created), 1)
+
+    def test_the_body_holds_judge_held_out_review_and_notes_beside_each_piece(self) -> None:
+        numbers = self.build([10, 20])
+        data = json.loads(self.paths.run_record(self.run_name).read_text())
+        data["integration"]["worth_knowing"] = [
+            {"text": f"Piece {numbers[0]} also fixes #4 by accident.", "piece": numbers[0],
+             "source": "review"},
+            {"text": "A flaky check was found, and it resolves #5 by itself.", "source": "run"}]
+        data["decisions"] = [{"piece": numbers[1], "by": "builder", "text": "Used a plain file."}]
+        self.paths.run_record(self.run_name).write_text(json.dumps(data))
+        self.step().open_all()
+        body = self.pulls.created[0]["body"]
+        first, second = body.index("### Piece"), body.rindex("### Piece")
+        self.assertIn("also fixes number 4 by accident", body[first:second])
+        self.assertIn("Used a plain file.", body[second:])
+        general = body[body.index("## Worth knowing for the whole"):]
+        self.assertIn("A flaky check was found", general)
+        self.assertIn("Review: clean in round 1", body)
+        self.assertIn("Held-out", body)
+        self.assertEqual(closing.scan(title="T", body=body, commits=[], changelog=[],
+                                      pieces=[self.gate.piece(n).issue for n in numbers]), [])
+
+    def test_a_branch_whose_review_is_not_clean_on_its_head_opens_nothing(self) -> None:
+        self.build([10])
+        data = json.loads(self.paths.run_record(self.run_name).read_text())
+        data["review"]["tracks"]["main"]["status"] = "open"
+        self.paths.run_record(self.run_name).write_text(json.dumps(data))
+        report = self.step().open_all()
+        self.assertEqual(report[0]["status"], "skipped")
+        self.assertEqual(self.pulls.created, [])
+
+    def test_with_no_app_nothing_is_pushed_or_opened_and_the_commands_are_named(self) -> None:
+        numbers = self.build([10])
+        report = self.step(app=False).open_all()
+        self.assertEqual(report[0]["status"], "waiting")
+        self.assertEqual((self.pushed, self.pulls.created), ([], []))
+        command = report[0]["next"]
+        self.assertIn("git push origin combined-r1", command)
+        self.assertIn("gh pr create --base main --head combined-r1", command)
+        self.assertIn("--body-file", command)
+        self.assertIn("in their own terminal", command)
+        body_file = Path(json.loads(self.paths.run_record(self.run_name).read_text())
+                         ["pull_requests"]["main"]["body_file"])
+        self.assertIn("Closes #", body_file.read_text())
+        self.assertEqual(self.gate.piece(numbers[0]).state, "review", "the piece waits")
+        run = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(run["pieces"][str(numbers[0])]["github_next"], command)
+
+    def test_a_pull_request_past_the_size_limit_is_split_into_whole_pieces(self) -> None:
+        numbers = self.build([30, 30, 30])
+        self.step(limit=50).open_all()
+        made = self.pulls.created
+        self.assertGreaterEqual(len(made), 2)
+        held: list[int] = []
+        for item in made:
+            closes = [int(n) for n in re.findall(r"^Closes #(\d+)$", item["body"], re.MULTILINE)]
+            self.assertTrue(closes)
+            self.assertTrue(set(closes).isdisjoint(held), "a piece is in two parts")
+            held += closes
+            self.assertIn("part", item["title"])
+        self.assertEqual(sorted(held), sorted(self.gate.piece(n).issue for n in numbers))
+        self.assertEqual(made[0]["base"], "main")
+        self.assertEqual(made[1]["base"], made[0]["head"], "a part is based on the part before")
+        self.assertEqual(made[-1]["head"], "combined-r1")
+        first = self.repo.git("rev-parse", f"refs/heads/{made[0]['head']}")
+        self.assertEqual(self.repo.git("rev-parse", "refs/heads/combined-r1"), self.head)
+        self.assertNotEqual(first, self.head, "the first part is not the whole branch")
+        self.assertEqual(self.pushed, [i["head"] for i in made])
+
+    def test_an_isolated_track_gives_each_piece_its_own_pull_request_stacked_in_order(self) -> None:
+        numbers = self.build([5, 5], track="piece-1", branch="combined-r1-piece-1")
+        self.step().open_all()
+        made = self.pulls.created
+        self.assertEqual(len(made), 2)
+        self.assertEqual(made[0]["base"], "main")
+        self.assertEqual(made[1]["base"], made[0]["head"])
+        self.assertIn(f"Closes #{self.gate.piece(numbers[0]).issue}", made[0]["body"])
+        self.assertNotIn(f"Closes #{self.gate.piece(numbers[1]).issue}", made[0]["body"])
+
+    def test_a_gate_refusal_closes_what_was_opened_and_stops(self) -> None:
+        self.build([10])
+        self.pulls.view_of.clear()
+        run = json.loads(self.paths.run_record(self.run_name).read_text())
+        run["review"]["verdicts"]["1"]["verdict"] = "needs-work"
+        self.paths.run_record(self.run_name).write_text(json.dumps(run))
+        with self.assertRaises(pr_loop.PullRequestRefusal) as caught:
+            self.step().open_all()
+        self.assertIn("verdict of piece 1", str(caught.exception))
+        self.assertEqual(self.pulls.created, [], "the preflight refuses before anything opens")
+
+    def test_the_gate_refusing_after_the_pull_request_opened_closes_it(self) -> None:
+        self.build([10])
+        step = self.step()
+        real = step.mover
+
+        def refuse(number: int, target: str, reason: str | None, options: Any) -> Reply:
+            return Reply(3, {"ok": False, "error": "no", "next": "gate.py report"})
+
+        step.mover = refuse
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            step.open_all()
+        self.assertEqual(len(self.pulls.closed), 1)
+        self.assertIn("refused move 10", self.pulls.closed[0][1])
+        _ = real
+
+    def test_a_pull_request_that_cannot_be_created_opens_nothing_else(self) -> None:
+        self.build([10])
+        self.pulls.fail_create = True
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            self.step().open_all()
+        self.assertEqual(self.gate.piece(1).state, "review")
 
 
 if __name__ == "__main__":
