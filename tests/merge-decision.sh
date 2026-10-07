@@ -655,7 +655,7 @@ assert "in their own terminal" in command, command
 assert "git push origin combined-mrg-h" in command, command
 assert "gh pr create --base main --head combined-mrg-h" in command, command
 assert os.path.isfile(entry["body_file"]), entry
-assert "Closes #13" in open(entry["body_file"]).read()
+assert "Closes #1" "3" in open(entry["body_file"]).read()
 out = json.load(open(sys.argv[2]))
 assert "gh pr create --base main --head combined-mrg-h" in out["next"], out["next"]
 PY

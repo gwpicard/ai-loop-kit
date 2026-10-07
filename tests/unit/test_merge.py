@@ -1387,6 +1387,15 @@ class OpeningPullRequests(Running):
         self.assertEqual(closing.scan(title="T", body=body, commits=[], changelog=[],
                                       pieces=[self.gate.piece(n).issue for n in numbers]), [])
 
+    def test_a_note_said_twice_by_two_review_rounds_is_in_the_body_once(self) -> None:
+        numbers = self.build([10])
+        data = json.loads(self.paths.run_record(self.run_name).read_text())
+        same = {"text": "Alpha adds a line.", "piece": numbers[0], "source": "review"}
+        data["integration"]["worth_knowing"] = [same, dict(same)]
+        self.paths.run_record(self.run_name).write_text(json.dumps(data))
+        self.step().open_all()
+        self.assertEqual(self.pulls.created[0]["body"].count("Alpha adds a line."), 1)
+
     def test_a_branch_whose_review_is_not_clean_on_its_head_opens_nothing(self) -> None:
         self.build([10])
         data = json.loads(self.paths.run_record(self.run_name).read_text())
