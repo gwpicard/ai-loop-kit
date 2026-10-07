@@ -706,7 +706,7 @@ class TheStackedAttempt(AttemptCase):
         self.options["stack_base"] = self.stack()
         result = self.judge_attempt()
         self.assertFalse(result.ok)
-        self.assertNotIn("attempt", result.data, "a refusal of the gate's own, not a judged attempt")
+        self.assertNotIn("attempt", result.data, "a refusal of the gate's own")
         self.assertIn("stack", " ".join(result.failures))
         self.assertTrue(result.next_command)
 

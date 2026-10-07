@@ -176,7 +176,7 @@ class StackTest(EngineCase):
         self.assertEqual(loop._move_options(1),
                          {"stack_base": "abc123", "stacked_on": "3,4"})
 
-    def stackable(self) -> tuple["engine.RunLoop", Path]:
+    def stackable(self) -> tuple[engine.Engine, Path]:
         infos = [plan.PieceInfo(1, issue=11), plan.PieceInfo(2, issue=12,
                                                             blockers=frozenset({11}))]
         self.piece(1, {"a.txt": "one\n"})
@@ -192,7 +192,7 @@ class StackTest(EngineCase):
         self.assertEqual(held["stacked_on"], [1])
 
     def test_a_stacking_merge_the_builder_made_is_never_taken_as_the_base(self) -> None:
-        """A merge with the right subject, made by the builder, with the piece's own work before it."""
+        """A merge with the right subject, made by the builder, after the piece's own work."""
         loop, folder = self.stackable()
         git(folder, "merge", "-q", "--no-ff", "-m", "Stack on piece 1", "piece-1")
         loop._stack(2, folder)
@@ -214,7 +214,7 @@ class StackTest(EngineCase):
         loop._stack(2, folder)
         recorded = self.rec.piece(2)["stack_base"]
         stranger = git(self.root, "rev-parse", "main")
-        loop.gateway.stack = lambda *_a, **_k: (0, "stacked", stranger)  # type: ignore[method-assign]
+        setattr(loop.gateway, "stack", lambda *_a, **_k: (0, "stacked", stranger))  # noqa: B010
         loop._stack(2, folder)
         self.assertEqual(self.rec.piece(2)["stack_base"], recorded)
 
