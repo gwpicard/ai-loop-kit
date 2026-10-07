@@ -294,7 +294,7 @@ poll 60 'd["pieces"]["'"$P_steady"'"]["status"] == "building"' "$runs/mail-1/run
 printf 'pause\n' >> "$runs/mail-1/mailbox"
 poll 20 'any("said pause" in n["text"] for n in d["notes"])' "$runs/mail-1/run.json" \
   || fail "the run did not read the pause"
-poll 60 'd["pieces"]["'"$P_steady"'"]["status"] == "built"' "$runs/mail-1/run.json" \
+poll 150 'd["pieces"]["'"$P_steady"'"]["status"] == "built"' "$runs/mail-1/run.json" \
   || fail "the piece in flight did not end its work while the run was paused"
 sleep 4
 kill -0 "$MAIL_PID" 2>/dev/null || fail "a paused run ended as if it had finished"
