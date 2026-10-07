@@ -9,10 +9,15 @@ it for the person (told to, or pre-approved before this run). The gate holds bot
 - A pull request that is open is merged by the gate itself, as the App, with
   `gh pr merge --match-head-commit <tested commit>`, and only when every condition holds. The
   merge is the `act` of the move, so a dry run never merges.
-- The person's words name the merge (`--option merge=agent --option said="<their words>"`), or
-  the run was pre-approved: the run record says so, `run.py --merge-pre-approved` wrote it, and
-  every pre-approval condition holds. A pre-approved merge waits for any piece with a must-look
-  reason, anywhere in the run.
+- The person asks for it (`--option merge=agent --option said="<their words>"`), or the run
+  script does for a run that was pre-approved: the run record says so, `run.py
+  --merge-pre-approved` wrote it, and every pre-approval condition holds. A pre-approved merge
+  waits for any piece with a must-look reason, anywhere in the run.
+- Who asks is read by the gate from its own process (`ctx.authority`), never from an option or
+  the words. The person is a call with no agent-session marker and a terminal on standard input
+  and output. The run script is the process that holds the run's lock and hands the gate a
+  `RunMergeAuthority`. An agent session is neither, so it cannot merge, whatever it says. A merge
+  the person made on GitHub is settled by any caller, since nothing is merged then.
 
 Conditions that hold every merge: the pull request's head is the tested commit; the final
 combined check was green on the head of the branch the pull request holds; the review is clean;

@@ -29,10 +29,14 @@ What the hook refuses:
 - `gate.py sync`, which only the person runs, also when reached through a
   variable, `env -u` or a blanked agent-session variable, or `python3 -c` with
   `runpy`;
+- a merge: `gh pr merge`, a write to a pull request's merge endpoint, a GraphQL
+  merge, `python3 -m loop.run.pull_request merge` and `gate.py move <n> done`,
+  with the same hidden spellings refused. The person merges, or a run the
+  person pre-approved does, inside its own process;
 - a read of a real env file, the App key, the held-out folder, the `gh` config
   and the keychain, and `gh auth token`;
 - a write to the guards: the settings, the piece records, the policy file, the
-  workflows, the git hooks and the installed kit.
+  workflows, the git hooks, a run's record and lock, and the installed kit.
 
 What it asks about: a comment or a review posted in the person's name.
 
@@ -1061,11 +1065,11 @@ def _pull_request_text(text: str) -> Decision | None:
     """
     if _GATE_HIDES.search(text) or _HIDES_SESSION.search(text):
         return refuse(MERGE_WHAT, MERGE_NEXT)
-    if re.search(r"\bmerge\b", text) and _INDIRECT_RUN.search(text) and re.search(r"\bpython", text):
+    if not re.search(r"\bpython", text):
+        return None
+    if re.search(r"\bmerge\b", text) and _INDIRECT_RUN.search(text):
         return refuse(MERGE_WHAT, MERGE_NEXT)
-    if re.search(r"\bpython", text) and re.search(
-        r"\b(?:import|from)\b[^;\n]*\bpull_request\b", text
-    ):
+    if re.search(r"\b(?:import|from)\b[^;\n]*\bpull_request\b", text):
         return refuse(MERGE_WHAT, MERGE_NEXT)
     return None
 

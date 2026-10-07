@@ -33,6 +33,7 @@ After the run, this module is also the door for the person and the agent:
 
     python3 -m loop.run.pull_request status  --run NAME
     python3 -m loop.run.pull_request merge   --run NAME --said "<the person's words>"
+        (the person's own terminal only; the gate refuses an agent session)
     python3 -m loop.run.pull_request reject  --run NAME --piece N [--piece N] --reason TEXT
     python3 -m loop.run.pull_request refresh --run NAME
     python3 -m loop.run.pull_request sweep   --run NAME
@@ -909,14 +910,17 @@ class PullRequests:
                 continue
             seen = int(entry.get("seen_comment") or 0)
             fresh = [c for c in pr.comments if c.id > seen and c.association in TRUSTED]
-            top = max((c.id for c in pr.comments), default=seen)
-            self._set(str(entry["key"]), seen_comment=top)
-            for comment in sorted(fresh, key=lambda c: c.id):
-                named = self._named(comment.body, entry) or pieces
-                self.reject(named, comment.body)
-                out["comments"].append({"pull_request": number, "comment": comment.id,
-                                        "pieces": named})
-                break
+            if not fresh:
+                top = max((c.id for c in pr.comments), default=seen)
+                self._set(str(entry["key"]), seen_comment=top)
+                continue
+            # Mark only what was handled: a comment the gate refused is read again next time.
+            comment = min(fresh, key=lambda c: c.id)
+            named = self._named(comment.body, entry) or pieces
+            self.reject(named, comment.body)
+            self._set(str(entry["key"]), seen_comment=comment.id)
+            out["comments"].append({"pull_request": number, "comment": comment.id,
+                                    "pieces": named})
         out["next"] = f"run.py --run {self.name}" if out["closed"] or out["comments"] else (
             "gate.py check-main, to settle the merge and check main" if out["merged"] else "")
         return out

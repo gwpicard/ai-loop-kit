@@ -1435,7 +1435,7 @@ class Running(test_moves.Base):  # type: ignore[misc, unused-ignore]
         self.gate.run_authority = authority
         self.gate.env = self.gate_env
         self.gate.terminal = lambda: not self.gate_env
-        return self.gate
+        return self.gate  # type: ignore[no-any-return, unused-ignore]
 
     def step(self, *, limit: int = 800, app: bool = True) -> pr_loop.PullRequests:
         run = run_record.RunRecord.load(self.paths, self.run_name)
@@ -1896,6 +1896,18 @@ class SweepingPullRequests(Running):
         self.assertEqual(saved["pull_requests"]["main"]["seen_comment"], 100)
         self.assertEqual(self.step().sweep()["comments"], [])
         self.pulls.say(7, f"piece {self.numbers[0]} is wrong")
+        again = self.step().sweep()
+        self.assertEqual(again["comments"][0]["pieces"], [self.numbers[0]])
+
+    def test_a_comment_the_gate_refused_to_act_on_is_read_again_next_time(self) -> None:
+        self.pulls.say(7, f"piece {self.numbers[0]} is wrong")
+        real = self.step_.mover
+        self.step_.mover = lambda *a: Reply(3, {"ok": False, "error": "the gate says no"})
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            self.step_.sweep()
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertLess(int(saved["pull_requests"]["main"].get("seen_comment") or 0), 100)
+        self.step_.mover = real
         again = self.step().sweep()
         self.assertEqual(again["comments"][0]["pieces"], [self.numbers[0]])
 

@@ -253,6 +253,11 @@ gh api --method POST "repos/{owner}/{repo}/issues/7/dependencies/blocked_by" -F 
   >/dev/null || fail "could not link piece 7 as blocked by piece 6"
 ok "thirteen pieces are ready"
 
+# The person's own terminal: standard input and output are a pseudo-terminal, with no agent-session
+# marker. Only that, or the run script's own process, may merge.
+as_person() {
+  python3 "$ROOT/tests/lib/as-person.py" "$@"
+}
 state_of() {
   python3 "$GATE" report "$1" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["pieces"][0]["state"])'
 }
@@ -399,7 +404,7 @@ ok "nothing merged: the person has not said so, and the run was not pre-approved
 # Main moves after the final check: nothing merges (move 12).
 move_main moved-once
 set +e
-python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, merge it." --json \
+as_person python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, merge it." --json \
   > "$TP_BASE/merge-a1.json" 2> "$TP_BASE/merge-a1.err"
 set -e
 python3 - "$TP_BASE/merge-a1.json" <<'PY' || fail "a merge went ahead although main had moved"
@@ -460,8 +465,45 @@ python3 "$RUN" --run mrg-a --json > "$TP_BASE/runa3.json" 2> "$TP_BASE/runa3.err
 [ "$(state_of 1)" = "approval" ] && [ "$(state_of 2)" = "approval" ] || fail "the pieces are not in approval again"
 ok "the rejected piece was built again, and a third pull request holds both pieces"
 
+# An agent session cannot merge by any door, with a terminal or without one, whatever words it
+# gives. The pull request stays open each time.
+PR_OPEN=$(pull 3 'p["state"]')
+[ "$PR_OPEN" = "OPEN" ] || fail "pull request 3 is not open before the agent doors are tried"
+for door in cli gate; do
+  for marker in "CLAUDECODE=1" "CLAUDE_CODE_ENTRYPOINT=cli"; do
+    for terminal in "python3 $ROOT/tests/lib/as-person.py" ""; do
+      set +e
+      if [ "$door" = cli ]; then
+        env "$marker" $terminal python3 -m loop.run.pull_request merge --run mrg-a \
+          --said "Yes, merge the pull request." --json > "$TP_BASE/agent-door.json" 2> "$TP_BASE/agent-door.err"
+      else
+        env "$marker" $terminal python3 "$GATE" move 1 done --option merge=agent \
+          --option said="Yes, merge the pull request." --json > "$TP_BASE/agent-door.json" 2> "$TP_BASE/agent-door.err"
+      fi
+      set -e
+      [ "$(pull 3 'p["state"]')" = "OPEN" ] || fail "an agent session merged by the $door door ($marker, terminal: ${terminal:-none})"
+      grep -q "only the person" "$TP_BASE/agent-door.json" "$TP_BASE/agent-door.err" \
+        || fail "the $door door did not say that only the person merges ($marker, terminal: ${terminal:-none})"
+    done
+  done
+done
+# No agent marker and no terminal is no person either: a pipe, a hook or a script.
+set +e
+python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, merge the pull request." --json \
+  > "$TP_BASE/agent-door.json" 2> "$TP_BASE/agent-door.err"
+python3 "$GATE" move 1 done --option merge=agent --option said="Yes, merge the pull request." --json \
+  > "$TP_BASE/agent-door2.json" 2> "$TP_BASE/agent-door2.err"
+python3 "$GATE" move 1 done --option merge=pre-approved --json \
+  > "$TP_BASE/agent-door3.json" 2> "$TP_BASE/agent-door3.err"
+set -e
+[ "$(pull 3 'p["state"]')" = "OPEN" ] || fail "a call with no terminal merged"
+grep -q "only the person" "$TP_BASE/agent-door.json" || fail "the pull request script did not refuse a call with no terminal"
+grep -q "only the person" "$TP_BASE/agent-door2.json" "$TP_BASE/agent-door2.err" || fail "gate.py move done did not refuse a call with no terminal"
+grep -q "only the run script" "$TP_BASE/agent-door3.json" "$TP_BASE/agent-door3.err" || fail "the pre-approved door was not refused for a command line"
+ok "an agent session cannot merge by the pull request script or gate.py move, with a terminal or without; the pull request stays open"
+
 # A yes that does not name the merge does not merge. A yes that names it does, on the tested commit.
-python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, put it live." --json \
+as_person python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, put it live." --json \
   > "$TP_BASE/merge-a2.json" 2>/dev/null || true
 python3 - "$TP_BASE/merge-a2.json" <<'PY' || fail "a yes that does not name the merge went ahead"
 import json, sys
@@ -469,7 +511,7 @@ d = json.load(open(sys.argv[1]))
 assert d["merged"][0]["status"] == "waits" and "do not name the merge" in d["merged"][0]["why"], d
 PY
 [ "$(pull 3 'p["state"]')" = "OPEN" ] || fail "the pull request merged on a yes that did not name the merge"
-python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, merge the pull request." --json \
+as_person python3 -m loop.run.pull_request merge --run mrg-a --said "Yes, merge the pull request." --json \
   > "$TP_BASE/merge-a3.json" 2> "$TP_BASE/merge-a3.err" \
   || { cat "$TP_BASE/merge-a3.err" >&2; cat "$TP_BASE/merge-a3.json" >&2; fail "the merge failed"; }
 TESTED=$(git rev-parse combined-mrg-a-r3)
@@ -485,7 +527,9 @@ sync_main
 # ==============================================================================================
 # Run B: pre-approved, every condition met: the gate merges inside the run
 # ==============================================================================================
-python3 "$RUN" --pieces 3 --run mrg-b --merge-pre-approved --json > "$TP_BASE/runb.json" \
+# /run starts run.py from a Claude session, so the agent-session markers are set. The merge is
+# the run script's own process, not a command line, so it still goes ahead.
+env CLAUDECODE=1 CLAUDE_CODE_ENTRYPOINT=cli python3 "$RUN" --pieces 3 --run mrg-b --merge-pre-approved --json > "$TP_BASE/runb.json" \
   2> "$TP_BASE/runb.err" || { cat "$TP_BASE/runb.err" >&2; cat "$TP_BASE/runb.json" >&2; fail "run B failed"; }
 PRB=$(pulls_json | python3 -c 'import json,sys; print([p["number"] for p in json.load(sys.stdin) if p["head"] == "combined-mrg-b"][0])')
 [ "$(pull "$PRB" 'p["state"]')" = "MERGED" ] || fail "the pre-approved run did not merge its pull request"
@@ -540,7 +584,7 @@ pull "$PR7" 'p["body"]' | grep -q '^Closes #7$' || fail "the dependent's pull re
 pull "$PR6" 'p["body"]' | grep -q "The person must look at this piece" || fail "the must-look reason is not in the body"
 ok "an isolated piece got its own pull request, and the dependent's is based on its branch"
 
-python3 -m loop.run.pull_request merge --run mrg-d --said "Merge both pull requests." --json \
+as_person python3 -m loop.run.pull_request merge --run mrg-d --said "Merge both pull requests." --json \
   > "$TP_BASE/merge-d.json" 2> "$TP_BASE/merge-d.err" \
   || { cat "$TP_BASE/merge-d.err" >&2; cat "$TP_BASE/merge-d.json" >&2; fail "the stack did not merge"; }
 [ "$(pull "$PR6" 'p["state"]')" = "MERGED" ] && [ "$(pull "$PR7" 'p["state"]')" = "MERGED" ] || fail "the stack is not merged"

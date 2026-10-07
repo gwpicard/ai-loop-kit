@@ -311,6 +311,31 @@ These merges are not asked about, and a merge still needs a yes that names it:
 - a merge made on GitHub's website
 - a merge through another program, or with `gh` called another way, such as
   `/opt/homebrew/bin/gh pr merge 12`, `sh -c 'gh pr merge 12'`, or
-  `gh api graphql` with a merge in its query
+  `gh api graphql` with a merge in its query. The guard hook still refuses
+  these from an agent session, as the next section says
 - any merge in a session in `bypassPermissions` mode, which skips every
-  confirmation box
+  confirmation box. The deny rules and the hook still apply there
+
+## A merge is not an agent's
+
+An agent session never merges. The same holds for a project that does not go
+live on merge. Three layers hold it, and each one refuses the command, so no
+confirmation box can be answered for it.
+
+- The guard hook refuses `gh pr merge`, a write to `pulls/<n>/merge` with
+  `gh api`, a GraphQL `mergePullRequest`, `python3 -m loop.run.pull_request
+  merge` and `gate.py move <n> done`. It also refuses the spellings that hide
+  them: a variable, a backtick, `xargs`, `eval`, `unset`, `env -u`, `runpy`
+  and a pretend terminal. The run record and its lock are guards, so an agent
+  cannot write them.
+- The deny rules in the settings template name the same three doors.
+- The gate refuses in its own code. It merges only for the person, at their
+  own terminal with no agent-session marker, or for the run script, inside its
+  own process, which holds the run's lock. A command line cannot make either
+  proof, and words given to the gate prove nothing.
+
+The person merges on GitHub, or runs the merge in their own terminal. A run
+that the person started with `run.py --merge-pre-approved` merges by itself
+when every condition holds. A text check is never complete. The layers that
+hold are the gate's own code and the sandbox, which hides the person's
+GitHub sign-in from every agent session.
