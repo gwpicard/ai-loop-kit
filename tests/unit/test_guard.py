@@ -404,6 +404,62 @@ class MatcherCases(Cases):
             "from loop.run import pull_request as p; p.main(sys.argv[1:])'",
         )
 
+    def test_a_pre_approved_run_is_started_by_the_person(self) -> None:
+        for command in (
+            "python3 kit/scripts/run.py --run r --pieces 1 --merge-pre-approved",
+            "python3 kit/scripts/run.py --merge-pre-approved --pieces 1,2",
+            "caffeinate -i python3 kit/scripts/run.py --merge-pre-approved --unattended",
+            "cd kit/scripts && python3 run.py --pieces 1 --merge-pre-approved",
+            "env FOO=1 python3 kit/scripts/run.py --pieces 1 --merge-pre-approved",
+            "sh -c 'python3 kit/scripts/run.py --pieces 1 --merge-pre-approved'",
+            "nohup python3 ./run.py --merge-pre-approved --pieces 2",
+            "R=kit/scripts/run.py; python3 $R --merge-pre-approved --pieces 1",
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_a_run_without_the_flag_still_passes(self) -> None:
+        self.passes(
+            "python3 kit/scripts/run.py --unattended --pieces 1",
+            "python3 kit/scripts/run.py --run r --pieces 1,2 --json",
+        )
+
+    def test_python_text_that_imports_the_merge_modules_is_refused(self) -> None:
+        self.refused(
+            "python3 -c \"from loop.moves import Gate, RunMergeAuthority; print(1)\"",
+            "python3 -c 'import loop.moves'",
+            "python3 -c 'from loop import moves'",
+            "python3 -c 'from loop.gates import merge'",
+            "python3 -c 'import loop.gates as g'",
+            "python3 -c 'from loop.run import engine'",
+            "python3 -c 'import loop.run.engine'",
+            "python3 -c 'from loop import github'",
+            "python3 -c 'from loop.github import Github'",
+            "python3 -c 'import loop.sessions'",
+            "python3 -c 'from loop.sessions import x'",
+            "python3 -c \"import importlib; importlib.import_module('loop.moves')\"",
+            "python3 -c \"__import__('loop.gates')\"",
+            "python3 - <<'EOF'\nfrom loop.moves import Gate\nEOF",
+            "python3 -c 'import os; from loop.moves import Gate'",
+        )
+
+    def test_python_text_that_does_not_import_them_passes(self) -> None:
+        self.passes(
+            "python3 -c 'print(1)'",
+            "python3 -c 'import json, sys; print(json.dumps(1))'",
+            "python3 -c 'from loop.paths import Paths'",
+            "python3 -c 'import os; print(os.getcwd())'",
+        )
+
+    def test_gh_alias_set_is_refused(self) -> None:
+        self.refused(
+            "gh alias set m 'pr merge'",
+            "gh alias set --shell m 'gh pr merge $1'",
+            "gh -R o/r alias set m 'pr merge'",
+            "gh alias import aliases.yml",
+        )
+        self.passes("gh alias list")
+
     def test_gate_move_to_done_is_for_the_person(self) -> None:
         self.refused(
             "python3 kit/scripts/gate.py move 3 done --option merge=agent --option said='merge it'",
@@ -420,7 +476,9 @@ class MatcherCases(Cases):
             "python3 -m loop.run.pull_request sweep --run r --json",
             "python3 kit/scripts/gate.py move 3 review",
             "python3 kit/scripts/gate.py move 3 building --reason 'merge conflict is done'",
-            "python3 kit/scripts/run.py --merge-pre-approved --pieces 1,2",
+            "python3 kit/scripts/run.py --unattended --pieces 1,2",
+            "python3 kit/scripts/run.py --run r --pieces 1",
+            "grep -n merge-pre-approved kit/scripts/run.py",
             "gh pr view 5 --json state,mergeable",
             "gh pr checks 5",
             "gh api repos/o/r/pulls/5/merge",

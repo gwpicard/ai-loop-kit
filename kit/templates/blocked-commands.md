@@ -324,10 +324,18 @@ confirmation box can be answered for it.
 
 - The guard hook refuses `gh pr merge`, a write to `pulls/<n>/merge` with
   `gh api`, a GraphQL `mergePullRequest`, `python3 -m loop.run.pull_request
-  merge` and `gate.py move <n> done`. It also refuses the spellings that hide
-  them: a variable, a backtick, `xargs`, `eval`, `unset`, `env -u`, `runpy`
-  and a pretend terminal. The run record and its lock are guards, so an agent
-  cannot write them.
+  merge` and `gate.py move <n> done`. For `gate.py` and `pull_request`, it
+  also refuses the spellings that hide them: a variable, a backtick, `xargs`,
+  `eval`, `unset`, `env -u`, `runpy` and a pretend terminal. It does not read
+  these spellings for `gh pr merge`, so a variable or a backtick can hide that
+  one. The sandbox holds that road: it hides the person's GitHub sign-in. The
+  hook also refuses `gh alias set` and `gh alias import`, and `python3 -c` text
+  that imports `loop.moves`, `loop.gates`, `loop.run`, `loop.github` or
+  `loop.sessions`. A script file that does the same is held by the sandbox and
+  the App key, not by the hook. The run record and its lock are guards, so an
+  agent cannot write them.
+- The hook asks before `run.py ... --merge-pre-approved`. Only the person
+  answers yes to that box, and only when they pre-approved the run.
 - The deny rules in the settings template name the same three doors.
 - The gate refuses in its own code. It merges only for the person, at their
   own terminal with no agent-session marker, or for the run script, inside its

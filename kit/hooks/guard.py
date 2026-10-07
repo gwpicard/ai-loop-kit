@@ -883,6 +883,11 @@ def check_gh(args: Sequence[str]) -> Decision | None:
         )
     if group == "pr" and action == "merge":
         return refuse(MERGE_WHAT, MERGE_NEXT)
+    if group == "alias" and action in {"set", "import"}:
+        return refuse(
+            "a gh alias can hide a merge behind a short name, so a later line shows no merge.",
+            "tell the person which alias you wanted, and let them set it in their own terminal.",
+        )
     if group in {"issue", "pr"} and action in {"edit", "create"}:
         values = _label_values(tail)
         if any(_is_state_label(v) for v in values):
@@ -973,6 +978,25 @@ MERGE_NEXT = (
     "when every condition holds."
 )
 _PULL_REQUEST_SCRIPT = ("loop.run.pull_request", "pull_request.py")
+PRE_APPROVED_FLAG = "--merge-pre-approved"
+
+
+def check_pre_approved_run(words: Sequence[str]) -> Decision | None:
+    """`run.py ... --merge-pre-approved`: a run that merges, started only with the person's yes.
+
+    The run script proves it runs inside run.py, not that the person asked. So an agent
+    session may start such a run only when the person answers this box. A program that is a
+    variable or a backtick is asked about too, because the script name is then unreadable.
+    """
+    flag = any(w == PRE_APPROVED_FLAG or w.startswith(PRE_APPROVED_FLAG + "=") for w in words)
+    if not flag:
+        return None
+    if any(program_name(w) == "run.py" or "$" in w or "`" in w for w in words):
+        return ask(
+            "this starts a run that merges pull requests without a further yes.",
+            "the person says yes to this box only if they pre-approved the run.",
+        )
+    return None
 
 
 def check_pull_request_merge(words: Sequence[str]) -> Decision | None:
@@ -1025,6 +1049,23 @@ PTY_WHAT = (
 PTY_NEXT = "run the python command or gate.py directly, without a pretend terminal."
 
 
+_MERGE_MODULES = r"(?:moves|gates|run|github|sessions|pull_request)"
+_MERGE_IMPORT = re.compile(
+    r"\b(?:import|from)\b[^;\n]*\bloop\." + _MERGE_MODULES + r"\b"
+    r"|\bfrom\s+loop\s+import\b[^;\n]*\b" + _MERGE_MODULES + r"\b"
+    r"|\b(?:import_module|__import__)\s*\(\s*[\"']loop\." + _MERGE_MODULES + r"\b"
+)
+IMPORT_WHAT = (
+    "this python text imports a module that can merge or move a piece to done "
+    "(loop.moves, loop.gates, loop.run, loop.github or loop.sessions). Only the person "
+    "decides a merge."
+)
+IMPORT_NEXT = (
+    "run the gate through its script, such as python3 kit/scripts/gate.py report. A script "
+    "file is not read by this check: the sandbox and the App key hold that road."
+)
+
+
 def check_gate_text(text: str) -> Decision | None:
     """`gate.py sync` reached by a road the word checks cannot follow.
 
@@ -1041,6 +1082,8 @@ def check_gate_text(text: str) -> Decision | None:
         return refuse(PTY_WHAT, PTY_NEXT)
     if "gate.py" in text and (_GATE_HIDES.search(text) or _HIDES_SESSION.search(text)):
         return refuse(GATE_HIDDEN_WHAT, GATE_HIDDEN_NEXT)
+    if re.search(r"\bpython", text) and _MERGE_IMPORT.search(text):
+        return refuse(IMPORT_WHAT, IMPORT_NEXT)
     if "pull_request" in text:
         found = _pull_request_text(text)
         if found is not None:
@@ -1193,6 +1236,7 @@ def check_words(
     rest = unwrap(words)
     found.append(check_gate(rest))
     found.append(check_pull_request_merge(rest))
+    found.append(check_pre_approved_run(rest))
     if rest:
         prog, args = program_name(rest[0]), rest[1:]
         if prog in SHELLS:

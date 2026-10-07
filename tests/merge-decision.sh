@@ -527,8 +527,19 @@ sync_main
 # ==============================================================================================
 # Run B: pre-approved, every condition met: the gate merges inside the run
 # ==============================================================================================
-# /run starts run.py from a Claude session, so the agent-session markers are set. The merge is
-# the run script's own process, not a command line, so it still goes ahead.
+# An agent cannot start this run alone: the guard hook asks, so the person's yes is the start.
+# The hook sees the command line as an agent session would send it.
+HOOK_JSON=$(RUN="$RUN" PWD_NOW="$PWD" python3 -c '
+import json, os
+print(json.dumps({"session_id": "s", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+  "tool_input": {"command": "python3 " + os.environ["RUN"] + " --pieces 3 --run mrg-b --merge-pre-approved"},
+  "cwd": os.environ["PWD_NOW"]}))')
+HOOK_OUT=$(printf '%s' "$HOOK_JSON" | env CLAUDECODE=1 CLAUDE_CODE_ENTRYPOINT=cli python3 "$ROOT/kit/hooks/guard.py" 2>/dev/null) || true
+echo "$HOOK_OUT" | grep -q '"permissionDecision": "ask"' \
+  || fail "the guard hook did not ask before an agent started a pre-approved run: $HOOK_OUT"
+ok "an agent session that starts a pre-approved run meets the guard's ask, so the person's yes starts it"
+# With that yes given, run.py starts. The agent-session markers stay set: /run starts run.py from
+# a Claude session. The merge is the run script's own process, so it goes ahead.
 env CLAUDECODE=1 CLAUDE_CODE_ENTRYPOINT=cli python3 "$RUN" --pieces 3 --run mrg-b --merge-pre-approved --json > "$TP_BASE/runb.json" \
   2> "$TP_BASE/runb.err" || { cat "$TP_BASE/runb.err" >&2; cat "$TP_BASE/runb.json" >&2; fail "run B failed"; }
 PRB=$(pulls_json | python3 -c 'import json,sys; print([p["number"] for p in json.load(sys.stdin) if p["head"] == "combined-mrg-b"][0])')

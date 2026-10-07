@@ -46,6 +46,8 @@
       "Bash(gh pr merge:*)",
       "Bash(gh * pr merge:*)",
       "Bash(gh api *pulls/*/merge*)",
+      "Bash(gh alias set*)",
+      "Bash(gh alias import*)",
       "Bash(python* -m loop.run.pull_request*merge*)",
       "Bash(python* *pull_request.py*merge*)",
       "Bash(python* *gate.py*move*done*)",
@@ -82,6 +84,9 @@
       "Bash(bat *.env*)",
       "Bash(cp *.env*)",
       "Bash(source *.env*)"
+    ],
+    "ask": [
+      "Bash(python* *run.py*--merge-pre-approved*)"
     ],
     "disableBypassPermissionsMode": "disable"
   },
