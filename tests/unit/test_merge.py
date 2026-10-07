@@ -1441,5 +1441,249 @@ class OpeningPullRequests(Running):
         self.assertEqual(self.gate.piece(1).state, "review")
 
 
+class MergingPullRequests(Running):
+    def passed(self, numbers: Sequence[int]) -> None:
+        from loop import attempt_log, evidence
+
+        for number in numbers:
+            evidence.append(self.paths, number, [attempt_log.entry(
+                number=1, result="passed", head="h", base="b", at="2026-10-07")])
+
+    def test_a_pre_approved_run_merges_the_exact_tested_commit_through_the_gate(self) -> None:
+        numbers = self.build([10, 10])
+        self.write_run("main", "combined-r1", numbers, pre_approved=True)
+        self.passed(numbers)
+        step = self.step()
+        step.open_all()
+        reports = step.merge(mode="pre-approved")
+        self.assertEqual([r["status"] for r in reports], ["merged"])
+        self.assertEqual(self.pulls.merged, [(7, self.head)])
+        for number in numbers:
+            self.assertEqual(self.gate.piece(number).state, "done")
+
+    def test_a_pre_approved_run_with_a_must_look_piece_waits(self) -> None:
+        self.loader.data["ready"] = {"must_look": ["a sensitive area"]}
+        numbers = self.build([10])
+        self.write_run("main", "combined-r1", numbers, pre_approved=True)
+        self.passed(numbers)
+        step = self.step()
+        step.open_all()
+        reports = step.merge(mode="pre-approved")
+        self.assertEqual(reports[0]["status"], "waits")
+        self.assertIn("must-look", reports[0]["why"])
+        self.assertEqual(self.pulls.merged, [])
+        self.assertEqual(self.gate.piece(numbers[0]).state, "approval")
+
+    def test_a_run_that_was_not_pre_approved_never_merges_by_that_door(self) -> None:
+        numbers = self.build([10])
+        self.passed(numbers)
+        step = self.step()
+        step.open_all()
+        reports = step.merge(mode="pre-approved")
+        self.assertEqual(reports[0]["status"], "waits")
+        self.assertIn("was not pre-approved", reports[0]["why"])
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_yes_that_names_the_merge_merges_and_one_that_does_not_does_not(self) -> None:
+        numbers = self.build([10])
+        step = self.step()
+        step.open_all()
+        self.assertEqual(step.merge(mode="agent", said="put it live")[0]["status"], "waits")
+        self.assertEqual(step.merge(mode="agent", said="Yes, merge it")[0]["status"], "merged")
+        self.assertEqual(self.gate.piece(numbers[0]).state, "done")
+
+    def test_main_that_moved_stops_a_pre_approved_merge(self) -> None:
+        numbers = self.build([10])
+        self.write_run("main", "combined-r1", numbers, pre_approved=True)
+        self.passed(numbers)
+        step = self.step()
+        step.open_all()
+        self.repo.commit("other/x.txt", "x\n", "Work on main after the final check")
+        report = step.merge(mode="pre-approved")[0]
+        self.assertEqual(report["status"], "waits")
+        self.assertIn("move 12", report["why"])
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_stack_merges_in_order_and_the_second_is_retargeted_to_main(self) -> None:
+        numbers = self.build([30, 30])
+        self.passed(numbers)
+        step = self.step(limit=40)
+        step.open_all()
+        self.assertEqual(len(self.pulls.created), 2)
+        reports = step.merge(mode="agent", said="merge the stack")
+        self.assertEqual([r["status"] for r in reports], ["merged", "merged"])
+        self.assertEqual([n for n, _ in self.pulls.merged], [7, 8])
+        self.assertEqual(self.pulls.bases, [(8, "main")])
+        self.assertEqual({self.gate.piece(n).state for n in numbers}, {"done"})
+
+    def test_a_stack_whose_first_part_waits_leaves_the_second_waiting(self) -> None:
+        numbers = self.build([30, 30])
+        self.passed(numbers)
+        step = self.step(limit=40)
+        step.open_all()
+        self.pulls.green = False
+        reports = step.merge(mode="agent", said="merge it")
+        self.assertEqual([r["status"] for r in reports], ["waits", "waits"])
+        self.assertEqual(self.pulls.merged, [])
+
+
+class RejectingPullRequests(Running):
+    def setUp(self) -> None:
+        super().setUp()
+        self.numbers = self.build([10, 10, 10])
+        self.step_ = self.step()
+        self.step_.open_all()
+
+    def test_a_comment_that_names_one_piece_sends_back_only_that_piece(self) -> None:
+        one, two, three = self.numbers
+        done = self.step_.reject([two], "The rename is wrong; it must keep the old name.")
+        self.assertEqual(done["sent_back"], [two])
+        self.assertEqual(done["back_to_review"], [one, three])
+        self.assertEqual(self.gate.piece(two).state, "building")
+        self.assertEqual(self.gate.piece(one).state, "review")
+        self.assertEqual(self.gate.piece(three).state, "review")
+        moves_ = [(n, t) for n, t, *_ in self.moves_made]
+        self.assertIn((two, "building"), moves_)
+        self.assertIn((one, "review"), moves_)
+        reason = next(r for n, t, r, _ in self.moves_made if n == two and t == "building")
+        self.assertIn("keep the old name", str(reason))
+        self.assertEqual(self.loop.left, [(two, "The rename is wrong; it must keep the old name.")])
+        self.assertEqual(len(self.pulls.closed), 1, "the old pull request is closed")
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(saved["pieces"][str(two)]["status"], "building")
+        self.assertEqual(saved["pieces"][str(one)]["status"], "built")
+        self.assertEqual(saved["review"]["tracks"]["main"], {"rounds": 0, "status": "new"})
+        self.assertEqual(saved["pull_requests"]["main"]["state"], "closed")
+        self.assertIn("run.py --run r1", done["next"])
+
+    def test_a_piece_can_go_back_to_shaping_with_the_person_words(self) -> None:
+        two = self.numbers[1]
+        self.step_.reject([two], "The idea is wrong, not the code.", to="shaping")
+        self.assertEqual(self.gate.piece(two).state, "shaping")
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(saved["pieces"][str(two)]["status"], "sent-back")
+
+    def test_a_piece_that_is_in_no_open_pull_request_is_refused(self) -> None:
+        with self.assertRaises(pr_loop.PullRequestRefusal) as caught:
+            self.step_.reject([99], "no such piece")
+        self.assertIn("not in an open pull request", str(caught.exception))
+        self.assertEqual(self.pulls.closed, [])
+
+    def test_no_reason_is_a_refusal(self) -> None:
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            self.step_.reject([self.numbers[0]], "   ")
+
+    def test_a_gate_that_refuses_move_13_changes_nothing_else(self) -> None:
+        step = self.step()
+
+        def refuse(number: int, target: str, reason: str | None,
+                   options: Mapping[str, str]) -> Reply:
+            return Reply(3, {"ok": False, "error": "no", "next": "gate.py report"})
+
+        step.mover = refuse
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            step.reject([self.numbers[0]], "wrong")
+        self.assertEqual(self.pulls.closed, [])
+        self.assertEqual(self.loop.left, [])
+
+
+class RefreshingPullRequests(Running):
+    def setUp(self) -> None:
+        super().setUp()
+        self.numbers = self.build([10, 10])
+        self.step_ = self.step()
+        self.step_.open_all()
+
+    def test_main_that_moved_sends_every_piece_back_to_review_and_rebuilds(self) -> None:
+        self.repo.commit("other/x.txt", "x\n", "Work on main")
+        done = self.step_.refresh("")
+        self.assertEqual(sorted(done["back_to_review"]), self.numbers)
+        for number in self.numbers:
+            self.assertEqual(self.gate.piece(number).state, "review")
+        self.assertEqual(self.loop.refreshed[0][0], "main")
+        self.assertIn("main moved", self.loop.refreshed[0][1])
+        self.assertEqual(len(self.pulls.closed), 1)
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(saved["review"]["tracks"]["main"], {"rounds": 0, "status": "new"})
+
+    def test_main_that_did_not_move_is_a_refusal_and_changes_nothing(self) -> None:
+        with self.assertRaises(pr_loop.PullRequestRefusal) as caught:
+            self.step_.refresh("")
+        self.assertIn("did not move", str(caught.exception))
+        self.assertEqual({self.gate.piece(n).state for n in self.numbers}, {"approval"})
+        self.assertEqual(self.pulls.closed, [])
+
+    def test_a_local_main_that_lags_origin_is_a_refusal_that_names_the_pull(self) -> None:
+        self.repo.commit("other/x.txt", "x\n", "Work on main")
+        with mock.patch.object(merge_gate, "main_lags", lambda root: True), \
+                self.assertRaises(pr_loop.PullRequestRefusal) as caught:
+            self.step_.refresh("")
+        self.assertIn("merge --ff-only origin/main", caught.exception.next_command)
+        self.assertEqual(self.pulls.closed, [])
+
+
+class SweepingPullRequests(Running):
+    def setUp(self) -> None:
+        super().setUp()
+        self.numbers = self.build([10, 10])
+        self.step_ = self.step()
+        self.step_.open_all()
+        self.issues = [self.gate.piece(n).issue for n in self.numbers]
+
+    def test_a_merge_by_the_person_moves_each_piece_to_done(self) -> None:
+        self.pulls.view_of[7] = dataclasses.replace(self.pulls.view_of[7], state="MERGED",
+                                                    merge_commit="c0ffee")
+        found = self.step_.sweep()
+        self.assertEqual([m["settled"] for m in found["merged"]], [True, True])
+        self.assertEqual({self.gate.piece(n).state for n in self.numbers}, {"done"})
+        self.assertIn("check-main", found["next"])
+
+    def test_a_pull_request_the_person_closed_sends_all_its_pieces_back(self) -> None:
+        self.pulls.view_of[7] = dataclasses.replace(self.pulls.view_of[7], state="CLOSED")
+        found = self.step_.sweep()
+        self.assertEqual(found["closed"][0]["pieces"], self.numbers)
+        self.assertEqual({self.gate.piece(n).state for n in self.numbers}, {"building"})
+        reason = next(r for n, t, r, _ in self.moves_made if t == "building")
+        self.assertIn("The person closed pull request 7", str(reason))
+
+    def test_a_comment_that_names_one_piece_by_its_issue_sends_back_only_that_piece(self) -> None:
+        self.pulls.say(7, f"Please redo #{self.issues[1]}: it deletes the wrong report.")
+        found = self.step_.sweep()
+        self.assertEqual(found["comments"][0]["pieces"], [self.numbers[1]])
+        self.assertEqual(self.gate.piece(self.numbers[1]).state, "building")
+        self.assertEqual(self.gate.piece(self.numbers[0]).state, "review")
+
+    def test_a_comment_that_names_a_piece_by_its_number_works_too(self) -> None:
+        self.pulls.say(7, f"piece {self.numbers[0]} is wrong")
+        found = self.step_.sweep()
+        self.assertEqual(found["comments"][0]["pieces"], [self.numbers[0]])
+
+    def test_a_comment_that_names_no_piece_sends_them_all_back(self) -> None:
+        self.pulls.say(7, "This is not what I asked for.")
+        found = self.step_.sweep()
+        self.assertEqual(found["comments"][0]["pieces"], self.numbers)
+
+    def test_a_comment_from_a_stranger_or_the_app_is_ignored(self) -> None:
+        self.pulls.say(7, "piece 1 is wrong", author="stranger", association="NONE")
+        self.pulls.say(7, "Closed by the run.", author="app[bot]", association="NONE")
+        found = self.step_.sweep()
+        self.assertEqual(found["comments"], [])
+        self.assertEqual({self.gate.piece(n).state for n in self.numbers}, {"approval"})
+
+    def test_a_comment_is_read_once_and_a_later_one_is_read_too(self) -> None:
+        self.pulls.say(7, "idle chat", author="stranger", association="NONE")
+        self.step_.sweep()
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(saved["pull_requests"]["main"]["seen_comment"], 100)
+        self.assertEqual(self.step().sweep()["comments"], [])
+        self.pulls.say(7, f"piece {self.numbers[0]} is wrong")
+        again = self.step().sweep()
+        self.assertEqual(again["comments"][0]["pieces"], [self.numbers[0]])
+
+    def test_with_no_app_nothing_is_read(self) -> None:
+        found = self.step(app=False).sweep()
+        self.assertIn("skipped", found["skipped"])
+
+
 if __name__ == "__main__":
     unittest.main()
