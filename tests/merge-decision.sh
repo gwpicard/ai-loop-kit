@@ -475,7 +475,8 @@ TESTED=$(git rev-parse combined-mrg-a-r3)
 [ "$(pull 3 'p["match_head_commit"]')" = "$TESTED" ] \
   || fail "the merge did not name the tested commit: $(pull 3 'p.get("match_head_commit")') is not $TESTED"
 [ "$(state_of 1)" = "done" ] && [ "$(state_of 2)" = "done" ] || fail "the pieces are not done"
-[ "$(gh issue view 1 --json state --jq .state)" = "CLOSED" ] || fail "issue 1 is not closed"
+[ "$(gh issue view 1 --json state | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')" = "closed" ] \
+  || fail "issue 1 is not closed"
 ok "a yes that names the merge made the gate merge the exact tested commit, with --match-head-commit"
 sync_main
 
@@ -549,7 +550,7 @@ sync_main
 # ==============================================================================================
 # Run E: a pull request past the size limit is split, each part holds whole pieces
 # ==============================================================================================
-set_policy 'd["pull_request_size_limit"] = 12'
+set_policy 'd["pull_request_size_limit"] = 8'
 python3 "$RUN" --pieces 8,9,10 --run mrg-e --json > "$TP_BASE/rune.json" 2> "$TP_BASE/rune.err" \
   || { cat "$TP_BASE/rune.err" >&2; cat "$TP_BASE/rune.json" >&2; fail "run E failed"; }
 set_policy 'd["pull_request_size_limit"] = 800'
@@ -621,7 +622,7 @@ assert "the check on main: green" in text, d
 PY
 [ "$(state_of 12)" = "done" ] || fail "the pre-run check did not settle the merge by move 11"
 python3 "$GATE" check-main --json > "$TP_BASE/check-g.json" || fail "check-main failed after the merge was settled"
-python3 -c 'import json,sys; d = json.load(open(sys.argv[1])); assert d["merges"] == [] and d["waiting"] == [], d' "$TP_BASE/check-g.json" \
+python3 -c 'import json,sys; d = json.load(open(sys.argv[1])); assert d["merges"] == [] and d["unreadable"] == [], d' "$TP_BASE/check-g.json" \
   || fail "check-main finds the same merge twice"
 sync_main
 ok "a merge the person made after main moved was found by gate.py check-main, run by the pre-run check, and main was checked"
@@ -630,10 +631,13 @@ ok "a merge the person made after main moved was found by gate.py check-main, ru
 # Run H: with no App nothing is pushed or opened, and the next line names the commands
 # ==============================================================================================
 BEFORE=$(pulls_json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
+# The remote looks like GitHub, so a push needs the App. (A folder as the remote takes a plain push.)
+git remote set-url origin https://github.com/rehearsal/project.git
 set +e
 python3 "$RUN" --pieces 13 --run mrg-h --json > "$TP_BASE/runh.json" 2> "$TP_BASE/runh.err"
 code=$?
 set -e
+git remote set-url origin "$TP_BASE/origin.git"
 mv "$TP_ROOT/.agents/loop/local.json.aside" "$TP_ROOT/.agents/loop/local.json" \
   || fail "the builder did not take the App away, so the test proved nothing"
 [ "$code" -eq 0 ] || fail "run H exited $code: $(cat "$TP_BASE/runh.err")"
