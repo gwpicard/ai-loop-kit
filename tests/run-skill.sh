@@ -34,7 +34,7 @@ rs_exists "$SKILL" "$PRC" "$RUN"
 
 # --- the skill text -------------------------------------------------------------
 
-START='caffeinate -i python3 "\$\{claude_plugin_root\}/scripts/run\.py" --pieces'
+START='caffeinate -i python3 "\$\{claude_plugin_root\}/scripts/run\.py" --run run-<date-time> --pieces'
 CHECK='caffeinate -i python3 "\$\{claude_plugin_root\}/scripts/pre-run-check\.py" --pieces'
 rs_rule "the start command: run.py under caffeinate, with the quoted plugin folder" "$START"
 rs_rule "the pre-run check command, under caffeinate, with the same pieces" "$CHECK"
@@ -49,6 +49,10 @@ rs_rule "no ready piece is said in one line" 'no piece is ready\. say so in one 
 rs_rule "the skill only starts the script" 'only starts the run script'
 rs_rule "the answer is never stored" 'never write (the|an) answer'
 rs_rule "the stop for a build" 'never build a piece'
+rs_rule "the run starts in the background" 'start the run script in the background'
+rs_rule "the skill chooses the run name and passes --run" 'choose a run name.*--run run-<date-time>'
+rs_rule "the step is done when the command is started and the name is known" 'done when: the command is started and you have its run name'
+rs_rule "the run is unattended only on the person's word" 'add `--unattended` only when the person said nobody will watch'
 rs_guard "$SKILL" "the shipped run skill"
 
 # The pre-run check comes first in the file, and the run script after it.
@@ -61,6 +65,28 @@ start = steps.find("/scripts/run.py")
 assert 0 <= check < start, (check, start)
 PY
 rs_ok "the pre-run check comes before the run script in the steps"
+
+# The start command carries --run, and --unattended is absent from it by default.
+START_LINE=$(grep -E 'caffeinate -i python3 .*scripts/run\.py' "$SKILL" | head -1)
+case "$START_LINE" in *'--run run-<date-time>'*) ;; *) rs_fail "the start command does not carry --run run-<date-time>" ;; esac
+rs_ok "the start command carries --run with a name the skill chooses"
+case "$START_LINE" in *--unattended*) rs_fail "the start command carries --unattended by default" ;; esac
+rs_ok "--unattended is absent from the start command by default"
+
+# The second layer for "never build or edit": the frontmatter removes the edit tools.
+python3 - "$SKILL" <<'PY' || rs_fail "the skill frontmatter does not remove the edit tools"
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+front = text.split("---", 2)[1]
+m = re.search(r"^disallowed-tools:\s*(.+)$", front, re.M)
+assert m, "no disallowed-tools line"
+tools = set(re.split(r"[ ,]+", m.group(1).strip()))
+assert {"Edit", "Write", "NotebookEdit"} <= tools, tools
+allowed = re.search(r"^allowed-tools:\s*(.+)$", front, re.M)
+if allowed:
+    assert not re.search(r"\b(Edit|Write|NotebookEdit)\b", allowed.group(1)), allowed.group(1)
+PY
+rs_ok "the frontmatter removes Edit, Write and NotebookEdit while the skill runs, and allows none of them"
 
 rs_require "the skill injects the gate's report" "$SKILL" 'gate\.py report --json --brief'
 rs_require "the skill turns model invocation off" "$SKILL" 'disable-model-invocation: true'
