@@ -11,12 +11,14 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
+from loop.gates import CheckContext, attempt  # noqa: E402
 from loop.paths import Paths  # noqa: E402
 from loop.run import engine, plan, record  # noqa: E402
 from loop.run.gateway import Gateway  # noqa: E402
@@ -217,6 +219,89 @@ class StackTest(EngineCase):
         setattr(loop.gateway, "stack", lambda *_a, **_k: (0, "stacked", stranger))  # noqa: B010
         loop._stack(2, folder)
         self.assertEqual(self.rec.piece(2)["stack_base"], recorded)
+
+
+class DependencyMovedTest(EngineCase):
+    """A dependency that moves after the dependent was stacked: the dependent is given back
+    (gate move 7), then built again. Its own commit sits before any new stacking merge, so the
+    run cuts a fresh branch for it at the judge commit and keeps the old one under another name.
+    """
+
+    def open_worktree(self, name: str, branch: str, base: str, *, resume: bool
+                      ) -> tuple[int, str]:
+        folder = self.paths.worktrees_dir / name
+        if not folder.exists():
+            folder.parent.mkdir(parents=True, exist_ok=True)
+            git(self.root, "worktree", "add", "-q", str(folder), branch)
+        return 0, ""
+
+    def commit(self, folder: Path, name: str) -> None:
+        (folder / name).write_text(name + "\n")
+        git(folder, "add", "-A")
+        git(folder, "commit", "-q", "-m", f"Add {name}")
+
+    def setup_pair(self) -> tuple[engine.Engine, str]:
+        infos = [plan.PieceInfo(1, issue=11),
+                 plan.PieceInfo(2, issue=12, blockers=frozenset({11}))]
+        git(self.root, "branch", "piece-1", "main")
+        self.dep = self.base / "wt-dep"
+        git(self.root, "worktree", "add", "-q", str(self.dep), "piece-1")
+        self.commit(self.dep, "a.txt")
+        git(self.root, "branch", "piece-2", "main")
+        first = self.base / "wt-first"
+        git(self.root, "worktree", "add", "-q", str(first), "piece-2")
+        self.commit(first, "judge.txt")
+        judge = git(first, "rev-parse", "HEAD")
+        git(self.root, "worktree", "remove", str(first))
+        self.rec.set_status(1, record.BUILT)
+        self.rec.update(2, branch="piece-2", worktree="wt-2")
+        loop = self.make(infos)
+        loop.gateway.open_worktree = self.open_worktree  # type: ignore[method-assign]
+        setattr(loop, "_read", lambda _n: types.SimpleNamespace(  # noqa: B010
+            fingerprint_data={"judge_commit": judge}))
+        return loop, judge
+
+    def test_a_rebuild_after_the_dependency_moved_passes_the_stack_check(self) -> None:
+        loop, judge = self.setup_pair()
+        folder = loop._worktree(2)
+        old_base = self.rec.piece(2)["stack_base"]
+        self.commit(folder, "own.txt")
+        self.commit(self.dep, "b.txt")  # the dependency moves after the stack
+        # The gate sent the piece back (move 7); the run builds it again.
+        folder = loop._worktree(2)
+        held = self.rec.piece(2)
+        new_base = held["stack_base"]
+        self.assertNotEqual(new_base, old_base)
+        self.assertEqual(git(folder, "rev-parse", "HEAD"), new_base)
+        self.assertEqual(git(self.root, "rev-parse", "piece-2"), new_base)
+        self.assertTrue((folder / "a.txt").exists() and (folder / "b.txt").exists())
+        self.assertFalse((folder / "own.txt").exists(), "the new branch starts afresh")
+        # The gate's own stack check accepts the new base.
+        ctx = CheckContext(number=2, move=None, origin="building",  # type: ignore[arg-type]
+                           target="review", reason=None, title="", body="", spec=None,
+                           record=[], paths=self.paths, options={"stacked_on": "1"})
+        attempt._stack_is_clean(ctx, self.root, "again", git(self.root, "rev-parse", judge + "^"),
+                                new_base, judge)
+
+    def test_the_old_branch_and_its_own_commit_are_kept_under_another_name(self) -> None:
+        loop, _judge = self.setup_pair()
+        folder = loop._worktree(2)
+        self.commit(folder, "own.txt")
+        kept = git(self.root, "rev-parse", "piece-2")
+        self.commit(self.dep, "b.txt")
+        loop._worktree(2)
+        names = git(self.root, "branch", "--list", "piece-2-*", "--format=%(refname:short)")
+        self.assertEqual(len(names.splitlines()), 1, names)
+        self.assertEqual(git(self.root, "rev-parse", names.strip()), kept)
+
+    def test_a_dependency_that_did_not_move_leaves_the_branch_alone(self) -> None:
+        loop, _judge = self.setup_pair()
+        folder = loop._worktree(2)
+        self.commit(folder, "own.txt")
+        before = git(self.root, "rev-parse", "piece-2")
+        loop._worktree(2)
+        self.assertEqual(git(self.root, "rev-parse", "piece-2"), before)
+        self.assertEqual(git(self.root, "branch", "--list", "piece-2-*"), "")
 
 
 class BuiltAllRoundsTest(EngineCase):

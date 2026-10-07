@@ -232,7 +232,20 @@ def _stack_is_clean(ctx: CheckContext, root: Path, again: str, base: str, merge:
                     judge_commit: str) -> None:
     """Refuse a stacking merge that follows a commit of the piece's own, or merges anything but
     the tip of a recorded dependency's branch."""
-    fix = f"the run stacks a dependent again, then gate.py move {ctx.number} review"
+    wanted = [w.strip() for w in str(ctx.options.get("stacked_on", "")).split(",") if w.strip()]
+    tips: dict[str, str] = {}
+    for number in wanted:
+        code, tip = ready_gate._git(root, "rev-parse", "--verify", "-q",
+                                    f"refs/heads/piece-{number}^{{commit}}")
+        if code == 0:
+            tips[number] = tip
+    second = _git(root, again, "rev-parse", f"{merge}^2")
+    moved = [n for n in wanted if tips.get(n) != second] or wanted
+    # Stacking again changes nothing for a dependency the piece already holds, so the piece
+    # goes back to ready (move 7). The dependent is then built again on a fresh branch.
+    fix = (f"gate.py move {ctx.number} ready --reason \"the dependency "
+           f"{' and '.join('piece-' + n for n in moved) or 'piece'} moved after this piece was "
+           "stacked on it\"")
     earlier = _git(root, again, "rev-list", "--first-parent", "--parents", f"{base}..{merge}^1")
     for row in earlier.splitlines():
         sha, *parents = row.split()
@@ -246,15 +259,7 @@ def _stack_is_clean(ctx: CheckContext, root: Path, again: str, base: str, merge:
             "neither the judge commit nor a stacking merge, so the gate will not measure from "
             "the merge: it could hide that commit's changes",
             fix)
-    wanted = [w.strip() for w in str(ctx.options.get("stacked_on", "")).split(",") if w.strip()]
-    tips = set()
-    for number in wanted:
-        code, tip = ready_gate._git(root, "rev-parse", "--verify", "-q",
-                                    f"refs/heads/piece-{number}^{{commit}}")
-        if code == 0:
-            tips.add(tip)
-    second = _git(root, again, "rev-parse", f"{merge}^2")
-    if second not in tips:
+    if second not in set(tips.values()):
         raise Refusal(
             f"the stacking merge {merge[:7]} does not merge the tip of the branch of a "
             "dependency the run recorded for this piece, so the gate will not measure from it",

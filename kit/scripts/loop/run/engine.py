@@ -428,6 +428,8 @@ class Engine:
         held = self.record.piece(number)
         name = str(held.get("worktree") or f"{number}-{slug(info.title)}")
         branch = f"piece-{number}"
+        with self.gate_lock:
+            name = self._cut_afresh(number, branch, name)
         folder = self.paths.worktrees_dir / name
         with self.gate_lock:
             if not held.get("branch"):
@@ -443,6 +445,63 @@ class Engine:
         self.record.update(number, branch=branch, worktree=name)
         self._stack(number, folder)
         return folder
+
+    def _cut_afresh(self, number: int, branch: str, name: str) -> str:
+        """Return the worktree name to use. After a dependency moved, cut the branch afresh.
+
+        A dependent was stacked once. Its dependency then moved, and the gate gave the dependent
+        back. A new stacking merge on the old branch would sit after the dependent's own commits,
+        and the gate refuses that, because the merge could hide them. So the old branch is kept
+        under another name (a rename: no reset, no rebase, no force), a new branch with the old
+        name starts at the judge commit, and the recorded stack base is cleared. The old folder
+        stays where it is. The builder reads the new base in a new folder.
+        """
+        held = self.record.piece(number)
+        if not held.get("stack_base") or not held.get("branch"):
+            return name
+        if not any(self._moved_on(branch, d) for d in self._stack_pieces(number)):
+            return name
+        data = self._read(number).fingerprint_data or {}
+        judge = str(data.get("judge_commit", ""))
+        if not judge:
+            raise EngineRefusal(
+                f"piece {number} has no judge commit in the gate's record, so its branch cannot "
+                "start afresh on the dependency that moved",
+                f"gate.py report {number}")
+        kept = 1
+        while self._git(f"refs/heads/{branch}-stacked-{kept}", "rev-parse", "--verify", "-q"):
+            kept += 1
+        old = f"{branch}-stacked-{kept}"
+        for args in (("branch", "-m", branch, old), ("branch", branch, judge)):
+            done = self.gateway.runner(
+                ["git", "-C", str(self.paths.root), *args], capture_output=True, text=True,
+                check=False, env=self.gateway.env)
+            if done.returncode != 0:
+                raise EngineRefusal(
+                    f"git branch {' '.join(args[1:])} failed for piece {number}: "
+                    f"{(done.stderr or done.stdout).strip()[:120]}",
+                    f"git -C {self.paths.root} branch --list 'piece-{number}*'")
+        fresh = f"{re.sub(r'-r[0-9]+$', '', name)}-r{kept + 1}"
+        self.record.update(number, stack_base="", stacked_on=[], worktree=fresh)
+        self.record.note(
+            f"piece {number}: a dependency moved after the piece was stacked on it, so the "
+            f"branch starts afresh at the judge commit in the folder {fresh}. The old branch is "
+            f"kept as {old}, with the folder {name}")
+        return fresh
+
+    def _git(self, ref: str, *args: str) -> bool:
+        done = self.gateway.runner(
+            ["git", "-C", str(self.paths.root), *args, ref], capture_output=True, text=True,
+            check=False, env=self.gateway.env)
+        return done.returncode == 0
+
+    def _moved_on(self, branch: str, dependency: int) -> bool:
+        """True when the tip of the dependency's branch is not in the history of `branch`."""
+        done = self.gateway.runner(
+            ["git", "-C", str(self.paths.root), "merge-base", "--is-ancestor",
+             f"refs/heads/piece-{dependency}", f"refs/heads/{branch}"],
+            capture_output=True, text=True, check=False, env=self.gateway.env)
+        return done.returncode == 1
 
     def _stack_pieces(self, number: int) -> list[int]:
         """The built pieces in this run that block `number`: it is built on their branches."""

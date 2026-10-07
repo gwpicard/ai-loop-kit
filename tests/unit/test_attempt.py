@@ -732,6 +732,34 @@ class TheStackedAttempt(AttemptCase):
         git(self.root, "checkout", "-q", "main")
         self.refuses("stack")
 
+    def move_dependency(self) -> None:
+        """The dependency gets a new commit after the dependent was stacked on it."""
+        git(self.root, "checkout", "-q", "piece-7")
+        (self.root / "billing" / "more.py").write_text("Z = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "A later change on the dependency")
+        git(self.root, "checkout", "-q", "main")
+
+    def test_a_dependency_that_moved_gives_the_piece_back_and_names_the_dependency(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        self.move_dependency()
+        result = self.refuses("does not merge the tip")
+        self.assertIn("move 1 ready", result.next_command)
+        self.assertIn("piece-7 moved after this piece was stacked on it", result.next_command)
+
+    def test_an_own_commit_before_a_new_stacking_merge_gives_the_piece_back(self) -> None:
+        self.stack()
+        self.honest()
+        self.move_dependency()
+        git(self.root, "checkout", "-q", ready.branch_name(1))
+        git(self.root, "merge", "-q", "--no-ff", "-m", "Stack on piece 7", "piece-7")
+        self.options["stack_base"] = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "checkout", "-q", "main")
+        result = self.refuses("comes before the stacking merge")
+        self.assertIn("move 1 ready", result.next_command)
+        self.assertIn("piece-7 moved after this piece was stacked on it", result.next_command)
+
 
 class TheDependencies(AttemptCase):
     LOCK_BEFORE = '{"packages": {}}\n'
