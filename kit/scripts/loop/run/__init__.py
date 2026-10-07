@@ -22,6 +22,8 @@ The events are `start`, `tick`, `session-ended`, `piece-built`, `built-all` and 
 `context` is the engine's `HookContext`: the paths, the run name, the run record and the
 policy, the lock every call to the gate goes through, `restart_piece` (build a built piece
 again) and `infos` (the areas and blockers of each piece). A hook that restarts a piece at
-`built-all` gets another round: the piece is built, and `built-all` is called again. A hook may read them and write notes and decisions into the
-record. A hook that raises is recorded as a problem, and the run then ends with a failure. It is never ignored.
+`built-all` gets another round: the piece is built, and `built-all` is called again.
+
+A hook may read the context and write notes and decisions into the record. A hook that raises
+is recorded as a problem, and the run then ends with a failure. It is never ignored.
 """
