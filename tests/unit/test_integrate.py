@@ -154,7 +154,8 @@ class IntegrationCase(unittest.TestCase):
             self.paths, "night-1", self.run_record, {"test_timeout_seconds": 60},
             reader=lambda n: self.views[n], judge_run=self.judges, mover=self.mover,
             push=self.pushes, restart=self.restarted.append,
-            dependencies=dependencies or {}, held_runs=held or (lambda view: []))
+            dependencies=dependencies or {}, held_runs=held or (lambda view: []),
+            docs_commit=lambda **more: None)
 
     def head(self, branch: str) -> str:
         return git(self.root, "rev-parse", f"refs/heads/{branch}")
@@ -346,6 +347,7 @@ class ResumeTest(IntegrationCase):
         self.run_record.save()
         second = self.make()
         second.start()
+        second.drain()
         self.assertEqual(second.joined("main"), [1])
         calls = len(self.judges.calls)
         again = second.join(1)
@@ -363,6 +365,7 @@ class ResumeTest(IntegrationCase):
         first.join(1)
         second = self.make()
         second.start()
+        self.assertEqual(second.drain(), [2])
         self.assertEqual(second.joined("main"), [1, 2])
 
 

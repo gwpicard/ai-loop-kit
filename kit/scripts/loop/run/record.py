@@ -79,6 +79,11 @@ class RunRecord:
         self.data = data
         self._lock = threading.RLock()
 
+    @property
+    def lock(self) -> threading.RLock:
+        """The lock that guards the record. A module that edits `data` holds it, then saves."""
+        return self._lock
+
     # --- making and reading ----------------------------------------------------------
 
     @classmethod
