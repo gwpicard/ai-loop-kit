@@ -18,8 +18,12 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from loop import closing, github, pulls  # noqa: E402
+import test_moves  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
+
+from loop import closing, github, moves, pulls  # noqa: E402
+from loop.gates import CheckContext, CheckResult  # noqa: E402
 
 
 class TheClosingWords(unittest.TestCase):
@@ -233,6 +237,51 @@ class ThePullRequestCalls(unittest.TestCase):
         self.assertEqual(hub.calls[1], (["pr", "comment", "7", "--body-file", "-"], "Hello"))
         self.assertEqual(hub.calls[2][0], ["pr", "edit", "7", "--base", "main"])
 
+
+class TheActionOfAMove(test_moves.Base):
+    """A check may hand the gate an action to run once, on a real move and never on a dry run."""
+
+    def test_the_action_runs_on_a_real_move_after_the_checks_and_before_the_record(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "approval")
+        seen: list[str] = []
+
+        def act() -> None:
+            seen.append(self.gate.piece(piece).state)
+
+        self.loader.data["merge"] = {"act": act}
+        self.gate.move(piece, "done", dry_run=True)
+        self.assertEqual(seen, [], "a dry run must not act")
+        self.gate.move(piece, "done")
+        self.assertEqual(seen, ["approval"])
+        self.assertEqual(self.gate.piece(piece).state, "done")
+
+    def test_an_action_that_fails_leaves_the_piece_where_it_was(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "approval")
+        before = self.gate.piece(piece).entries
+
+        def act() -> None:
+            raise github.GitHubError("GitHub did not merge", next_command="read the pull request")
+
+        self.loader.data["merge"] = {"act": act}
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.move(piece, "done")
+        self.assertIn("GitHub did not merge", caught.exception.message)
+        self.assertEqual(caught.exception.next_command, "read the pull request")
+        self.assertEqual(self.gate.piece(piece).state, "approval")
+        self.assertEqual(self.gate.piece(piece).entries, before)
+
+    def test_an_action_is_not_a_record_entry(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "approval")
+        self.loader.data["merge"] = {"act": lambda: None}
+        self.gate.move(piece, "done")
+        kinds = {e.get("kind") for e in self.gate.piece(piece).record}
+        self.assertNotIn("act", kinds)
+
+
+_ = (CheckContext, CheckResult)
 
 if __name__ == "__main__":
     unittest.main()

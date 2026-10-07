@@ -577,6 +577,76 @@ def _closed_env(env: Mapping[str, str], config: Sequence[tuple[str, str]]) -> di
     return out
 
 
+def _remote(
+    paths: Paths, remote: str, runner: Runner, env: Mapping[str, str], *, writing: bool
+) -> tuple[str, dict[str, str]]:
+    """The address to push to or fetch from, and the closed environment that goes with it.
+
+    GitHub is reached over https with the App's token, to an address the gate builds itself. A
+    folder on this computer is reached as it is. Any other remote is refused.
+    """
+    root = paths.root
+    # The address as written in the config: `git remote get-url` would apply the
+    # person's own insteadOf rewrites, and the gate builds its own address.
+    found = _git(root, ["config", "--get", f"remote.{remote}.pushurl"], runner, env) \
+        if writing else None
+    if found is None or found.returncode != 0 or not found.stdout.strip():
+        found = _git(root, ["config", "--get", f"remote.{remote}.url"], runner, env)
+    if found.returncode != 0 or not found.stdout.strip():
+        raise GitHubError(f"there is no remote called {remote}", next_command="git remote -v")
+    url = found.stdout.strip().splitlines()[0]
+    address = github_address(url)
+    if address is not None:
+        held = credential(paths, runner=runner, env=env)
+        if held is None or held.token is None:
+            raise NoApp(root)
+        basic = base64.b64encode(f"x-access-token:{held.token}".encode()).decode("ascii")
+        return address, _closed_env(env, [(GITHUB_HEADER, f"AUTHORIZATION: basic {basic}")])
+    if is_local_path(url):
+        return url, _closed_env(env, [])
+    raise GitHubError(
+        f"the remote {remote} is at {_shown_url(url)}, which is neither GitHub nor a folder "
+        "on this computer; the gate reaches only GitHub, as its App",
+        next_command="tell the person: the gate does not reach this remote; they push "
+        "the branch themselves if they want it there",
+        code=cli.ExitCode.REFUSED,
+    )
+
+
+def fetch(
+    paths: Paths,
+    branch: str = "main",
+    *,
+    remote: str = "origin",
+    runner: Runner = subprocess.run,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Bring `refs/remotes/<remote>/<branch>` up to date. Never touches a local branch.
+
+    The update is a fast-forward only, so a remote branch that was rewritten is a refusal.
+    Without the App, a GitHub remote raises `NoApp`.
+    """
+    env = dict(os.environ if env is None else env)
+    if not re.fullmatch(r"[A-Za-z0-9._/-]+", branch) or branch.startswith("-"):
+        raise GitHubError(f"{branch!r} is not a branch name", next_command="git branch --list")
+    target, fetch_env = _remote(paths, remote, runner, env, writing=False)
+    done = runner(
+        ["git", "-C", str(paths.root), "fetch", "--quiet", target,
+         f"refs/heads/{branch}:refs/remotes/{remote}/{branch}"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=fetch_env,
+    )
+    if done.returncode != 0:
+        raise GitHubError(
+            f"git fetch of {branch} failed ({_first_line(done.stderr)})",
+            next_command=f"check the remote with git -C {shlex.quote(str(paths.root))} "
+            "remote -v, then run this again",
+        )
+    return {"fetched": f"{remote}/{branch}", "from": _shown_url(target)}
+
+
 def push(
     paths: Paths,
     branch: str,
@@ -600,33 +670,7 @@ def push(
             next_command="push a piece branch; main changes only through a merge",
             code=cli.ExitCode.REFUSED,
         )
-    # The address as written in the config: `git remote get-url` would apply the
-    # person's own insteadOf rewrites, and the gate builds its own address.
-    found = _git(root, ["config", "--get", f"remote.{remote}.pushurl"], runner, env)
-    if found.returncode != 0 or not found.stdout.strip():
-        found = _git(root, ["config", "--get", f"remote.{remote}.url"], runner, env)
-    if found.returncode != 0 or not found.stdout.strip():
-        raise GitHubError(f"there is no remote called {remote}", next_command="git remote -v")
-    url = found.stdout.strip().splitlines()[0]
-    address = github_address(url)
-    if address is not None:
-        held = credential(paths, runner=runner, env=env)
-        if held is None or held.token is None:
-            raise NoApp(root)
-        basic = base64.b64encode(f"x-access-token:{held.token}".encode()).decode("ascii")
-        target = address
-        push_env = _closed_env(env, [(GITHUB_HEADER, f"AUTHORIZATION: basic {basic}")])
-    elif is_local_path(url):
-        target = url
-        push_env = _closed_env(env, [])
-    else:
-        raise GitHubError(
-            f"the remote {remote} is at {_shown_url(url)}, which is neither GitHub nor a folder "
-            "on this computer; the gate pushes only to GitHub, as its App",
-            next_command="tell the person: the gate does not push to this remote; they push "
-            "the branch themselves if they want it there",
-            code=cli.ExitCode.REFUSED,
-        )
+    target, push_env = _remote(paths, remote, runner, env, writing=True)
     has_remote_main = _git(
         root, ["rev-parse", "--verify", "-q", f"refs/remotes/{remote}/main"], runner, env
     )

@@ -800,6 +800,7 @@ class Gate:
             summary["must_look"] = list(result.data["must_look"])
         if dry_run:
             return summary
+        self._act(result)
         old_labels = issue["labels"] if issue is not None else piece.labels()
         new_labels = [states.label(target), *(
             [states.NEEDS_YOU] if needs_you else [])]
@@ -833,6 +834,24 @@ class Gate:
         if fp_entry:
             summary["fingerprint"] = fp_entry["fingerprint"]["fingerprint"]
         return {**summary, **written}
+
+    @staticmethod
+    def _act(result: CheckResult) -> None:
+        """Run the action a check handed over, once, on a real move and never on a dry run.
+
+        The merge is the one such action: the check proves every condition holds, and the gate
+        merges only then. It runs before the record is written. A failed action leaves the piece
+        where it was. A merge that went through while the record failed is made right by asking
+        the same move again, which finds the pull request merged.
+        """
+        act = result.data.get("act")
+        if act is None:
+            return
+        try:
+            act()
+        except github.GitHubError as error:
+            raise MoveError(error.message, next_command=error.next_command,
+                            code=error.code) from error
 
     def _failed_attempt(self, piece: Piece, error: MoveError) -> MoveError:
         """The refusal of an attempt the gate judged and failed (move 5).
