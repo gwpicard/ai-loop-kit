@@ -570,14 +570,21 @@ class Integrator:
             path.parent.rmdir()
 
     def _merge(self, scratch: Path, ref: str, message: str) -> tuple[bool, list[str]]:
-        code, _, _ = _git(
+        code, out, err = _git(
             scratch, "merge", "--no-ff", "--no-verify", "-q", "-m", message, ref,
             config=[*self._identity, *QUIET])
         if code == 0:
             return True, []
-        _, listing, _ = _git(scratch, "diff", "--name-only", "--diff-filter=U")
+        listing_code, listing, _ = _git(scratch, "diff", "--name-only", "--diff-filter=U")
         files = [f for f in listing.splitlines() if f]
         _git(scratch, "merge", "--abort")
+        if listing_code != 0 or not files:
+            text = (err or out).strip()
+            first = text.splitlines()[0] if text else f"exit code {code}"
+            raise IntegrationRefusal(
+                f"git merge failed for {ref} ({first}) and no file is in conflict, so this is "
+                "not a clash and the piece is not sent back",
+                f"check the branch with git branch --list, then run.py --run {self.name}")
         return False, files
 
     def _trial(self, number: int, view: PieceView, key: str, branch: str,

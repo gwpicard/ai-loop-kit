@@ -262,6 +262,20 @@ class JoinTest(IntegrationCase):
         self.assertEqual(self.restarted, [2])
         self.assertNotIn("trial", git(self.root, "worktree", "list", "--porcelain"))
 
+    def test_a_failed_merge_with_no_conflicting_file_is_a_refusal_and_the_piece_stays(self) -> None:
+        self.piece(1, {"a.txt": "one\n"}, "exists:a.txt")
+        loop = self.make()
+        loop.start()
+        moved = self.head(loop.combined("main"))
+        git(self.root, "branch", "-D", "piece-1")
+        result = loop.join(1)
+        self.assertEqual(result.status, "refused", result)
+        self.assertIn("git merge failed", result.message)
+        self.assertTrue(result.next_command, "a refusal names the next command")
+        self.assertEqual(self.mover.calls, [], "the piece was moved on a git error")
+        self.assertEqual(self.restarted, [])
+        self.assertEqual(self.head(loop.combined("main")), moved)
+
     def test_a_piece_that_leaves_its_touches_is_red_at_the_trial(self) -> None:
         self.piece(1, {"a.txt": "one\n", "b.txt": "two\n"}, "exists:a.txt", touches="aa")
         loop = self.make()
