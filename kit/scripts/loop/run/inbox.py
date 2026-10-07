@@ -202,7 +202,7 @@ def _answers_of(context: Any, hub: github.GitHub, number: int, issue: int) -> li
     if listed is None:
         return []
     since = str(held.get("at") or "")
-    if "inbox_after" not in held:
+    if held.get("inbox_after") is None:
         # The first look at this piece: comments from before it was parked are not answers.
         rec.update(number, inbox_after=max((c["id"] for c in listed), default=0))
         if not any(c["at"] for c in listed):

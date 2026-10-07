@@ -972,6 +972,8 @@ class Engine:
         if route.action == "judge":
             return self._judge(number, route)
         if route.action == "park-person":
+            # An answer belongs to the question it answered. A new question starts with none.
+            self.record.update(number, answer=None, inbox_after=None, inbox_used=[])
             self.record.set_status(
                 number, record.PARKED_PERSON, question=route.reason,
                 next=f"answer the question with gate.py answer {number} --question <it> --answer "

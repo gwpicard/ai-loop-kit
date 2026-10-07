@@ -5,6 +5,7 @@ test says so by making any read an error. A comment is data: the answer goes int
 and the builder's brief, and only the gate writes it into the spec.
 """
 
+import json
 import sys
 import tempfile
 import unittest
@@ -16,7 +17,7 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
 from loop import github  # noqa: E402
 from loop.paths import Paths  # noqa: E402
-from loop.run import engine, inbox, mailbox, record  # noqa: E402
+from loop.run import attempts, engine, inbox, mailbox, plan, record  # noqa: E402
 from loop.run.gateway import Reply  # noqa: E402
 
 
@@ -367,6 +368,25 @@ class AfterTheRunTest(Base):
         inbox.after_run(self.context())
         args = self.gateway.calls[0][1]
         self.assertIn("$(touch pwned); rm x", args)
+
+
+class ParkedAgainTest(Base):
+    def test_an_answer_is_not_used_again_when_the_piece_parks_a_second_time(self) -> None:
+        policy = json.loads((ROOT / "kit" / "templates" / "policy.json").read_text())
+        run = engine.Engine(self.paths, "night-1", self.rec, policy,
+                            [plan.PieceInfo(1, "Menu")], slot_count=1,
+                            gateway=object(), hub=object())  # type: ignore[arg-type]
+        self.rec.piece(1)["at"] = "2000-01-01T00:00:00Z"
+        self.hub.comments[11] = [comment(1, "blue, please", at="2000-06-01T00:00:00Z")]
+        self.hook("tick")
+        self.assertEqual(self.rec.status(1), record.BUILDING)
+        self.assertEqual(self.rec.piece(1)["answer"]["text"], "blue, please")
+        run._act(1, attempts.Route("park-person", reason="Which font?"))
+        self.assertEqual(self.rec.status(1), record.PARKED_PERSON)
+        self.assertFalse(self.rec.piece(1).get("answer"))
+        done = inbox.after_run(self.context())
+        self.assertEqual(self.gateway.calls, [], "the first answer went to the second question")
+        self.assertEqual(done, [])
 
 
 class DeliverTest(Base):
