@@ -1230,6 +1230,7 @@ def main():
                 sys.stderr.write("Pull request #%s is not mergeable\n" % pr["number"])
                 sys.exit(1)
             pr["head_oid"] = head_oid(pr)
+            pr["match_head_commit"] = wanted
             pr["state"] = "MERGED"
             pr["merged_at"] = "2026-10-07T12:00:00Z"
             tip = subprocess.run(

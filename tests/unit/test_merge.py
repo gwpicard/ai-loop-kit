@@ -281,6 +281,43 @@ class TheActionOfAMove(test_moves.Base):  # type: ignore[misc, unused-ignore]
         self.assertEqual(self.gate.piece(piece).state, "approval")
         self.assertEqual(self.gate.piece(piece).entries, before)
 
+    def test_an_action_that_closes_the_issue_does_not_trip_the_second_read(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "approval")
+        issue = self.gate.piece(piece).issue
+        assert issue is not None
+
+        def strict(number: int, first: Mapping[str, Any]) -> dict[str, Any]:
+            now = self.hub.read_issue(number)
+            if (sorted(now["labels"]) != sorted(first["labels"]) or now["body"] != first["body"]
+                    or now["state"] != first["state"]):
+                raise github.ReadTwiceError(number)
+            return dict(now)
+
+        self.hub.read_again = strict
+
+        def act() -> None:
+            self.hub.issues[issue]["state"] = "closed"  # what a merge with a Closes line does
+
+        self.loader.data["merge"] = {"act": act}
+        self.gate.move(piece, "done")
+        self.assertEqual(self.gate.piece(piece).state, "done")
+
+    def test_an_action_that_changes_the_labels_is_a_refusal(self) -> None:
+        piece = self.capture()
+        self.walk(piece, "approval")
+        issue = self.gate.piece(piece).issue
+        assert issue is not None
+
+        def act() -> None:
+            self.hub.issues[issue]["labels"].append("someone-else")
+
+        self.loader.data["merge"] = {"act": act}
+        with self.assertRaises(moves.MoveError) as caught:
+            self.gate.move(piece, "done")
+        self.assertIn("changed while the action", caught.exception.message)
+        self.assertEqual(self.gate.piece(piece).state, "approval")
+
     def test_an_action_is_not_a_record_entry(self) -> None:
         piece = self.capture()
         self.walk(piece, "approval")

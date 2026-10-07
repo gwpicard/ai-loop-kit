@@ -801,6 +801,8 @@ class Gate:
         if dry_run:
             return summary
         self._act(result)
+        if issue is not None and result.data.get("act") is not None:
+            issue = self._read_after_act(piece, issue)
         old_labels = issue["labels"] if issue is not None else piece.labels()
         new_labels = [states.label(target), *(
             [states.NEEDS_YOU] if needs_you else [])]
@@ -834,6 +836,27 @@ class Gate:
         if fp_entry:
             summary["fingerprint"] = fp_entry["fingerprint"]["fingerprint"]
         return {**summary, **written}
+
+    def _read_after_act(self, piece: Piece, before: dict[str, Any]) -> dict[str, Any]:
+        """The issue again, after an action that may have changed it.
+
+        A merge closes the issues its `Closes` lines name, so the issue's state is allowed to
+        differ from the first read. Its labels and its body are not. The read made after the
+        action is the one the second read, just before the write, is compared with.
+        """
+        assert piece.issue is not None
+        try:
+            now = self.hub.read_issue(piece.issue)
+        except github.GitHubError as error:
+            raise MoveError(error.message, next_command=error.next_command,
+                            code=error.code) from error
+        if sorted(now["labels"]) != sorted(before["labels"]) or now["body"] != before["body"]:
+            raise MoveError(
+                f"issue {piece.issue} changed while the action of the move ran, so another "
+                "session or the person changed it",
+                next_command="run gate.py report, then the same command again",
+            )
+        return now
 
     @staticmethod
     def _act(result: CheckResult) -> None:

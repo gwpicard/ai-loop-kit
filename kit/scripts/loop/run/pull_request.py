@@ -368,6 +368,7 @@ class PullRequests:
             if entry.get("kind") == "review-test":
                 notes.append(f"A new test from review, {entry.get('path')}: "
                              f"{entry.get('justification')}")
+        notes = list(dict.fromkeys(notes))  # a note a second review round said again, once
         changes = view.spec["changes"]
         try:
             piece = moves.read_piece(self.paths, view.number)
@@ -394,7 +395,7 @@ class PullRequests:
             piece = item.get("piece")
             if piece is None or piece not in shown:
                 notes.append(str(item.get("text", "")))
-        return notes
+        return list(dict.fromkeys(notes))
 
     # --- the parts --------------------------------------------------------------------------
 
