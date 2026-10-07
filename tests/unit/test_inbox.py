@@ -315,7 +315,7 @@ class AfterTheRunTest(Base):
             calls.append((script, args[0]))
             return replies.pop(0)
 
-        self.gateway._call = call  # type: ignore[method-assign,assignment]
+        self.gateway._call = call  # type: ignore[method-assign]
         done = inbox.after_run(self.context())
         self.assertEqual(calls, [("gate.py", "answer"), ("gate.py", "answer")])
         self.assertEqual([c[1][:2] for c in self.gateway.calls], [["1", "shaping"], ["1", "ready"]])

@@ -18,7 +18,8 @@ Inside a run, the engine calls `run_hook` and this module does three jobs.
 3. At the end of the run, a parked piece that has an answer is not resumed (no run is left to
    build it). The answer goes in through `gate.py answer`, which writes it into the spec and
    takes a new fingerprint; the piece goes back to ready (by move 7, or by shaping when the spec
-   holds no open question for the answer); and the person is told in a comment, as the App. This is also what the command line does, for an answer that comes after
+   holds no open question for the answer); and the person is told in a comment, as the App.
+   This is also what the command line does, for an answer that comes after
    the run has ended.
 
 The text of a comment is data. It is never run, never put in a command, and never written into a
@@ -139,7 +140,8 @@ def _comments(context: Any, hub: github.GitHub, issue: int) -> list[dict[str, An
         listed = hub.api_json(f"repos/{{owner}}/{{repo}}/issues/{issue}/comments")
     except github.GitHubError as error:
         _say(context, f"read:{issue}:{error.message}",
-             f"the comments on issue {issue} cannot be read ({error.message}), so no answer is read "
+             f"the comments on issue {issue} cannot be read ({error.message}), so no answer is "
+             "read "
              f"from there. next: {error.next_command}")
         return None
     if not isinstance(listed, list):
