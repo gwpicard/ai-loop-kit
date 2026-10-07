@@ -234,7 +234,8 @@ def offered(rule):
 # and the file rules on the guards, such as .agents/pieces/, which only a
 # project founded with this kit keeps. The gh rules guard the labels of a project founded with this kit,
 # and a project founded before them keeps its older labels, which those rules
-# do not name. The rules that hide the person's GitHub sign-in from an agent
+# do not name. The rules that keep an agent from merging (gh pr merge, the pull request
+# script's merge, gate.py move to done) come with the settings template too. The rules that hide the person's GitHub sign-in from an agent
 # session (the gh config, the keychain, gh auth token, security find-*) are
 # left out as well: they come with the settings template, not the offer.
 left_out = [r for r in rules if not offered(r)]
@@ -242,7 +243,7 @@ for rule in left_out:
     if not any(rule.startswith(p) for p in ("Bash(git push --force", "Bash(git push -f",
                                             "Bash(git reset", "Bash(git clean",
                                             "Bash(git commit", "Bash(git config",
-                                            "Bash(gh ", "Bash(security ", "Edit(",
+                                            "Bash(gh ", "Bash(python", "Bash(security ", "Edit(",
                                             "Read(")) \
             and ".env" not in rule:
         print("the monthly offer would leave out %s, which step 2 names no kind for" % rule)
