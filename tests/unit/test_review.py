@@ -139,6 +139,52 @@ class TheFindingsSchema(unittest.TestCase):
                 self.refused(document(item), "check")
 
 
+class TheCommandLine(unittest.TestCase):
+    """`review.py check-findings` gives the schema to a person or a tool, with real arguments."""
+
+    def run_main(self, *args: str) -> tuple[int, dict[str, Any], str]:
+        import contextlib
+        import io
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = review.main([*args, "--json"])
+        printed = out.getvalue().strip().splitlines()
+        return code, json.loads(printed[-1]) if printed else {}, err.getvalue()
+
+    def file(self, text: str) -> str:
+        import tempfile
+
+        path = Path(tempfile.mkdtemp()) / "findings.json"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_a_valid_file_is_counted(self) -> None:
+        code, body, _ = self.run_main("check-findings", "--file", self.file(document(
+            finding(1, "worth-knowing"), finding(2, "wrong-spec", "contradicts"))),
+            "--pieces", "1,2")
+        self.assertEqual(code, 0)
+        self.assertEqual((body["findings"], body["kinds"]), (2, ["worth-knowing", "wrong-spec"]))
+
+    def test_an_invalid_file_is_refused_with_a_next_line(self) -> None:
+        code, body, err = self.run_main("check-findings", "--file",
+                                        self.file(document(finding(kind="nit"))), "--pieces", "1")
+        self.assertEqual(code, 3)
+        self.assertFalse(body["ok"])
+        self.assertIn("next:", err)
+
+    def test_a_missing_file_is_an_environment_fault(self) -> None:
+        code, _, err = self.run_main("check-findings", "--file", "/nowhere/findings.json",
+                                     "--pieces", "1")
+        self.assertEqual(code, 4)
+        self.assertIn("next:", err)
+
+    def test_pieces_that_are_not_numbers_are_a_usage_fault(self) -> None:
+        code, _, _ = self.run_main("check-findings", "--file", self.file(document()),
+                                   "--pieces", "one")
+        self.assertEqual(code, 2)
+
+
 class TheReviewersSession(unittest.TestCase):
     def setUp(self) -> None:
         self.base = Path(__import__("tempfile").mkdtemp())
