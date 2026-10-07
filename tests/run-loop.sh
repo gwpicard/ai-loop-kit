@@ -88,7 +88,7 @@ d = json.load(open(sys.argv[1]))
 d["test_command"] = "python3 -m pytest tests/test_old.py -q"
 json.dump(d, open(sys.argv[1], "w"), indent=2)
 PY
-printf '{"language": "python", "allowedDomains": ["pypi.org", "files.pythonhosted.org"]}\n' \
+printf '{"language": "python", "allowedDomains": ["pypi.org", "files.pythonhosted.org", "registry.allowlist-probe.test"]}\n' \
   > "$TP_ROOT/.agents/loop/network-allowlist.json"
 
 # --- the project: a stub and an acceptance test for each piece ------------------------------
@@ -465,6 +465,25 @@ for c in builders:
     assert not any(k.startswith(("GH_", "GITHUB_")) for k in c["env_keys"]), c["env_keys"]
 PY
 ok "every session command line has --settings, dontAsk, no --bare and no GitHub credential"
+
+# The settings file a session really read holds the /setup network allowlist and a deny rule for
+# a bar file of its piece. The command line only names the file, so the file is read here.
+python3 - "$TP_ROOT/.agents/runs/night-1" "$TP_ROOT/.agents/loop/network-allowlist.json" <<'PY' \
+  || fail "a session settings file lacks the network allowlist or the bar deny rule"
+import json, sys
+run, allow = sys.argv[1], sys.argv[2]
+wanted = json.load(open(allow))["allowedDomains"]
+# One host that the kit template does not hold, so only the /setup file can put it there.
+assert "registry.allowlist-probe.test" in wanted, wanted
+settings = json.load(open(run + "/settings-p1-a1.json"))
+hosts = settings["sandbox"]["network"]["allowedDomains"]
+assert all(h in hosts for h in wanted), (wanted, hosts)
+deny = settings["permissions"]["deny"]
+assert any(r.startswith("Edit(") and r.endswith("tests/acceptance/test_greet.py)") for r in deny), deny
+blocks = settings["sandbox"]["filesystem"]["denyWrite"]
+assert any(b.endswith("tests/acceptance/test_greet.py") for b in blocks), blocks
+PY
+ok "a session settings file holds the network allowlist and a deny rule for a bar file of its piece"
 
 # The summary lists the decisions made alone, the builders' included.
 SUMMARY="$TP_ROOT/.agents/runs/night-1/summary.md"
