@@ -139,12 +139,12 @@ def _comments(context: Any, hub: github.GitHub, issue: int) -> list[dict[str, An
         listed = hub.api_json(f"repos/{{owner}}/{{repo}}/issues/{issue}/comments")
     except github.GitHubError as error:
         _say(context, f"read:{issue}:{error.message}",
-             f"the comments on #{issue} cannot be read ({error.message}), so no answer is read "
+             f"the comments on issue {issue} cannot be read ({error.message}), so no answer is read "
              f"from there. next: {error.next_command}")
         return None
     if not isinstance(listed, list):
         _say(context, f"shape:{issue}", f"GitHub answered with something that is not a list of "
-             f"comments for #{issue}, so no answer is read from there")
+             f"comments for issue {issue}, so no answer is read from there")
         return None
     found: list[dict[str, Any]] = []
     for item in listed:
@@ -155,7 +155,7 @@ def _comments(context: Any, hub: github.GitHub, issue: int) -> list[dict[str, An
                           "at": str(item.get("created_at") or "")})
         except (KeyError, TypeError, ValueError):
             _say(context, f"bad:{issue}:{repr(item)[:60]}",
-                 f"a comment on #{issue} is malformed (no id, text, author or association), "
+                 f"a comment on issue {issue} is malformed (no id, text, author or association), "
                  "so it is not read")
     return found
 
@@ -219,7 +219,7 @@ def _read_piece(context: Any, hub: github.GitHub, number: int, issue: int) -> No
     text = "\n\n".join(c["body"] for c in new)
     rec.update(number, inbox_used=[*rec.piece(number).get("inbox_used", []),
                                    *[c["id"] for c in new]])
-    deliver(context, number, text, f"a comment on #{issue} by {new[-1]['login']}",
+    deliver(context, number, text, f"a comment on issue {issue} by {new[-1]['login']}",
             by=new[-1]["login"])
 
 
@@ -252,16 +252,16 @@ def _read_pull_request(context: Any, hub: github.GitHub, pull: int) -> None:
         named = _NAMED.match(comment["body"])
         if not named:
             _say(context, f"unnamed:{comment['id']}",
-                 f"a comment on the pull request #{pull} by {comment['login']} names no piece, so "
+                 f"a comment on the pull request {pull} by {comment['login']} names no piece, so "
                  "it is not used as an answer. Start an answer with 'piece <number>:'")
             continue
         number = _piece_named(rec, int(named.group(1)))
         if number is None:
             _say(context, f"nopiece:{comment['id']}",
-                 f"a comment on the pull request #{pull} names piece {named.group(1)}, which is "
+                 f"a comment on the pull request {pull} names piece {named.group(1)}, which is "
                  "not in this run")
             continue
-        deliver(context, number, named.group(2), f"a comment on the pull request #{pull} by "
+        deliver(context, number, named.group(2), f"a comment on the pull request {pull} by "
                 f"{comment['login']}", by=comment["login"])
 
 
@@ -293,7 +293,7 @@ def after_run(context: Any, *, dry_run: bool = False) -> list[dict[str, Any]]:
                 if new:
                     rec.update(number, answer={
                         "text": " ".join("\n\n".join(c["body"] for c in new).split())[:MAX_ANSWER],
-                        "source": f"a comment on #{issue} by {new[-1]['login']}",
+                        "source": f"a comment on issue {issue} by {new[-1]['login']}",
                         "by": new[-1]["login"], "at": _stamp()},
                         inbox_used=[*held.get("inbox_used", []), *[c["id"] for c in new]])
         answer = rec.piece(number).get("answer")

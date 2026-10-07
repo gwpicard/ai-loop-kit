@@ -323,6 +323,17 @@ class RealStopsTest(Base):
         self.assertEqual(found[0]["pieces"], [1, 2])
         self.assertIn("npm install left-pad", found[0]["text"])
 
+    def test_a_link_in_the_folder_path_does_not_hide_the_piece(self) -> None:
+        real = self.paths.worktrees_dir / "1-name"
+        real.mkdir(parents=True)
+        link = self.folder / "link-to-worktrees"
+        link.symlink_to(self.paths.worktrees_dir)
+        self.write_log([{"event": "refuse", "command": "npm i x", "cwd": str(link / "1-name")},
+                        self.refusal(2, "npm i x")])
+        watch.run_hook(self.context(), "session-ended", piece=2, result=self.result(""))
+        found = [s for s in self.stops() if s["kind"] == "refused-command"]
+        self.assertEqual(found[0]["pieces"], [1, 2])
+
     def test_the_same_refused_command_twice_in_one_piece_is_not_a_run_level_stop(self) -> None:
         self.write_log([self.refusal(1, "npm install x"), self.refusal(1, "npm install x")])
         watch.run_hook(self.context(), "session-ended", piece=1, result=self.result(""))
@@ -359,7 +370,7 @@ class RealStopsTest(Base):
 
     def test_gave_up_words_name_the_failure(self) -> None:
         for piece in (1, 2, 3):
-            gave = {"outcome": "gave-up", "reason": "the database at port 543%d is down" % piece}
+            gave = {"outcome": "gave-up", "reason": f"the database at port 543{piece} is down"}
             watch.run_hook(self.context(), "session-ended", piece=piece,
                            result=self.result("", handoff=gave))
         self.assertEqual([s["kind"] for s in self.stops()], ["same-failure"])

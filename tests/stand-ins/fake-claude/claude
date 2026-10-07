@@ -17,8 +17,8 @@ A script may also hold these, which a run test uses:
   sleep      seconds to wait before anything else; a stop signal ends the wait
   output     lines to print, flushed one by one, before the result (what a builder says while
              it works: a run that reads it sees a stuck or a limited builder as it happens)
-  usage_limit_in  seconds from now at which a usage limit resets; the stand-in then prints the
-             limit message with that time, as `claude -p` does
+  usage_limit_in  seconds from now at which a usage limit resets; the result is then an error
+             that holds the limit message and that time, as `claude -p` reports it
   sleep_after  seconds to wait after the output and before the result
   cost_usd   the cost to report as total_cost_usd, in the shape of `claude -p` output
   exit_code  the exit code to end with, after the rest of the script ran
@@ -175,10 +175,6 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         sys.stderr.write(f"claude (stand-in): git failed: {exc.stderr.decode(errors='replace')}\n")
         return 1
-    if "usage_limit_in" in script:
-        # What `claude -p` prints at a usage limit: the message, then when it resets.
-        print("Claude AI usage limit reached|%d" % (time.time() + float(script["usage_limit_in"])),
-              flush=True)
     for line in script.get("output", []):
         print(line, flush=True)
     if script.get("sleep_after"):
@@ -190,6 +186,13 @@ def main() -> int:
         "result": "; ".join(done) or "nothing to do",
         "session_id": "stand-in-session",
     }
+    if "usage_limit_in" in script:
+        # What `claude -p --output-format json` reports at a usage limit: an error result that
+        # holds the message and the time the limit resets.
+        reset = int(time.time() + float(script["usage_limit_in"]))
+        result["is_error"] = True
+        result["subtype"] = "error_during_execution"
+        result["result"] = f"Claude AI usage limit reached|{reset}"
     if "cost_usd" in script:
         result["total_cost_usd"] = script["cost_usd"]
         result["usage"] = {"input_tokens": 100, "output_tokens": 50}

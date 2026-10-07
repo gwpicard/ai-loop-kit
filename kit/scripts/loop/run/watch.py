@@ -433,9 +433,16 @@ def _refused_commands(context: Any) -> None:
 
 
 def _piece_of(paths: Paths, cwd: str) -> int | None:
-    try:
-        first = Path(cwd).relative_to(paths.worktrees_dir).parts[0]
-    except (ValueError, IndexError):
+    """The piece whose folder a command ran in. A link in the path (/var and /private/var) does
+    not hide it."""
+    for here, base in ((Path(cwd), paths.worktrees_dir),
+                       (Path(cwd).resolve(), paths.worktrees_dir.resolve())):
+        try:
+            first = here.relative_to(base).parts[0]
+        except (ValueError, IndexError):
+            continue
+        break
+    else:
         return None
     match = re.match(r"(\d+)-", first)
     return int(match.group(1)) if match else None

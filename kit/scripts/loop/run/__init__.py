@@ -17,15 +17,24 @@
   issue (move 9) or a worth-knowing note (it answers `built-all` and `run-end`, and asks for
   another `built-all` through the context's `another_round` when it changed the branch).
 
+- `watch.py`: stuck detection, usage limits and the real stops of a run (`run_hook`, and
+  `session_started`, `on_output` and `assess_session` for each builder session);
+- `mailbox.py`: pause, continue and stop, as lines in the run's mailbox file (it answers
+  `start` and `tick`);
+- `inbox.py`: the person's answers, read from GitHub comments and from the mailbox (it answers
+  `start`, `tick` and `run-end`, and is also a command for answers that come after the run).
+
 Later pieces add modules and never edit `run.py`. The engine looks for each of these modules
 by name, and calls `run_hook(context, event, **data)` in the ones that exist:
 
-- `watch.py`, `inbox.py`, `integrate.py`, `review.py` and `pull_request.py`.
+- `watch.py`, `mailbox.py`, `inbox.py`, `integrate.py`, `review.py` and `pull_request.py`.
 
 The events are `start`, `tick`, `session-ended`, `piece-built`, `built-all` and `run-end`.
 `context` is the engine's `HookContext`: the paths, the run name, the run record and the
 policy, the lock every call to the gate goes through, `restart_piece` (build a built piece
-again) and `infos` (the areas and blockers of each piece). A hook that restarts a piece at
+again), `infos` (the areas and blockers of each piece), and for the watch and the mailbox
+`stop_attempt` (end the session of a stuck piece), `live_sessions`, `set_paused` and
+`request_stop`. A hook that restarts a piece at
 `built-all` gets another round: the piece is built, and `built-all` is called again.
 
 A hook may read the context and write notes and decisions into the record. A hook that raises

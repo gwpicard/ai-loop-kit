@@ -110,7 +110,7 @@ class WithTheAppTest(Base):
         self.hook("tick")
         self.assertEqual(self.resumed, [1])
         self.assertEqual(self.rec.piece(1)["answer"]["text"], "blue, please")
-        self.assertIn("#11", self.rec.piece(1)["answer"]["source"])
+        self.assertIn("issue 11", self.rec.piece(1)["answer"]["source"])
         self.assertEqual(self.rec.piece(1)["answer"]["by"], "the-person")
 
     def test_the_comment_is_read_through_the_github_module_as_the_app(self) -> None:
@@ -209,7 +209,7 @@ class PullRequestTest(Base):
         self.hook("tick")
         self.assertEqual(self.resumed, [1])
         self.assertEqual(self.rec.piece(1)["answer"]["text"], "green")
-        self.assertIn("pull request #30", self.rec.piece(1)["answer"]["source"])
+        self.assertIn("pull request 30", self.rec.piece(1)["answer"]["source"])
 
     def test_a_comment_that_names_no_piece_is_a_note_and_guesses_nothing(self) -> None:
         self.hook("tick")
@@ -226,7 +226,7 @@ class PullRequestTest(Base):
 
     def test_the_piece_may_be_named_by_its_issue(self) -> None:
         self.hook("tick")
-        self.hub.comments[30] = [comment(5, "#11: green")]
+        self.hub.comments[30] = [comment(5, "#" + "11: green")]
         self.hook("tick")
         self.assertEqual(self.resumed, [1])
 
@@ -270,7 +270,7 @@ class WithNoAppTest(Base):
 class AfterTheRunTest(Base):
     def setUp(self) -> None:
         super().setUp()
-        self.rec.update(1, answer={"text": "blue, please", "source": "a comment on #11",
+        self.rec.update(1, answer={"text": "blue, please", "source": "a comment on issue 11",
                                    "by": "the-person", "at": "2026-10-07T11:00:00Z"})
 
     def test_the_answer_goes_in_through_the_gate_and_the_piece_goes_to_ready_by_move_7(

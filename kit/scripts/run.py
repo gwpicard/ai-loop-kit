@@ -25,10 +25,11 @@ The order of work:
 
 `--plan` (the same as `--dry-run`) prints the order and the waves, and changes nothing.
 
-On a Mac the run keeps the computer awake with `caffeinate -i`. Elsewhere it prints a line
-saying so. The morning summary is `.agents/runs/<name>/summary.md`.
+On a Mac the run keeps the computer awake with `caffeinate -i`, which it starts before the
+pre-run check, since the check refuses a computer that nothing holds awake. Elsewhere it prints a
+line saying so. The morning summary is `.agents/runs/<name>/summary.md`.
 
-The optional modules `watch`, `inbox`, `integrate`, `review` and `pull_request` in `loop/run/`
+The optional modules `watch`, `mailbox`, `inbox`, `integrate`, `review` and `pull_request` in `loop/run/`
 are called when they exist (see `loop/run/__init__.py`), so later pieces add modules and do
 not edit this script.
 """
