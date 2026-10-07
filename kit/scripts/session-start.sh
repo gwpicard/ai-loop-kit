@@ -5,9 +5,12 @@
 #
 # It calls `gate.py report --json --brief`, next to this file. When the call
 # fails, or prints nothing, it prints one fixed fallback line instead. It
-# prints nothing in a project that does not run the loop. It reads project
-# files, edits nothing, fetches nothing and starts no other agent. Every route
-# through it exits 0, so it cannot stop a session from opening.
+# prints nothing in a project that does not run the loop. It then asks
+# `gate.py check-main --brief --json` for a merge the person made on GitHub, and
+# adds one line when it finds one. That call reads and changes nothing, and does
+# nothing while a run is going. The only fetch is the one it makes, as the gate's
+# App, when a piece waits in approval. The hook edits nothing and starts no other
+# agent. Every route through it exits 0, so it cannot stop a session from opening.
 #
 # Wiring: the SessionStart block of the settings template, kit/templates/
 # claude-settings.json.
@@ -50,6 +53,27 @@ if [ -f "$SELF/gate.py" ]; then
   report=$(python3 "$SELF/gate.py" report --json --brief 2>/dev/null) || report=""
 fi
 [ -n "$report" ] || report=$FALLBACK
+
+# A merge the person made on GitHub since the last session, if any. A failure, a slow
+# answer or text that is not JSON adds nothing: the report above still stands.
+if [ -f "$SELF/gate.py" ]; then
+  merged=$(python3 - "$SELF/gate.py" <<'PYEOF' 2>/dev/null
+import json, subprocess, sys
+try:
+    done = subprocess.run([sys.executable, sys.argv[1], "check-main", "--brief", "--json"],
+                          capture_output=True, text=True, timeout=20, check=False,
+                          stdin=subprocess.DEVNULL)
+    line = json.loads(done.stdout.strip().splitlines()[-1]).get("line", "")
+    print(line if isinstance(line, str) else "")
+except Exception:
+    pass
+PYEOF
+  ) || merged=""
+  if [ -n "$merged" ]; then
+    report="$report
+$merged"
+  fi
+fi
 
 if [ "$MODE" = plain ]; then
   printf '%s\n' "$report"
