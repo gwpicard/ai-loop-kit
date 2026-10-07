@@ -31,9 +31,10 @@ record, and the tests of the tested tree (`moved`, `doc_faults`).
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -82,7 +83,7 @@ def main_refs(root: Path) -> list[str]:
     return [r for r in (f"refs/heads/{MAIN}", f"refs/remotes/origin/{MAIN}") if _exists(root, r)]
 
 
-def moved(root: Path, head: str) -> list[str]:
+def moved(root: Path, head: str, refs: Sequence[str] | None = None) -> list[str]:
     """The commits on `main` that the tested `head` does not hold.
 
     A merge commit that only brings in commits `head` already holds is not a move: it is how an
@@ -91,7 +92,7 @@ def moved(root: Path, head: str) -> list[str]:
     """
     _must(root, f"read {head}", "rev-parse", "--verify", f"{head}^{{commit}}")
     found: list[str] = []
-    for ref in main_refs(root):
+    for ref in refs if refs is not None else main_refs(root):
         out = _must(root, f"list the commits {ref} has beyond {head}", "rev-list", "--parents",
                     f"{head}..{ref}")
         for line in out.splitlines():
@@ -327,7 +328,7 @@ def _joined(root: Path, head: str) -> set[int]:
     return found
 
 
-def online_faults(pr: pulls.PullRequest, opening: Opening) -> list[str]:
+def online_faults(pr: pulls.PullRequest, opening: Opening, *, merging: bool = False) -> list[str]:
     faults: list[str] = []
     if pr.state != "OPEN":
         faults.append(f"the pull request is {pr.state.lower()}, not open")
@@ -336,7 +337,9 @@ def online_faults(pr: pulls.PullRequest, opening: Opening) -> list[str]:
                       f"{opening.head[:7]}")
     if pr.head_branch != opening.branch:
         faults.append(f"the pull request is cut from {pr.head_branch}, not {opening.branch}")
-    if pr.base != opening.base:
+    # A stacked pull request may already be retargeted to main when its base has merged.
+    allowed = {opening.base, MAIN} if merging and opening.base_pr is not None else {opening.base}
+    if pr.base not in allowed:
         faults.append(f"the pull request is based on {pr.base}, not {opening.base}")
     return faults
 
@@ -429,7 +432,7 @@ def check(ctx: CheckContext) -> CheckResult:
                 [f"pull request {opening.number} was closed without a merge"],
                 f'gate.py move {ctx.number} building --reason "<what the person said>" (move 13)')
         mode = str(ctx.options.get("merge", "")).strip()
-        faults = online_faults(pr, opening) + offline_faults(
+        faults = online_faults(pr, opening, merging=True) + offline_faults(
             ctx.paths, opening, title=pr.title, body=pr.body)
         if mode not in MODES:
             faults.append("the pull request waits for the person's merge on GitHub. The agent "
@@ -466,4 +469,168 @@ def _merged(opening: Opening, pr: pulls.PullRequest, by: str) -> dict[str, Any]:
             "merge_commit": pr.merge_commit, "by": by, "run": opening.run}
 
 
-__all__ = ["Opening", "Unreadable", "check", "doc_faults", "main_lags", "moved"]
+
+
+
+# --- check-main: a merge the person made --------------------------------------------------------
+
+
+def run_going(paths: Paths) -> str:
+    """The name of a run whose lock holds a live process, or "" when no run is going."""
+    try:
+        names = sorted(p.name for p in paths.runs_dir.iterdir() if p.is_dir())
+    except OSError:
+        return ""
+    for name in names:
+        try:
+            held = paths.lock_file(name).read_text(encoding="utf-8").split()
+        except OSError:
+            continue
+        if not held or not held[0].isdigit():
+            continue
+        try:
+            os.kill(int(held[0]), 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            return name
+        return name
+    return ""
+
+
+def approval_pieces(paths: Paths) -> dict[int, dict[str, Any]]:
+    """Each piece in approval that has a pull request in its record, with that entry."""
+    found: dict[int, dict[str, Any]] = {}
+    try:
+        names = sorted(p.name for p in paths.pieces_dir.iterdir() if p.name.isdigit())
+    except OSError:
+        return found
+    for name in names:
+        try:
+            piece = moves.read_piece(paths, int(name))
+        except moves.MoveError as error:
+            raise Unreadable(str(error), error.next_command) from error
+        entry = latest_entry(piece.record) if piece is not None else None
+        if piece is not None and piece.state == "approval" and entry is not None:
+            found[int(name)] = entry
+    return found
+
+
+def check_main(
+    paths: Paths,
+    *,
+    settle: Callable[[int], Mapping[str, Any]],
+    run_tests: Callable[[str], Mapping[str, Any]],
+    test_command: str,
+    app: bool,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Find the merges the person made, and check `main` when `main` had moved before them.
+
+    A person can merge on GitHub at any time, and a free private repository cannot stop them.
+    If `main` had moved after the final combined check, the merged tree is one nobody tested, so
+    the project's own check runs on the merge commit. A piece whose pull request merged on the
+    tested commit goes to done by move 11. Nothing here merges anything.
+    """
+    out: dict[str, Any] = {"merges": [], "waiting": [], "unreadable": [], "skipped": "",
+                           "next": ""}
+    going = run_going(paths)
+    if going:
+        out["skipped"] = f"skipped: a run is going ({going}), and it settles its own merges"
+        return out
+    try:
+        waiting = approval_pieces(paths)
+    except Unreadable as error:
+        out["unreadable"].append({"pull_request": 0, "pieces": [], "why": str(error)})
+        out["next"] = error.next_command
+        return out
+    if not waiting:
+        return out
+    if not app:
+        out["skipped"] = ("skipped: the gate's App is not set up, so a merge on GitHub cannot "
+                          "be read")
+        return out
+    api = make_pulls(paths)
+    groups: dict[int, list[int]] = {}
+    for number, entry in waiting.items():
+        groups.setdefault(int(entry["pull_request"]), []).append(number)
+    for number, pieces in sorted(groups.items()):
+        item: dict[str, Any] = {"pull_request": number, "pieces": sorted(pieces)}
+        try:
+            pr = api.view(number)
+            if pr.state == "OPEN":
+                out["waiting"].append({**item, "why": "open: waits for the merge"})
+                continue
+            if pr.state == "CLOSED":
+                out["waiting"].append({**item, "why": "closed without a merge: move 13 is needed"})
+                continue
+            fetch_main(paths)
+            opening = Opening.from_entry(waiting[pieces[0]])
+            first = _must(paths.root, f"read the merge commit {pr.merge_commit[:7]}", "rev-parse",
+                          "--verify", f"{pr.merge_commit}^1") if pr.merge_commit else ""
+            behind = moved(paths.root, opening.head, [first]) if first else []
+        except github.GitHubError as error:
+            out["unreadable"].append({**item, "why": error.message})
+            continue
+        except Unreadable as error:
+            out["unreadable"].append({**item, "why": str(error)})
+            continue
+        same = pr.head_oid == opening.head
+        item.update(merge_commit=pr.merge_commit, main_moved=bool(behind), settled=False,
+                    tested_commit_merged=same)
+        if not pr.merge_commit:
+            item["why"] = "GitHub gave no merge commit, so main cannot be checked"
+        if same and not dry_run:
+            try:
+                for piece in sorted(pieces):
+                    settle(piece)
+                item["settled"] = True
+            except moves.MoveError as error:
+                item["why"] = error.message
+        elif same:
+            item["why"] = "dry run: the pieces would go to done by move 11"
+        else:
+            item["why"] = (f"merged {pr.head_oid[:7]}, not the tested commit {opening.head[:7]}: "
+                           "main holds work nobody tested")
+        needed = bool(behind) or not same
+        item["main_check"] = _main_check(paths, pr.merge_commit, needed, test_command,
+                                         run_tests, dry_run, item)
+        if item["main_check"] in ("green", "red") and not dry_run:
+            from loop import evidence
+
+            for piece in sorted(pieces):
+                evidence.append(paths, piece, [{
+                    "kind": "main-check", "pull_request": number, "result": item["main_check"],
+                    "merge_commit": pr.merge_commit, "main_moved": bool(behind),
+                    "tested_commit_merged": same}])
+        out["merges"].append(item)
+    red = [m for m in out["merges"] if m.get("main_check") == "red"]
+    odd = [m for m in out["merges"] if not m.get("tested_commit_merged")]
+    if red:
+        out["next"] = (f"main is red after the person's merge of pull request "
+                       f"{red[0]['pull_request']}: tell the person, then capture a bug piece "
+                       'with gate.py capture --title "<what broke>". Never revert or force '
+                       "push; a fix goes in through a pull request")
+    elif odd:
+        out["next"] = (f"pull request {odd[0]['pull_request']} merged a commit nobody tested: "
+                       "tell the person, and read the project's checks on main")
+    elif out["unreadable"]:
+        out["next"] = "check the GitHub App and the network, then run gate.py check-main again"
+    return out
+
+
+def _main_check(paths: Paths, ref: str, needed: bool, command: str,
+                run_tests: Callable[[str], Mapping[str, Any]], dry_run: bool,
+                item: dict[str, Any]) -> str:
+    if not needed:
+        return "not needed"
+    if not ref:
+        return "not run"
+    if not command.strip():
+        item["why"] = (str(item.get("why", "")) + " skipped: the policy has no test_command, "
+                       "so main was not checked").strip()
+        return "not run"
+    if dry_run:
+        return "not run"
+    result = run_tests(ref)
+    return "green" if result.get("exit_code") == 0 and not result.get("timed_out") else "red"

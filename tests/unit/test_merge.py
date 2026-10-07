@@ -826,5 +826,130 @@ class MoveTwelveRechecks(Merging):
         self.assertIn("was not rejected", text)
 
 
+class CheckMain(Merging):
+    """`gate.py check-main`: find a merge the person made, and check main when it had moved."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.open_pull_request()
+        self.commands: list[tuple[str, str]] = []
+        self.exit_code = 0
+        self.app = True
+
+    def settle(self, number: int) -> dict[str, Any]:
+        return dict(self.gate.move(number, "done"))
+
+    def run_check(self, ref: str) -> dict[str, Any]:
+        self.commands.append(("test", ref))
+        return {"exit_code": self.exit_code, "timed_out": False, "output_tail": "tail"}
+
+    def check_main(self, *, dry_run: bool = False) -> dict[str, Any]:
+        return merge_gate.check_main(
+            self.paths, settle=self.settle, run_tests=self.run_check, test_command="make check",
+            app=self.app, dry_run=dry_run)
+
+    def person_merges(self, *, main_moved: bool) -> str:
+        r = self.repo
+        if main_moved:
+            r.commit("other/work.txt", "someone else\n", "Work that was never tested together")
+        r.git("merge", "--no-ff", "-q", "-m", "Merge the pull request", self.head)
+        merge = r.git("rev-parse", "HEAD")
+        self.pulls.view_of[7] = self.pr(state="MERGED", merge_commit=merge)
+        return merge
+
+    def test_an_open_pull_request_is_not_a_finding(self) -> None:
+        found = self.check_main()
+        self.assertEqual((found["merges"], found["unreadable"]), ([], []))
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+
+    def test_a_merge_on_the_tested_commit_closes_the_piece_and_needs_no_check_on_main(self) -> None:
+        self.person_merges(main_moved=False)
+        found = self.check_main()
+        self.assertEqual(self.gate.piece(self.piece).state, "done")
+        self.assertEqual(len(found["merges"]), 1)
+        item = found["merges"][0]
+        self.assertFalse(item["main_moved"])
+        self.assertEqual(item["main_check"], "not needed")
+        self.assertEqual(self.commands, [])
+
+    def test_a_merge_after_main_moved_runs_the_check_on_the_merge_commit(self) -> None:
+        merge = self.person_merges(main_moved=True)
+        found = self.check_main()
+        item = found["merges"][0]
+        self.assertTrue(item["main_moved"])
+        self.assertEqual(item["main_check"], "green")
+        self.assertEqual(self.commands, [("test", merge)])
+        self.assertEqual(self.gate.piece(self.piece).state, "done")
+        kinds = [e["kind"] for e in self.gate.piece(self.piece).record]
+        self.assertIn("main-check", kinds)
+
+    def test_a_red_main_names_the_next_step_and_is_not_hidden(self) -> None:
+        self.exit_code = 1
+        self.person_merges(main_moved=True)
+        found = self.check_main()
+        self.assertEqual(found["merges"][0]["main_check"], "red")
+        self.assertIn("main is red", found["next"])
+
+    def test_a_merge_with_no_test_command_is_a_visible_skip_never_green(self) -> None:
+        self.person_merges(main_moved=True)
+        found = merge_gate.check_main(
+            self.paths, settle=self.settle, run_tests=self.run_check, test_command="",
+            app=True, dry_run=False)
+        self.assertEqual(found["merges"][0]["main_check"], "not run")
+        self.assertIn("skipped", found["merges"][0]["why"])
+
+    def test_a_dry_run_reports_and_changes_nothing(self) -> None:
+        self.person_merges(main_moved=True)
+        found = self.check_main(dry_run=True)
+        self.assertEqual(len(found["merges"]), 1)
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+        self.assertEqual(self.commands, [])
+
+    def test_a_merge_of_another_commit_is_reported_and_the_piece_stays_in_approval(self) -> None:
+        merge = self.person_merges(main_moved=False)
+        self.pulls.view_of[7] = self.pr(state="MERGED", head_oid="0" * 40, merge_commit=merge)
+        found = self.check_main()
+        self.assertEqual(found["merges"][0]["settled"], False)
+        self.assertEqual(found["merges"][0]["main_check"], "green", "an untested merge is checked")
+        self.assertEqual(self.gate.piece(self.piece).state, "approval")
+
+    def test_no_app_is_a_visible_skip(self) -> None:
+        self.app = False
+        found = self.check_main()
+        self.assertIn("skipped", found["skipped"])
+        self.assertEqual(found["merges"], [])
+
+    def test_a_pull_request_that_cannot_be_read_is_listed_never_passed(self) -> None:
+        def fail(ref: int | str) -> pulls.PullRequest:
+            raise github.GitHubError("GitHub did not answer", next_command="try again")
+
+        self.pulls.view = fail  # type: ignore[method-assign]
+        found = self.check_main()
+        self.assertEqual(len(found["unreadable"]), 1)
+        self.assertIn("did not answer", found["unreadable"][0]["why"])
+
+    def test_a_run_that_is_going_is_left_alone(self) -> None:
+        lock = self.paths.lock_file("busy")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text(f"{os.getpid()}\n")
+        found = self.check_main()
+        self.assertIn("a run is going", found["skipped"])
+        self.assertEqual(found["merges"], [])
+
+    def test_a_lock_of_a_dead_run_does_not_count(self) -> None:
+        lock = self.paths.lock_file("old")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("999999\n")
+        self.assertEqual(merge_gate.run_going(self.paths), "")
+
+    def test_nothing_waiting_in_approval_is_a_quiet_pass(self) -> None:
+        self.pulls.view_of[7] = self.pr(state="MERGED", merge_commit="x")
+        self.person_merges(main_moved=False)
+        self.check_main()
+        again = self.check_main()
+        self.assertEqual(again["merges"], [])
+        self.assertEqual(again["waiting"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

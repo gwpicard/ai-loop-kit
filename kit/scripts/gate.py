@@ -17,6 +17,7 @@ Commands:
   gate.py report [<number>] [--brief]
   gate.py labels --create
   gate.py branch <number> [--push]
+  gate.py check-main [--brief] [--dry-run]
   gate.py sync (--dry-run | --confirm <digest>)
 
 A <number> is the piece's local number or, once sync has opened its issue, the
@@ -32,6 +33,11 @@ refuses a queue that changed since. It also refuses unless a person is at a
 terminal (standard input and output both a terminal), it refuses in an agent
 session, and the guard hook refuses it too.
 
+check-main finds a merge the person made on GitHub, and checks `main` after it when `main` had
+moved since the final combined check. It does nothing while a run is going. A piece whose pull
+request merged on the tested commit goes to done by move 11. With --brief (the session start
+hook) it only says what it found.
+
 Every command prints JSON when standard output is not a terminal, and takes
 --dry-run where it changes state.
 """
@@ -45,8 +51,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from loop import evidence, github, moves, spec, states
+from loop import evidence, github, judge, moves, policy, spec, states
 from loop.cli import ExitCode, Failure, run
+from loop.gates import merge as merge_gate
 from loop.paths import PathError, Paths, find_project_root
 
 PROG = "gate.py"
@@ -133,6 +140,12 @@ def setup(parser: argparse.ArgumentParser) -> None:
     branch.add_argument("--push", action="store_true", help="push it, after the secret scan")
     _common(branch)
 
+    check_main = commands.add_parser(
+        "check-main", help="find a merge the person made after main moved, and check main")
+    check_main.add_argument("--brief", action="store_true",
+                            help="only say what was found; change nothing and run no test")
+    _common(check_main)
+
     sync = commands.add_parser("sync", help="the person sends the queued GitHub writes")
     sync.add_argument("--confirm", metavar="DIGEST",
                       help="the digest that sync --dry-run printed for the queue")
@@ -198,6 +211,40 @@ def _branch(gate: moves.Gate, paths: Paths, args: argparse.Namespace, dry: bool)
     return out
 
 
+def _check_main(gate: moves.Gate, hub: github.GitHub, paths: Paths, *, quiet: bool
+                ) -> dict[str, Any]:
+    try:
+        loaded = policy.load(paths.policy_file) if paths.policy_file.exists() \
+            else policy.with_defaults({})
+    except policy.PolicyError as error:
+        raise Failure(f"the policy file cannot be used ({error})", next_command="fix "
+                      f"{paths.policy_file}, then run {PROG} check-main again",
+                      code=ExitCode.ENVIRONMENT) from error
+    limit = int(loaded["test_timeout_seconds"])
+    command = str(loaded["test_command"])
+
+    def run_tests(ref: str) -> dict[str, Any]:
+        return judge.run(command, paths.root, ref, time_limit=limit)
+
+    found = merge_gate.check_main(
+        paths, settle=lambda number: gate.move(number, "done"), run_tests=run_tests,
+        test_command=command, app=hub.available, dry_run=quiet)
+    if quiet:
+        waiting = found["merges"]
+        found["line"] = (
+            f"The person merged pull request {waiting[0]['pull_request']}"
+            + (" after main moved" if waiting[0]["main_moved"] else "")
+            + f". Run {PROG} check-main to record it and check main." if waiting else "")
+        return found
+    red = [m for m in found["merges"] if m.get("main_check") == "red"]
+    if red or (found["unreadable"] and not found["merges"]):
+        raise Failure(
+            found["next"] or "a merge on GitHub could not be read",
+            next_command=found["next"] or f"{PROG} check-main again",
+            code=ExitCode.FAILURE if red else ExitCode.ENVIRONMENT, data=found)
+    return found
+
+
 def handle(args: argparse.Namespace) -> dict[str, Any]:
     paths = _paths()
     dry = bool(getattr(args, "dry_run", False))
@@ -232,6 +279,8 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
             return gate.create_labels(dry_run=dry)
         if command == "branch":
             return _branch(gate, paths, args, dry)
+        if command == "check-main":
+            return _check_main(gate, hub, paths, quiet=bool(args.brief or dry))
         if command == "sync":
             if github.in_agent_session(os.environ):
                 raise moves.MoveError(
