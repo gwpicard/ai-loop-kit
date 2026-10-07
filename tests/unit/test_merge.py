@@ -21,9 +21,8 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_moves  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
-
 from loop import closing, github, moves, pulls  # noqa: E402
-from loop.gates import CheckContext, CheckResult  # noqa: E402
+from loop.gates import merge as merge_gate  # noqa: E402
 
 
 class TheClosingWords(unittest.TestCase):
@@ -238,7 +237,7 @@ class ThePullRequestCalls(unittest.TestCase):
         self.assertEqual(hub.calls[2][0], ["pr", "edit", "7", "--base", "main"])
 
 
-class TheActionOfAMove(test_moves.Base):
+class TheActionOfAMove(test_moves.Base):  # type: ignore[misc, unused-ignore]
     """A check may hand the gate an action to run once, on a real move and never on a dry run."""
 
     def test_the_action_runs_on_a_real_move_after_the_checks_and_before_the_record(self) -> None:
@@ -281,7 +280,174 @@ class TheActionOfAMove(test_moves.Base):
         self.assertNotIn("act", kinds)
 
 
-_ = (CheckContext, CheckResult)
+class Repo:
+    """A real Git repository with a bare origin, for the tests of the tested tree."""
+
+    def __init__(self, root: Path | None = None) -> None:
+        self.base = Path(tempfile.mkdtemp()) if root is None else root.parent
+        self.root = self.base / "project" if root is None else root
+        self.env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "T",
+                    "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "T",
+                    "GIT_COMMITTER_EMAIL": "t@example.com"}
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.base / "o.git")],
+                       check=True, env=self.env)
+        self.root.mkdir(exist_ok=True)
+        self.git("init", "-q", "-b", "main")
+        self.git("remote", "add", "origin", str(self.base / "o.git"))
+        self.write("README.md", "start\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "Start")
+        self.git("push", "-q", "origin", "main")
+
+    def git(self, *args: str) -> str:
+        done = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True,
+                              text=True, check=True, env=self.env)
+        return done.stdout.strip()
+
+    def write(self, name: str, text: str) -> None:
+        target = self.root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+    def commit(self, name: str, text: str, message: str = "Change") -> str:
+        self.write(name, text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def branch(self, name: str, start: str = "main") -> None:
+        self.git("checkout", "-q", "-b", name, start)
+
+    def join(self, branch: str, number: int) -> str:
+        """Merge `branch` into the current branch with a `Piece:` trailer, as a join does."""
+        self.git("merge", "--no-ff", "-q", "-m", f"Join piece {number}\n\nPiece: #{number}",
+                 branch)
+        return self.git("rev-parse", "HEAD")
+
+
+class TheTestedTree(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repo = Repo()
+        r = self.repo
+        r.branch("piece-1")
+        r.commit("a/one.txt", "one\n")
+        r.git("checkout", "-q", "main")
+        r.branch("combined", "main")
+        self.join1 = r.join("piece-1", 1)
+        r.git("checkout", "-q", "main")
+
+    def test_a_main_that_has_not_moved_is_not_moved(self) -> None:
+        self.assertEqual(merge_gate.moved(self.repo.root, self.join1), [])
+
+    def test_a_commit_on_main_that_the_branch_lacks_is_moved(self) -> None:
+        self.repo.commit("b/new.txt", "new\n", "Someone else's work")
+        found = merge_gate.moved(self.repo.root, self.join1)
+        self.assertEqual(len(found), 1)
+
+    def test_origin_main_ahead_of_the_local_main_is_moved(self) -> None:
+        r = self.repo
+        r.commit("b/new.txt", "new\n", "Someone else's work")
+        r.git("push", "-q", "origin", "main")
+        r.git("reset", "-q", "--hard", "HEAD~1")
+        r.git("fetch", "-q", "origin", "main:refs/remotes/origin/main")
+        self.assertEqual(len(merge_gate.moved(r.root, self.join1)), 1)
+
+    def test_the_merge_of_an_earlier_part_of_the_same_stack_is_not_moved(self) -> None:
+        r = self.repo
+        r.git("checkout", "-q", "combined")
+        r.branch("piece-2")
+        r.commit("a/two.txt", "two\n")
+        r.git("checkout", "-q", "combined")
+        head = r.join("piece-2", 2)
+        # The person merged the first part into main with a merge commit.
+        r.git("checkout", "-q", "main")
+        r.git("merge", "--no-ff", "-q", "-m", "Merge the first part", self.join1)
+        self.assertEqual(merge_gate.moved(r.root, head), [])
+
+    def test_a_merge_of_something_the_branch_lacks_is_moved(self) -> None:
+        r = self.repo
+        r.branch("stray", "main")
+        r.commit("c/stray.txt", "stray\n")
+        r.git("checkout", "-q", "main")
+        r.git("merge", "--no-ff", "-q", "-m", "Merge a stray branch", "stray")
+        self.assertEqual(len(merge_gate.moved(r.root, self.join1)), 2, "the stray commit and "
+                         "the merge that brings it in")
+
+    def test_the_local_main_behind_origin_is_found(self) -> None:
+        r = self.repo
+        r.commit("b/new.txt", "new\n")
+        r.git("push", "-q", "origin", "main")
+        r.git("reset", "-q", "--hard", "HEAD~1")
+        r.git("fetch", "-q", "origin", "main:refs/remotes/origin/main")
+        self.assertTrue(merge_gate.main_lags(r.root))
+        r.git("merge", "-q", "--ff-only", "origin/main")
+        self.assertFalse(merge_gate.main_lags(r.root))
+
+    def specs(self, *docs: str) -> dict[int, dict[str, Any]]:
+        return {1: {"changes": {"docs": list(docs)}}}
+
+    def test_a_named_doc_the_branch_changed_passes(self) -> None:
+        r = self.repo
+        r.git("checkout", "-q", "combined")
+        head = r.commit("docs/one.md", "one\n")
+        self.assertEqual(merge_gate.doc_faults(r.root, head, self.specs("docs/one.md")), [])
+
+    def test_a_named_doc_the_branch_did_not_change_is_a_fault(self) -> None:
+        r = self.repo
+        r.git("checkout", "-q", "combined")
+        r.write("docs/two.md", "main had it\n")
+        faults = merge_gate.doc_faults(r.root, self.join1, self.specs("docs/two.md"))
+        self.assertEqual(len(faults), 1)
+        self.assertIn("docs/two.md", faults[0])
+        self.assertIn("piece 1", faults[0])
+
+    def test_a_piece_that_names_no_doc_needs_none(self) -> None:
+        self.assertEqual(merge_gate.doc_faults(self.repo.root, self.join1, self.specs()), [])
+
+    def test_a_named_path_outside_the_project_is_a_fault(self) -> None:
+        for bad in ("/etc/hosts", "../up.md"):
+            with self.subTest(bad=bad):
+                faults = merge_gate.doc_faults(self.repo.root, self.join1, self.specs(bad))
+                self.assertEqual(len(faults), 1)
+                self.assertIn("outside the project", faults[0])
+
+    def test_a_branch_git_cannot_read_is_never_a_pass(self) -> None:
+        with self.assertRaises(merge_gate.Unreadable):
+            merge_gate.doc_faults(self.repo.root, "nosuchbranch", self.specs("docs/one.md"))
+        with self.assertRaises(merge_gate.Unreadable):
+            merge_gate.moved(self.repo.root, "nosuchbranch")
+
+
+class TheFetch(unittest.TestCase):
+    def test_fetch_moves_only_the_remote_tracking_ref(self) -> None:
+        from loop.paths import Paths
+
+        r = Repo()
+        other = r.base / "other"
+        subprocess.run(["git", "clone", "-q", str(r.base / "o.git"), str(other)], check=True,
+                       env=r.env)
+        (other / "x.txt").write_text("x\n")
+        for args in (["add", "-A"], ["commit", "-q", "-m", "More"],
+                     ["push", "-q", "origin", "main"]):
+            subprocess.run(["git", "-C", str(other), *args], check=True, env=r.env)
+        paths = Paths.for_project(r.root, data_base=r.base / "data", kit_folder=ROOT / "kit")
+        before = r.git("rev-parse", "main")
+        done = github.fetch(paths, "main", env=r.env)
+        self.assertEqual(done["fetched"], "origin/main")
+        self.assertEqual(r.git("rev-parse", "main"), before, "the local main must not move")
+        self.assertNotEqual(r.git("rev-parse", "refs/remotes/origin/main"), before)
+
+    def test_fetch_refuses_a_bad_branch_name_and_an_unknown_remote(self) -> None:
+        from loop.paths import Paths
+
+        r = Repo()
+        paths = Paths.for_project(r.root, data_base=r.base / "data", kit_folder=ROOT / "kit")
+        with self.assertRaises(github.GitHubError):
+            github.fetch(paths, "--upload-pack=x", env=r.env)
+        with self.assertRaises(github.GitHubError):
+            github.fetch(paths, "main", remote="nowhere", env=r.env)
+
 
 if __name__ == "__main__":
     unittest.main()
