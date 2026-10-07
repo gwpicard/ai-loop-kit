@@ -437,6 +437,108 @@ class AttemptSettings(Base):
             self.assertTrue(entry.startswith("/"), entry)
 
 
+class ReviewerSession(Base):
+    """P24: the reviewer's session. It holds no GitHub credential and may write one file."""
+
+    TEMPLATE = ROOT / "kit" / "templates" / "reviewer-settings.json"
+
+    def findings(self) -> Path:
+        return self.paths.run_dir("night-1") / "findings-review-main-r1.json"
+
+    def session(self, **more: Any) -> sessions.Session:
+        return sessions.plan(
+            self.paths, run="night-1", label="review-main-r1", worktree=self.worktree,
+            brief="Review it.\n", env=self.env, settings_template=self.TEMPLATE,
+            extra_values={"FINDINGS_FILE": str(self.findings())},
+            extra_env={"AI_LOOP_KIT_FINDINGS_FILE": str(self.findings())}, **more)
+
+    def settings(self) -> dict[str, Any]:
+        data: dict[str, Any] = json.loads(self.session().settings_file.read_text())
+        return data
+
+    def test_the_command_line_is_the_exact_one_and_carries_no_account_or_credential(self) -> None:
+        session = self.session()
+        self.assertEqual(session.command, sessions.build_command(session.settings_file))
+        self.assertEqual(
+            session.command,
+            ["claude", "-p", "--settings", str(session.settings_file), "--permission-mode",
+             "dontAsk", "--output-format", "json", "--permission-prompts", "none"])
+
+    def test_the_environment_holds_no_github_credential(self) -> None:
+        env = self.session().env
+        self.assertEqual([n for n in env if n.startswith(("GH_", "GITHUB_"))], [])
+        self.assertNotIn("gh-secret", " ".join(env.values()))
+        self.assertEqual(env["AI_LOOP_KIT_FINDINGS_FILE"], str(self.findings()))
+
+    def test_the_only_file_the_session_may_write_is_the_findings_file(self) -> None:
+        data = self.settings()
+        self.assertEqual(data["sandbox"]["filesystem"]["allowWrite"], [str(self.findings())])
+        edits = [r for r in data["permissions"]["allow"] if r.startswith(("Edit", "Write"))]
+        self.assertEqual(edits, [f"Edit(/{self.findings()})"])
+
+    def allowed(self, tool: str, target: Path) -> bool:
+        prefix = "Read(" if tool == "Read" else "Edit("  # a Read allow rule never allows a write
+        allow = [r for r in self.settings()["permissions"]["allow"] if r.startswith(prefix)]
+        return any(matcher.file_rule_matches(r, tool, str(target), str(self.worktree),
+                                             str(self.project), str(Path.home()), kind="allow")
+                   for r in allow)
+
+    def test_a_write_to_the_worktree_is_denied_and_a_write_elsewhere_is_not_allowed(self) -> None:
+        data = self.settings()
+        deny = data["permissions"]["deny"]
+        for tool in ("Edit", "Write"):
+            with self.subTest(tool=tool):
+                self.assertTrue(matcher.file_denied(
+                    deny, tool, str(self.worktree / "app" / "code.py"), str(self.worktree),
+                    str(self.project), str(Path.home())))
+                self.assertFalse(self.allowed(tool, self.project / "README.md"))
+                self.assertFalse(self.allowed(tool, self.worktree / "app" / "code.py"))
+                self.assertTrue(self.allowed(tool, self.findings()))
+                self.assertFalse(matcher.file_denied(
+                    deny, tool, str(self.findings()), str(self.worktree), str(self.project),
+                    str(Path.home())), "a deny rule beats the allow of the findings file")
+        self.assertIn(str(self.worktree), data["sandbox"]["filesystem"]["denyWrite"])
+
+    def test_the_session_reads_the_worktree_and_not_the_run_folder(self) -> None:
+        """No builder hand-off or brief sits in the worktree. The run folder is not allowed."""
+        run = self.paths.run_dir("night-1")
+        self.assertTrue(self.allowed("Read", self.worktree / "app" / "code.py"))
+        for name in ("handoff-p7-a1.json", "brief-p7-a1.md", "run.json"):
+            self.assertFalse(self.allowed("Read", run / name), name)
+
+    def test_the_session_runs_no_command_and_reaches_no_network(self) -> None:
+        data = self.settings()
+        self.assertEqual([r for r in data["permissions"]["allow"] if r.startswith("Bash")], [])
+        for tool in ("Bash", "WebFetch", "WebSearch", "Skill"):
+            self.assertIn(tool, data["permissions"]["deny"])
+        self.assertEqual(data["sandbox"]["network"]["allowedDomains"], [])
+        self.assertIs(data["autoMemoryEnabled"], False)
+        self.assertEqual(data["permissions"]["defaultMode"], "dontAsk")
+
+    def test_the_credentials_and_the_data_folder_are_not_readable(self) -> None:
+        data = self.settings()
+        deny = data["permissions"]["deny"]
+        for target in (self.paths.held_out_dir / "7" / "H-1.case",
+                       Path.home() / ".config" / "gh" / "hosts.yml"):
+            self.assertTrue(matcher.file_denied(
+                deny, "Read", str(target), str(self.worktree), str(self.project),
+                str(Path.home())), target)
+        self.assertIn(str(self.paths.data_dir), data["sandbox"]["filesystem"]["denyRead"])
+
+    def test_the_guard_hook_is_wired(self) -> None:
+        self.assertIn(f"{self.kit}/hooks/guard.py", self.session().settings_file.read_text())
+
+    def test_no_placeholder_is_left(self) -> None:
+        self.assertNotIn("{{", self.session().settings_file.read_text())
+
+    def test_the_findings_value_is_needed_when_the_template_names_it(self) -> None:
+        with self.assertRaises(sessions.SessionError) as caught:
+            sessions.plan(self.paths, run="night-1", label="review-main-r1",
+                          worktree=self.worktree, brief="x\n", env=self.env,
+                          settings_template=self.TEMPLATE)
+        self.assertIn("FINDINGS_FILE", str(caught.exception))
+
+
 class DataBlocks(unittest.TestCase):
     def test_outside_text_sits_inside_one_marked_block(self) -> None:
         block = sessions.data_block("spec", HOSTILE_TEXT)

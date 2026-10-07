@@ -192,11 +192,14 @@ def render_settings(
     worktree: Path,
     handoff_file: Path,
     bar_paths: Sequence[str] = (),
+    extra_values: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """The builder settings for one session, as a dictionary with no placeholder left.
 
     `bar_paths` are the files of the frozen bar (`loop.bar.paths`). The settings then deny a
     write to each: a deny rule for the edit tools and a write block in the sandbox.
+    `extra_values` fills placeholders only a special template holds, such as the reviewer's
+    `FINDINGS_FILE`. A value must be an absolute path.
     """
     values = {
         "KIT_DIR": str(paths.kit_dir),
@@ -204,6 +207,7 @@ def render_settings(
         "WORKTREE": str(worktree),
         "DATA_DIR": str(paths.data_dir),
         "HANDOFF_FILE": str(handoff_file),
+        **{name: str(value) for name, value in (extra_values or {}).items()},
     }
     for name, value in values.items():
         if not os.path.isabs(value):
@@ -425,11 +429,16 @@ def plan(
     env: Mapping[str, str] | None = None,
     settings_template: Path | None = None,
     bar_paths: Sequence[str] = (),
+    extra_values: Mapping[str, str] | None = None,
+    extra_env: Mapping[str, str] | None = None,
 ) -> Session:
     """Plan one session and write its settings file and brief file in the run folder.
 
     A builder attempt passes its own `label` (such as `p7-a2`) and `bar_paths`, so each attempt
-    gets its own settings file with the deny rules and write blocks of the frozen bar.
+    gets its own settings file with the deny rules and write blocks of the frozen bar. The
+    reviewer passes `extra_values` for its template and `extra_env` for the one variable that
+    names its findings file. The environment is scrubbed of GitHub credentials first, so
+    `extra_env` is the only way a name gets in after the scrub.
     """
     if not _LABEL.match(label) or ".." in label:
         raise SessionError(
@@ -449,7 +458,8 @@ def plan(
     brief_file = run_dir / f"brief-{label}.md"
     template = settings_template or paths.kit_dir / "templates" / "builder-settings.json"
     settings = render_settings(
-        template, paths=paths, worktree=worktree, handoff_file=handoff_file, bar_paths=bar_paths
+        template, paths=paths, worktree=worktree, handoff_file=handoff_file, bar_paths=bar_paths,
+        extra_values=extra_values,
     )
     command = build_command(settings_file, max_budget_usd=max_budget_usd)
     session_env = scrub_env(os.environ if env is None else env)
@@ -457,6 +467,13 @@ def plan(
     session_env[HANDOFF_ENV] = str(handoff_file)
     # Second layer beside `autoMemoryEnabled: false` in the builder settings.
     session_env[AUTO_MEMORY_ENV] = "1"
+    for name, value in (extra_env or {}).items():
+        if name.startswith(SCRUBBED_PREFIXES) or name in SCRUBBED_NAMES:
+            raise SessionError(
+                f"the session may not be given the variable {name}, which names a credential",
+                next_command="give the session no GitHub credential",
+            )
+        session_env[name] = str(value)
     _write_private(settings_file, json.dumps(settings, indent=2, sort_keys=True) + "\n")
     _write_private(brief_file, brief)
     return Session(
