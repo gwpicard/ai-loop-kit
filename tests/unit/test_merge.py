@@ -1517,7 +1517,8 @@ class OpeningPullRequests(Running):
         self.assertIn("Review: clean in round 1", body)
         self.assertIn("Held-out", body)
         self.assertEqual(closing.scan(title="T", body=body, commits=[], changelog=[],
-                                      pieces=[self.gate.piece(n).issue for n in numbers]), [])
+                                      pieces=[i for i in (self.gate.piece(n).issue for n in numbers)
+                                              if i is not None]), [])
 
     def test_a_note_said_twice_by_two_review_rounds_is_in_the_body_once(self) -> None:
         numbers = self.build([10])
