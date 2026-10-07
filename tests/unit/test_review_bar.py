@@ -114,7 +114,7 @@ class TheBarListsTheReviewTests(ReviewCase):
 
 
 def test_ready_file() -> str:
-    return test_ready.TEST_FILE  # type: ignore[no-any-return]
+    return test_ready.TEST_FILE  # type: ignore[no-any-return, unused-ignore]
 
 
 class TheAttemptGateHoldsTheReviewTests(ReviewCase):
