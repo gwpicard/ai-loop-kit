@@ -968,7 +968,7 @@ class CheckMain(Merging):
         def fail(ref: int | str) -> pulls.PullRequest:
             raise github.GitHubError("GitHub did not answer", next_command="try again")
 
-        self.pulls.view = fail
+        self.pulls.view = fail  # type: ignore[method-assign, unused-ignore]
         found = self.check_main()
         self.assertEqual(len(found["unreadable"]), 1)
         self.assertIn("did not answer", found["unreadable"][0]["why"])
