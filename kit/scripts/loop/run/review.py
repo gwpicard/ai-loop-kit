@@ -69,7 +69,7 @@ from typing import Any
 if __package__ in (None, ""):  # run by path: put the kit's scripts folder on the path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from loop import bar, cli, fingerprint, judge, sessions, spec
+from loop import bar, cli, fingerprint, github, judge, sessions, spec
 from loop.cli import ExitCode
 from loop.paths import Paths
 from loop.run import integrate
@@ -291,6 +291,7 @@ class Reviewer:
         gate_lock: Any = None,
         env: Mapping[str, str] | None = None,
         rounds: int | None = None,
+        hub: Any = None,
     ) -> None:
         self.paths = paths
         self.root = paths.root
@@ -306,6 +307,7 @@ class Reviewer:
         self.gate_lock = gate_lock if gate_lock is not None else contextlib.nullcontext()
         self.env = env
         self.rounds = rounds
+        self.hub = hub if hub is not None else github.GitHub(paths)
         self._identity = integrate._identity(self.root)
 
     # --- defaults ---------------------------------------------------------------------------
@@ -428,6 +430,22 @@ class Reviewer:
 
     # --- the fingerprints -------------------------------------------------------------------
 
+    def _body(self, key: str, view: integrate.PieceView) -> str:
+        """The issue body as it is now. With the App it is read from GitHub, as the gate reads it.
+
+        The gate's record holds the last body the gate wrote, and an edit by hand reaches
+        GitHub first. Without the App there is no other body to read.
+        """
+        if view.issue is None or not self.hub.available:
+            return view.body
+        try:
+            return str(self.hub.read_issue(view.issue)["body"])
+        except github.GitHubError as error:
+            raise self._refuse(
+                key, f"issue {view.issue} of piece {view.number} cannot be read ({error.message}), "
+                "so review cannot confirm that its spec is the one the gate froze",
+                error.next_command) from error
+
     def _fingerprints(self, key: str, pieces: Sequence[int], number: int) -> list[int]:
         """Take each piece's fingerprint again. A spec that changed goes to shaping (move 9)."""
         gone: list[int] = []
@@ -441,7 +459,8 @@ class Reviewer:
                     "cannot confirm that the spec is the one the gate froze",
                     f"gate.py report {piece}")
             try:
-                now = fingerprint.take(view.body, str(recorded.get("judge_commit", "")))
+                now = fingerprint.take(self._body(key, view),
+                                       str(recorded.get("judge_commit", "")))
             except (spec.SpecError, fingerprint.FingerprintError) as error:
                 reason = (f"Review would not read piece {piece}: its spec cannot be read now "
                           f"({error}), so the spec is not the one the gate froze. The piece "

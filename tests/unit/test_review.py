@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_integrate  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
-from loop import bar, fingerprint, sessions  # noqa: E402
+from loop import bar, fingerprint, github, sessions  # noqa: E402
 from loop.run import integrate, record, review  # noqa: E402
 from loop.run.gateway import Reply  # noqa: E402
 
@@ -201,6 +201,21 @@ class TheReviewersSession(unittest.TestCase):
         self.assertEqual(data["sandbox"]["filesystem"]["allowWrite"], [findings])
         self.assertEqual(session.env["AI_LOOP_KIT_FINDINGS_FILE"], findings)
         self.assertEqual(review.findings_file(self.paths, "night-1", "main", 1), Path(findings))
+
+
+class FakeHub:
+    """The GitHub stand-in of one test: the issue bodies as they are now."""
+
+    available = True
+
+    def __init__(self, bodies: dict[int, str], *, fail: bool = False) -> None:
+        self.bodies = bodies
+        self.fail = fail
+
+    def read_issue(self, number: int) -> dict[str, Any]:
+        if self.fail:
+            raise github.GitHubError("the issue cannot be read", next_command="gh auth status")
+        return {"body": self.bodies[number]}
 
 
 class ReviewCase(test_integrate.IntegrationCase):  # type: ignore[misc, unused-ignore]
@@ -661,6 +676,31 @@ class TheFingerprintCheck(ReviewCase):
             issue_type="feature", spec=view.spec, record=(), body=view.body)
         with self.assertRaises(review.ReviewRefusal):
             self.reviewer(loop).review("main")
+        self.assertEqual(self.sessions_started, [])
+        self.assertEqual(self.moves, [])
+
+    def test_with_the_app_the_spec_is_read_from_the_issue_as_it_is_now(self) -> None:
+        loop = self.joined_and_green()
+        view = self.views[2]
+        self.views[2] = integrate.PieceView(
+            number=2, title=view.title, state=view.state, issue=22, individual=False,
+            issue_type="feature", spec=view.spec, record=view.record, body=view.body)
+        edited = SPEC.format(n=2).replace("works", "works, and more")
+        self.move_reply = Reply(0, {"ok": True, "to": "shaping", "move": 9})
+        result = self.reviewer(loop, hub=FakeHub({22: edited})).review("main")
+        self.assertEqual(result.sent, {2: "shaping"})
+        self.assertEqual(self.sessions_started, [])
+        self.assertIn("fingerprint", self.moves[0][2])
+
+    def test_an_issue_that_cannot_be_read_is_a_refusal(self) -> None:
+        loop = self.joined_and_green()
+        view = self.views[2]
+        self.views[2] = integrate.PieceView(
+            number=2, title=view.title, state=view.state, issue=22, individual=False,
+            issue_type="feature", spec=view.spec, record=view.record, body=view.body)
+        with self.assertRaises(review.ReviewRefusal) as caught:
+            self.reviewer(loop, hub=FakeHub({}, fail=True)).review("main")
+        self.assertIn("issue 22", str(caught.exception))
         self.assertEqual(self.sessions_started, [])
         self.assertEqual(self.moves, [])
 
