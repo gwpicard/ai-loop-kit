@@ -117,6 +117,7 @@ class JoinResult:
     branch: str = ""
     failures: list[dict[str, str]] = field(default_factory=list)
     restarted: list[int] = field(default_factory=list)
+    info: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -863,7 +864,10 @@ class Integrator:
                 return JoinResult("green", 0, f"{branch} holds no piece", branch=branch)
             head = _must(self.root, "read the combined branch", "rev-parse",
                          f"refs/heads/{branch}")
-            red = self._verdicts(self._plan_checks(pieces, held=True), head)
+            plans = self._plan_checks(pieces, held=True)
+            counts = {"pieces": list(pieces), "held_out": sum(p.kind == "held-out" for p in plans),
+                      "checks": len(plans)}
+            red = self._verdicts(plans, head)
             real, flaky = self._settle(red, head)
             for item in flaky:
                 self._flaky(item, head)
@@ -875,7 +879,7 @@ class Integrator:
                     branch=branch, head=head)
             if not real:
                 return JoinResult("green", 0, f"the final combined check of {branch} is green",
-                                  branch=branch, head=head)
+                                  branch=branch, head=head, info=counts)
             culprits = sorted({f.piece for f in real})
             restarted: list[int] = []
             for number in culprits:
@@ -949,7 +953,8 @@ class Integrator:
             return entry
         branch = self.combined(key)  # a rebuild may have changed it
         entry.update(branch=branch, status=result.status, message=result.message,
-                     head=result.head, restarted=result.restarted, failures=result.failures)
+                     head=result.head, restarted=result.restarted, failures=result.failures,
+                     checked=result.info)
         if result.status != "green":
             entry["next"] = result.next_command or (
                 "the run joins the rebuilt pieces, then checks again")
