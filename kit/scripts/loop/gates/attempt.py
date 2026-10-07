@@ -14,6 +14,10 @@ the design's order:
    commit of the piece with `git show`, never from the builder's tree.
 7. A new dependency is planned in the spec and passes `dependency-check.py`.
 
+A check that review added (a `review-test` entry in the piece record, written by move 8) is part
+of the bar: its file is frozen byte for byte with the judge files (step 2), and its command runs
+on every attempt and must pass (a `review-check` finding).
+
 Every fault of steps 3 to 7 is reported together. Metric targets, the hypothesis
 list and mutation testing wait for later pieces (L5 and L7).
 
@@ -122,6 +126,13 @@ class Facts:
     scaffold: bool
     again: str
     since: str = ""  # where the attempt's own changes start: the base, or a stacking merge
+    # The files review froze, as path to commit.
+    review: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def frozen(self) -> set[str]:
+        """Every file the builder may not change: the judge files and the review tests."""
+        return {*self.judge_files, *self.review}
 
     @property
     def start(self) -> str:
@@ -184,7 +195,8 @@ def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any]
         files = names.splitlines()
     since = _stack_base(ctx, root, again, base, head, judge_commit)
     return Facts(number=number, branch=branch, head=head, base=base, judge_commit=judge_commit,
-                 judge_files=files, scaffold=scaffold, again=again, since=since)
+                 judge_files=files, scaffold=scaffold, again=again, since=since,
+                 review=bar.review_files(ctx.record))
 
 
 STACK_SUBJECT = "Stack on piece "
@@ -334,6 +346,7 @@ def _bar(ctx: CheckContext, facts: Facts, found: Findings) -> None:
             root, facts.start, facts.head,
             judge_commit=None if facts.scaffold else facts.judge_commit,
             judge_files=facts.judge_files,
+            review_files=facts.review,
         )
     except bar.BarError as error:
         raise Refusal(str(error), error.next_command) from error
@@ -468,7 +481,7 @@ def _held_out(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: Deps
 def _lint(ctx: CheckContext, facts: Facts, found: Findings) -> list[str]:
     """The new-test lint over the lines the attempt added. Returns the report-only notes."""
     root = ctx.paths.root
-    frozen = set(facts.judge_files)
+    frozen = facts.frozen
     flags = ("--unified=0", "--no-color", "--no-ext-diff", "--no-renames")
     diff = _git(root, facts.again, "diff", *flags, facts.start, facts.head, "--")
     status = _git(root, facts.again, "diff", "--name-status", "--no-renames", facts.start,
@@ -506,6 +519,23 @@ def _must_stay(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: Dep
                       f"the must-stay-the-same check `{check}` is red ({verdict['outcome']})")
 
 
+def _review_checks(ctx: CheckContext, facts: Facts, deps: Deps, found: Findings,
+                   runs: list[dict[str, Any]]) -> None:
+    """The checks review added to the bar: each command runs on the head, and must pass."""
+    for item in bar.review_tests(ctx.record):
+        command = str(item["command"])
+        try:
+            verdict = deps.run_judge(command, ctx.paths.root, facts.head)
+        except judge.JudgeError as error:
+            raise Refusal(f"the review check {command} could not be run: {error}",
+                          error.next_command) from error
+        runs.append(verdict)
+        if verdict["outcome"] != "passed":
+            found.add("review-check",
+                      f"the check that review added, `{command}`, is red ({verdict['outcome']}); "
+                      f"it holds the finding: {str(item.get('justification', ''))[:160]}")
+
+
 def _area_rules(root: Path, again: str, ref: str) -> list[areas.Rule]:
     """The area map as `ref` holds it, read with `git show`. No map means no rules."""
     if not _git(root, again, "ls-tree", ref, "--", areas.MAP_FILE):
@@ -521,7 +551,7 @@ def _touches(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, found: Find
     root = ctx.paths.root
     allowed = {t for t in sp["links"]["touches"] if t.lower() != "none"}
     new_areas = set(sp["changes"]["new_area"])
-    frozen = set(facts.judge_files)
+    frozen = facts.frozen
     base_rules = _area_rules(root, facts.again, facts.start)
     head_rules: list[areas.Rule] | None = None
     names = _git(root, facts.again, "diff", "--no-renames", "--name-only", "-z", facts.start,
@@ -719,6 +749,7 @@ def run(ctx: CheckContext, deps: Deps, head_ref: str | None = None) -> CheckResu
                 _held_out(ctx, sp, facts, deps, found)
             notes += _lint(ctx, facts, found)
             _must_stay(ctx, sp, facts, deps, found, runs)
+            _review_checks(ctx, facts, deps, found, runs)
             _touches(ctx, sp, facts, found)
             notes += _dependencies(ctx, sp, facts, deps, found)
     except Refusal as error:

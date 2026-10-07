@@ -315,6 +315,9 @@ scripts = {
                     ["python3", hand, "done", "--summary", "Built kappa."]]},
     "11": done("lambda", {"sec/secret.txt": "key = " + a + b + c + "\n"}),
     "trim": {"runs": [["python3", hand, "done", "--summary", "Nothing to trim."]]},
+    # The fresh reviewer (the review loop) finds nothing, and says so in its findings file.
+    "default": {"runs": [["python3", "-c", "import os; open(os.environ['AI_LOOP_KIT_FINDINGS_FILE'], "
+                                           "'w').write('{\"findings\": []}')"]]},
 }
 for name, script in scripts.items():
     (fake / f"{name}.json").write_text(json.dumps(script))

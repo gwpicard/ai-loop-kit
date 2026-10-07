@@ -35,6 +35,7 @@ CHECKS = (
     "held-out",
     "new-test-lint",
     "must-stay-the-same",
+    "review-check",
     "touches",
     "dependency",
 )

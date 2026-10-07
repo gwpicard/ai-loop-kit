@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Read(/{{WORKTREE}}/**)",
+      "Edit(/{{FINDINGS_FILE}})"
+    ],
+    "deny": [
+      "Bash",
+      "WebFetch",
+      "WebSearch",
+      "Skill",
+      "NotebookEdit",
+      "Edit(/{{WORKTREE}}/**)",
+      "Write(/{{WORKTREE}}/**)",
+      "Edit(//**/.claude/settings.json)",
+      "Edit(//**/.claude/settings.local.json)",
+      "Edit(//**/.github/workflows/**)",
+      "Edit(//**/.githooks/**)",
+      "Edit(//**/.agents/loop/policy.json)",
+      "Edit(//**/.agents/loop/local.json)",
+      "Edit(//**/.agents/pieces/**)",
+      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Read(/{{DATA_DIR}}/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/Library/Keychains/**)",
+      "Read(//**/app-key.pem)",
+      "Read(//**/.agents/loop/local.json)",
+      "Read(//**/.agents/pieces/**)",
+      "Read(/{{PROJECT_ROOT}}/.env)",
+      "Read(/{{PROJECT_ROOT}}/.env.*)",
+      "Read(/{{WORKTREE}}/.env)",
+      "Read(/{{WORKTREE}}/.env.*)"
+    ]
+  },
+  "autoMemoryEnabled": false,
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "allowWrite": [
+        "{{FINDINGS_FILE}}"
+      ],
+      "denyWrite": [
+        "{{WORKTREE}}",
+        "{{PROJECT_ROOT}}/.claude",
+        "{{PROJECT_ROOT}}/.github/workflows",
+        "{{PROJECT_ROOT}}/.githooks",
+        "{{PROJECT_ROOT}}/.agents/loop",
+        "{{PROJECT_ROOT}}/.agents/pieces",
+        "{{KIT_DIR}}"
+      ],
+      "denyRead": [
+        "{{DATA_DIR}}",
+        "~/.config/gh",
+        "~/Library/Keychains",
+        "{{PROJECT_ROOT}}/.agents/loop/local.json",
+        "{{PROJECT_ROOT}}/.agents/pieces"
+      ]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": []
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|MultiEdit|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{KIT_DIR}}/hooks/guard.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|MultiEdit|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{KIT_DIR}}/hooks/command-log.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|MultiEdit|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{KIT_DIR}}/hooks/command-log.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

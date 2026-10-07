@@ -300,6 +300,9 @@ scripts = {
     "9": {"sequence": [done("cap2", "cap2.py", good=False, cost_usd=1.2),
                        done("cap2", "cap2.py", cost_usd=0.1)]},
     "trim": only("done", "--summary", "Nothing to trim."),
+    # The fresh reviewer (the review loop) finds nothing, and says so in its findings file.
+    "default": {"runs": [["python3", "-c", "import os; open(os.environ['AI_LOOP_KIT_FINDINGS_FILE'], "
+                                           "'w').write('{\"findings\": []}')"]]},
 }
 for name, script in scripts.items():
     (fake / f"{name}.json").write_text(json.dumps(script))

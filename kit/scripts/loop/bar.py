@@ -41,7 +41,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
@@ -109,6 +109,23 @@ GUARDED_PREFIXES = (
     ".husky/",
 )
 GUARDED_FILES = frozenset({".claude/settings.json", ".claude/settings.local.json"})
+
+REVIEW_KIND = "review-test"
+
+
+def review_tests(record: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """The checks review added to the bar, from the piece record, oldest first.
+
+    Each is a `review-test` entry that the gate wrote on move 8: the `path` of the test file,
+    the `commit` on the piece branch that holds it, the `command` that runs it and the written
+    `justification`. A builder cannot write the record, so the list is the gate's.
+    """
+    return [dict(entry) for entry in record if entry.get("kind") == REVIEW_KIND]
+
+
+def review_files(record: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """Each file review froze, as {path: the commit that holds it as review wrote it}."""
+    return {str(entry["path"]): str(entry["commit"]) for entry in review_tests(record)}
 
 
 class BarError(Exception):
@@ -308,14 +325,26 @@ def changes(
     *,
     judge_commit: str | None,
     judge_files: Sequence[str],
+    review_files: Mapping[str, str] | None = None,
 ) -> list[Change]:
     """Every change `head` made to the bar, in the seven kinds. An empty list is a clean bar.
 
     `judge_commit` and `judge_files` name the first commit of the piece branch. A scaffold
-    piece has none, and then no `acceptance-check` is listed.
+    piece has none, and then no `acceptance-check` is listed. `review_files` maps each file
+    that review froze to the commit that holds it. Such a file counts as a judge file: any
+    difference from that commit is an `acceptance-check` change.
     """
     found: list[Change] = []
-    frozen = set(judge_files)
+    frozen = set(judge_files) | set(review_files or {})
+    for path, commit in (review_files or {}).items():
+        if _entry(root, head, path) != _entry(root, commit, path):
+            found.append(
+                Change(
+                    "acceptance-check",
+                    path,
+                    "a check that review added is no longer byte for byte as review wrote it",
+                )
+            )
     if judge_commit is not None:
         for path in judge_files:
             if _entry(root, head, path) != _entry(root, judge_commit, path):
