@@ -90,6 +90,25 @@ class TrimUnderACapTest(EngineTestCase):
         self.assertAlmostEqual(self.rec.spend_piece(1), 0.25)
         self.assertAlmostEqual(self.rec.spend_total(), 0.25)
 
+    def test_an_untrimmed_pass_with_no_readable_cost_counts_the_budget_it_was_given(self) -> None:
+        self.rec.add_spend(1, 0.5)
+        gateway = FakeGateway({"outcome": "untrimmed", "settings_file": "x"})
+        self.make(cap_piece=2.0, gateway=gateway)._finish_piece(1)
+        self.assertAlmostEqual(self.rec.spend_piece(1), 2.0)
+        self.assertAlmostEqual(self.rec.spend_total(), 2.0)
+        self.assertIn("could not be read", self.notes())
+
+    def test_an_untrimmed_pass_with_no_cap_adds_nothing(self) -> None:
+        gateway = FakeGateway({"outcome": "untrimmed", "settings_file": "x"})
+        self.make(gateway=gateway)._finish_piece(1)
+        self.assertAlmostEqual(self.rec.spend_total(), 0.0)
+
+    def test_a_refusal_before_any_session_adds_nothing_even_under_a_cap(self) -> None:
+        self.rec.add_spend(1, 0.5)
+        gateway = FakeGateway({"outcome": "refused"})
+        self.make(cap_piece=2.0, gateway=gateway)._finish_piece(1)
+        self.assertAlmostEqual(self.rec.spend_total(), 0.5)
+
 
 class UnreadableCostTest(EngineTestCase):
     def result(self, output: dict[str, Any] | None) -> sessions.Result:

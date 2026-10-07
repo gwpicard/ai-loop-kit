@@ -691,6 +691,11 @@ class Engine:
                 cost = reply.data.get("cost_usd")
                 if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
                     self.record.add_spend(number, float(cost))
+                elif given is not None and "settings_file" in reply.data:
+                    self.record.add_spend(number, given)
+                    self.record.note(f"piece {number}: the cost of the trim session could not "
+                                     f"be read, so the budget it was given, ${given:.2f}, "
+                                     "counts as its spend")
                 self.record.update(number, trimmed=True, trim=outcome)
         self.record.set_status(number, record.BUILT)
         self.hook("piece-built", piece=number)
