@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_moves  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
-from loop import closing, github, moves, pulls, spec  # noqa: E402
+from loop import closing, evidence, github, moves, pulls, spec  # noqa: E402
 from loop.gates import merge as merge_gate  # noqa: E402
 from loop.gates import recheck as recheck_gate  # noqa: E402
 from loop.gates import review as review_gate  # noqa: E402
@@ -792,7 +792,7 @@ class MoveElevenMerges(Merging):
         self.assertEqual(self.pulls.merged, [(7, self.head)])
 
     def add_attempt(self, result: str, gaming: bool = False) -> None:
-        from loop import attempt_log, evidence
+        from loop import attempt_log
 
         evidence.append(self.paths, self.piece, [attempt_log.entry(
             number=1, result=result, head="h", base="b", at="2026-10-07",
@@ -890,7 +890,8 @@ class CheckMain(Merging):
     def check_main(self, *, dry_run: bool = False) -> dict[str, Any]:
         return merge_gate.check_main(
             self.paths, settle=self.settle, run_tests=self.run_check, test_command="make check",
-            app=self.app, dry_run=dry_run)
+            app=self.app, dry_run=dry_run,
+            record=lambda number, entry: evidence.append(self.paths, number, [entry]))
 
     def person_merges(self, *, main_moved: bool) -> str:
         r = self.repo
@@ -967,7 +968,7 @@ class CheckMain(Merging):
         def fail(ref: int | str) -> pulls.PullRequest:
             raise github.GitHubError("GitHub did not answer", next_command="try again")
 
-        self.pulls.view = fail  # type: ignore[method-assign]
+        self.pulls.view = fail
         found = self.check_main()
         self.assertEqual(len(found["unreadable"]), 1)
         self.assertIn("did not answer", found["unreadable"][0]["why"])
@@ -1359,6 +1360,35 @@ class OpeningPullRequests(Running):
         saved = json.loads(self.paths.run_record(self.run_name).read_text())
         self.assertEqual(saved["pull_requests"]["main"]["state"], "open")
 
+    def test_the_run_record_holds_the_number_of_the_run_pull_request_for_the_inbox(self) -> None:
+        self.build([10])
+        self.step().open_all()
+        saved = json.loads(self.paths.run_record(self.run_name).read_text())
+        self.assertEqual(saved["pull_request"], 7)
+        self.assertEqual(saved["pull_requests"]["main"]["pull_request"], 7)
+
+    def test_a_split_run_names_the_first_part(self) -> None:
+        self.build([30, 30])
+        self.step(limit=40).open_all()
+        self.assertEqual(json.loads(self.paths.run_record(self.run_name).read_text())
+                         ["pull_request"], 7)
+
+    def test_a_piece_with_no_issue_and_no_app_waits_for_the_sync(self) -> None:
+        self.build([10])
+        step = self.step(app=False)
+        view = FakeLoop(self).reader(1)
+        step.loop.reader = lambda n: dataclasses.replace(view, issue=None)
+        report = step.open_all()
+        self.assertEqual(report[0]["status"], "waiting")
+        self.assertIn("gate.py", report[0]["next"])
+        self.assertIn("sync", report[0]["next"])
+
+    def test_with_no_app_no_number_is_named(self) -> None:
+        self.build([10])
+        self.step(app=False).open_all()
+        self.assertNotIn("pull_request", json.loads(
+            self.paths.run_record(self.run_name).read_text()))
+
     def test_asking_again_opens_nothing_new(self) -> None:
         self.build([10])
         self.step().open_all()
@@ -1489,7 +1519,7 @@ class OpeningPullRequests(Running):
 
 class MergingPullRequests(Running):
     def passed(self, numbers: Sequence[int]) -> None:
-        from loop import attempt_log, evidence
+        from loop import attempt_log
 
         for number in numbers:
             evidence.append(self.paths, number, [attempt_log.entry(

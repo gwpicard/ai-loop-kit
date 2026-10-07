@@ -482,6 +482,17 @@ class PullRequests:
               final: Mapping[str, Any]) -> dict[str, Any]:
         parts = self.parts(key, branch, head)
         views = {n: self.loop.reader(n) for n in pieces}
+        if not self.app and any(v.issue is None for v in views.values()):
+            # A piece with no issue yet has no number for a Closes line. The person syncs first.
+            command = github.sync_command(self.root)
+            self._set(key, track=key, state="waiting", next=command, part=1, parts=1,
+                      branch=branch, head=head, stack_head=head, pieces=",".join(
+                          str(n) for n in pieces), pull_request=0)
+            self.record.update(pieces[0], github_next=command)
+            self.record.note("The pull request step waits for the person: a piece has no issue "
+                             f"and the App is not set up. next: {command}")
+            return {"track": key, "status": "waiting", "next": command,
+                    "message": "no App and no issue: nothing was pushed or opened"}
         sizes = {j.piece: j.size for j in joins(self.root, branch)}
         facts = {n: self._facts(views[n], sizes.get(n, 0)) for n in pieces}
         checked = final.get("checked") or {}
@@ -544,11 +555,27 @@ class PullRequests:
                         reply.next_command or f"gate.py report {piece}")
                 self.record.update(piece, pull_request=number, pr_key=item["key"])
         self._replace_old(key, head, [n for _, n, _ in opened])
+        self._name_the_run_pull_request(key, opened[0][1])
         self.record.note(f"Opened {len(opened)} pull request(s) for {branch}: "
                          + ", ".join(url for *_, url in opened))
         return {"track": key, "status": "opened", "message": f"opened for {branch}",
                 "pull_requests": [{"number": n, "url": u, "key": i["key"]}
                                   for i, n, u in opened]}
+
+    def _name_the_run_pull_request(self, key: str, number: int) -> None:
+        """Keep one number in the run record's `pull_request`, which the inbox reads.
+
+        The inbox reads the person's answers from that one pull request. It is the first part of
+        the main track's pull request. A run with no main track keeps the first number it opened,
+        until that pull request is closed or merged; every number is in `pull_requests`.
+        """
+        with self.record.lock:
+            held = self.record.data.get("pull_request")
+            live = {int(e["pull_request"]) for e in self.entries() if e.get("state") == "open"
+                    and e.get("pull_request")}
+            if key == integrate.MAIN_TRACK or held not in live:
+                self.record.data["pull_request"] = number
+                self.record.save()
 
     def _data(self, key: str, part: Part, parts: int, number: int, base_pr: int | None,
               stack_head: str, stack: Sequence[int], branch: str) -> dict[str, Any]:

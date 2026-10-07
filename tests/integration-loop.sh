@@ -468,10 +468,12 @@ ok "a resumed run joined nothing twice and started no session"
 
 # A piece leaves after it joined: the branch is rebuilt from main under a fresh name.
 HEAD_A=$(git rev-parse combined-int-a)
-python3 -m loop.run.integrate leave --run int-a --piece 3 --reason "review sent it back" \
+# The pieces are in approval now, since the pull request opened, so the person's rejection of
+# piece 3 is what makes it leave: the pull request step sends it back and calls the rebuild.
+python3 -m loop.run.pull_request reject --run int-a --piece 3 --reason "review sent it back" \
   > "$TP_BASE/leave.json" 2> "$TP_BASE/leave.err" \
-  || { cat "$TP_BASE/leave.err" >&2; fail "the rebuild failed"; }
-grep -q '"branch": "combined-int-a-r2"' "$TP_BASE/leave.json" \
+  || { cat "$TP_BASE/leave.err" >&2; cat "$TP_BASE/leave.json" >&2; fail "the rebuild failed"; }
+git rev-parse --verify -q combined-int-a-r2 >/dev/null \
   || fail "the rebuilt branch has no fresh name: $(cat "$TP_BASE/leave.json")"
 [ "$(git rev-parse combined-int-a)" = "$HEAD_A" ] || fail "the old combined branch was changed"
 [ "$(trailers_of combined-int-a-r2 | tr ' ' '\n' | sort | tr '\n' ' ')" = "1 2 " ] \

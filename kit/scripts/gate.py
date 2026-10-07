@@ -228,7 +228,8 @@ def _check_main(gate: moves.Gate, hub: github.GitHub, paths: Paths, *, quiet: bo
 
     found = merge_gate.check_main(
         paths, settle=lambda number: gate.move(number, "done"), run_tests=run_tests,
-        test_command=command, app=hub.available, dry_run=quiet)
+        test_command=command, app=hub.available, dry_run=quiet,
+        record=lambda number, entry: evidence.append(paths, number, [entry]))
     if quiet:
         waiting = found["merges"]
         found["line"] = (

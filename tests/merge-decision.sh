@@ -455,6 +455,8 @@ python3 "$RUN" --run mrg-a --json > "$TP_BASE/runa3.json" 2> "$TP_BASE/runa3.err
 [ "$(trailers_of combined-mrg-a-r3 | tr ' ' '\n' | sort | tr '\n' ' ')" = "1 2 " ] \
   || fail "the last combined branch holds $(trailers_of combined-mrg-a-r3)"
 [ "$(pull 3 'p["head"]')" = "combined-mrg-a-r3" ] || fail "the third pull request is not from the last branch"
+[ "$(run_state mrg-a 'd["pull_request"]')" = "3" ] \
+  || fail "the run record does not name the run's pull request for the inbox: $(run_state mrg-a 'd.get("pull_request")')"
 [ "$(state_of 1)" = "approval" ] && [ "$(state_of 2)" = "approval" ] || fail "the pieces are not in approval again"
 ok "the rejected piece was built again, and a third pull request holds both pieces"
 

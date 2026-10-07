@@ -524,6 +524,7 @@ def check_main(
     test_command: str,
     app: bool,
     dry_run: bool,
+    record: Callable[[int, dict[str, Any]], object] = lambda number, entry: None,
 ) -> dict[str, Any]:
     """Find the merges the person made, and check `main` when `main` had moved before them.
 
@@ -596,13 +597,11 @@ def check_main(
         item["main_check"] = _main_check(paths, pr.merge_commit, needed, test_command,
                                          run_tests, dry_run, item)
         if item["main_check"] in ("green", "red") and not dry_run:
-            from loop import evidence
-
             for piece in sorted(pieces):
-                evidence.append(paths, piece, [{
+                record(piece, {
                     "kind": "main-check", "pull_request": number, "result": item["main_check"],
                     "merge_commit": pr.merge_commit, "main_moved": bool(behind),
-                    "tested_commit_merged": same}])
+                    "tested_commit_merged": same})
         out["merges"].append(item)
     red = [m for m in out["merges"] if m.get("main_check") == "red"]
     odd = [m for m in out["merges"] if not m.get("tested_commit_merged")]
