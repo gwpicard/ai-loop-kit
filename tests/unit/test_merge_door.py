@@ -39,7 +39,7 @@ READS = (
     "gh pr checks 5",
     "python3 -m loop.run.pull_request status --run r",
     "python3 kit/scripts/gate.py move 3 review",
-    "python3 kit/scripts/run.py --merge-pre-approved",
+    "python3 kit/scripts/run.py --unattended --pieces 1",
 )
 
 
@@ -49,7 +49,12 @@ class MergeDoors(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(matcher.any_match(DENY, command), f"no deny rule: {command}")
 
-    def test_reads_and_the_pre_approved_run_are_not_denied(self) -> None:
+    def test_a_pre_approved_run_is_asked_about_and_not_denied(self) -> None:
+        command = "python3 kit/scripts/run.py --run r --pieces 1 --merge-pre-approved"
+        self.assertFalse(matcher.any_match(DENY, command), f"denied: {command}")
+        self.assertTrue(matcher.any_match(ASK, command), f"not asked: {command}")
+
+    def test_reads_and_a_plain_run_are_not_denied(self) -> None:
         for command in READS:
             with self.subTest(command=command):
                 self.assertFalse(matcher.any_match(DENY, command), f"denied: {command}")
