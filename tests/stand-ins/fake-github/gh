@@ -497,15 +497,22 @@ def rest_event(event):
 def rest_comment(state, issue, index, comment):
     """One comment in the shape the REST comments endpoint returns."""
     number = comment_id(issue, index, comment)
+    login = comment_author(comment)
+    # The time a comment was made, and who it came from: the run reads both. A comment a
+    # fixture wrote with no time has none. The rehearsal account owns the repository, and a
+    # bot (the App) is no one's association.
     return {"id": number, "node_id": comment_node(number),
-            "body": comment_body(comment), "user": {"login": comment_author(comment)},
+            "body": comment_body(comment), "user": {"login": login},
+            "created_at": comment.get("at", "") if isinstance(comment, dict) else "",
+            "author_association": "NONE" if login.endswith("[bot]") else "OWNER",
             "html_url": "https://github.com/%s/issues/%s#issuecomment-%s"
                         % (state["repo"], issue["number"], number)}
 
 
 def add_comment(state, issue, body):
     state["comment_next"] = state.get("comment_next", 1000001)
-    made = {"id": state["comment_next"], "body": body, "author": actor(state)}
+    made = {"id": state["comment_next"], "body": body, "author": actor(state),
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     state["comment_next"] += 1
     issue.setdefault("comments", []).append(made)
     return made
@@ -862,7 +869,9 @@ def main():
         # The comments on one piece, listed with their numeric ids, or one added.
         listed = re.fullmatch(r"/?repos/[^/]+/[^/]+/issues/(\d+)/comments", path)
         if listed:
-            issue = find(state, listed.group(1))
+            # A pull request is an issue on GitHub, so its comments are listed here too. The
+            # stand-in keeps the two apart, so an issue with the number wins.
+            issue = find(state, listed.group(1)) or find_pr(state, listed.group(1))
             if issue is None:
                 unsupported(argv, "no such issue")
             if posting:

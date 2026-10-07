@@ -127,6 +127,15 @@ py_state 'issue(1)["body"].split("<!-- spec:end -->")[1]' | grep -qF 'undoable' 
 py_state 'issue(1)["labels"]' | grep -qF 'needs-you' && fail "needs-you is still set"
 ok "answer writes the decision, rewrites the needs and clears needs-you"
 
+set +e
+python3 "$GATE" answer 1 --question "Which font?" --answer "Garamond" --by "the person" --parked \
+  --json > "$TP_BASE/parked.json" 2> "$TP_BASE/parked.err"
+code=$?
+set -e
+[ "$code" -eq 3 ] || fail "--parked on a piece in shaping exited $code, not 3"
+grep -q '^next: ' "$TP_BASE/parked.err" || fail "the --parked refusal has no next: line"
+ok "answer --parked is refused outside building, with a next: line"
+
 python3 "$GATE" drop 1 --reason "The person chose another route." --json \
   > "$TP_BASE/drop.json" || fail "drop failed: $(cat "$TP_BASE/drop.json")"
 [ "$(py_state 'sorted(issue(1)["labels"])')" = '["state:dropped", "type:feature"]' ] \

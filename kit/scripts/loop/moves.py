@@ -998,9 +998,14 @@ class Gate:
         question: str,
         answer: str,
         by: str,
+        parked: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Write a (late) answer under Decisions, drop the question and take a new fingerprint.
+
+        `parked` is for a builder's question, which waits in building and never in the spec:
+        when no open question matches, the gate writes only the Decision line. It is refused in
+        any other state.
 
         `by` names who answered. An agent session cannot record the person: the
         person records their own answer, in their own terminal.
@@ -1029,12 +1034,24 @@ class Gate:
             raise MoveError(str(error), next_command=error.next_command) from error
         wanted = _norm(question)
         match = next((q for q in open_questions if wanted and wanted in _norm(q)), None)
-        if match is None:
+        if parked and piece.state != "building":
+            raise MoveError(
+                f"piece {number} is {piece.state}; --parked answers a builder's question, which "
+                "waits only in building",
+                next_command=f"gate.py answer {number} --question <it> --answer <yours> --by "
+                "<you> (without --parked) for a question the spec holds",
+            )
+        if match is None and not parked:
             raise MoveError(
                 f"the spec of piece {number} holds no open question like {question!r}",
-                next_command=f"gate.py report {number} --json, then use one of its questions",
+                next_command=f"gate.py report {number} --json, then use one of its questions; "
+                f"for a builder's question parked in building, add --parked",
             )
-        new_body = spec.remove_list_item(body, "open_questions", match)
+        if match is None:
+            match = question.strip()
+            new_body = body
+        else:
+            new_body = spec.remove_list_item(body, "open_questions", match)
         decision = (f"{question.strip()} Answer: {answer.strip()} Decided by {by}, "
                     f"{self.today()}; written by the gate.")
         new_body = spec.add_list_item(new_body, "decisions", decision)

@@ -100,7 +100,8 @@ class CommandLine(unittest.TestCase):
                 "--permission-mode",
                 "dontAsk",
                 "--output-format",
-                "json",
+                "stream-json",
+                "--verbose",
                 "--permission-prompts",
                 "none",
             ],
@@ -274,6 +275,30 @@ class Starting(Base):
     def test_no_old_hand_off_means_nothing_moved(self) -> None:
         result = sessions.start(self.plan(), runner=FakeRunner())
         self.assertIsNone(result.moved_aside)
+
+    def test_the_result_is_the_last_result_line_of_a_stream(self) -> None:
+        lines = [{"type": "system", "subtype": "init"},
+                 {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}},
+                 {"type": "result", "is_error": False, "result": "first", "total_cost_usd": 0.1},
+                 {"type": "result", "is_error": False, "result": "ok", "total_cost_usd": 0.25,
+                  "usage": {"input_tokens": 3}},
+                 {"type": "system", "subtype": "after"}]
+        stdout = "\n".join(json.dumps(line) for line in lines) + "\n"
+        result = sessions.start(self.plan(), runner=FakeRunner(stdout=stdout))
+        assert result.output is not None
+        self.assertEqual(result.output["result"], "ok")
+        self.assertEqual(result.output["total_cost_usd"], 0.25)
+        self.assertEqual(result.stdout, stdout, "the whole stream is kept")
+
+    def test_a_stream_with_no_result_line_has_no_output(self) -> None:
+        stdout = json.dumps({"type": "assistant", "message": {"content": []}}) + "\n"
+        result = sessions.start(self.plan(), runner=FakeRunner(stdout=stdout))
+        self.assertIsNone(result.output)
+
+    def test_a_stream_cut_short_still_gives_its_last_whole_result(self) -> None:
+        stdout = json.dumps({"type": "result", "result": "ok"}) + '\n{"type": "assis'
+        result = sessions.start(self.plan(), runner=FakeRunner(stdout=stdout))
+        self.assertEqual((result.output or {}).get("result"), "ok")
 
     def test_output_that_is_not_json_is_kept_as_text(self) -> None:
         result = sessions.start(self.plan(), runner=FakeRunner(stdout="plain words"))
@@ -471,7 +496,8 @@ class ReviewerSession(Base):
         self.assertEqual(
             session.command,
             ["claude", "-p", "--settings", str(session.settings_file), "--permission-mode",
-             "dontAsk", "--output-format", "json", "--permission-prompts", "none"])
+             "dontAsk", "--output-format", "stream-json", "--verbose", "--permission-prompts",
+             "none"])
 
     def test_the_environment_holds_no_github_credential(self) -> None:
         env = self.session().env
