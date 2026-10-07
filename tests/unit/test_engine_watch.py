@@ -177,6 +177,21 @@ class StreamTest(Base):
         self.assertIn("expected 3", done.stdout)
         self.assertIn("same error", self.engine._attempt_stops[1])
 
+    def test_three_same_errors_in_streamed_tool_results_end_the_builder_while_it_runs(self) -> None:
+        code = ("import json, time\n"
+                "def tool(text):\n"
+                "    print(json.dumps({'type': 'user', 'message': {'role': 'user', 'content': [\n"
+                "        {'type': 'tool_result', 'tool_use_id': 't', 'content': text,\n"
+                "         'is_error': True}]}}), flush=True)\n"
+                "def say(text):\n"
+                "    print(json.dumps({'type': 'assistant', 'message': {'content': [\n"
+                "        {'type': 'text', 'text': text}]}}), flush=True)\n"
+                f"for _ in range(3):\n    tool({SAME_ERROR!r})\n    say('trying again')\n"
+                "time.sleep(60)\n")
+        done, seconds = self.run_child(code)
+        self.assertLess(seconds, 20, "the stuck builder was not ended")
+        self.assertIn("same error", self.engine._attempt_stops[1])
+
     def test_a_session_that_is_not_a_builder_is_not_watched(self) -> None:
         code = f"for _ in range(3):\n    print({SAME_ERROR!r})\n    print('tool call')\n"
         done, _ = self.run_child(code, piece=None)

@@ -32,6 +32,94 @@ def feed(lines: list[str]) -> watch.Finding | None:
     return found
 
 
+def tool_result(text: str, *, error: bool = True) -> str:
+    """A line of `claude -p --output-format stream-json`: the result of a tool the builder ran."""
+    return json.dumps({"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": text, "is_error": error}]}})
+
+
+def assistant(text: str) -> str:
+    return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "text", "text": text}]}})
+
+
+def final(text: str, *, error: bool = False) -> str:
+    return json.dumps({"type": "result", "subtype": "success", "is_error": error,
+                       "result": text, "total_cost_usd": 0.1})
+
+
+class StreamedOutputTest(unittest.TestCase):
+    """The real `claude` prints stream-json lines, not plain text."""
+
+    def test_the_same_error_in_three_streamed_tool_results_is_stuck(self) -> None:
+        found = feed([tool_result(SAME_ERROR), assistant("let me try again"),
+                      tool_result(SAME_ERROR), assistant("one more try"),
+                      tool_result(SAME_ERROR)])
+        assert found is not None
+        self.assertEqual(found.kind, "stuck")
+        self.assertIn("expected 3", found.reason)
+        self.assertNotIn('"type"', found.reason, "the reason holds the JSON, not the error")
+
+    def test_two_streamed_tool_results_are_not_stuck(self) -> None:
+        self.assertIsNone(feed([tool_result(SAME_ERROR), assistant("again"),
+                                tool_result(SAME_ERROR)]))
+
+    def test_what_the_builder_says_is_not_read_as_an_error(self) -> None:
+        self.assertIsNone(feed([assistant(SAME_ERROR)] * 4))
+
+    def test_a_result_line_that_is_not_an_error_holds_no_error(self) -> None:
+        watcher = watch.Watcher()
+        for _ in range(3):
+            watcher.feed(final("Built the menu."))
+            watcher.feed(final("Built the menu.", error=False))
+        self.assertIsNone(watcher.finding)
+        self.assertEqual(watcher.last_error, "")
+
+    def test_the_words_is_error_false_are_not_an_error(self) -> None:
+        self.assertEqual(watch.Watcher().feed('{"is_error":false,"result":"ok"'), None)
+        watcher = watch.Watcher()
+        watcher.feed('{"is_error": false, "result": "ok"')  # cut short: not JSON
+        self.assertEqual(watcher.last_error, "")
+
+    def test_three_good_sessions_with_the_same_short_result_are_not_the_same_failure(self) -> None:
+        for number in (1, 2, 3):
+            stdout = "\n".join([assistant("working"), final("Done.")])
+            watch.run_hook(self.context(), "session-ended", piece=number,
+                           result=sessions.Result(exit_code=0, stdout=stdout, stderr="",
+                                                  output=None, handoff=None))
+        self.assertEqual(self.rec.data.get("real_stops", []), [])
+
+    def test_a_streamed_error_result_reaches_the_run_level_check(self) -> None:
+        for number in (1, 2, 3):
+            stdout = "\n".join([assistant("trying"), tool_result(
+                f"Error: the database is not running at port 543{number}")])
+            watch.run_hook(self.context(), "session-ended", piece=number,
+                           result=sessions.Result(exit_code=0, stdout=stdout, stderr="",
+                                                  output=None, handoff=None))
+        self.assertEqual([s["kind"] for s in self.rec.data["real_stops"]], ["same-failure"])
+
+    def test_a_streamed_usage_limit_is_read_with_its_reset_time(self) -> None:
+        found = feed([assistant("working"), final("Claude AI usage limit reached|1900000000",
+                                                  error=True)])
+        assert found is not None
+        self.assertEqual((found.kind, found.resume_at), ("usage-limit", 1900000000.0))
+
+    def test_a_usage_limit_named_in_a_tool_result_is_not_a_limit(self) -> None:
+        self.assertIsNone(feed([tool_result("docs/limits.md: usage limit reached when ...")]))
+
+    def setUp(self) -> None:
+        self.folder = Path(tempfile.mkdtemp())
+        (self.folder / ".git").mkdir()
+        self.paths = Paths.for_project(self.folder, data_base=self.folder / "data",
+                                       kit_folder=ROOT / "kit")
+        self.rec = record.RunRecord.create(self.paths, "night-1", [1, 2, 3], attended=True,
+                                           merge_pre_approved=False)
+        watch.forget(self.paths, "night-1")
+
+    def context(self) -> engine.HookContext:
+        return engine.HookContext(self.paths, "night-1", self.rec, {}, lambda number: None)
+
+
 class StuckByTheSameErrorTest(unittest.TestCase):
     def test_the_same_error_three_times_in_a_row_is_stuck(self) -> None:
         found = feed([f"run 1: {SAME_ERROR}", "editing menu.py", f"run 2: {SAME_ERROR}",
@@ -373,6 +461,31 @@ class RealStopsTest(Base):
             gave = {"outcome": "gave-up", "reason": f"the database at port 543{piece} is down"}
             watch.run_hook(self.context(), "session-ended", piece=piece,
                            result=self.result("", handoff=gave))
+        self.assertEqual([s["kind"] for s in self.stops()], ["same-failure"])
+
+    def stale_failure_in_the_log(self) -> None:
+        from types import SimpleNamespace
+
+        from loop import attempt_log
+        found = SimpleNamespace(record=[{"kind": attempt_log.KIND, "result": "failed",
+                                         "findings": [{"text": "the judge failed on fl-1"}]}])
+        old = watch.moves.read_piece
+        watch.moves.read_piece = lambda paths, number: found  # type: ignore[assignment]
+        self.addCleanup(setattr, watch.moves, "read_piece", old)
+
+    def test_a_good_session_does_not_repeat_the_failure_of_an_earlier_attempt(self) -> None:
+        self.stale_failure_in_the_log()
+        for piece in (1, 2, 3):
+            done = {"outcome": "done", "summary": f"Built piece {piece}."}
+            watch.run_hook(self.context(), "session-ended", piece=piece,
+                           result=self.result(final("Built it."), handoff=done))
+        self.assertEqual(self.stops(), [])
+
+    def test_a_session_with_no_hand_off_names_the_failure_of_the_last_attempt(self) -> None:
+        self.stale_failure_in_the_log()
+        for piece in (1, 2, 3):
+            watch.run_hook(self.context(), "session-ended", piece=piece,
+                           result=self.result(final("I stopped.")))
         self.assertEqual([s["kind"] for s in self.stops()], ["same-failure"])
 
     def test_the_same_failure_on_one_piece_many_times_is_not_a_run_level_stop(self) -> None:

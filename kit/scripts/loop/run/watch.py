@@ -23,7 +23,7 @@ on with the work that does not depend on them:
 - the same failure in several pieces (`SEVERAL`).
 
 The engine calls `run_hook` for the events, `session_started` when a builder session starts,
-`on_output` for each line the builder prints, and `assess_session` when the session has ended.
+`on_output` for each line the builder prints (a JSON line of the stream; see `read_line`), and `assess_session` when the session has ended.
 A fault that stops the watch (a folder that cannot be read, a log that cannot be read) is a note
 in the run record. It is never a quiet pass.
 """
@@ -65,6 +65,7 @@ _TIMEOUT = re.compile(
 _EPOCH = re.compile(r"(?:\||resets?(?: at)?\s*)(\d{10})\b", re.IGNORECASE)
 _CLOCK = re.compile(r"(?i)\bresets?\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b")
 _NUMBERS = re.compile(r"0x[0-9a-f]+|\b[0-9a-f]{7,}\b|\d+", re.IGNORECASE)
+_IS_ERROR_FALSE = re.compile(r'"is_error"\s*:\s*false', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,56 @@ def is_error(line: str) -> bool:
     return bool(_ERROR.search(line))
 
 
+def _flatten(content: Any) -> list[str]:
+    """The text of a tool result: a string, or a list of text parts."""
+    if isinstance(content, str):
+        return [content]
+    if isinstance(content, list):
+        found: list[str] = []
+        for part in content:
+            found += _flatten(part.get("text") if isinstance(part, dict) else part)
+        return found
+    return []
+
+
+def read_line(line: str) -> tuple[list[str], list[str]]:
+    """What one line of builder output says: (tool and plain text, error and limit text).
+
+    The real `claude -p --output-format stream-json` prints one JSON object on each line. Only
+    two kinds of text in it count: what a tool printed (a tool result), and an error (a result
+    that is an error, or an `error` field). What the builder says, a result that is not an error
+    and the JSON around the text are never read, so `"is_error":false` is never an error. A line
+    that is not JSON (standard error, a stand-in) is plain text.
+    """
+    text = _ANSI.sub("", line).strip()
+    if not text.startswith("{"):
+        return ([text] if text else []), []
+    try:
+        event = json.loads(text)
+    except ValueError:
+        return [_IS_ERROR_FALSE.sub("", text)], []
+    if not isinstance(event, dict):
+        return [], []
+    tools: list[str] = []
+    errors: list[str] = []
+    kind = event.get("type")
+    if kind == "user":
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        for item in content if isinstance(content, list) else []:
+            if isinstance(item, dict) and item.get("type") == "tool_result":
+                tools += _flatten(item.get("content"))
+    elif kind == "result" and event.get("is_error") is True:
+        errors += _flatten(event.get("result"))
+    held = event.get("error")
+    if isinstance(held, dict):
+        held = held.get("message")
+    if isinstance(held, str):
+        errors.append(held)
+    split = (lambda texts: [ln for t in texts for ln in t.splitlines() if ln.strip()])  # noqa: E731
+    return split(tools), split(errors)
+
+
 class Watcher:
     """One builder session, read line by line. It never reads a file or runs a program."""
 
@@ -109,15 +160,38 @@ class Watcher:
         return self.usage or self.stuck
 
     def feed(self, line: str) -> Finding | None:
-        """Read one line. Returns a finding the first time one is made."""
-        clean = _ANSI.sub("", line).rstrip()
-        if not clean.strip():
-            return None
-        found = self._usage_in(clean)
-        if found is not None:
-            first = self.usage is None
-            self.usage = self.usage or found
-            return found if first else None
+        """Read one line of builder output. Returns a finding the first time one is made."""
+        tools, errors = read_line(line)
+        found: Finding | None = None
+        if line.lstrip().startswith("{"):
+            self._previous_line = ""  # each tool result is its own output, even when it repeats
+        for text in errors:
+            found = self._usage_in(text)
+            if found is not None:
+                first = self.usage is None
+                self.usage = self.usage or found
+                found = found if first else None
+                break
+        if found is None:
+            for text in tools:
+                found = self._read_text(text, usage=not line.lstrip().startswith("{"))
+                if found is not None:
+                    break
+        if found is None:
+            for text in errors:
+                found = self._read_text(text, usage=False)
+                if found is not None:
+                    break
+        return found
+
+    def _read_text(self, clean: str, *, usage: bool) -> Finding | None:
+        """A line of text a tool or the session printed."""
+        if usage:
+            found = self._usage_in(clean)
+            if found is not None:
+                first = self.usage is None
+                self.usage = self.usage or found
+                return found if first else None
         if clean == self._previous_line:
             return None  # one output printed on several lines counts once
         self._previous_line = clean
@@ -386,6 +460,8 @@ def _failure_sign(context: Any, number: int, result: sessions.Result, detail: st
         watcher.feed(line)
     if watcher.last_error:
         return watcher.last_error
+    if result.handoff and result.handoff.get("outcome") == "done":
+        return ""  # a good session says nothing of an earlier attempt's failure
     try:
         piece = moves.read_piece(context.paths, number)
     except moves.MoveError:

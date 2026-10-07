@@ -149,7 +149,7 @@ def only(*words, **more):
 scripts = {
     awake: done("awake", "awake.py"),
     # A builder that repeats one error: ended while it runs, and the gate counts the attempt.
-    stuck: {"sequence": [{"output": [ERROR, "tool call", ERROR, "tool call", ERROR, "tool call"],
+    stuck: {"sequence": [{"output": [ERROR, ERROR, ERROR],
                           "sleep_after": 90, "cost_usd": 0.1},
                          done("stuck", "stuck.py")]},
     # A usage limit that resets in 4 seconds: the piece waits and goes on, counting nothing.
