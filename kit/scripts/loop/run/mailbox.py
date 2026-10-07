@@ -126,7 +126,8 @@ def _tick(context: Any) -> None:
         return
     if state.broken:
         state.broken = False
-        context.set_paused(False)
+        # The person's own pause stays: only the pause for the unreadable file ends.
+        context.set_paused(bool(context.record.data.get("mailbox", {}).get("paused")))
         context.record.note("the mailbox can be read again, so the pause for it ends")
         with _LOCK:
             state.unread.clear()

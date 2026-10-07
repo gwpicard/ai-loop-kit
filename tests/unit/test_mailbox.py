@@ -163,6 +163,17 @@ class UnreadableTest(Base):
         self.assertIn(("paused", False), self.calls)
         self.assertIn("can be read again", self.notes())
 
+    def test_the_pause_of_the_person_survives_an_unreadable_spell(self) -> None:
+        self.start()
+        self.write("pause")
+        self.tick()
+        self.box.write_bytes(b"\xff\xfe\xff")
+        self.tick()
+        self.write("pause")
+        self.tick()
+        self.assertEqual(self.calls[-1], ("paused", True), "the pause was lifted")
+        self.assertNotIn(("paused", False), self.calls)
+
     def test_a_mailbox_that_cannot_be_read_at_the_start_pauses_the_run(self) -> None:
         self.box.write_bytes(b"\xff\xfe\xff")
         self.start()
