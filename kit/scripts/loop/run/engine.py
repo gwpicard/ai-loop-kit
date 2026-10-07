@@ -764,7 +764,12 @@ class Engine:
         """After move 5: the trim pass, which never fails the piece, then built."""
         if not self.record.piece(number).get("trimmed"):
             budget = self._budget_for_trim(number)
-            if budget == "skip":
+            if self.record.piece(number).get("stack_base"):
+                self.record.note(f"piece {number}: trim skipped, because the piece is stacked on "
+                                 "another piece's branch and the trim pass measures from the "
+                                 "base, so it would take the dependency's lines for its own")
+                self.record.update(number, trimmed=True, trim="skipped")
+            elif budget == "skip":
                 self.record.note(f"piece {number}: trim skipped, because the spend cap is used "
                                  "up and the trim session must never run with no cap")
                 self.record.update(number, trimmed=True, trim="skipped")
