@@ -296,6 +296,16 @@ class JoinTest(IntegrationCase):
         self.assertEqual(loop.join(1).status, "refused")
         self.assertEqual(loop.joined("main"), [])
 
+    def test_a_refusal_parks_the_piece_for_the_person_with_a_next_line(self) -> None:
+        self.piece(1, {"a.txt": "one\n"}, "exists:a.txt", state="building")
+        loop = self.make()
+        loop.start()
+        loop.join(1)
+        self.assertEqual(self.run_record.status(1), record.WAITING_PERSON)
+        self.assertIn("not review", self.run_record.piece(1)["reason"])
+        self.assertTrue(self.run_record.piece(1)["next"])
+        self.assertTrue(any("did not join" in n["text"] for n in self.run_record.data["notes"]))
+
 
 class FlakyTest(IntegrationCase):
     def test_a_red_that_passes_on_a_second_run_of_the_same_commit_is_flaky_never_a_pass(

@@ -489,8 +489,17 @@ The must-look reasons are exactly five, and only the gate writes them: a sensiti
 - the secret scan runs before each push.
 
 **Files.**
-- New: `kit/scripts/loop/run/integrate.py`; `kit/scripts/loop/run/docs_commit.py` (applies each piece's Added, Changed and Removed lines and any new area to the overview, area map and area docs, and folds one changelog entry per piece); `tests/integration-loop.sh`.
-- Adapts: `kit/scripts/bring-up-to-date.sh` (a merge commit, never a rebase; works on the combined branch; fixes its error message); `kit/scripts/fold-changes.py` (one entry per piece from its behaviour change); `tests/fold-at-merge-rehearsal.sh`; `tests/recheck-before-merge-rehearsal.sh`.
+- New: `kit/scripts/loop/run/integrate.py`; `kit/scripts/loop/run/docs_commit.py` (applies each piece's Added, Changed and Removed lines and any new area to the overview, area map and area docs, and folds one changelog entry per piece); `kit/scripts/loop/gates/rebuild.py` (the checks module of move 8, which had none); `tests/integration-loop.sh`.
+- Adapts: `kit/scripts/bring-up-to-date.sh` (a merge commit, never a rebase or a revert; works on the combined branch; takes `--no-push`, so the gate pushes; fixes its error message); `kit/scripts/fold-changes.py` (one entry per piece from its behaviour change, under its section of the day; `--reapply` for a clash between two folds); `tests/fold-at-merge-rehearsal.sh`; `tests/recheck-before-merge-rehearsal.sh`.
+- Small changes to the run engine, with tests, because the hooks alone could not give them: the hook context carries the gate lock, `restart_piece` and the pieces' links; a hook that sends a piece back to building after the last piece was built gets another round (`built-all` is called again, at most five times); a dependent is stacked on its dependency's branch with merge commits (`Gateway.stack`), and move 5 measures its diff from the last stacking merge (the option `stack_base`, checked by the attempt gate); the clash that sent a piece back reaches its next builder's brief. `RunRecord` gains a `lock` property.
+
+**How it works.**
+- A trial is a merge commit in a scratch copy of the combined branch. The checks run on that commit in a temporary checkout. On green, `git update-ref` moves the branch with the old value given. On red the commit is unreferenced and the branch never moved.
+- A red check runs once more on the same commit. A check that then passes is flaky: a worth-knowing item in the run record and the summary, no join, and no blame. The piece waits for the person with a `next:` line, and joins when a later trial runs green. It is never counted as a pass.
+- Held-out cases are read from the gate's store and laid into the checkout of the final combined check only, through the judge's `extra_files`. A hidden case that fails there makes the piece leave through a rebuild and go back to building by move 8. The reason says how many hidden cases failed and never shows one.
+- A piece waits to join until the pieces it depends on have joined. A piece with a must-look reason, and any dependent of one, joins its own branch `combined-<run>-piece-<n>`, checked and pushed on its own.
+- The combined branch is `combined-<run>`. A rebuild makes `combined-<run>-r2`, then `-r3`, and so on. The old branch is left as it was.
+- The push is `loop/github.py`'s `push`, which runs the secret scan first. Without the App it waits for the person with a `next:` line. A refused scan is a problem in the run record, and the run ends with a failure.
 
 **Held by:** the gate re-running every joined piece's judges, must-stay-the-same checks and touches at each trial (P9, P16); flakiness judged by the gate re-running the same commit; no force push and no revert by P3's hook and P10's deny rules; the secret scan by P4 and the gate's push step.
 

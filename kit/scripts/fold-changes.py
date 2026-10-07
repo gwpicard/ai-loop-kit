@@ -43,6 +43,8 @@ the merge takes the changelog of `main`, and this puts the branch's own entries 
 nothing is reverted and nothing is lost. It reads no file in `changes/`.
 """
 
+from __future__ import annotations
+
 import datetime
 import os
 import re
@@ -58,28 +60,31 @@ SECTIONS = ("Added", "Changed", "Removed", "Fixed", "Security")
 SECTION_LINE = re.compile(r"^Section:\s*(\w+)\s*$")
 SUBHEAD = re.compile(r"^### (\w+)\s*$")
 
+# One entry to write: the day, the section (None for none), and the line.
+Entry = tuple[str, "str | None", str]
 
-def git(*args):
-    result = subprocess.run(["git", *args], capture_output=True, text=True)
+
+def git(*args: str) -> str:
+    result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "git " + " ".join(args) + " failed")
     return result.stdout
 
 
-def saved_files():
+def saved_files() -> list[str]:
     """The Markdown files in changes/ saved in the current commit."""
     listed = git("ls-tree", "--name-only", "HEAD", FOLDER + "/").split("\n")
     return [name for name in listed if name.endswith(".md")]
 
 
-def held(ref, name):
+def held(ref: str, name: str) -> bool:
     """Whether the commit `ref` names holds the file."""
     result = subprocess.run(["git", "cat-file", "-e", ref + ":" + name],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, check=False)
     return result.returncode == 0
 
 
-def arrival_on(ref, name):
+def arrival_on(ref: str, name: str) -> tuple[int, str]:
     """The day and moment the file reached `ref`, or today when it has not."""
     if held(ref, name):
         lines = git("log", "--first-parent", "--diff-filter=A", "--format=%ct %cs",
@@ -91,7 +96,7 @@ def arrival_on(ref, name):
     return int(time.time()), datetime.date.today().isoformat()
 
 
-def arrival(name):
+def arrival(name: str) -> tuple[int, str]:
     """The day and moment the file reached this branch's line of history.
 
     Following only first parents, the newest commit that added the file is the
@@ -106,12 +111,12 @@ def arrival(name):
     return int(moment), day
 
 
-def issue_number(name):
+def issue_number(name: str) -> int:
     match = re.match(r"(\d+)", os.path.basename(name))
     return int(match.group(1)) if match else 0
 
 
-def entry(name):
+def entry(name: str) -> tuple[str | None, str]:
     """The (section, line) of a changes file. The section is None when it names none."""
     text = git("show", "HEAD:" + name)
     lines = [line.strip() for line in text.split("\n") if line.strip()]
@@ -127,9 +132,9 @@ def entry(name):
     return section, "- " + words
 
 
-def _headings(lines):
+def _headings(lines: list[str]) -> list[tuple[int, str | None, bool]]:
     """Each `## ` heading outside a comment: (index, date or None, whether it is the bare date)."""
-    found = []
+    found: list[tuple[int, str | None, bool]] = []
     in_comment = False
     for index, line in enumerate(lines):
         if "<!--" in line:
@@ -142,7 +147,7 @@ def _headings(lines):
     return found
 
 
-def _end_of_block(lines, start):
+def _end_of_block(lines: list[str], start: int) -> int:
     """The index of the next `## ` heading after `start`, or the end of the text."""
     in_comment = False
     for index in range(start + 1, len(lines)):
@@ -155,7 +160,7 @@ def _end_of_block(lines, start):
     return len(lines)
 
 
-def _put_in_day(lines, heading, section, new):
+def _put_in_day(lines: list[str], heading: int, section: str | None, new: list[str]) -> None:
     """Put `new` lines under the day heading at index `heading`, in its section."""
     end = _end_of_block(lines, heading)
     if section is None:
@@ -164,8 +169,11 @@ def _put_in_day(lines, heading, section, new):
             at += 1
         lines[at:at] = new
         return
-    subs = [(index, SUBHEAD.match(lines[index]).group(1)) for index in range(heading + 1, end)
-            if SUBHEAD.match(lines[index])]
+    subs: list[tuple[int, str]] = []
+    for index in range(heading + 1, end):
+        found = SUBHEAD.match(lines[index])
+        if found:
+            subs.append((index, found.group(1)))
     for index, name in subs:
         if name == section:
             at = index + 1
@@ -175,25 +183,24 @@ def _put_in_day(lines, heading, section, new):
             return
     rank = SECTIONS.index(section)
     later = [index for index, name in subs if name in SECTIONS and SECTIONS.index(name) > rank]
-    block = ["### " + section, ""] + new + [""]
     if later:
-        lines[later[0]:later[0]] = block
+        lines[later[0]:later[0]] = ["### " + section, "", *new, ""]
         return
     at = end
     while at > heading + 1 and not lines[at - 1].strip():
         at -= 1
-    insert = ["### " + section, ""] + new
+    insert = ["### " + section, "", *new]
     if at > heading + 1:
-        insert = [""] + insert
+        insert = ["", *insert]
     if at == end and end < len(lines):
-        insert = insert + [""]
+        insert = [*insert, ""]
     lines[at:at] = insert
 
 
-def fold(changelog, entries):
+def fold(changelog: str, entries: list[Entry]) -> str:
     """Insert each (day, section, line) into the changelog text, newest day first."""
     lines = changelog.split("\n")
-    by_day = {}
+    by_day: dict[str, list[tuple[str | None, str]]] = {}
     for day, section, line in entries:
         by_day.setdefault(day, []).append((section, line))
 
@@ -211,11 +218,11 @@ def fold(changelog, entries):
         block = ["## " + day, ""]
         plain = [line for name, line in by_day[day] if name is None]
         if plain:
-            block += plain + [""]
+            block += [*plain, ""]
         for section in SECTIONS:
             new = [line for name, line in by_day[day] if name == section]
             if new:
-                block += ["### " + section, ""] + new + [""]
+                block += ["### " + section, "", *new, ""]
         if older:
             lines[older[0]:older[0]] = block
         elif headings:
@@ -223,35 +230,36 @@ def fold(changelog, entries):
         else:
             while lines and not lines[-1].strip():
                 lines.pop()
-            lines += [""] + block
+            lines += ["", *block]
     text = "\n".join(lines)
     return text if text.endswith("\n") else text + "\n"
 
 
-def _read_changelog(ref):
+def _read_changelog(ref: str) -> str:
     result = subprocess.run(["git", "show", ref + ":" + CHANGELOG], capture_output=True,
-                            text=True)
+                            text=True, check=False)
     return result.stdout if result.returncode == 0 else ""
 
 
-def own_entries(ref, main_ref):
+def own_entries(ref: str, main_ref: str) -> list[Entry]:
     """The (day, section, line) triples of `ref`'s changelog that `main_ref`'s lacks."""
-    held = set(_read_changelog(main_ref).split("\n"))
-    found = []
-    day = section = None
+    held_lines = set(_read_changelog(main_ref).split("\n"))
+    found: list[Entry] = []
+    day: str | None = None
+    section: str | None = None
     for line in _read_changelog(ref).split("\n"):
         starts = STARTS.match(line)
+        sub = SUBHEAD.match(line)
         if line.startswith("## "):
             day, section = (starts.group(1) if starts else None), None
-        elif SUBHEAD.match(line):
-            name = SUBHEAD.match(line).group(1)
-            section = name if name in SECTIONS else None
-        elif line.startswith("- ") and day and line not in held:
+        elif sub:
+            section = sub.group(1) if sub.group(1) in SECTIONS else None
+        elif line.startswith("- ") and day and line not in held_lines:
             found.append((day, section, line))
     return found
 
 
-def reapply(ref, main_ref):
+def reapply(ref: str, main_ref: str) -> int:
     """Write the entries `ref` holds and `main_ref` lacks into CHANGELOG.md."""
     triples = own_entries(ref, main_ref)
     if not triples:
@@ -266,15 +274,15 @@ def reapply(ref, main_ref):
         return 0
     with open(CHANGELOG, "w", encoding="utf-8") as handle:
         handle.write(fold(changelog or "# Changelog\n", fresh))
-    for day, section, line in fresh:
+    for day, _section, line in fresh:
         print(f"reapplied under {day}: {line}")
     return 0
 
 
-def main():
+def main() -> int:
     args = sys.argv[1:]
-    main_ref = None
-    again = None
+    main_ref: str | None = None
+    again: str | None = None
     if args[:1] == ["--main"] and len(args) == 2:
         main_ref = args[1]
     elif len(args) == 4 and args[0] == "--reapply" and args[2] == "--main":
@@ -286,10 +294,10 @@ def main():
     for ref in (main_ref, again):
         if ref is not None and subprocess.run(
                 ["git", "rev-parse", "-q", "--verify", ref + "^{commit}"],
-                capture_output=True).returncode != 0:
+                capture_output=True, check=False).returncode != 0:
             print("fold-changes: " + ref + " names no commit", file=sys.stderr)
             return 1
-    if again is not None:
+    if again is not None and main_ref is not None:
         return reapply(again, main_ref)
 
     try:
@@ -298,7 +306,7 @@ def main():
         print("fold-changes: " + str(problem), file=sys.stderr)
         return 1
 
-    ready = []
+    ready: list[tuple[int, int, str, str]] = []
     for name in names:
         if git("status", "--porcelain", "--", name).strip():
             print(f"fold-changes: {name} has changes nobody has committed; left as it is",
@@ -330,7 +338,10 @@ def main():
 
     # Newest first: the latest arrival, then the higher issue number.
     ready.sort(reverse=True)
-    entries = [(day, *entry(name)) for _, _, name, day in ready]
+    entries: list[Entry] = []
+    for _, _, name, day in ready:
+        section, line = entry(name)
+        entries.append((day, section, line))
 
     with open(CHANGELOG, "w", encoding="utf-8") as handle:
         handle.write(fold(changelog, entries))

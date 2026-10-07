@@ -60,5 +60,45 @@ class SummaryTest(unittest.TestCase):
         self.assertNotIn("—", self.text)
 
 
+class IntegrationSummaryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        folder = Path(tempfile.mkdtemp())
+        (folder / ".git").mkdir()
+        self.paths = Paths.for_project(folder, data_base=folder / "data", kit_folder=ROOT / "kit")
+        self.rec = record.RunRecord.create(self.paths, "night-1", [1, 2], attended=True,
+                                           merge_pre_approved=False)
+        self.rec.set_status(1, record.BUILT, title="Open the menu")
+        self.rec.update(1, joined="abc", joined_to="combined-night-1")
+        self.rec.data["integration"] = {
+            "tracks": {},
+            "worth_knowing": [{"text": "piece 2 check `x` is flaky: it was red once."}],
+            "final": {"main": {"branch": "combined-night-1", "status": "green",
+                               "push": "waiting", "next": "tell the person to push it"}},
+        }
+        self.text = summary.render(self.rec)
+
+    def test_a_joined_piece_names_its_branch(self) -> None:
+        self.assertIn("Joined to combined-night-1.", self.text)
+
+    def test_the_final_check_and_the_push_are_named_with_their_next_line(self) -> None:
+        self.assertIn("combined-night-1: the final check was green, and the push was waiting.",
+                      self.text)
+        self.assertIn("next: tell the person to push it", self.text)
+
+    def test_worth_knowing_items_have_a_section(self) -> None:
+        self.assertIn("## Worth knowing", self.text)
+        self.assertIn("is flaky: it was red once.", self.text)
+
+    def test_a_run_with_no_integration_has_neither_section(self) -> None:
+        folder = Path(tempfile.mkdtemp())
+        (folder / ".git").mkdir()
+        paths = Paths.for_project(folder, data_base=folder / "data", kit_folder=ROOT / "kit")
+        plain = record.RunRecord.create(paths, "night-2", [1], attended=True,
+                                        merge_pre_approved=False)
+        text = summary.render(plain)
+        self.assertNotIn("## Worth knowing", text)
+        self.assertNotIn("## Integration", text)
+
+
 if __name__ == "__main__":
     unittest.main()

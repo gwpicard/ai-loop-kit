@@ -10,6 +10,10 @@
 # the one a check against the older `main` never sees. The script itself never
 # merges anything into `main`.
 #
+# The run's combined branch is brought up to date the same way, with a merge commit and nothing
+# else: no rebase, so the join commits stay where they were, and no revert. The gate pushes it, so
+# the script is asked to push nothing.
+#
 # It also holds the exception: where `main` has not moved and nothing is left
 # to fold, the script makes no commit and prints the head the branch already
 # has, so the green check already there stands.
@@ -150,5 +154,35 @@ git -C "$W/work" fetch -q origin
 [ "$(git -C "$W/work" rev-parse origin/docs)" = "$docs_head" ] ||
   rs_fail "with nothing new, the script should push nothing"
 rs_ok "main unmoved and nothing to fold: no commit, no push, and the unchanged head is printed"
+
+# The run's combined branch: it has no copy on origin yet, and main moved after it was cut.
+git -C "$W/work" fetch -q origin
+git -C "$W/work" checkout -q -b combined-run "$start"
+git -C "$W/work" branch -q --unset-upstream 2>/dev/null || true
+printf 'joined\n' > "$W/work/joined.txt"
+git -C "$W/work" add -A
+git -C "$W/work" commit -q -m "Join piece 3"
+join_commit=$(git -C "$W/work" rev-parse HEAD)
+run "$W/work"
+[ "$code" -eq 2 ] || rs_fail "a branch with no copy on origin and a push to make should exit 2 (exit $code): $out"
+printf '%s\n' "$out" | grep -q 'no-push' || rs_fail "the refusal should name --no-push: $out"
+run --no-push "$W/work"
+[ "$code" -eq 0 ] || rs_fail "the combined branch should be brought up to date with --no-push (exit $code): $out"
+git -C "$W/work" merge-base --is-ancestor origin/main HEAD ||
+  rs_fail "the combined branch should hold main"
+git -C "$W/work" merge-base --is-ancestor "$join_commit" HEAD ||
+  rs_fail "the join commit must still be an ancestor, so nothing was rebased"
+[ "$(git -C "$W/work" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')" = 3 ] ||
+  rs_fail "main should come in by one merge commit"
+if git -C "$W/work" log --format=%s origin/main..HEAD | grep -qi '^revert'; then
+  rs_fail "the script wrote a revert"
+fi
+git -C "$W/work" fetch -q origin
+if git -C "$W/work" rev-parse -q --verify origin/combined-run >/dev/null 2>&1; then
+  rs_fail "--no-push pushed the combined branch"
+fi
+[ "$(printf '%s\n' "$out" | tail -n 1)" = "$(git -C "$W/work" rev-parse HEAD)" ] ||
+  rs_fail "the last line should be the new head"
+rs_ok "the combined branch takes in main by a merge commit, keeps its join commit, reverts nothing and pushes nothing"
 
 rs_done

@@ -7,9 +7,12 @@
 # standing in for GitHub, because the promises that matter are about history:
 # two pieces merged one after the other leave both entries in CHANGELOG.md and
 # nothing in `changes/`, a file that waited on `main` keeps the day it arrived
-# there, a retry never writes an entry twice, and a merge from `main` that
-# conflicts leaves the branch exactly as it was. A broken fold would lose or
-# double the project's history, and nobody reads loose files to notice.
+# there, a retry never writes an entry twice, an entry goes under its section
+# of the day, and a merge from `main` that conflicts leaves the branch exactly
+# as it was. No step reverts: where two folds clash in CHANGELOG.md alone, the
+# changelog of `main` stands and the branch's own entries are put back. A
+# broken fold would lose or double the project's history, and nobody reads
+# loose files to notice.
 #
 # A second clone stands in for GitHub's merge button: it merges the pull
 # request's branch into `main` with a merge commit and pushes it to the bare
@@ -147,7 +150,7 @@ if [ -n "$first" ] && [ -n "$second" ] && [ "$first" -lt "$second" ] &&
 rs_report "CHANGELOG.md holds both entries once, newest first" "$r"
 
 # The session dies after the fold is pushed and before the merge: the retry
-# undoes the earlier fold, folds again, and writes nothing twice.
+# folds nothing again, and writes nothing twice.
 run "$W/work"
 log=$(on_origin b)
 if [ "$code" = 0 ] && [ "$(count "$log" 'due date')" = 1 ] &&
@@ -180,7 +183,7 @@ if [ "$code" = 0 ] && [ "$folds" = 0 ] &&
   [ "$(on_origin c)" = "$before" ]; then r=yes; else r=no; fi
 rs_report "with nothing waiting it takes in main, commits no fold, and prints the head" "$r"
 
-# --- a stale fold, with another merge in between ------------------------------------
+# --- a fold made before another merge folded the same lines --------------------------
 
 hand_merge 2026-07-04 hand2 changes/12-hand2.md "Reports can be exported."
 piece d changes/14-d.md "Clients can be archived."
@@ -192,14 +195,22 @@ run "$W/work"
 hub_merge "$TODAY" e
 git -C "$W/work" checkout -q d
 run "$W/work"
-if [ "$code" = 0 ]; then r=yes; else r=no; fi; rs_report "a retry after another merge folded the same file succeeds" "$r"
+if [ "$code" = 0 ] && printf '%s\n' "$out" | grep -q '^reapplied under'; then r=yes; else r=no; fi
+rs_report "a retry after another merge folded the same lines settles the clash and succeeds" "$r"
+git -C "$W/work" fetch -q origin
+if [ "$(git -C "$W/work" rev-list --merges --count origin/main..origin/d)" -ge 1 ] &&
+  git -C "$W/work" merge-base --is-ancestor origin/main origin/d; then r=yes; else r=no; fi
+rs_report "the branch took in main with a merge commit and not a rebase" "$r"
 hub_merge "$TODAY" d
 git -C "$W/work" fetch -q origin
 log=$(on_origin main)
 if [ "$(count "$log" 'be exported')" = 1 ] && [ "$(count "$log" 'be archived')" = 1 ] &&
   [ "$(count "$log" 'be merged')" = 1 ] && under "$log" 2026-07-04 'be exported' &&
   [ -z "$(git -C "$W/work" ls-tree --name-only origin/main changes/)" ]; then r=yes; else r=no; fi
-rs_report "the stale fold is undone first, so each entry appears once" "$r"
+rs_report "the clash in CHANGELOG.md is settled without a revert, so each entry appears once" "$r"
+reverts=$(git -C "$W/work" log --format=%s origin/main | grep -ci '^revert' || true)
+if [ "$reverts" = 0 ]; then r=yes; else r=no; fi
+rs_report "no step wrote a revert into the history of main" "$r"
 
 # --- --no-fold ----------------------------------------------------------------------
 
@@ -211,6 +222,64 @@ if [ "$code" = 0 ] &&
   [ -n "$(git -C "$W/work" ls-tree --name-only origin/u changes/17-u.md)" ] &&
   [ -n "$(git -C "$W/work" ls-tree --name-only origin/u changes/16-hand3.md)" ]; then r=yes; else r=no; fi
 rs_report "--no-fold takes in main and folds nothing" "$r"
+
+# --- entries go under their section of the day ----------------------------------------
+
+section_under() {
+  # section_under <changelog> <day> <section> <text>: the text sits under that section of that day.
+  printf '%s\n' "$1" | awk -v day="## $2" -v sec="### $3" -v text="$4" '
+    /^## / { current = $0; sub_current = "" }
+    /^### / { sub_current = $0 }
+    index($0, text) && current == day && sub_current == sec { found = 1 }
+    END { exit found ? 0 : 1 }'
+}
+hand_merge 2026-07-08 hand5 changes/32-hand5.md "Boards can be shared."
+piece g changes/40-g.md "Section: Added
+Tags can be nested."
+piece h changes/41-h.md "Section: Changed
+Tags can be renamed."
+git -C "$W/work" checkout -q g
+run "$W/work"
+log=$(on_origin g)
+if [ "$code" = 0 ] && section_under "$log" "$TODAY" Added "can be nested" &&
+  ! printf '%s\n' "$log" | grep -q '^Section:'; then r=yes; else r=no; fi
+rs_report "an entry with a Section line goes under that heading of the day" "$r"
+git -C "$W/work" checkout -q h
+run "$W/work"
+hub_merge "$TODAY" g
+run "$W/work"
+log=$(on_origin h)
+added=$(printf '%s\n' "$log" | grep -n '^### Added' | tail -1 | cut -d: -f1)
+changed=$(printf '%s\n' "$log" | grep -n '^### Changed' | tail -1 | cut -d: -f1)
+if [ "$code" = 0 ] && printf '%s\n' "$out" | grep -q '^reapplied under' &&
+  section_under "$log" "$TODAY" Added "can be nested" &&
+  section_under "$log" "$TODAY" Changed "can be renamed" &&
+  [ "$(count "$log" 'can be nested')" = 1 ] && [ "$(count "$log" 'can be renamed')" = 1 ] &&
+  [ -n "$added" ] && [ -n "$changed" ] && [ "$added" -lt "$changed" ]; then r=yes; else r=no; fi
+rs_report "two folds that clashed keep each entry once, in the order Added then Changed" "$r"
+
+# --- --no-push: a combined branch that only this computer holds --------------------------
+
+git -C "$W/work" fetch -q origin
+git -C "$W/work" checkout -q -b combined-night origin/main~0
+git -C "$W/work" branch -q --unset-upstream 2>/dev/null || true
+printf 'joined\n' > "$W/work/joined.txt"
+git -C "$W/work" add -A
+git -C "$W/work" commit -q -m "Join piece 50"
+hand_merge 2026-07-09 hand6 app6.txt "main moves under the combined branch"
+git -C "$W/work" fetch -q origin
+run "$W/work"
+if [ "$code" = 2 ] && printf '%s\n' "$out" | grep -q 'no-push'; then r=yes; else r=no; fi
+rs_report "with a push to make, a branch with no copy on origin is refused and --no-push is named" "$r"
+head=$(git -C "$W/work" rev-parse HEAD)
+run --no-push "$W/work"
+if [ "$code" = 0 ] && git -C "$W/work" merge-base --is-ancestor origin/main HEAD &&
+  [ "$(printf '%s\n' "$out" | tail -1)" = "$(git -C "$W/work" rev-parse HEAD)" ] &&
+  [ "$(git -C "$W/work" rev-parse HEAD)" != "$head" ] &&
+  ! git -C "$W/work" rev-parse -q --verify origin/combined-night >/dev/null 2>&1 &&
+  [ "$(git -C "$W/work" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')" = 3 ]; then r=yes; else r=no; fi
+rs_report "--no-push takes main in with a merge commit and pushes nothing" "$r"
+git -C "$W/work" checkout -q f 2>/dev/null || git -C "$W/work" checkout -q main
 
 # --- a conflict from main -----------------------------------------------------------
 

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# contract: agent
+# contract: changes-state
 """The integration loop: join each built piece to the run's combined branch, one trial at a time.
 
 The engine (`loop.run.engine`) calls `run_hook` for the events of a run. This module answers
@@ -44,7 +47,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import re
 import subprocess
 import sys
@@ -55,7 +57,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from loop import areas, github, judge, moves, spec
+if __package__ in (None, ""):  # run by path: put the kit's scripts folder on the path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from loop import areas, cli, github, judge, moves, spec
 from loop.cli import ExitCode
 from loop.paths import Paths
 from loop.run import record as run_record
@@ -516,14 +521,21 @@ class Integrator:
             try:
                 return self._join(number)
             except IntegrationRefusal as error:
-                self.record.update(number, integration_refused=str(error))
+                self._park(number, str(error), error.next_command)
                 return JoinResult("refused", number, str(error), error.next_command)
+
+    def _park(self, number: int, why: str, next_command: str) -> None:
+        """A join the loop could not judge: the piece waits for the person, with a next line."""
+        self.record.note(f"piece {number} did not join: {why}. next: {next_command}")
+        with contextlib.suppress(KeyError):
+            if self.record.status(number) == run_record.BUILT:
+                self.record.set_status(number, run_record.WAITING_PERSON, reason=why,
+                                       next=next_command)
 
     def _join(self, number: int) -> JoinResult:
         view = self.reader(number)
         if view.state != "review":
-            return JoinResult(
-                "refused", number,
+            raise IntegrationRefusal(
                 f"piece {number} is {view.state} in the gate's record, not review, so it "
                 "cannot join", f"gate.py report {number}")
         key = self._track_key(number)
@@ -1017,55 +1029,75 @@ def run_hook(context: Any, event: str, **data: Any) -> None:
                 raise IntegrationRefusal(str(entry.get("message")), str(entry.get("next", "")))
 
 
-# --- a door for tests and the person ----------------------------------------------------------
+# --- a door for the review loop and the person ---------------------------------------------
 
 
-def _paths_for(args: argparse.Namespace) -> Paths:
-    from loop.paths import find_project_root
+def _setup(parser: argparse.ArgumentParser) -> None:
+    commands = parser.add_subparsers(dest="command", required=True, metavar="command")
+    for name, text in (
+        ("status", "show each combined branch and the pieces joined to it"),
+        ("leave", "rebuild the combined branch from main without one piece (changes state)"),
+        ("final", "make the docs commit, run the final check and push (changes state)"),
+    ):
+        sub = commands.add_parser(name, help=text)
+        sub.add_argument("--run", required=True, help="the run's name")
+        sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                         help="print JSON")
+        if name == "leave":
+            sub.add_argument("--piece", type=int, required=True, help="the piece that leaves")
+            sub.add_argument("--reason", required=True, help="why it leaves")
+        if name != "status":
+            sub.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS,
+                             help="say what would run, and change nothing")
 
-    return Paths.for_project(find_project_root(Path.cwd()))
 
+def _handle(args: argparse.Namespace) -> dict[str, Any]:
+    from loop import policy as policy_module
+    from loop.paths import PathError, find_project_root
 
-def main(argv: list[str]) -> int:
-    """`status`, `leave` and `final`, over a run record. The run script is not needed."""
-    parser = argparse.ArgumentParser(prog="python3 -m loop.run.integrate",
-                                     description="Look at or change a run's combined branch.")
-    parser.add_argument("command", choices=("status", "leave", "final"))
-    parser.add_argument("--run", required=True)
-    parser.add_argument("--piece", type=int)
-    parser.add_argument("--reason", default="")
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args(argv)
     try:
-        paths = _paths_for(args)
+        paths = Paths.for_project(find_project_root(Path.cwd()))
         run = run_record.RunRecord.load(paths, args.run)
-        from loop import policy as policy_module
-
         loaded = (policy_module.load(paths.policy_file) if paths.policy_file.exists()
                   else policy_module.with_defaults({}))
         loop = Integrator(paths, args.run, run, loaded)
-        out: dict[str, Any]
-        if args.command == "status":
-            out = {"ok": True, "tracks": {k: {"branch": loop.combined(k),
-                                               "joined": loop.joined(k)}
-                                          for k in loop.tracks()}}
-        elif args.command == "leave":
-            if args.piece is None or not args.reason:
-                print("leave needs --piece and --reason\nnext: python3 -m loop.run.integrate "
-                      "leave --run NAME --piece N --reason WHY", file=sys.stderr)
-                return int(ExitCode.USAGE)
+        tracks = {k: {"branch": loop.combined(k), "joined": loop.joined(k)}
+                  for k in loop.tracks()}
+        if args.command == "status" or getattr(args, "dry_run", False):
+            return {"tracks": tracks, "would": args.command if args.command != "status" else ""}
+        if args.command == "leave":
             result = loop.leave(args.piece, args.reason)
-            out = {"ok": result.status == "rebuilt", "status": result.status,
-                   "branch": result.branch, "message": result.message}
-        else:
-            out = {"ok": True, "final": loop.finish()}
-        print(json.dumps(out, sort_keys=True))
-        return int(ExitCode.OK) if out.get("ok") else int(ExitCode.REFUSED)
-    except (run_record.RecordError, IntegrationRefusal) as error:
-        nxt = getattr(error, "next_command", "")
-        print(f"{error}\nnext: {nxt}", file=sys.stderr)
-        return int(ExitCode.REFUSED)
+            if result.status != "rebuilt":
+                raise cli.Failure(result.message, next_command=result.next_command,
+                                  code=ExitCode.REFUSED)
+            return {"status": result.status, "branch": result.branch, "message": result.message,
+                    "restarted": result.restarted}
+        report = loop.finish()
+        stuck = {k: v for k, v in report.items()
+                 if v.get("status") == "refused" or v.get("push") == "refused"}
+        if stuck:
+            first = next(iter(stuck.values()))
+            raise cli.Failure(str(first.get("message")), next_command=str(first.get("next", "")),
+                              code=ExitCode.REFUSED)
+        return {"final": report}
+    except (PathError, run_record.RecordError) as error:
+        raise cli.Failure(str(error), next_command=getattr(error, "next_command", "")
+                          or "python3 -m loop.run.integrate --help",
+                          code=ExitCode.ENVIRONMENT) from error
+    except IntegrationRefusal as error:
+        raise cli.Failure(str(error), next_command=error.next_command,
+                          code=ExitCode.REFUSED) from error
+
+
+def main(argv: list[str]) -> int:
+    return cli.run(
+        "integrate",
+        "Look at or change a run's combined branch: status, leave, final.",
+        _setup, _handle, argv, changes_state=True)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # Run under its real name, so the exceptions the modules share are one class.
+    from loop.run.integrate import main as _main
+
+    sys.exit(_main(sys.argv[1:]))
