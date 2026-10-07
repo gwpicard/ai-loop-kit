@@ -60,7 +60,7 @@ from typing import Any
 if __package__ in (None, ""):  # run by path: put the kit's scripts folder on the path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from loop import areas, cli, github, judge, moves, spec
+from loop import areas, bar, cli, github, judge, moves, spec
 from loop.cli import ExitCode
 from loop.paths import Paths
 from loop.run import record as run_record
@@ -80,6 +80,13 @@ Mover = Callable[[int, str, str], Reply]
 Push = Callable[[str], dict[str, Any]]
 HeldRuns = Callable[["PieceView"], Sequence[tuple[str, Mapping[str, str]]]]
 DocsCommit = Callable[..., Any]
+
+
+def frozen_files(judge_files: Sequence[str], record: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """The judge files and the files review froze, in that order. None is charged to the touches."""
+    found = list(judge_files)
+    found += [path for path in bar.review_files(record) if path not in found]
+    return tuple(found)
 
 
 def trailers(text: str) -> list[int]:
@@ -128,7 +135,7 @@ class JoinResult:
 @dataclass
 class Failure:
     piece: int
-    kind: str  # judge, must-stay, touches, held-out
+    kind: str  # judge, must-stay, review, touches, held-out
     command: str
     text: str
     extra: Mapping[str, str] | None = None
@@ -333,7 +340,8 @@ class Integrator:
         return PieceView(
             number=number, title=piece.title, state=piece.state, issue=piece.issue,
             individual=piece.individual_review, issue_type=piece.issue_type, spec=parsed,
-            judge_files=files, record=tuple(piece.record), body=piece.body)
+            judge_files=frozen_files(files, piece.record), record=tuple(piece.record),
+            body=piece.body)
 
     def _default_mover(self, number: int, target: str, reason: str) -> Reply:
         from loop.run.gateway import Gateway
@@ -663,6 +671,10 @@ class Integrator:
             for check in sp["must_stay_checks"]:
                 plans.append(Failure(n, "must-stay", str(check),
                                      f"piece {n} must-stay-the-same check `{check}`"))
+            for item in bar.review_tests(view.record):
+                command = str(item["command"])
+                plans.append(Failure(n, "review", command,
+                                     f"piece {n} review check `{command}`"))
             if held:
                 for held_command, extra in self.held_runs(view):
                     plans.append(Failure(n, "held-out", held_command,

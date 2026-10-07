@@ -164,6 +164,53 @@ class IntegrationCase(unittest.TestCase):
         return git(self.root, "branch", "--format=%(refname:short)").splitlines()
 
 
+class ReviewTestsJoinTheBarTest(IntegrationCase):
+    """A check that review added to a piece runs in every trial, like the piece's own judge."""
+
+    def with_review_test(self, number: int, command: str) -> None:
+        view = self.views[number]
+        entry = {"kind": "review-test", "path": "tests/test_found.py", "commit": "f" * 40,
+                 "command": command, "justification": "Review found a gap."}
+        self.views[number] = integrate.PieceView(
+            number=view.number, title=view.title, state=view.state, issue=view.issue,
+            individual=view.individual, issue_type=view.issue_type, spec=view.spec,
+            judge_files=view.judge_files, record=(entry,))
+
+    def test_a_green_review_check_runs_in_the_trial_and_the_piece_joins(self) -> None:
+        self.piece(1, {"a.txt": "one\n", "found.txt": "x\n"}, "exists:a.txt")
+        self.with_review_test(1, "exists:found.txt")
+        loop = self.make()
+        loop.start()
+        self.assertEqual(loop.join(1).status, "joined")
+        self.assertIn("exists:found.txt", {call[0] for call in self.judges.calls})
+
+    def test_a_red_review_check_turns_the_trial_red_and_names_the_piece(self) -> None:
+        self.piece(1, {"a.txt": "one\n"}, "exists:a.txt")
+        self.with_review_test(1, "exists:found.txt")
+        loop = self.make()
+        loop.start()
+        result = loop.join(1)
+        self.assertEqual(result.status, "red", result)
+        self.assertEqual(self.mover.calls[0][:2], (1, "building"))
+        self.assertIn("review check", self.mover.calls[0][2])
+
+    def test_the_final_check_runs_the_review_check_too(self) -> None:
+        self.piece(1, {"a.txt": "one\n", "found.txt": "x\n"}, "exists:a.txt")
+        self.with_review_test(1, "exists:found.txt")
+        loop = self.make()
+        loop.start()
+        loop.join(1)
+        calls_before = len(self.judges.calls)
+        self.assertEqual(loop.final_check().status, "green")
+        self.assertIn("exists:found.txt", {c[0] for c in self.judges.calls[calls_before:]})
+
+    def test_the_frozen_files_hold_the_judge_files_and_the_review_tests(self) -> None:
+        entry = {"kind": "review-test", "path": "tests/test_found.py", "commit": "f" * 40,
+                 "command": "x", "justification": "y"}
+        self.assertEqual(integrate.frozen_files(("tests/judge.py",), [entry]),
+                         ("tests/judge.py", "tests/test_found.py"))
+
+
 class JoinTest(IntegrationCase):
     def test_a_green_trial_moves_the_combined_branch_with_a_piece_trailer(self) -> None:
         self.piece(1, {"a.txt": "one\n"}, "exists:a.txt")

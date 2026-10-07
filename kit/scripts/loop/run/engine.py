@@ -70,7 +70,10 @@ class HookContext:
     `gate_lock` is the lock every call to the gate and to git goes through. `restart_piece`
     puts a built piece back to building, so its builder starts again (the integration loop
     uses it after it sent the piece back by move 8). `infos` is the plan's view of each piece:
-    its areas and the issues that block it.
+    its areas and the issues that block it. `start_session` starts a `claude -p` session the
+    way the engine does, so a stop signal ends it and a test can stand in for it (the review
+    loop starts its reviewer so). `another_round` asks for `built-all` to be called again
+    even when no piece was sent back, for a hook that changed the combined branch.
     """
 
     paths: Paths
@@ -81,6 +84,8 @@ class HookContext:
     gate_lock: Any = field(default_factory=contextlib.nullcontext)
     restart_piece: Callable[[int], None] = field(default=lambda number: None)
     infos: Mapping[int, plan.PieceInfo] = field(default_factory=dict)
+    start_session: Callable[[sessions.Session], sessions.Result] = field(default=sessions.start)
+    another_round: Callable[[], None] = field(default=lambda: None)
 
 
 def slug(title: str) -> str:
@@ -171,6 +176,8 @@ class Engine:
         self._template: Path | None = None
         self._hooks_cache: dict[str, Any] = {}
 
+    another_round = False  # a hook asked for built-all again, with no piece sent back
+
     # --- hooks -----------------------------------------------------------------------
 
     def _modules(self) -> list[Any]:
@@ -190,7 +197,8 @@ class Engine:
     def context(self) -> HookContext:
         return HookContext(self.paths, self.name, self.record, self.policy, self.resume_piece,
                            gate_lock=self.gate_lock, restart_piece=self.restart_piece,
-                           infos=self.infos)
+                           infos=self.infos, start_session=self._start,
+                           another_round=self.ask_another_round)
 
     def hook(self, event: str, **data: Any) -> None:
         if event not in EVENTS:
@@ -218,6 +226,10 @@ class Engine:
                 self.record.set_status(number, record.BUILDING)
                 self.resume_queue.append(number)
                 self.wake.set()
+
+    def ask_another_round(self) -> None:
+        """A hook (the review loop) changed the combined branch and wants `built-all` again."""
+        self.another_round = True
 
     def restart_piece(self, number: int) -> None:
         """A hook (the integration loop) sent a built piece back to building: build it again."""
@@ -643,6 +655,11 @@ class Engine:
         if clash:
             text += ("\n\nThe integration loop sent this piece back after a trial join with "
                      f"the other built pieces. What it found: {clash}")
+        finding = self.record.piece(number).get("review_finding")
+        if finding:
+            text += ("\n\nThe fresh reviewer read the combined work and sent this piece back. "
+                     "The gate added the reviewer's check to the frozen bar, and your work must "
+                     f"make it pass. What the reviewer found: {finding}")
         return text
 
     def _move_options(self, number: int) -> dict[str, str] | None:
@@ -669,7 +686,7 @@ class Engine:
                                spec=parsed, record=piece.record, paths=self.paths,
                                options=self._move_options(number) or {})
             facts = attempt_gate._facts(ctx, parsed, recorded)
-            return bar.paths(self.paths.root, facts.base, facts.judge_files)
+            return bar.paths(self.paths.root, facts.base, sorted(facts.frozen))
         except (spec.SpecError, attempt_gate.Refusal, bar.BarError) as error:
             raise EngineRefusal(
                 f"the frozen bar of piece {number} cannot be listed ({error})",
@@ -883,10 +900,12 @@ class Engine:
         for _ in range(BUILT_ALL_ROUNDS):
             if self.stop.is_set() or self.run_parked:
                 break
+            self.another_round = False
             self.hook("built-all", built=self.record.with_status(record.BUILT))
-            if not self.resume_queue:
+            if not self.resume_queue and not self.another_round:
                 break
-            # A hook sent a piece back to building (a red final check): build it, then again.
+            # A hook sent a piece back to building (a red final check), or changed the combined
+            # branch and asked for another look: build what is queued, then call `built-all`.
             self._rounds()
         if self.stop.is_set():
             status, code = record.RUN_STOPPED, 3

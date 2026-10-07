@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
+from loop import sessions  # noqa: E402
 from loop.gates import CheckContext, attempt  # noqa: E402
 from loop.paths import Paths  # noqa: E402
 from loop.run import engine, plan, record  # noqa: E402
@@ -60,6 +61,7 @@ class EngineCase(unittest.TestCase):
         made.resume_queue = []
         made.infos = {i.number: i for i in infos or []}
         made.gateway = Gateway(self.paths)
+        made._start = sessions.start
         return made
 
 
@@ -78,6 +80,30 @@ class HookContextTest(EngineCase):
         context = engine.HookContext(self.paths, "night-1", self.rec, {}, lambda n: None)
         context.restart_piece(1)  # a default that does nothing
         self.assertEqual(dict(context.infos), {})
+
+
+class ReviewNeedsTest(EngineCase):
+    """What the review loop (P24) needs from the engine, and no more."""
+
+    def test_the_context_carries_the_session_starter_and_the_round_request(self) -> None:
+        loop = self.make()
+        context = loop.context()
+        self.assertEqual(context.start_session, loop._start)
+        context.another_round()
+        self.assertTrue(loop.another_round)
+
+    def test_a_context_made_by_hand_starts_sessions_the_plain_way(self) -> None:
+        context = engine.HookContext(self.paths, "night-1", self.rec, {}, lambda n: None)
+        self.assertIs(context.start_session, sessions.start)
+        context.another_round()  # a default that does nothing
+
+    def test_the_finding_that_sent_a_piece_back_reaches_the_next_builder(self) -> None:
+        loop = self.make()
+        self.rec.update(1, review_finding="A blank name is not refused.")
+        text = loop._found_so_far(1, [])
+        self.assertIn("A blank name is not refused.", text)
+        self.assertIn("review", text.lower())
+        self.assertNotIn("trial join", text)
 
 
 class RestartTest(EngineCase):
@@ -342,6 +368,30 @@ class BuiltAllRoundsTest(EngineCase):
     def test_a_piece_sent_back_is_built_and_built_all_is_called_again(self) -> None:
         _, calls = self.finish_with([[2]])
         self.assertEqual(calls, ["built-all", "built-all", "run-end", "rounds=1"])
+
+    def test_a_hook_that_asks_for_another_round_gets_one_with_nothing_queued(self) -> None:
+        for number in (1, 2):
+            self.rec.set_status(number, record.BUILT)
+        loop = self.make()
+        loop.stop = threading.Event()
+        loop.run_parked = ""
+        loop.failed = False
+        loop.refused = {}
+        loop.cap_run = None
+        calls: list[str] = []
+        asked = [True]
+
+        def hook(event: str, **data: object) -> None:
+            calls.append(event)
+            if event == "built-all" and asked:
+                asked.pop()
+                loop.another_round = True
+
+        loop.hook = hook  # type: ignore[method-assign]
+        loop._rounds = lambda: calls.append("rounds")  # type: ignore[method-assign]
+        loop._finish()
+        self.assertEqual(calls, ["built-all", "rounds", "built-all", "run-end"])
+        self.assertFalse(loop.another_round)
 
     def test_the_rounds_have_a_limit(self) -> None:
         _, calls = self.finish_with([[2]] * 20)
