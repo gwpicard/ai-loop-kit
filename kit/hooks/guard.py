@@ -319,6 +319,11 @@ def _relative_parts(path: Path, anchor: Path | None) -> tuple[str, ...] | None:
     return path.relative_to(anchor).parts
 
 
+# The run record holds the run's pre-approval to merge, and the lock names the process that
+# holds the run. Only run.py writes them.
+RUN_GUARDED = {"run.json", "lock"}
+
+
 def write_block(path: Path, ctx: Context) -> Decision | None:
     """A refusal when the path is one of the guards, or None."""
     anchors = [a for a in (ctx.main_root, ctx.work_root, ctx.home) if a is not None]
@@ -329,6 +334,7 @@ def write_block(path: Path, ctx: Context) -> Decision | None:
         guarded = (
             (parts[0] == ".claude" and len(parts) == 2 and parts[1].startswith("settings"))
             or parts[:2] == (".agents", "pieces")
+            or (parts[:2] == (".agents", "runs") and len(parts) == 4 and parts[3] in RUN_GUARDED)
             or parts[:3] in {(".agents", "loop", "policy.json"), (".agents", "loop", "local.json")}
             or parts[:2] == (".github", "workflows")
             or parts[0] == ".githooks"
@@ -779,6 +785,7 @@ LABEL_MUTATIONS = (
     "updatelabel",
     "deletelabel",
 )
+MERGE_MUTATIONS = ("mergepullrequest", "enablepullrequestautomerge")
 COMMENT_MUTATIONS = ("addcomment", "addpullrequestreview", "addpullrequestreviewcomment")
 
 
@@ -816,9 +823,13 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
     if "graphql" in endpoint:
         if any(m in text for m in LABEL_MUTATIONS):
             return refuse("this GraphQL call changes labels.", GATE_NEXT_LABEL)
+        if any(m in text for m in MERGE_MUTATIONS):
+            return refuse(MERGE_WHAT, MERGE_NEXT)
         if any(m in text for m in COMMENT_MUTATIONS) or re.search(r"\bmutation\b", text):
             return ask("this GraphQL call posts in the person's name.", COMMENT_NEXT)
         return None
+    if write and re.search(r"(^|/)pulls/[^/]+/merge/?$", endpoint):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
     labels_path = bool(re.search(r"(^|/)labels(/|$)", endpoint))
     label_field = any(k.startswith("labels") for k in field_keys)
     family_text = bool(
@@ -866,6 +877,8 @@ def check_gh(args: Sequence[str]) -> Decision | None:
             "this prints the sign-in token. A builder holds no GitHub credential.",
             "ask the person to run the command that needs the sign-in.",
         )
+    if group == "pr" and action == "merge":
+        return refuse(MERGE_WHAT, MERGE_NEXT)
     if group in {"issue", "pr"} and action in {"edit", "create"}:
         values = _label_values(tail)
         if any(_is_state_label(v) for v in values):
@@ -941,6 +954,32 @@ def check_gate(words: Sequence[str]) -> Decision | None:
         positional = [w for w in words[index + 1 :] if not w.startswith("-")]
         if positional[:1] == ["sync"]:
             return refuse(SYNC_WHAT, SYNC_NEXT)
+        if positional[:1] == ["move"] and "done" in positional[1:]:
+            return refuse(MERGE_WHAT, MERGE_NEXT)
+    return None
+
+
+MERGE_WHAT = (
+    "a merge puts work into main, and only the person decides it. This is a merge, or a move "
+    "that ends in a merge."
+)
+MERGE_NEXT = (
+    "tell the person: merge the pull request yourself on GitHub, or run the merge in your own "
+    "terminal. A run the person started with run.py --merge-pre-approved merges by itself "
+    "when every condition holds."
+)
+_PULL_REQUEST_SCRIPT = ("loop.run.pull_request", "pull_request.py")
+
+
+def check_pull_request_merge(words: Sequence[str]) -> Decision | None:
+    """`python3 -m loop.run.pull_request merge`, or the script run by its path."""
+    for index, word in enumerate(words):
+        name = program_name(word)
+        if name not in _PULL_REQUEST_SCRIPT and word not in _PULL_REQUEST_SCRIPT:
+            continue
+        positional = [w for w in words[index + 1 :] if not w.startswith("-")]
+        if "merge" in positional:
+            return refuse(MERGE_WHAT, MERGE_NEXT)
     return None
 
 
@@ -998,12 +1037,36 @@ def check_gate_text(text: str) -> Decision | None:
         return refuse(PTY_WHAT, PTY_NEXT)
     if "gate.py" in text and (_GATE_HIDES.search(text) or _HIDES_SESSION.search(text)):
         return refuse(GATE_HIDDEN_WHAT, GATE_HIDDEN_NEXT)
+    if "pull_request" in text:
+        found = _pull_request_text(text)
+        if found is not None:
+            return found
     if not _SYNC_WORD.search(text):
         return None
     if _SCRIPT_THEN_SYNC.search(text) or _VARIABLE_THEN_SYNC.search(text):
         return refuse(SYNC_WHAT, SYNC_NEXT)
     if _INDIRECT_RUN.search(text) and re.search(r"\bpython", text):
         return refuse(SYNC_WHAT, SYNC_NEXT)
+    return None
+
+
+def _pull_request_text(text: str) -> Decision | None:
+    """The pull request script's merge, reached by a road the word check cannot follow.
+
+    As for `gate.py`: a line that holds the script's name may not hold a variable, a
+    backtick, `xargs`, `eval`, `unset`, `env -u`, `env -i` or an agent-session name. Python
+    told to run the script by `runpy` or an import, with the word `merge` in the line, is
+    refused. A pretend terminal beside python is refused above. A text check is never
+    complete: the in-code refusal and the sandbox hold behind it.
+    """
+    if _GATE_HIDES.search(text) or _HIDES_SESSION.search(text):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
+    if re.search(r"\bmerge\b", text) and _INDIRECT_RUN.search(text) and re.search(r"\bpython", text):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
+    if re.search(r"\bpython", text) and re.search(
+        r"\b(?:import|from)\b[^;\n]*\bpull_request\b", text
+    ):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
     return None
 
 
@@ -1125,6 +1188,7 @@ def check_words(
             found.append(check_command(inner, ctx, cwd, depth + 1))
     rest = unwrap(words)
     found.append(check_gate(rest))
+    found.append(check_pull_request_merge(rest))
     if rest:
         prog, args = program_name(rest[0]), rest[1:]
         if prog in SHELLS:

@@ -909,6 +909,8 @@ class GuardedWrites(Cases):
             self.denied(name, P.root / ".agents" / "loop" / "policy.json")
             self.denied(name, P.root / ".github" / "workflows" / "ci.yml")
             self.denied(name, P.root / ".githooks" / "commit-msg")
+            self.denied(name, P.root / ".agents" / "runs" / "night-1" / "run.json")
+            self.denied(name, P.root / ".agents" / "runs" / "night-1" / "lock")
 
     def test_the_same_files_in_a_worktree(self) -> None:
         self.denied("Edit", P.worktree / ".claude" / "settings.json", cwd=P.worktree)
@@ -955,6 +957,7 @@ class GuardedWrites(Cases):
             "touch .agents/pieces/3/x",
             "chmod 777 .claude/settings.json",
             "dd if=x of=.claude/settings.json",
+            "sed -i 's/false/true/' .agents/runs/night-1/run.json",
         )
 
     def test_shell_reads_of_the_guards_pass(self) -> None:
