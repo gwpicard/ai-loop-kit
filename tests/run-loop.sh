@@ -111,6 +111,30 @@ for item in $PIECES; do
   echo "tests/acceptance/test_$name.py $area" >> "$TP_BASE/area-map"
 done
 cp "$TP_BASE/area-map" docs/area-map
+# The records the integration loop's docs commit keeps right (the run joins what it builds).
+mkdir -p .agents/guard .github/workflows
+cp "$KIT/templates/blocked-commands.md" .agents/guard/blocked-commands.md
+cp "$KIT/templates/AGENTS.md" AGENTS.md
+cp "$KIT/templates/CLAUDE.md" CLAUDE.md
+cp "$KIT/templates/CHANGELOG.md" CHANGELOG.md
+cp "$KIT/templates/docs-README.md" docs/README.md
+sed 's/{{KIT_REF}}/main/' "$KIT/templates/checks.yml" > .github/workflows/checks.yml
+python3 - "$KIT/templates/overview.md" docs/area-map <<'PY'
+import sys
+
+text = open(sys.argv[1]).read().split("| project-records")[0].rstrip("\n")
+names = []
+for line in open(sys.argv[2]):
+    parts = line.split()
+    if len(parts) == 2 and not line.startswith("#") and parts[1] not in names:
+        names.append(parts[1])
+for area in names:
+    doc = "docs/README.md" if area == "records" else f"docs/{area}.md"
+    text += f"\n| {area} | The {area} area | no | | `{doc}` |"
+    if area != "records":
+        open(doc, "w").write(f"# {area}\n\n")
+open("docs/overview.md", "w").write(text + "\n")
+PY
 git add -A
 git commit -q -m "Add the stubs, an old test and the area map"
 git push -q origin main

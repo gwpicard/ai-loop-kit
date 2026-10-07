@@ -985,7 +985,7 @@ class Integrator:
 
 # --- the hooks ------------------------------------------------------------------------------
 
-_INTEGRATORS: dict[tuple[str, str], Integrator] = {}
+_INTEGRATORS: dict[tuple[str, str, str], Integrator] = {}
 
 
 def _dependencies(context: Any) -> dict[int, set[int]]:
@@ -999,7 +999,7 @@ def _dependencies(context: Any) -> dict[int, set[int]]:
 
 
 def integrator_for(context: Any) -> Integrator:
-    key = (str(context.paths.root), str(context.name))
+    key = (str(context.paths.root), str(context.name), str(id(context.record)))
     made = _INTEGRATORS.get(key)
     if made is None:
         made = Integrator(

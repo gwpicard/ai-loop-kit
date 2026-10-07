@@ -175,5 +175,64 @@ class StackTest(EngineCase):
         self.assertEqual(loop._move_options(1), {"stack_base": "abc123"})
 
 
+class BuiltAllRoundsTest(EngineCase):
+    """A hook that sends a piece back at `built-all` gets another round of building."""
+
+    def finish_with(self, queued_by_hook: list[list[int]]) -> tuple[engine.Engine, list[str]]:
+        for number in (1, 2):
+            self.rec.set_status(number, record.BUILT)
+        loop = self.make()
+        loop.stop = threading.Event()
+        loop.run_parked = ""
+        loop.failed = False
+        loop.refused = {}
+        calls: list[str] = []
+        rounds: list[int] = []
+        batches = list(queued_by_hook)
+
+        def hook(event: str, **data: object) -> None:
+            calls.append(event)
+            if event == "built-all" and batches:
+                loop.resume_queue.extend(batches.pop(0))
+
+        def again() -> None:
+            rounds.append(1)
+            loop.resume_queue.clear()
+
+        loop.hook = hook  # type: ignore[method-assign]
+        loop._rounds = again  # type: ignore[method-assign]
+        loop.cap_run = None
+        loop._finish()
+        calls.append(f"rounds={len(rounds)}")
+        return loop, calls
+
+    def test_with_nothing_sent_back_built_all_is_called_once(self) -> None:
+        _, calls = self.finish_with([])
+        self.assertEqual(calls, ["built-all", "run-end", "rounds=0"])
+
+    def test_a_piece_sent_back_is_built_and_built_all_is_called_again(self) -> None:
+        _, calls = self.finish_with([[2]])
+        self.assertEqual(calls, ["built-all", "built-all", "run-end", "rounds=1"])
+
+    def test_the_rounds_have_a_limit(self) -> None:
+        _, calls = self.finish_with([[2]] * 20)
+        self.assertEqual(calls.count("built-all"), engine.BUILT_ALL_ROUNDS)
+        self.assertEqual(calls[-2], "run-end")
+
+    def test_a_stopped_run_calls_no_built_all(self) -> None:
+        for number in (1, 2):
+            self.rec.set_status(number, record.BUILT)
+        loop = self.make()
+        loop.stop = threading.Event()
+        loop.stop.set()
+        loop.run_parked = ""
+        loop.failed = False
+        loop.refused = {}
+        calls: list[str] = []
+        loop.hook = lambda event, **data: calls.append(event)  # type: ignore[method-assign]
+        loop._finish()
+        self.assertEqual(calls, ["run-end"])
+
+
 if __name__ == "__main__":
     unittest.main()
