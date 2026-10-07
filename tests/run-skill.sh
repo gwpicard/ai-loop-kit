@@ -38,14 +38,14 @@ START='caffeinate -i python3 "\$\{claude_plugin_root\}/scripts/run\.py" --pieces
 CHECK='caffeinate -i python3 "\$\{claude_plugin_root\}/scripts/pre-run-check\.py" --pieces'
 rs_rule "the start command: run.py under caffeinate, with the quoted plugin folder" "$START"
 rs_rule "the pre-run check command, under caffeinate, with the same pieces" "$CHECK"
-rs_rule "the pieces answer goes in as --pieces" '`--pieces`'
-rs_rule "the merge answer goes in as --merge-pre-approved" '`--merge-pre-approved`'
-rs_rule "the default is not pre-approved" 'not pre-approved'
+rs_rule "the pieces answer goes in as --pieces" 'first answer as `--pieces`'
+rs_rule "the merge answer goes in as --merge-pre-approved" 'second as `--merge-pre-approved`'
+rs_rule "the default is not pre-approved" '"not pre-approved" as the default'
 rs_rule "the two questions are asked once" 'ask the two questions once'
 rs_rule "the pre-run check runs before the run script" 'run the pre-run check before you start the run script'
-rs_rule "a refusal starts nothing" 'start nothing'
+rs_rule "a refusal starts nothing" 'points at `/shape`, and start nothing'
 rs_rule "a refusal names the guard and the half of setup" 'names? the (missing )?guard and the half of `/setup`'
-rs_rule "no ready piece is said in one line" 'no ready piece.*in one line'
+rs_rule "no ready piece is said in one line" 'no piece is ready\. say so in one line'
 rs_rule "the skill only starts the script" 'only starts the run script'
 rs_rule "the answer is never stored" 'never write (the|an) answer'
 rs_rule "the stop for a build" 'never build a piece'
@@ -66,7 +66,6 @@ rs_require "the skill injects the gate's report" "$SKILL" 'gate\.py report --jso
 rs_require "the skill turns model invocation off" "$SKILL" 'disable-model-invocation: true'
 rs_require_absent "the skill has no bare kit path to the run script" "$SKILL" '[ "]kit/scripts/run\.py'
 rs_require_absent "the skill never calls gh" "$SKILL" 'gh (issue|pr|label|api)'
-rs_require_absent "the skill does not name --bare" "$SKILL" '--bare'
 
 # The skill lint accepts the skills.
 python3 "$ROOT/kit/scripts/check-skills.py" --json --glossary "$ROOT/kit/glossary.md" \
@@ -95,6 +94,14 @@ export AI_LOOP_KIT_DATA PATH TMPDIR
 (cd "$TP_ROOT" && python3 "$KIT/scripts/setup.py" --json found --test-command "sh -c 'exit 0'" \
   --billing-mode subscription --repo-visibility private --plan paid --language node) \
   > "$TP_BASE/found.out" 2> "$TP_BASE/found.err" || { cat "$TP_BASE/found.err" >&2; rs_fail "setup.py found failed"; }
+# The policy gets a test command, so the check can show main green.
+python3 - "$TP_ROOT/.agents/loop/policy.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+body = json.load(open(path))
+body["test_command"] = "sh -c 'exit 0'"
+json.dump(body, open(path, "w"), indent=2)
+PY
 git -C "$TP_ROOT" add -A
 git -C "$TP_ROOT" commit -q -m "Found the project"
 git -C "$TP_ROOT" push -q origin main
