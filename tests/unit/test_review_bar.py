@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_attempt  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
-from loop import bar, states  # noqa: E402
+import test_ready  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
+from loop import bar, judge, states  # noqa: E402
 from loop.gates import CheckContext, CheckResult, rebuild  # noqa: E402
 
 git = test_attempt.git
@@ -51,6 +52,8 @@ class ReviewStand(test_attempt.Stand):  # type: ignore[misc, unused-ignore]
 
 
 class ReviewCase(test_attempt.AttemptCase):  # type: ignore[misc, unused-ignore]
+    att: ReviewStand
+
     def setUp(self) -> None:
         super().setUp()
         self.att = ReviewStand()
@@ -111,7 +114,7 @@ class TheBarListsTheReviewTests(ReviewCase):
 
 
 def test_ready_file() -> str:
-    return test_attempt.test_ready.TEST_FILE  # type: ignore[no-any-return]
+    return test_ready.TEST_FILE  # type: ignore[no-any-return]
 
 
 class TheAttemptGateHoldsTheReviewTests(ReviewCase):
@@ -139,12 +142,12 @@ class TheAttemptGateHoldsTheReviewTests(ReviewCase):
 
     def test_a_red_command_fails_the_attempt(self) -> None:
         self.add_review_test()
-        self.att.review = test_attempt.test_ready.judge_result("failed", exit_code=1)
+        self.att.review = test_ready.judge_result("failed", exit_code=1)
         self.fails("review-check", COMMAND, gaming=False)
 
     def test_a_command_that_cannot_run_is_a_refusal_that_counts_no_attempt(self) -> None:
         self.add_review_test()
-        self.att.judge_error[COMMAND] = test_attempt.judge.JudgeError(
+        self.att.judge_error[COMMAND] = judge.JudgeError(
             "no runner", next_command="install it")
         self.refuses("review check", "could not be run")
 
