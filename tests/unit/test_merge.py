@@ -557,6 +557,20 @@ class Merging(test_moves.Base):  # type: ignore[misc, unused-ignore]
             self.addCleanup(patch.stop)
         self.write_run(merge_pre_approved=False)
         self.pulls.view_of[7] = self.pr()
+        self.run_authority = moves.RunMergeAuthority(self.paths, self.run_name)
+
+    def as_run(self) -> None:
+        """The run script's own process: no terminal, and the agent-session markers set."""
+        if not self.paths.lock_file(self.run_name).exists():
+            self.addCleanup(run_record.acquire_lock(self.paths, self.run_name).release)
+        self.gate.run_authority = self.run_authority
+        self.gate.terminal = lambda: False
+        self.gate.env = {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}
+
+    def as_agent(self, *, terminal: bool = True) -> None:
+        """An agent session: the markers set. Its shell may hold a terminal."""
+        self.gate.terminal = lambda: terminal
+        self.gate.env = {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}
 
     def write_run(self, *, merge_pre_approved: bool, green: bool = True, clean: bool = True,
                   verdict: str = "clean", order: Sequence[int] = (1,)) -> None:
@@ -744,6 +758,7 @@ class MoveElevenMerges(Merging):
         for options in ({"merge": "agent", "said": "merge"}, {"merge": "pre-approved"}):
             with self.subTest(options=options):
                 self.write_run(merge_pre_approved=True)
+                self.as_run() if options["merge"] == "pre-approved" else None
                 text = self.refusal(self.piece, "done", options=options)
                 self.assertIn("main moved after the final check", text)
                 self.assertIn("move 12", text)
@@ -781,6 +796,7 @@ class MoveElevenMerges(Merging):
         self.assertIn("retargeted", text)
 
     def test_a_pre_approved_merge_needs_the_run_to_say_so(self) -> None:
+        self.as_run()
         text = self.refusal(self.piece, "done", options={"merge": "pre-approved"})
         self.assertIn("was not pre-approved", text)
         self.assertEqual(self.pulls.merged, [])
@@ -788,8 +804,77 @@ class MoveElevenMerges(Merging):
     def test_a_pre_approved_merge_goes_ahead_when_every_condition_holds(self) -> None:
         self.write_run(merge_pre_approved=True)
         self.add_attempt("passed")
+        self.as_run()
         self.gate.move(self.piece, "done", options={"merge": "pre-approved"})
         self.assertEqual(self.pulls.merged, [(7, self.head)])
+
+    # --- who may merge ---------------------------------------------------------------------
+
+    def test_an_agent_session_cannot_merge_by_the_agent_door_even_at_a_terminal(self) -> None:
+        for terminal in (True, False):
+            with self.subTest(terminal=terminal):
+                self.as_agent(terminal=terminal)
+                text = self.refusal(self.piece, "done", options={
+                    "merge": "agent", "said": "Yes, merge pull request 7."})
+                self.assertIn("only the person", text)
+                self.assertEqual(self.pulls.merged, [])
+                self.assertEqual(self.gate.piece(self.piece).state, "approval")
+
+    def test_no_terminal_and_no_marker_is_no_person(self) -> None:
+        self.gate.terminal = lambda: False
+        text = self.refusal(self.piece, "done", options={"merge": "agent", "said": "merge"})
+        self.assertIn("only the person", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_an_agent_session_cannot_use_the_pre_approved_door_without_the_run(self) -> None:
+        self.write_run(merge_pre_approved=True)
+        self.add_attempt("passed")
+        for terminal in (True, False):
+            with self.subTest(terminal=terminal):
+                self.as_agent(terminal=terminal)
+                text = self.refusal(self.piece, "done", options={"merge": "pre-approved"})
+                self.assertIn("only the run script", text)
+                self.assertEqual(self.pulls.merged, [])
+
+    def test_a_person_at_a_terminal_cannot_use_the_pre_approved_door(self) -> None:
+        self.write_run(merge_pre_approved=True)
+        self.add_attempt("passed")
+        text = self.refusal(self.piece, "done", options={"merge": "pre-approved"})
+        self.assertIn("only the run script", text)
+
+    def test_the_run_cannot_take_the_agent_door(self) -> None:
+        self.as_run()
+        text = self.refusal(self.piece, "done", options={"merge": "agent", "said": "merge"})
+        self.assertIn("only the person", text)
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_process_that_does_not_hold_the_run_lock_is_not_the_run(self) -> None:
+        self.write_run(merge_pre_approved=True)
+        self.add_attempt("passed")
+        self.as_run()
+        self.paths.lock_file(self.run_name).write_text(f"{os.getppid()}\n")
+        text = self.refusal(self.piece, "done", options={"merge": "pre-approved"})
+        self.assertIn("only the run script", text)
+        self.paths.lock_file(self.run_name).unlink()
+        self.assertIn("only the run script", self.refusal(
+            self.piece, "done", options={"merge": "pre-approved"}))
+        other = moves.RunMergeAuthority(self.paths, "another-run")
+        self.gate.run_authority = other
+        self.assertIn("only the run script", self.refusal(
+            self.piece, "done", options={"merge": "pre-approved"}))
+        self.assertEqual(self.pulls.merged, [])
+
+    def test_a_dry_run_of_an_agent_merge_is_refused_too(self) -> None:
+        self.as_agent()
+        self.assertIn("only the person", self.refusal(
+            self.piece, "done", options={"merge": "agent", "said": "merge"}, dry_run=True))
+
+    def test_an_agent_session_still_settles_a_merge_the_person_made_on_github(self) -> None:
+        self.as_agent(terminal=False)
+        self.pulls.view_of[7] = self.pr(state="MERGED", merge_commit="c0ffee")
+        self.gate.move(self.piece, "done")
+        self.assertEqual(self.gate.piece(self.piece).state, "done")
+        self.assertEqual(self.pulls.merged, [])
 
     def add_attempt(self, result: str, gaming: bool = False) -> None:
         from loop import attempt_log
@@ -799,6 +884,7 @@ class MoveElevenMerges(Merging):
             findings=[attempt_log.finding("frozen-bar", "edited", gaming=True)] if gaming else [])])
 
     def test_a_pre_approved_merge_waits_for_a_piece_with_a_must_look_reason(self) -> None:
+        self.as_run()
         self.write_run(merge_pre_approved=True)
         self.add_attempt("passed")
         other = self.capture()
@@ -810,6 +896,7 @@ class MoveElevenMerges(Merging):
         self.assertEqual(self.pulls.merged, [])
 
     def test_a_pre_approved_merge_waits_when_the_last_attempt_is_not_a_clean_pass(self) -> None:
+        self.as_run()
         self.write_run(merge_pre_approved=True)
         self.add_attempt("failed")
         self.assertIn("not a pass", self.refusal(
@@ -1336,12 +1423,27 @@ class Running(test_moves.Base):  # type: ignore[misc, unused-ignore]
         self.pushed.append(branch)
         return {}
 
+    gate_env: Mapping[str, str] = {}
+
+    def hold_run(self) -> None:
+        """This process takes the run's lock, as run.py does, and sits in an agent session."""
+        self.addCleanup(run_record.acquire_lock(self.paths, self.run_name).release)
+        self.gate_env = {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}
+
+    def gate_for_merge(self, authority: moves.RunMergeAuthority) -> moves.Gate:
+        """The gate the merge door asks, given the run's authority. A terminal is a person's."""
+        self.gate.run_authority = authority
+        self.gate.env = self.gate_env
+        self.gate.terminal = lambda: not self.gate_env
+        return self.gate
+
     def step(self, *, limit: int = 800, app: bool = True) -> pr_loop.PullRequests:
         run = run_record.RunRecord.load(self.paths, self.run_name)
         self.loop = FakeLoop(self)
         made = pr_loop.PullRequests(
             self.paths, self.run_name, run, {"pull_request_size_limit": limit}, self.loop,
-            api=self.pulls, mover=self.mover, push=self.push, app=app)
+            api=self.pulls, mover=self.mover, push=self.push, app=app,
+            gate_for_merge=self.gate_for_merge)
         return made
 
 
@@ -1529,6 +1631,7 @@ class MergingPullRequests(Running):
         numbers = self.build([10, 10])
         self.write_run("main", "combined-r1", numbers, pre_approved=True)
         self.passed(numbers)
+        self.hold_run()
         step = self.step()
         step.open_all()
         reports = step.merge(mode="pre-approved")
@@ -1542,6 +1645,7 @@ class MergingPullRequests(Running):
         numbers = self.build([10])
         self.write_run("main", "combined-r1", numbers, pre_approved=True)
         self.passed(numbers)
+        self.hold_run()
         step = self.step()
         step.open_all()
         reports = step.merge(mode="pre-approved")
@@ -1553,12 +1657,50 @@ class MergingPullRequests(Running):
     def test_a_run_that_was_not_pre_approved_never_merges_by_that_door(self) -> None:
         numbers = self.build([10])
         self.passed(numbers)
+        self.hold_run()
         step = self.step()
         step.open_all()
         reports = step.merge(mode="pre-approved")
         self.assertEqual(reports[0]["status"], "waits")
         self.assertIn("was not pre-approved", reports[0]["why"])
         self.assertEqual(self.pulls.merged, [])
+
+    def test_a_process_that_is_not_the_run_cannot_merge_by_the_pre_approved_door(self) -> None:
+        numbers = self.build([10])
+        self.write_run("main", "combined-r1", numbers, pre_approved=True)
+        self.passed(numbers)
+        self.gate_env = {"CLAUDECODE": "1"}
+        step = self.step()
+        step.open_all()
+        for mode, said in (("pre-approved", ""), ("agent", "Yes, merge it")):
+            with self.subTest(mode=mode):
+                report = step.merge(mode=mode, said=said)[0]
+                self.assertEqual(report["status"], "waits")
+                self.assertIn("only the", report["why"])
+        self.assertEqual(self.pulls.merged, [])
+        self.assertEqual(self.gate.piece(numbers[0]).state, "approval")
+
+    def test_the_default_door_asks_the_gate_in_this_process(self) -> None:
+        """No test double for the door: the real gate, given the run's authority."""
+        numbers = self.build([10])
+        self.passed(numbers)
+        run = run_record.RunRecord.load(self.paths, self.run_name)
+        made = pr_loop.PullRequests(
+            self.paths, self.run_name, run, {}, FakeLoop(self), api=self.pulls,
+            mover=self.mover, push=self.push, app=True)
+        seen: list[Any] = []
+
+        def fake_gate(authority: Any) -> Any:
+            seen.append(authority)
+            return self.gate_for_merge(authority)
+
+        with mock.patch.object(made, "_real_gate", fake_gate):
+            made.open_all()
+            self.assertEqual(made.merge(mode="agent", said="Yes, merge it")[0]["status"],
+                             "merged")
+        self.assertIsInstance(seen[0], moves.RunMergeAuthority)
+        self.assertEqual([m for m in self.moves_made if m[1] == "done"], [],
+                         "the merge did not go through the mover that has no authority")
 
     def test_a_yes_that_names_the_merge_merges_and_one_that_does_not_does_not(self) -> None:
         numbers = self.build([10])
@@ -1572,6 +1714,7 @@ class MergingPullRequests(Running):
         numbers = self.build([10])
         self.write_run("main", "combined-r1", numbers, pre_approved=True)
         self.passed(numbers)
+        self.hold_run()
         step = self.step()
         step.open_all()
         self.repo.commit("other/x.txt", "x\n", "Work on main after the final check")

@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import re
 import shlex
 import subprocess
@@ -65,7 +66,7 @@ from typing import Any, Protocol
 if __package__ in (None, ""):  # run by path: put the kit's scripts folder on the path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from loop import cli, closing, github, moves, pulls
+from loop import cli, closing, evidence, github, moves, pulls
 from loop.cli import ExitCode
 from loop.gates import merge as merge_gate
 from loop.paths import Paths
@@ -301,8 +302,10 @@ class PullRequests:
         push: Push | None = None,
         app: bool | None = None,
         gate_lock: Any = None,
+        gate_for_merge: Callable[[moves.RunMergeAuthority], moves.Gate] | None = None,
     ) -> None:
         self.paths = paths
+        self.gate_for_merge = gate_for_merge
         self.root = paths.root
         self.name = name
         self.record = run
@@ -320,6 +323,35 @@ class PullRequests:
     def _default_mover(self, number: int, target: str, reason: str | None,
                        options: Mapping[str, str]) -> Reply:
         return Gateway(self.paths).move(number, target, reason=reason, options=options)
+
+    def _real_gate(self, authority: moves.RunMergeAuthority) -> moves.Gate:
+        """The gate, in this process, for the merge door, given the run's authority.
+
+        The merge never goes through `gate.py` as a command: a command line has no proof of who
+        typed it. The gate here reads its own process. It is the run's when this process holds
+        the run's lock (`run.py` does). It is the person's when the call has no agent-session
+        marker and standard input and output are a terminal. Anything else is refused.
+        """
+        return moves.Gate(self.paths, github.GitHub(self.paths), env=os.environ,
+                          run_authority=authority)
+
+    def _merge_mover(self, number: int, target: str, reason: str | None,
+                     options: Mapping[str, str]) -> Reply:
+        authority = moves.RunMergeAuthority(self.paths, self.name)
+        try:
+            gate = (self.gate_for_merge or self._real_gate)(authority)
+            with self.gate_lock:
+                done = gate.move(number, target, reason=reason, options=dict(options))
+        except moves.MoveError as error:
+            return Reply(int(error.code), {"ok": False, "error": error.message,
+                                           "next": error.next_command})
+        except github.GitHubError as error:
+            return Reply(int(error.code), {"ok": False, "error": error.message,
+                                           "next": error.next_command})
+        except evidence.EvidenceError as error:
+            return Reply(int(ExitCode.REFUSED), {"ok": False, "error": str(error),
+                                                 "next": error.next_command})
+        return Reply(0, {"ok": True, **done})
 
     def _default_push(self, branch: str) -> dict[str, Any]:
         return github.push(self.paths, branch)
@@ -668,8 +700,8 @@ class PullRequests:
                     self.api.set_base(number, MAIN)
             except github.GitHubError as error:
                 return {"key": key, "status": "waits", "why": error.message}
-        reply = self.mover(pieces[0], "done", None, {"merge": mode, "said": said,
-                                                      "run": self.name})
+        reply = self._merge_mover(pieces[0], "done", None, {"merge": mode, "said": said,
+                                                             "run": self.name})
         if not reply.ok:
             self._set(key, waits=reply.message, next=reply.next_command)
             self.record.note(f"The merge of pull request {number} waits: {reply.message}")
@@ -955,9 +987,6 @@ def _setup(parser: argparse.ArgumentParser) -> None:
                              help="say what would run, and change nothing")
         if name == "merge":
             sub.add_argument("--said", default="", help="the person's words that name the merge")
-            sub.add_argument("--pre-approved", action="store_true",
-                             help="merge as the run's pre-approval allows (the run record must "
-                             "say it was pre-approved)")
         if name == "reject":
             sub.add_argument("--piece", type=int, action="append", default=[], metavar="N",
                              help="a piece to send back (repeat)")
@@ -986,8 +1015,7 @@ def _handle(args: argparse.Namespace) -> dict[str, Any]:
         if args.command == "open":
             return {"opened": made.open_all()}
         if args.command == "merge":
-            mode = "pre-approved" if args.pre_approved else "agent"
-            return {"merged": made.merge(mode=mode, said=args.said)}
+            return {"merged": made.merge(mode="agent", said=args.said)}
         if args.command == "reject":
             return made.reject(args.piece, args.reason, to=args.to)
         if args.command == "refresh":

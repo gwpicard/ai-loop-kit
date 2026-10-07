@@ -48,6 +48,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -337,6 +338,28 @@ class HandChange(Exception):
     """A label or a body on GitHub that differs from what the gate expects."""
 
 
+class RunMergeAuthority:
+    """Proof, held inside one process, that the process is the run script of a named run.
+
+    `run.py` takes the run's lock, a file that holds its own process number. The merge of a
+    pre-approved run is asked for inside that same process, by handing the gate this object. No
+    command line, option or environment variable can make one: it is a Python object, and it
+    holds only while this process still owns the run's lock.
+    """
+
+    def __init__(self, paths: Paths, run: str) -> None:
+        self.paths = paths
+        self.run = run
+
+    def held(self) -> bool:
+        """True while the run's lock file holds this very process's number."""
+        try:
+            held = self.paths.lock_file(self.run).read_text(encoding="utf-8").split()
+        except (OSError, ValueError):
+            return False
+        return bool(held) and held[0] == str(os.getpid())
+
+
 class Gate:
     """The only mover. See the module note."""
 
@@ -349,8 +372,10 @@ class Gate:
         today: Callable[[], str] | None = None,
         env: Mapping[str, str] | None = None,
         terminal: Callable[[], bool] | None = None,
+        run_authority: RunMergeAuthority | None = None,
     ) -> None:
         self.paths = paths
+        self.run_authority = run_authority
         self.terminal = terminal or _at_a_terminal
         self.hub = hub
         self.loader = loader
@@ -682,6 +707,20 @@ class Gate:
         evidence.append(self.paths, local, [capture, *entries_after, *queue])
         return {"piece": local, "issue": number, **summary, **self._waiting()}
 
+    def merge_authority(self) -> str:
+        """Who is asking: "run" (the run script's own process), "person" or "" (an agent).
+
+        An agent session holds neither. The run script hands the gate a `RunMergeAuthority`
+        object, which holds only in the process that owns the run's lock. A person is a call
+        with no agent-session marker, made with standard input and output on a terminal, as
+        `sync` checks it. A pipe, a script and a hook have no terminal.
+        """
+        if self.run_authority is not None and self.run_authority.held():
+            return "run"
+        if not github.in_agent_session(self.env) and self.terminal():
+            return "person"
+        return ""
+
     def _check(
         self,
         move: states.Move,
@@ -708,7 +747,8 @@ class Gate:
             parsed = None
         ctx = CheckContext(number=number, move=move, origin=origin, target=target,
                            reason=reason, title=title, body=body, spec=parsed,
-                           record=record, paths=self.paths, options=dict(options))
+                           record=record, paths=self.paths, options=dict(options),
+                           authority=self.merge_authority())
         result = check(ctx)
         if not result.ok:
             raise MoveError(

@@ -51,6 +51,9 @@ class CheckContext:
     record: Sequence[Mapping[str, Any]]
     paths: Paths
     options: Mapping[str, str] = field(default_factory=dict)
+    # Who asks: "run", "person" or "". Set by the gate from its own process, never by a caller's
+    # words or options.
+    authority: str = ""
 
 
 @dataclass(frozen=True)

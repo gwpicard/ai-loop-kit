@@ -386,6 +386,24 @@ def merge_faults(paths: Paths, opening: Opening, pr: pulls.PullRequest,
     return faults
 
 
+def authority_faults(ctx: CheckContext, mode: str) -> list[str]:
+    """Who asks for the merge. The gate reads this from its own process, not from the words.
+
+    The person's yes (`agent`) holds only when a person asks: no agent-session marker, and a
+    terminal. The run's pre-approval holds only when the run script asks, inside its own
+    process, which holds the run's lock. An agent session has neither, so it cannot merge.
+    """
+    if mode == "agent" and ctx.authority != "person":
+        return ["only the person merges for the person: their own terminal, with no agent session "
+                "in it, or the merge button on GitHub. An agent session cannot take the person's "
+                "yes, whatever words it gives"]
+    if mode == "pre-approved" and ctx.authority != "run":
+        return ["only the run script merges for a pre-approved run, inside its own process. A "
+                "command line, an agent session and a person at a terminal cannot take that "
+                "door"]
+    return []
+
+
 def pre_approval_faults(paths: Paths, opening: Opening) -> list[str]:
     faults: list[str] = []
     run = read_run(paths, opening.run)
@@ -438,9 +456,10 @@ def check(ctx: CheckContext) -> CheckResult:
             faults.append("the pull request waits for the person's merge on GitHub. The agent "
                           "merges only when the person says so, or the run was pre-approved")
             return refused(faults, "the person merges pull request "
-                           f"{opening.number} on GitHub, or says yes to the merge, and then "
+                           f"{opening.number} on GitHub, or runs the merge in their own terminal: "
                            f'gate.py move {ctx.number} done --option merge=agent --option '
                            'said="<their words>"')
+        faults += authority_faults(ctx, mode)
         faults += merge_faults(ctx.paths, opening, pr, api)
         if mode == "agent":
             said = str(ctx.options.get("said", ""))
