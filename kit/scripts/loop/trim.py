@@ -444,6 +444,9 @@ def run_pass(
         raise TrimError(str(error), getattr(error, "next_command", "") or hint) from error
     common.update(brief_file=str(session.brief_file), settings_file=str(session.settings_file),
                   reports=[r.tool for r in reports])
+    spent = (done.output or {}).get("total_cost_usd")
+    if isinstance(spent, (int, float)) and not isinstance(spent, bool) and spent >= 0:
+        common["cost_usd"] = float(spent)
     reasons: list[str] = []
     if done.exit_code != 0:
         reasons.append(f"the trim session ended with exit code {done.exit_code}")

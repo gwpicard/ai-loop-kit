@@ -563,7 +563,7 @@ class Engine:
         windows = list(self.record.piece(number).get("windows", []))
         windows.append([began, time.time()])
         self.record.update(number, windows=windows)
-        self._spend(number, result)
+        self._spend(number, result, budget if isinstance(budget, float) else None)
         return result
 
     def _start_session(self, session: sessions.Session) -> sessions.Result:
@@ -598,11 +598,17 @@ class Engine:
                 self._end(proc)
         self.wake.set()
 
-    def _spend(self, number: int, result: sessions.Result) -> None:
+    def _spend(self, number: int, result: sessions.Result, budget: float | None = None) -> None:
+        """Add the session's cost. A cost that cannot be read, under a cap, counts the budget."""
         output = result.output or {}
         cost = output.get("total_cost_usd")
         if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
             self.record.add_spend(number, float(cost))
+        elif budget is not None and (self.cap_piece is not None or self.cap_run is not None):
+            self.record.add_spend(number, budget)
+            self.record.note(
+                f"piece {number}: the cost of a session could not be read, so the budget it "
+                f"was given, ${budget:.2f}, counts as its spend")
         usage = output.get("usage")
         if isinstance(usage, dict):
             self.record.add_tokens(number, {k: v for k, v in usage.items()
@@ -670,23 +676,35 @@ class Engine:
     def _finish_piece(self, number: int) -> None:
         """After move 5: the trim pass, which never fails the piece, then built."""
         if not self.record.piece(number).get("trimmed"):
-            reply = self.gateway.trim(number, self.name, self._budget_for_trim(number))
-            outcome = str(reply.data.get("outcome", f"exit code {reply.code}"))
-            if not reply.ok:
-                self.record.note(f"piece {number}: the trim pass went on untrimmed "
-                                 f"({outcome}: {reply.message})")
-            self.record.update(number, trimmed=True, trim=outcome)
+            budget = self._budget_for_trim(number)
+            if budget == "skip":
+                self.record.note(f"piece {number}: trim skipped, because the spend cap is used "
+                                 "up and the trim session must never run with no cap")
+                self.record.update(number, trimmed=True, trim="skipped")
+            else:
+                given = budget if isinstance(budget, float) else None
+                reply = self.gateway.trim(number, self.name, given)
+                outcome = str(reply.data.get("outcome", f"exit code {reply.code}"))
+                if not reply.ok:
+                    self.record.note(f"piece {number}: the trim pass went on untrimmed "
+                                     f"({outcome}: {reply.message})")
+                cost = reply.data.get("cost_usd")
+                if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+                    self.record.add_spend(number, float(cost))
+                self.record.update(number, trimmed=True, trim=outcome)
         self.record.set_status(number, record.BUILT)
         self.hook("piece-built", piece=number)
 
-    def _budget_for_trim(self, number: int) -> float | None:
+    def _budget_for_trim(self, number: int) -> float | None | str:
+        """The cap for the trim session, None for no cap set, or "skip" when a cap is used up."""
         left: list[float] = []
         if self.cap_piece is not None:
             left.append(self.cap_piece - self.record.spend_piece(number))
         if self.cap_run is not None:
             left.append(self.cap_run - self.record.spend_total())
-        positive = [x for x in left if x > 0]
-        return min(positive) if positive else None
+        if any(x <= 1e-9 for x in left):
+            return "skip"
+        return min(left) if left else None
 
     def _stopped(self, number: int) -> None:
         """A stop signal: the building piece goes back to ready, and its branch is kept."""
