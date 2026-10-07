@@ -12,20 +12,22 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
-from loop import closing  # noqa: E402
+from loop import closing, github, pulls  # noqa: E402
 
 
 class TheClosingWords(unittest.TestCase):
-    def scan(self, **more: object) -> list[closing.Fault]:
-        given: dict[str, object] = {"title": "A title", "body": "", "commits": [],
+    def scan(self, **more: Any) -> list[closing.Fault]:
+        given: dict[str, Any] = {"title": "A title", "body": "", "commits": [],
                                     "changelog": [], "pieces": []}
         given.update(more)
-        return closing.scan(**given)  # type: ignore[arg-type]
+        return closing.scan(**given)
 
     def wheres(self, faults: list[closing.Fault]) -> list[str]:
         return [f.where for f in faults]
@@ -142,6 +144,94 @@ class TheClosingWordsScript(unittest.TestCase):
     def test_a_run_with_nothing_to_scan_is_a_usage_error(self) -> None:
         code, _ = self.run_script()
         self.assertEqual(code, 2)
+
+
+class FakeHub:
+    """A hub that answers `_gh` with what the test says and keeps each call."""
+
+    def __init__(self, *answers: object) -> None:
+        self.answers = list(answers)
+        self.calls: list[tuple[list[str], str | None]] = []
+
+    def _gh(self, args: Sequence[str], stdin: str | None = None) -> str:
+        self.calls.append((list(args), stdin))
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return str(answer)
+
+
+VIEW = {"number": 7, "title": "T", "body": "B", "state": "OPEN",
+        "url": "https://github.com/o/r/pull/7", "headRefName": "combined-r", "headRefOid": "abc",
+        "baseRefName": "main", "mergedAt": None, "mergeCommit": None, "comments": []}
+
+
+class ThePullRequestCalls(unittest.TestCase):
+    def test_create_sends_the_body_on_standard_input_and_reads_the_number(self) -> None:
+        hub = FakeHub("https://github.com/o/r/pull/7\n")
+        made = pulls.Pulls(hub).create(base="main", head="combined-r", title="T", body="B")
+        self.assertEqual(made, (7, "https://github.com/o/r/pull/7"))
+        args, stdin = hub.calls[0]
+        self.assertEqual(args[:2], ["pr", "create"])
+        self.assertIn("--base", args)
+        self.assertEqual(args[args.index("--head") + 1], "combined-r")
+        self.assertEqual(stdin, "B")
+
+    def test_create_with_no_address_back_is_an_error(self) -> None:
+        with self.assertRaises(github.GitHubError):
+            pulls.Pulls(FakeHub("nonsense")).create(base="main", head="h", title="T", body="B")
+
+    def test_view_reads_every_field_and_the_comments(self) -> None:
+        said = {"id": 5, "author": {"login": "person"}, "body": "Piece 2 is wrong"}
+        shown = dict(VIEW, state="MERGED", mergedAt="2026-10-07T00:00:00Z",
+                     mergeCommit={"oid": "def"}, comments=[said])
+        got = pulls.Pulls(FakeHub(json.dumps(shown))).view(7)
+        self.assertEqual((got.number, got.state, got.head_oid, got.merge_commit),
+                         (7, "MERGED", "abc", "def"))
+        self.assertEqual([(c.id, c.author, c.body) for c in got.comments],
+                         [(5, "person", "Piece 2 is wrong")])
+
+    def test_view_of_an_answer_that_is_not_a_pull_request_is_an_error(self) -> None:
+        for answer in ("[]", "not json", json.dumps({"number": 7})):
+            with self.subTest(answer=answer), self.assertRaises(github.GitHubError):
+                pulls.Pulls(FakeHub(answer)).view(7)
+
+    def test_merge_always_names_the_tested_commit(self) -> None:
+        hub = FakeHub("")
+        pulls.Pulls(hub).merge(7, head_commit="abc")
+        args = hub.calls[0][0]
+        self.assertEqual(args[:3], ["pr", "merge", "7"])
+        self.assertEqual(args[args.index("--match-head-commit") + 1], "abc")
+        self.assertIn("--merge", args)
+        self.assertNotIn("--admin", args)
+        self.assertNotIn("--auto", args)
+
+    def test_merge_with_no_commit_is_refused_before_gh_starts(self) -> None:
+        hub = FakeHub("")
+        with self.assertRaises(ValueError):
+            pulls.Pulls(hub).merge(7, head_commit="")
+        self.assertEqual(hub.calls, [])
+
+    def test_checks_that_fail_or_do_not_exist_are_never_green(self) -> None:
+        def green(*answers: object) -> bool:
+            return pulls.Pulls(FakeHub(*answers)).checks(7)[0]
+
+        self.assertTrue(green("project-check\tpass\t0s\turl\n"))
+        self.assertFalse(green(""))
+        self.assertFalse(green(github.GitHubError("no", next_command="x")))
+        self.assertFalse(green("a\tfail\t1s\tu\n"))
+        self.assertFalse(green("a\tpending\t\tu\n"))
+
+    def test_close_comment_and_set_base(self) -> None:
+        hub = FakeHub("", "", "")
+        api = pulls.Pulls(hub)
+        api.close(7, "Replaced.")
+        api.comment(7, "Hello")
+        api.set_base(7, "main")
+        self.assertEqual(hub.calls[0][0][:3], ["pr", "close", "7"])
+        self.assertIn("Replaced.", hub.calls[0][0])
+        self.assertEqual(hub.calls[1], (["pr", "comment", "7", "--body-file", "-"], "Hello"))
+        self.assertEqual(hub.calls[2][0], ["pr", "edit", "7", "--base", "main"])
 
 
 if __name__ == "__main__":

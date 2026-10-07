@@ -263,6 +263,11 @@ def pr_fields(state, pr, names):
         "baseRefName": pr.get("base", "main"),
         "mergeable": "MERGEABLE",
         "isDraft": False,
+        "mergedAt": pr.get("merged_at"),
+        "mergeCommit": ({"oid": pr["merge_commit"]} if pr.get("merge_commit") else None),
+        "comments": [{"id": c["id"], "author": {"login": c.get("author", "")},
+                      "body": c.get("body", ""), "createdAt": c.get("created_at", "")}
+                     for c in pr.get("comments", [])],
         "statusCheckRollup": [{
             "name": "project-check",
             "status": "COMPLETED",
@@ -1213,17 +1218,62 @@ def main():
             if pr.get("state") != "OPEN":
                 sys.stderr.write("Pull request #%s is not open\n" % pr["number"])
                 sys.exit(1)
+            wanted = flag(argv, "--match-head-commit")
+            if wanted is not None and wanted != head_oid(pr):
+                # As GitHub answers when the branch moved after the person looked.
+                sys.stderr.write("Head branch was modified. Review and try the merge "
+                                 "again.\n")
+                sys.exit(1)
             if not land_on_remote(pr):
                 sys.stderr.write("Pull request #%s is not mergeable\n" % pr["number"])
                 sys.exit(1)
             pr["head_oid"] = head_oid(pr)
             pr["state"] = "MERGED"
+            pr["merged_at"] = "2026-10-07T12:00:00Z"
+            tip = subprocess.run(
+                ["git", "ls-remote", "origin", "refs/heads/" + pr.get("base", "main")],
+                capture_output=True, text=True)
+            if tip.returncode == 0 and tip.stdout.strip():
+                pr["merge_commit"] = tip.stdout.split()[0]
+
             for number in re.findall(r"[Cc]loses #(\d+)", pr.get("body", "")):
                 issue = find(state, number)
                 if issue:
                     issue["state"] = "closed"
             save(state)
             print("Merged pull request #%s" % pr["number"])
+            return
+
+        if sub == "comment" and len(argv) > 2:
+            pr = find_pr(state, argv[2])
+            if pr is None:
+                unsupported(argv, "no such pull request")
+            state["comment_next"] = state.get("comment_next", 1000001)
+            pr.setdefault("comments", []).append({
+                "id": state["comment_next"], "body": body_of(argv) or "",
+                "author": actor(state), "created_at": "2026-10-07T12:00:00Z"})
+            state["comment_next"] += 1
+            save(state)
+            print("%s#issuecomment-%s" % (pr_url(state, pr), state["comment_next"] - 1))
+            return
+
+        if sub == "close" and len(argv) > 2:
+            pr = find_pr(state, argv[2])
+            if pr is None:
+                unsupported(argv, "no such pull request")
+            if pr.get("state") != "OPEN":
+                sys.stderr.write("Pull request #%s is not open\n" % pr["number"])
+                sys.exit(1)
+            note_text = flag(argv, "--comment")
+            if note_text:
+                state["comment_next"] = state.get("comment_next", 1000001)
+                pr.setdefault("comments", []).append({
+                    "id": state["comment_next"], "body": note_text,
+                    "author": actor(state), "created_at": "2026-10-07T12:00:00Z"})
+                state["comment_next"] += 1
+            pr["state"] = "CLOSED"
+            save(state)
+            print("Closed pull request #%s" % pr["number"])
             return
 
         if sub == "list":
