@@ -716,6 +716,7 @@ class Reviewer:
                 piece=demoted.piece, gap=demoted.gap, round=number)
         for piece in pieces:
             notes = [f.evidence for f in plan.notes.get(piece, [])]
+            notes += [f.evidence for f, _why in plan.demoted if f.piece == piece]
             for item in plan.notes.get(piece, []):
                 self.loop.worth_knowing(item.evidence, source="review", piece=piece,
                                         gap=item.gap, round=number)

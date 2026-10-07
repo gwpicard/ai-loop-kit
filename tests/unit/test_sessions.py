@@ -456,6 +456,15 @@ class ReviewerSession(Base):
         data: dict[str, Any] = json.loads(self.session().settings_file.read_text())
         return data
 
+    def test_an_extra_value_may_not_replace_a_value_the_kit_sets(self) -> None:
+        for name in ("WORKTREE", "KIT_DIR", "PROJECT_ROOT", "DATA_DIR", "HANDOFF_FILE"):
+            with self.subTest(name=name), self.assertRaises(sessions.SessionError) as caught:
+                sessions.plan(
+                    self.paths, run="night-1", label="review-main-r1", worktree=self.worktree,
+                    brief="Review it.\n", env=self.env, settings_template=self.TEMPLATE,
+                    extra_values={"FINDINGS_FILE": str(self.findings()), name: "/elsewhere"})
+            self.assertIn(name, str(caught.exception))
+
     def test_the_command_line_is_the_exact_one_and_carries_no_account_or_credential(self) -> None:
         session = self.session()
         self.assertEqual(session.command, sessions.build_command(session.settings_file))

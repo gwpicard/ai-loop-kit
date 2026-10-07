@@ -185,6 +185,9 @@ def bar_rules(worktree: Path, bar_paths: Sequence[str]) -> tuple[list[str], list
     return rules, blocks
 
 
+_KIT_VALUES = frozenset({"KIT_DIR", "PROJECT_ROOT", "WORKTREE", "DATA_DIR", "HANDOFF_FILE"})
+
+
 def render_settings(
     template: Path,
     *,
@@ -201,6 +204,12 @@ def render_settings(
     `extra_values` fills placeholders only a special template holds, such as the reviewer's
     `FINDINGS_FILE`. A value must be an absolute path.
     """
+    for name in extra_values or {}:
+        if name in _KIT_VALUES:
+            raise SessionError(
+                f"the template value {name} is set by the kit, and extra_values may not replace it",
+                next_command="give extra_values only names the kit does not set",
+            )
     values = {
         "KIT_DIR": str(paths.kit_dir),
         "PROJECT_ROOT": str(paths.root),

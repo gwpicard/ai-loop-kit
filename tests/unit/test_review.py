@@ -548,6 +548,8 @@ class AFailingCheckFinding(ReviewCase):
         mine = [n for n in notes if n.get("source") == "review" and n["piece"] == 2]
         self.assertEqual(len(mine), 1, notes)
         self.assertIn("FL- or EC-", mine[0]["text"])
+        self.assertEqual(self.verdict(2)["notes"], ["A blank name passes."],
+                         "the note sits beside the piece's verdict too")
 
     def test_a_test_that_could_not_run_is_a_refusal_and_nothing_moves(self) -> None:
         loop = self.joined_and_green()
