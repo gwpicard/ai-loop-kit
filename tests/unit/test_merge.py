@@ -951,5 +951,89 @@ class CheckMain(Merging):
         self.assertEqual(again["waiting"], [])
 
 
+class ThePreRunCheckOfMerges(unittest.TestCase):
+    """The pre-run check asks `gate.py check-main` about a merge the person made."""
+
+    def load(self) -> Any:
+        import importlib.util
+
+        script = ROOT / "kit" / "scripts" / "pre-run-check.py"
+        spec = importlib.util.spec_from_file_location("pre_run_for_merges", script)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["pre_run_for_merges"] = module
+        spec.loader.exec_module(module)
+        return module
+
+    def answer(self, code: int, data: dict[str, Any] | None = None, text: str | None = None
+               ) -> Any:
+        body = text if text is not None else json.dumps(data or {})
+
+        def runner(argv: list[str], **kwargs: Any) -> Any:
+            self.argv = argv
+            self.cwd = kwargs.get("cwd")
+            return subprocess.CompletedProcess(argv, code, stdout=body + "\n", stderr="")
+
+        return runner
+
+    def check(self, runner: Any) -> tuple[list[Any], list[str]]:
+        module = self.load()
+        folder = Path(tempfile.mkdtemp())
+        return module.check_merges(folder, ROOT / "kit", runner=runner)  # type: ignore[no-any-return]
+
+    def test_it_runs_the_gates_check_main_in_the_project(self) -> None:
+        self.check(self.answer(0, {"ok": True, "merges": []}))
+        self.assertEqual(self.argv[-2:], ["check-main", "--json"])
+        self.assertTrue(str(self.argv[1]).endswith("gate.py"))
+        self.assertIsNotNone(self.cwd)
+
+    def test_nothing_found_passes_quietly(self) -> None:
+        refusals, notices = self.check(self.answer(0, {"ok": True, "merges": [], "skipped": ""}))
+        self.assertEqual((refusals, notices), ([], []))
+
+    def test_a_run_that_is_going_is_not_a_refusal(self) -> None:
+        refusals, notices = self.check(self.answer(0, {"ok": True, "merges": [],
+                                                       "skipped": "skipped: a run is going (x)"}))
+        self.assertEqual(refusals, [])
+        self.assertTrue(any("run is going" in n for n in notices))
+
+    def test_a_merge_found_is_told_as_a_notice_with_the_check_on_main(self) -> None:
+        found = {"ok": True, "skipped": "", "merges": [
+            {"pull_request": 7, "main_moved": True, "main_check": "green"}]}
+        refusals, notices = self.check(self.answer(0, found))
+        self.assertEqual(refusals, [])
+        self.assertTrue(any("pull request 7" in n and "green" in n for n in notices), notices)
+
+    def test_a_red_main_after_a_merge_is_a_refusal(self) -> None:
+        refusals, _ = self.check(self.answer(1, {"ok": False, "error": "main is red after it",
+                                                 "next": "capture a bug piece"}))
+        self.assertEqual(len(refusals), 1)
+        self.assertEqual(refusals[0].guard, "merge")
+        self.assertIn("main is red", refusals[0].reason)
+        self.assertEqual(refusals[0].fix, "capture a bug piece")
+
+    def test_a_check_that_could_not_read_a_merge_is_a_refusal_never_a_pass(self) -> None:
+        for runner in (self.answer(4, {"ok": False, "error": "GitHub did not answer",
+                                       "next": "try again"}),
+                       self.answer(0, text="not json"),
+                       self.answer(2, text="")):
+            with self.subTest():
+                refusals, _ = self.check(runner)
+                self.assertEqual([r.guard for r in refusals], ["merge-read"])
+
+    def test_a_gate_that_cannot_start_is_a_refusal(self) -> None:
+        def broken(argv: list[str], **kwargs: Any) -> Any:
+            raise OSError("no python")
+
+        refusals, _ = self.check(broken)
+        self.assertEqual([r.guard for r in refusals], ["merge-read"])
+
+    def test_the_unreadable_list_of_a_good_run_is_a_refusal(self) -> None:
+        found = {"ok": True, "skipped": "", "merges": [], "unreadable": [
+            {"pull_request": 7, "pieces": [1], "why": "GitHub did not answer"}]}
+        refusals, _ = self.check(self.answer(0, found))
+        self.assertEqual([r.guard for r in refusals], ["merge-read"])
+
+
 if __name__ == "__main__":
     unittest.main()

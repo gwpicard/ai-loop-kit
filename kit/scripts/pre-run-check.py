@@ -19,6 +19,9 @@ command that puts it back:
 - the lock: no other live run holds this project;
 - the computer: mains power, sleep held off, free memory, free disk (read with
   `pmset`, `vm_stat` and `df`), and a Claude Code that is new enough;
+- a merge the person made on GitHub since the last run: `gate.py check-main` finds it, and
+  checks `main` after it when `main` had moved. A red `main` there, or a merge the gate could
+  not read, is a refusal. It does nothing while another run is going;
 - `main`: the policy's test command passes on a clean copy of `main`;
 - the tools and the origin (`check-tooling.sh --for-run`): the project must not
   point at the kit's own repository;
@@ -37,7 +40,8 @@ has no test command until that piece lands. The check then passes with a notice.
 `--merge-pre-approved` is what it passes when the person pre-approved the merge.
 The policy file has no key for either, on purpose.
 
-It changes nothing in the project. The test of `main` runs in a new folder under
+It changes nothing in the project, except that `gate.py check-main` moves a piece to done
+when the person merged its pull request. The test of `main` runs in a new folder under
 the system's temporary folder, which is left in place.
 """
 
@@ -549,6 +553,61 @@ def check_lock(paths: Paths, run: str) -> list[Refusal]:
     return refusals
 
 
+def check_merges(
+    root: Path, kit: Path, runner: Any = subprocess.run
+) -> tuple[list[Refusal], list[str]]:
+    """Ask the gate about a merge the person made on GitHub since the last run.
+
+    `gate.py check-main` finds a pull request the person merged, and when `main` had moved
+    after the final combined check it runs the project's check on the merge. It does nothing
+    while another run is going. A red `main` after the merge, a merge the gate could not read
+    and an answer nobody can read are all refusals, never a pass.
+    """
+    gate = kit / "scripts" / "gate.py"
+    again = "run pre-run-check.py again"
+
+    def unreadable(why: str, fix: str) -> list[Refusal]:
+        return [other("merge-read", f"a merge by the person could not be checked ({why})", fix)]
+
+    try:
+        done = runner([sys.executable, str(gate), "check-main", "--json"], cwd=str(root),
+                      capture_output=True, text=True, check=False, timeout=600,
+                      stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as error:
+        return unreadable(str(error), f"fix {gate}, then {again}"), []
+    data: dict[str, Any] = {}
+    for line in reversed((done.stdout or "").strip().splitlines()):
+        try:
+            parsed = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            data = parsed
+            break
+    if not data:
+        return unreadable(f"gate.py check-main printed no JSON and exited {done.returncode}",
+                          f"run gate.py check-main, read its error, then {again}"), []
+    if done.returncode == 1:
+        return [other("merge", str(data.get("error") or "main is red after the person's merge"),
+                      str(data.get("next") or "run gate.py check-main"))], []
+    if done.returncode != 0:
+        return unreadable(str(data.get("error") or f"exit code {done.returncode}"),
+                          str(data.get("next") or f"{again} once GitHub answers")), []
+    if data.get("unreadable"):
+        first = data["unreadable"][0]
+        return unreadable(f"pull request {first.get('pull_request')}: {first.get('why')}",
+                          f"check the GitHub App and the network, then {again}"), []
+    notices: list[str] = []
+    if data.get("skipped"):
+        notices.append(str(data["skipped"]))
+    for item in data.get("merges", []):
+        notices.append(
+            f"the person merged pull request {item.get('pull_request')} since the last run"
+            + (" after main moved" if item.get("main_moved") else "")
+            + f"; the check on main: {item.get('main_check')}")
+    return [], notices
+
+
 def check_main(root: Path, command: str, timeout: int) -> tuple[list[Refusal], str]:
     """The policy's test command must pass on a clean copy of `main`."""
     if not command.strip():
@@ -894,6 +953,9 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
     refusals += check_bare(
         sessions.build_command(Path("settings.json")), os.environ
     ) + (check_bare_text(args.session_command, os.environ) if args.session_command else [])
+    merge_refusals, merge_notices = check_merges(root, kit)
+    refusals += merge_refusals
+    notices += merge_notices
     main_refusals: list[Refusal] = []
     main_folder = ""
     if not str(merged["test_command"]).strip() and scaffold_only(paths, args.pieces):
