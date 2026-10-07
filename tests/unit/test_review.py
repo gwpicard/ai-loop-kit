@@ -679,21 +679,20 @@ class TheRoundCap(ReviewCase):
         loop, reviewer = self.second_round()
         self.script = [document()]
         reviewer.review("main")
+        # A commit lands on the combined branch after the last round, and its checks are green.
         folder = self.base / "late"
-        git(self.root, "worktree", "add", "-q", str(folder), loop.combined())
+        git(self.root, "worktree", "add", "-q", "--detach", str(folder), loop.combined())
         (folder / "late.txt").write_text("late\n")
         git(folder, "add", "-A")
         git(folder, "commit", "-q", "-m", "A late change")
-        git(self.root, "worktree", "remove", "--force", str(folder))
-        git(self.root, "update-ref", f"refs/heads/{loop.combined()}", git(
-            self.root, "rev-parse", f"refs/heads/{loop.combined()}"))
-        # the combined branch is not the folder's detached commit, so move it by hand
-        late = git(self.root, "log", "-1", "--all", "--format=%H", "--grep=A late change")
+        late = git(folder, "rev-parse", "HEAD")
+        git(self.root, "worktree", "remove", str(folder))
         git(self.root, "update-ref", f"refs/heads/{loop.combined()}", late)
-        loop.finish()
+        self.assertEqual(loop.finish()["main"]["status"], "green")
         with self.assertRaises(review.ReviewRefusal) as caught:
             reviewer.review("main")
         self.assertIn("no round is left", str(caught.exception))
+        self.assertEqual(self.state()["status"], "refused")
 
 
 class TheFingerprintCheck(ReviewCase):

@@ -11,7 +11,11 @@
 - `integrate.py`: the integration loop, which joins each built piece to the combined branch as
   a trial, and runs the final combined check (it answers the `start`, `piece-built` and
   `built-all` events);
-- `docs_commit.py`: the docs commit that comes before the final check.
+- `docs_commit.py`: the docs commit that comes before the final check;
+- `review.py`: the review loop. After the final check is green, a fresh reviewer reads the
+  specs and the combined diff, and each finding becomes a failing check (move 8), a shaping
+  issue (move 9) or a worth-knowing note (it answers `built-all` and `run-end`, and asks for
+  another `built-all` through the context's `another_round` when it changed the branch).
 
 Later pieces add modules and never edit `run.py`. The engine looks for each of these modules
 by name, and calls `run_hook(context, event, **data)` in the ones that exist:
