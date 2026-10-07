@@ -493,6 +493,50 @@ class LeaveTest(IntegrationCase):
         self.assertGreater(len(self.judges.calls), before)
 
 
+class RefreshTest(IntegrationCase):
+    """`main` moved after the final check: the branch is rebuilt on the new `main`, no piece out."""
+
+    def test_the_branch_is_rebuilt_on_the_new_main_with_every_piece_and_a_fresh_name(self) -> None:
+        self.piece(1, {"a.txt": "one\n"}, "exists:a.txt")
+        self.piece(2, {"b.txt": "two\n"}, "exists:b.txt", touches="bb")
+        loop = self.make()
+        loop.start()
+        loop.join(1)
+        loop.join(2)
+        old_name = loop.combined("main")
+        old_head = self.head(old_name)
+        (self.root / "d.txt").write_text("new on main\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "Work on main")
+        result = loop.refresh("main", "main moved after the final check")
+        self.assertEqual(result.status, "rebuilt", result)
+        new_name = loop.combined("main")
+        self.assertNotEqual(new_name, old_name)
+        self.assertEqual(self.head(old_name), old_head, "the old branch was changed")
+        self.assertEqual(loop.joined("main"), [1, 2])
+        tree = git(self.root, "ls-tree", "-r", "--name-only", new_name).splitlines()
+        self.assertIn("d.txt", tree)
+        self.assertIn("a.txt", tree)
+        self.assertIn("b.txt", tree)
+        self.assertEqual(git(self.root, "merge-base", "main", new_name), self.head("main"))
+        self.assertNotIn("Revert", git(self.root, "log", "--format=%B", new_name))
+
+    def test_each_piece_is_checked_again_as_a_trial_on_the_new_main(self) -> None:
+        self.piece(1, {"a.txt": "one\n"}, "exists:a.txt")
+        loop = self.make()
+        loop.start()
+        loop.join(1)
+        before = len(self.judges.calls)
+        loop.refresh("main", "main moved")
+        self.assertGreater(len(self.judges.calls), before)
+
+    def test_a_track_that_does_not_exist_is_a_refusal(self) -> None:
+        loop = self.make()
+        loop.start()
+        result = loop.refresh("piece-9", "main moved")
+        self.assertEqual(result.status, "refused")
+
+
 class StackingTest(IntegrationCase):
     def test_a_dependent_waits_until_its_dependency_has_joined(self) -> None:
         self.piece(1, {"a.txt": "one\n"}, "exists:a.txt")

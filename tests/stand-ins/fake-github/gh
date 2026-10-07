@@ -266,6 +266,8 @@ def pr_fields(state, pr, names):
         "mergedAt": pr.get("merged_at"),
         "mergeCommit": ({"oid": pr["merge_commit"]} if pr.get("merge_commit") else None),
         "comments": [{"id": c["id"], "author": {"login": c.get("author", "")},
+                      "authorAssociation": ("NONE" if str(c.get("author", "")).endswith("[bot]")
+                                            else "OWNER"),
                       "body": c.get("body", ""), "createdAt": c.get("created_at", "")}
                      for c in pr.get("comments", [])],
         "statusCheckRollup": [{

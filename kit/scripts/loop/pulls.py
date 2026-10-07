@@ -27,6 +27,7 @@ class Comment:
     id: int
     author: str
     body: str
+    association: str = ""  # OWNER, MEMBER, COLLABORATOR, NONE...: who the author is to the repo
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,7 @@ class Pulls:
         merged: Any = data.get("mergeCommit") or {}
         comments = [
             Comment(int(c["id"]), str((c.get("author") or {}).get("login", "")),
-                    str(c.get("body", "")))
+                    str(c.get("body", "")), str(c.get("authorAssociation", "")))
             for c in data.get("comments") or [] if isinstance(c, dict) and "id" in c
         ]
         return PullRequest(

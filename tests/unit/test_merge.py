@@ -8,6 +8,7 @@ two or more digits.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from loop import closing, github, moves, pulls  # noqa: E402
 from loop.gates import merge as merge_gate  # noqa: E402
 from loop.gates import recheck as recheck_gate  # noqa: E402
 from loop.gates import review as review_gate  # noqa: E402
+from loop.run import pull_request as pr_loop  # noqa: E402
 
 
 class TheClosingWords(unittest.TestCase):
@@ -1033,6 +1035,106 @@ class ThePreRunCheckOfMerges(unittest.TestCase):
             {"pull_request": 7, "pieces": [1], "why": "GitHub did not answer"}]}
         refusals, _ = self.check(self.answer(0, found))
         self.assertEqual([r.guard for r in refusals], ["merge-read"])
+
+
+class TheSplit(unittest.TestCase):
+    def test_pieces_within_the_limit_stay_in_one_pull_request(self) -> None:
+        self.assertEqual(pr_loop.plan_groups([(1, 300), (2, 400)], 800, one_each=False), [[1, 2]])
+
+    def test_a_pull_request_past_the_limit_is_split_into_whole_pieces_in_order(self) -> None:
+        sizes = [(1, 500), (2, 400), (3, 300), (4, 200)]
+        self.assertEqual(pr_loop.plan_groups(sizes, 800, one_each=False), [[1], [2, 3], [4]])
+
+    def test_a_piece_bigger_than_the_limit_is_a_part_of_its_own(self) -> None:
+        self.assertEqual(pr_loop.plan_groups([(1, 100), (2, 5000), (3, 100)], 800,
+                                             one_each=False), [[1], [2], [3]])
+
+    def test_every_piece_appears_once_and_in_the_order_it_joined(self) -> None:
+        sizes = [(5, 700), (3, 700), (9, 10), (1, 700)]
+        groups = pr_loop.plan_groups(sizes, 800, one_each=False)
+        self.assertEqual([n for g in groups for n in g], [5, 3, 9, 1])
+
+    def test_an_isolated_track_gives_each_piece_its_own_pull_request(self) -> None:
+        self.assertEqual(pr_loop.plan_groups([(1, 5), (2, 5)], 800, one_each=True), [[1], [2]])
+
+    def test_no_piece_is_no_group(self) -> None:
+        self.assertEqual(pr_loop.plan_groups([], 800, one_each=False), [])
+
+
+def facts(number: int = 1, **more: Any) -> pr_loop.PieceFacts:
+    given: dict[str, Any] = {
+        "number": number, "issue": number + 10 if number > 8 else number,
+        "title": "Rename a report",
+        "judge": "python3 -m pytest tests/test_rename.py", "held_out": True,
+        "review": "clean in round 2", "notes": [], "added": ["A Rename item exists."],
+        "changed": [], "removed": [], "must_look": [], "size": 40}
+    given.update(more)
+    return pr_loop.PieceFacts(**given)
+
+
+class TheBody(unittest.TestCase):
+    def body(self, pieces: list[pr_loop.PieceFacts], **more: Any) -> str:
+        given: dict[str, Any] = {
+            "run": "r1", "branch": "combined-r1", "head": "a" * 40, "checks": 4, "held_runs": 2,
+            "part": 1, "parts": 1, "general": []}
+        given.update(more)
+        return pr_loop.render_body(pieces, **given)
+
+    def test_each_piece_is_listed_with_its_judge_held_out_review_and_notes(self) -> None:
+        text = self.body([facts(1, notes=["Alpha adds a line nobody asked for."]),
+                          facts(2, title="Delete a report", held_out=False)])
+        self.assertIn("### Piece 1: Rename a report", text)
+        self.assertIn("### Piece 2: Delete a report", text)
+        self.assertIn("python3 -m pytest tests/test_rename.py", text)
+        self.assertIn("green at the final combined check", text)
+        self.assertIn("Held-out: the hidden cases ran at the final check and passed", text)
+        self.assertIn("Held-out: none for this piece", text)
+        self.assertIn("Review: clean in round 2", text)
+        self.assertIn("Alpha adds a line nobody asked for.", text)
+        self.assertIn("A Rename item exists.", text)
+
+    def test_worth_knowing_notes_sit_beside_the_piece_they_belong_to(self) -> None:
+        text = self.body([facts(1, notes=["note for one"]), facts(2, notes=["note for two"])])
+        first, second = text.index("### Piece 1"), text.index("### Piece 2")
+        self.assertTrue(first < text.index("note for one") < second < text.index("note for two"))
+
+    def test_there_is_one_closes_line_for_each_piece_and_nothing_else_closes(self) -> None:
+        pieces = [facts(1), facts(2), facts(3)]
+        text = self.body(pieces, general=["A flaky check, which fixes #4 the day it goes."])
+        self.assertEqual(sorted(re.findall(r"^Closes #(\d+)$", text, re.MULTILINE)),
+                         ["1", "2", "3"])
+        self.assertEqual(closing.scan(title="T", body=text, commits=[], changelog=[],
+                                      pieces=[1, 2, 3]), [])
+
+    def test_text_from_a_reviewer_or_a_builder_cannot_close_a_number(self) -> None:
+        evil = "Resolves #5 and closes owner/repo#6 and fixes https://github.com/o/r/issues/7"
+        text = self.body([facts(1, notes=[evil], title="Fixes #8"), facts(2)],
+                         general=[evil])
+        self.assertEqual(closing.scan(title="T", body=text, commits=[], changelog=[],
+                                      pieces=[1, 2]), [])
+
+    def test_a_piece_the_person_must_look_at_says_why(self) -> None:
+        text = self.body([facts(1, must_look=["a sensitive area"])])
+        self.assertIn("The person must look at this piece: a sensitive area", text)
+
+    def test_a_stack_says_where_the_docs_commit_comes(self) -> None:
+        text = self.body([facts(1)], part=1, parts=3)
+        self.assertIn("part 1 of 3", text)
+        self.assertIn("docs commit", text)
+        self.assertNotIn("part 1 of 1", self.body([facts(1)]))
+
+    def test_the_title_names_the_run_the_pieces_and_the_part(self) -> None:
+        title = pr_loop.render_title("r1", [facts(1), facts(2, title="Delete a report")], 2, 3)
+        self.assertIn("r1", title)
+        self.assertIn("part 2 of 3", title)
+        self.assertLessEqual(len(title), 120)
+        self.assertEqual(pr_loop.render_title("r1", [facts(1)], 1, 1), "Run r1: Rename a report")
+
+    def test_a_long_title_is_cut_and_a_closing_word_in_it_is_broken(self) -> None:
+        title = pr_loop.render_title("r1", [facts(1, title="Closes #9 " + "x" * 300)], 1, 1)
+        self.assertLessEqual(len(title), 120)
+        self.assertEqual(closing.scan(title=title, body="", commits=[], changelog=[], pieces=[]),
+                         [])
 
 
 if __name__ == "__main__":
