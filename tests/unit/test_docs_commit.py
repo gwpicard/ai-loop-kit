@@ -184,6 +184,19 @@ class ApplyTest(DocsCommitCase):
         self.assertFalse(second.committed)
         self.assertEqual(git(self.root, "rev-parse", f"refs/heads/{self.branch}"), head)
 
+    def test_a_run_that_changes_nothing_still_checks_the_records(self) -> None:
+        self.join(1, {"src/farewell.py": "def bye():\n    return 'bye'\n"})
+        pieces = [view(1, touches="core", added="The core says goodbye.")]
+        self.apply(pieces)
+        folder = self.base / "spoil"
+        git(self.root, "worktree", "add", "-q", str(folder), self.branch)
+        (folder / "CLAUDE.md").write_text("Rules that belong in AGENTS.md.\n")
+        git(folder, "add", "-A")
+        git(folder, "commit", "-q", "-m", "Spoil the Claude file")
+        git(self.root, "worktree", "remove", str(folder))
+        with self.assertRaises(integrate.IntegrationRefusal):
+            self.apply(pieces)
+
     def test_a_bug_piece_goes_under_fixed(self) -> None:
         self.join(1, {"src/greet.py": "def greet():\n    return 'hello'\n"})
         self.apply([view(1, touches="core", changed="The greeting no longer clips.",

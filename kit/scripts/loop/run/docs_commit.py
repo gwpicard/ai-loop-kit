@@ -343,8 +343,6 @@ def apply(*, root: Path, paths: Paths, branch: str, pieces: Sequence[PieceView],
             _fold(scratch, paths)
             folded = _commit(scratch, identity, "Fold the changelog")
             wrote = wrote or folded
-        if not wrote:
-            return result
         faults = records.check(scratch, closing=[v.number for v in pieces],
                                scripts=paths.kit_dir / "scripts")
         if faults:
@@ -354,6 +352,8 @@ def apply(*, root: Path, paths: Paths, branch: str, pieces: Sequence[PieceView],
                 f"the records are not right after the docs commit, so the branch does not "
                 f"move: {shown}{more}",
                 faults[0].next_step + f", then run.py --run {run}")
+        if not wrote:
+            return result
         new = _must(scratch, "read the docs commit", "rev-parse", "HEAD")
         with gate_lock:
             code, _, err = _git(root, "update-ref", "-m", f"docs commit for run {run}", ref,
