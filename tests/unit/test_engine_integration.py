@@ -1,0 +1,179 @@
+"""Unit tests for what the integration loop needs from the run engine (P21's engine.py).
+
+The hook context carries the gate lock, a way to start a built piece's builder again, and the
+pieces' links. A dependent is stacked on its dependency's branch with merge commits, and move 5
+is told where the stack ends. The clash that sent a piece back reaches its next builder's brief.
+The engine is built without its threads: each test sets only the fields its method reads.
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "kit" / "scripts"))
+
+from loop.paths import Paths  # noqa: E402
+from loop.run import engine, plan, record  # noqa: E402
+from loop.run.gateway import Gateway  # noqa: E402
+
+GIT_ENV = {
+    "GIT_AUTHOR_NAME": "Test Person", "GIT_AUTHOR_EMAIL": "test@example.com",
+    "GIT_COMMITTER_NAME": "Test Person", "GIT_COMMITTER_EMAIL": "test@example.com",
+    "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+}
+
+
+def git(root: Path, *args: str) -> str:
+    done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+                          check=False, env={**os.environ, **GIT_ENV})
+    if done.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed: {done.stderr}")
+    return done.stdout.strip()
+
+
+class EngineCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp())
+        self.root = self.base / "project"
+        self.root.mkdir()
+        git(self.root, "init", "-q", "-b", "main")
+        (self.root / "README.md").write_text("hello\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "Start")
+        self.paths = Paths.for_project(self.root, data_base=self.base / "data",
+                                       kit_folder=ROOT / "kit")
+        self.rec = record.RunRecord.create(self.paths, "night-1", [1, 2], attended=True,
+                                           merge_pre_approved=False)
+
+    def make(self, infos: list[plan.PieceInfo] | None = None) -> engine.Engine:
+        made = engine.Engine.__new__(engine.Engine)
+        made.paths, made.name, made.record, made.policy = self.paths, "night-1", self.rec, {}
+        made.gate_lock = threading.RLock()
+        made.wake = threading.Event()
+        made.resume_queue = []
+        made.infos = {i.number: i for i in infos or []}
+        made.gateway = Gateway(self.paths)
+        return made
+
+
+class HookContextTest(EngineCase):
+    def test_the_context_carries_the_lock_the_restart_and_the_links(self) -> None:
+        infos = [plan.PieceInfo(1, issue=11), plan.PieceInfo(2, issue=12,
+                                                            blockers=frozenset({11}))]
+        loop = self.make(infos)
+        context = loop.context()
+        self.assertIs(context.gate_lock, loop.gate_lock)
+        self.assertEqual(context.restart_piece, loop.restart_piece)
+        self.assertEqual(sorted(context.infos), [1, 2])
+        self.assertEqual(context.infos[2].blockers, frozenset({11}))
+
+    def test_a_context_made_by_hand_still_works_without_the_new_fields(self) -> None:
+        context = engine.HookContext(self.paths, "night-1", self.rec, {}, lambda n: None)
+        context.restart_piece(1)  # a default that does nothing
+        self.assertEqual(dict(context.infos), {})
+
+
+class RestartTest(EngineCase):
+    def test_a_built_piece_is_built_again_by_the_next_free_slot(self) -> None:
+        self.rec.set_status(1, record.BUILT)
+        loop = self.make()
+        loop.restart_piece(1)
+        self.assertEqual(self.rec.status(1), record.BUILDING)
+        self.assertEqual(loop.resume_queue, [1])
+        self.assertTrue(loop.wake.is_set())
+
+    def test_a_piece_that_is_not_built_is_left_alone(self) -> None:
+        self.rec.set_status(1, record.PENDING)
+        loop = self.make()
+        loop.restart_piece(1)
+        self.assertEqual(self.rec.status(1), record.PENDING)
+        self.assertEqual(loop.resume_queue, [])
+
+    def test_a_piece_is_not_queued_twice(self) -> None:
+        self.rec.set_status(1, record.BUILT)
+        loop = self.make()
+        loop.restart_piece(1)
+        loop.restart_piece(1)
+        self.assertEqual(loop.resume_queue, [1])
+
+
+class ClashTest(EngineCase):
+    def test_the_clash_is_added_to_what_earlier_attempts_found(self) -> None:
+        loop = self.make()
+        self.assertEqual(loop._found_so_far(1, []), "No attempt has been judged yet.")
+        self.rec.update(1, clash="Piece 1 clashed with piece 2.")
+        text = loop._found_so_far(1, [])
+        self.assertIn("No attempt has been judged yet.", text)
+        self.assertIn("Piece 1 clashed with piece 2.", text)
+        self.assertIn("trial join", text)
+
+
+class StackTest(EngineCase):
+    def piece(self, number: int, files: dict[str, str], on: str = "main") -> Path:
+        git(self.root, "branch", f"piece-{number}", on)
+        folder = self.base / f"wt-{number}"
+        git(self.root, "worktree", "add", "-q", str(folder), f"piece-{number}")
+        for name, text in files.items():
+            (folder / name).write_text(text)
+        git(folder, "add", "-A")
+        git(folder, "commit", "-q", "-m", f"Build {number}")
+        return folder
+
+    def test_a_dependent_is_stacked_on_each_dependency_branch_with_a_merge(self) -> None:
+        self.piece(1, {"a.txt": "one\n"})
+        folder = self.piece(2, {"b.txt": "two\n"})
+        loop = self.make()
+        code, text, sha = loop.gateway.stack(folder, [1])
+        self.assertEqual(code, 0, text)
+        self.assertEqual(sha, git(folder, "rev-parse", "HEAD"))
+        self.assertEqual(git(folder, "log", "-1", "--format=%s"), "Stack on piece 1")
+        self.assertTrue((folder / "a.txt").exists(), "the dependency's work is not in the folder")
+        self.assertEqual(git(folder, "rev-list", "--parents", "-n1", "HEAD").count(" "), 2)
+
+    def test_stacking_twice_makes_no_second_merge_and_finds_the_same_base(self) -> None:
+        self.piece(1, {"a.txt": "one\n"})
+        folder = self.piece(2, {"b.txt": "two\n"})
+        loop = self.make()
+        first = loop.gateway.stack(folder, [1])
+        (folder / "c.txt").write_text("three\n")
+        git(folder, "add", "-A")
+        git(folder, "commit", "-q", "-m", "More work")
+        second = loop.gateway.stack(folder, [1])
+        self.assertEqual(second[0], 0)
+        self.assertEqual(second[2], first[2])
+
+    def test_a_conflict_stops_the_stack_and_leaves_the_folder_as_it_was(self) -> None:
+        self.piece(1, {"a.txt": "one\n"})
+        folder = self.piece(2, {"a.txt": "two\n"})
+        before = git(folder, "rev-parse", "HEAD")
+        code, text, sha = self.make().gateway.stack(folder, [1])
+        self.assertNotEqual(code, 0)
+        self.assertIn("a.txt", text)
+        self.assertEqual(sha, "")
+        self.assertEqual(git(folder, "rev-parse", "HEAD"), before)
+        self.assertEqual(git(folder, "status", "--porcelain"), "")
+
+    def test_the_dependencies_of_a_piece_are_the_built_pieces_its_blockers_name(self) -> None:
+        infos = [plan.PieceInfo(1, issue=11), plan.PieceInfo(2, issue=12,
+                                                            blockers=frozenset({11, 99}))]
+        loop = self.make(infos)
+        self.rec.set_status(1, record.BUILT)
+        self.assertEqual(loop._stack_pieces(2), [1])
+        self.rec.set_status(1, record.PENDING)
+        self.assertEqual(loop._stack_pieces(2), [], "a dependency that is not built is skipped")
+        self.assertEqual(loop._stack_pieces(1), [])
+
+    def test_move_5_is_told_where_the_stack_ends(self) -> None:
+        loop = self.make()
+        self.assertEqual(loop._move_options(1), None)
+        self.rec.update(1, stack_base="abc123")
+        self.assertEqual(loop._move_options(1), {"stack_base": "abc123"})
+
+
+if __name__ == "__main__":
+    unittest.main()

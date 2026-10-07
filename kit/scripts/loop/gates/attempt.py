@@ -121,6 +121,12 @@ class Facts:
     judge_files: list[str]
     scaffold: bool
     again: str
+    since: str = ""  # where the attempt's own changes start: the base, or a stacking merge
+
+    @property
+    def start(self) -> str:
+        """The commit the diff checks measure from. A stacked piece starts after its stack."""
+        return self.since or self.base
 
 
 # --- git --------------------------------------------------------------------------------------
@@ -176,8 +182,44 @@ def _facts(ctx: CheckContext, sp: Mapping[str, Any], recorded: Mapping[str, Any]
         names = _git(root, again, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root",
                      judge_commit)
         files = names.splitlines()
+    since = _stack_base(ctx, root, again, base, head)
     return Facts(number=number, branch=branch, head=head, base=base, judge_commit=judge_commit,
-                 judge_files=files, scaffold=scaffold, again=again)
+                 judge_files=files, scaffold=scaffold, again=again, since=since)
+
+
+STACK_SUBJECT = "Stack on piece "
+
+
+def _stack_base(ctx: CheckContext, root: Path, again: str, base: str, head: str) -> str:
+    """The stacking merge a dependent was built on, from the option `stack_base`, or "".
+
+    The run stacks a dependent on its dependency's branch with one merge commit whose subject
+    starts `Stack on piece`. The diff checks measure from that merge, so the dependency's own
+    changes are not charged to the dependent. The option is checked against the branch: it must
+    be a merge commit on the first-parent line of the piece branch. Anything else is a
+    refusal, so a wrong value can never widen what the piece may change.
+    """
+    wanted = str(ctx.options.get("stack_base", "")).strip()
+    if not wanted:
+        return ""
+    code, found = ready_gate._git(root, "rev-parse", "--verify", "-q", f"{wanted}^{{commit}}")
+    line = _git(root, again, "rev-list", "--first-parent", "--parents",
+                f"{base}..{head}") if code == 0 else ""
+    on_branch = {row.split()[0]: row.split()[1:] for row in line.splitlines() if row.strip()}
+    if code != 0 or found not in on_branch or len(on_branch[found]) < 2:
+        raise Refusal(
+            f"the stack base {wanted[:12]} is not a stacking merge on the piece branch, so the "
+            "gate cannot tell which changes are the dependency's",
+            f"the run stacks a dependent again, then gate.py move {ctx.number} review",
+        )
+    subject = _git(root, again, "log", "-1", "--format=%s", found)
+    if not subject.startswith(STACK_SUBJECT):
+        raise Refusal(
+            f"the commit {found[:7]} is a merge, but not a stacking merge (its subject does "
+            f"not start with {STACK_SUBJECT.strip()!r}), so the gate will not measure from it",
+            f"the run stacks a dependent again, then gate.py move {ctx.number} review",
+        )
+    return found
 
 
 def _uncommitted(root: Path, facts: Facts) -> str | None:
@@ -245,7 +287,7 @@ def _bar(ctx: CheckContext, facts: Facts, found: Findings) -> None:
             )
     try:
         listed = bar.changes(
-            root, facts.base, facts.head,
+            root, facts.start, facts.head,
             judge_commit=None if facts.scaffold else facts.judge_commit,
             judge_files=facts.judge_files,
         )
@@ -384,8 +426,8 @@ def _lint(ctx: CheckContext, facts: Facts, found: Findings) -> list[str]:
     root = ctx.paths.root
     frozen = set(facts.judge_files)
     flags = ("--unified=0", "--no-color", "--no-ext-diff", "--no-renames")
-    diff = _git(root, facts.again, "diff", *flags, facts.base, facts.head, "--")
-    status = _git(root, facts.again, "diff", "--name-status", "--no-renames", facts.base,
+    diff = _git(root, facts.again, "diff", *flags, facts.start, facts.head, "--")
+    status = _git(root, facts.again, "diff", "--name-status", "--no-renames", facts.start,
                   facts.head, "--")
     changes = [(line.split("\t")[0], line.split("\t")[-1])
                for line in status.splitlines() if "\t" in line]
@@ -436,9 +478,9 @@ def _touches(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, found: Find
     allowed = {t for t in sp["links"]["touches"] if t.lower() != "none"}
     new_areas = set(sp["changes"]["new_area"])
     frozen = set(facts.judge_files)
-    base_rules = _area_rules(root, facts.again, facts.base)
+    base_rules = _area_rules(root, facts.again, facts.start)
     head_rules: list[areas.Rule] | None = None
-    names = _git(root, facts.again, "diff", "--no-renames", "--name-only", "-z", facts.base,
+    names = _git(root, facts.again, "diff", "--no-renames", "--name-only", "-z", facts.start,
                  facts.head, "--")
     outside: list[str] = []
     for path in sorted(p for p in names.split("\0") if p and p not in frozen):
@@ -465,7 +507,7 @@ def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: 
                   found: Findings) -> list[str]:
     """The dependency check. Returns a note for each changed file it cannot read."""
     root = ctx.paths.root
-    status = _git(root, facts.again, "diff", "--name-status", "--no-renames", "-z", facts.base,
+    status = _git(root, facts.again, "diff", "--name-status", "--no-renames", "-z", facts.start,
                   facts.head, "--").split("\0")
     changed = [status[i + 1] for i in range(0, len(status) - 1, 2)
                if status[i][:1] in ("A", "M") and Path(status[i + 1]).name in LOCKFILES]
@@ -484,8 +526,8 @@ def _dependencies(ctx: CheckContext, sp: Mapping[str, Any], facts: Facts, deps: 
             after.parent.mkdir()
             before.parent.mkdir()
             after.write_text(_show(root, facts.again, facts.head, path), encoding="utf-8")
-            old = (_show(root, facts.again, facts.base, path)
-                   if _git(root, facts.again, "ls-tree", facts.base, "--", path) else "")
+            old = (_show(root, facts.again, facts.start, path)
+                   if _git(root, facts.again, "ls-tree", facts.start, "--", path) else "")
             before.write_text(old, encoding="utf-8")
             argv = [sys.executable, str(script), "--lockfile", str(after), "--before",
                     str(before), "--json"]

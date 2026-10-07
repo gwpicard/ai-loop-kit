@@ -646,6 +646,56 @@ class TheNewAreaOfAPiece(AttemptCase):
         self.fails("touches", "lib/menu.py", gaming=False)
 
 
+class TheStackedAttempt(AttemptCase):
+    """A dependent is built on its dependency's branch, and judged on its own changes only."""
+
+    def stack(self) -> str:
+        """Another piece's branch with a file outside this piece's touches, merged in first."""
+        git(self.root, "checkout", "-q", "-b", "piece-7", "main")
+        (self.root / "billing").mkdir()
+        (self.root / "billing" / "charge.py").write_text("X = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "The dependency")
+        git(self.root, "checkout", "-q", ready.branch_name(1))
+        git(self.root, "merge", "-q", "--no-ff", "-m", "Stack on piece 7", "piece-7")
+        stacked: str = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "checkout", "-q", "main")
+        return stacked
+
+    def test_the_dependency_changes_count_against_the_touches_without_the_option(self) -> None:
+        self.stack()
+        self.honest()
+        self.fails("touches", "billing/charge.py", gaming=False)
+
+    def test_the_stack_base_leaves_the_dependency_out_of_the_diff(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest()
+        self.passes()
+
+    def test_the_frozen_bar_is_still_read_from_the_judge_commit(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest(files={"tests/test_old.py": "def test_old():\n    assert True\n"})
+        self.fails("frozen-bar", gaming=True)
+
+    def test_an_own_change_outside_the_touches_still_fails_under_the_stack_base(self) -> None:
+        self.options["stack_base"] = self.stack()
+        self.honest(files={"billing/other.py": "Y = 2\n"})
+        self.fails("touches", "billing/other.py", gaming=False)
+
+    def test_a_stack_base_that_is_not_a_stacking_merge_is_a_refusal_and_counts_nothing(
+            self) -> None:
+        self.stack()
+        self.honest()
+        self.options["stack_base"] = git(self.root, "rev-parse", ready.branch_name(1))
+        self.refuses("stack")
+
+    def test_a_stack_base_that_is_not_on_the_branch_is_a_refusal(self) -> None:
+        self.stack()
+        self.honest()
+        self.options["stack_base"] = git(self.root, "rev-parse", "main")
+        self.refuses("stack")
+
+
 class TheDependencies(AttemptCase):
     LOCK_BEFORE = '{"packages": {}}\n'
     LOCK_AFTER = '{"packages": {"node_modules/left-pad": {"version": "1.3.0"}}}\n'
