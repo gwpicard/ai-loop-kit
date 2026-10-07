@@ -17,7 +17,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 
-from loop import sessions  # noqa: E402
+from loop import moves, sessions  # noqa: E402
 from loop.paths import Paths  # noqa: E402
 from loop.run import engine, record, watch  # noqa: E402
 
@@ -469,9 +469,9 @@ class RealStopsTest(Base):
         from loop import attempt_log
         found = SimpleNamespace(record=[{"kind": attempt_log.KIND, "result": "failed",
                                          "findings": [{"text": "the judge failed on fl-1"}]}])
-        old = watch.moves.read_piece
-        watch.moves.read_piece = lambda paths, number: found  # type: ignore[assignment]
-        self.addCleanup(setattr, watch.moves, "read_piece", old)
+        old = moves.read_piece
+        moves.read_piece = lambda paths, number: found  # type: ignore[assignment,return-value]
+        self.addCleanup(setattr, moves, "read_piece", old)
 
     def test_a_good_session_does_not_repeat_the_failure_of_an_earlier_attempt(self) -> None:
         self.stale_failure_in_the_log()

@@ -326,7 +326,8 @@ def _gate_answer(context: Any, gateway: Gateway, hub: github.GitHub, number: int
             rec.note(f"the gate did not write the answer of piece {number}: {reply.message}. "
                      f"The answer is kept, and the piece stays parked. next: {reply.next_command}")
             rec.update(number, next=reply.next_command or f"gate.py answer {number} --question "
-                       f"<it> --answer <yours> --by <you> --parked, then gate.py move {number} ready")
+                       f"<it> --answer <yours> --by <you> --parked, then gate.py move {number} "
+                       "ready")
             return {**said, "result": "answer-refused", "error": reply.message}
         back = gateway.move(number, "ready",
                             reason=f"the person answered the question after the run: {question}")

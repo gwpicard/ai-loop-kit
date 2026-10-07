@@ -188,7 +188,7 @@ class StreamTest(Base):
                 "        {'type': 'text', 'text': text}]}}), flush=True)\n"
                 f"for _ in range(3):\n    tool({SAME_ERROR!r})\n    say('trying again')\n"
                 "time.sleep(60)\n")
-        done, seconds = self.run_child(code)
+        _done, seconds = self.run_child(code)
         self.assertLess(seconds, 20, "the stuck builder was not ended")
         self.assertIn("same error", self.engine._attempt_stops[1])
 

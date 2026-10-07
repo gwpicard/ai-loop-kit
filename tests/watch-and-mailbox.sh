@@ -155,8 +155,8 @@ scripts = {
     # A usage limit that resets in 4 seconds: the piece waits and goes on, counting nothing.
     limit: {"sequence": [{"usage_limit_in": 4, "exit_code": 1, "cost_usd": 0.1},
                          done("limit", "limit.py")]},
-    # The mailbox runs. The first piece is slow, so the test can write to the mailbox.
-    steady: done("steady", "steady.py", sleep=6),
+    # The mailbox runs. The first piece is slow (20 s), so the run reads the pause before it ends.
+    steady: done("steady", "steady.py", sleep=20),
     after1: done("after1", "after1.py"),
     after2: done("after2", "after2.py"),
     hold1: done("hold1", "hold1.py", sleep=90),

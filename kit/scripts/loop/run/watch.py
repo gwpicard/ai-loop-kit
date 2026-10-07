@@ -23,7 +23,8 @@ on with the work that does not depend on them:
 - the same failure in several pieces (`SEVERAL`).
 
 The engine calls `run_hook` for the events, `session_started` when a builder session starts,
-`on_output` for each line the builder prints (a JSON line of the stream; see `read_line`), and `assess_session` when the session has ended.
+`on_output` for each line the builder prints (a JSON line of the stream; see `read_line`)
+and `assess_session` when the session has ended.
 A fault that stops the watch (a folder that cannot be read, a log that cannot be read) is a note
 in the run record. It is never a quiet pass.
 """
@@ -104,6 +105,10 @@ def _flatten(content: Any) -> list[str]:
     return []
 
 
+def _lines(texts: list[str]) -> list[str]:
+    return [ln for text in texts for ln in text.splitlines() if ln.strip()]
+
+
 def read_line(line: str) -> tuple[list[str], list[str]]:
     """What one line of builder output says: (tool and plain text, error and limit text).
 
@@ -138,8 +143,7 @@ def read_line(line: str) -> tuple[list[str], list[str]]:
         held = held.get("message")
     if isinstance(held, str):
         errors.append(held)
-    split = (lambda texts: [ln for t in texts for ln in t.splitlines() if ln.strip()])  # noqa: E731
-    return split(tools), split(errors)
+    return _lines(tools), _lines(errors)
 
 
 class Watcher:

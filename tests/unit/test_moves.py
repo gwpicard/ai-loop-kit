@@ -624,7 +624,12 @@ class ParkedAnswers(Base):
         self.gate.move(piece, "building")
         return piece, old
 
-    ready_with_fingerprint = Fingerprints.ready_with_fingerprint
+    def ready_with_fingerprint(self) -> tuple[int, str]:
+        piece = self.capture()
+        taken = fingerprint.take(self.gate.piece(piece).body, "a1b2c3d")
+        self.loader.data["ready"] = {"fingerprint": taken}
+        self.gate.move(piece, "ready")
+        return piece, taken["fingerprint"]
 
     def test_a_parked_answer_writes_only_the_decision_and_takes_a_new_fingerprint(self) -> None:
         piece, old = self.building_with_print()
