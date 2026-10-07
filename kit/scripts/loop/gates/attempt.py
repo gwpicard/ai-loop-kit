@@ -122,7 +122,8 @@ class Facts:
     scaffold: bool
     again: str
     since: str = ""  # where the attempt's own changes start: the base, or a stacking merge
-    review: Mapping[str, str] = field(default_factory=dict)  # the files review froze: path to commit
+    # The files review froze, as path to commit.
+    review: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def frozen(self) -> set[str]:

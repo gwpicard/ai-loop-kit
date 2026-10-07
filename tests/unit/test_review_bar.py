@@ -28,11 +28,12 @@ from loop.gates import CheckContext, CheckResult, rebuild  # noqa: E402
 
 git = test_attempt.git
 PATH = "billing/test_review_found.py"
-TEXT = "from src.rename import rename\n\n\ndef test_review_found():\n    assert rename(' ') is None\n"
+TEXT = ("from src.rename import rename\n\n\ndef test_review_found():\n"
+        "    assert rename(' ') is None\n")
 COMMAND = f"pytest {PATH}"
 
 
-class ReviewStand(test_attempt.Stand):
+class ReviewStand(test_attempt.Stand):  # type: ignore[misc, unused-ignore]
     """The judge stand-in, with a verdict for the review command."""
 
     def __init__(self) -> None:
@@ -45,10 +46,11 @@ class ReviewStand(test_attempt.Stand):
             if command in self.judge_error:
                 raise self.judge_error[command]
             return {**self.review, "command": command, "ref": ref}
-        return super().run_judge(command, root, ref, **more)
+        found: dict[str, Any] = super().run_judge(command, root, ref, **more)
+        return found
 
 
-class ReviewCase(test_attempt.AttemptCase):
+class ReviewCase(test_attempt.AttemptCase):  # type: ignore[misc, unused-ignore]
     def setUp(self) -> None:
         super().setUp()
         self.att = ReviewStand()

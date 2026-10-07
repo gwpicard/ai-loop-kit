@@ -92,7 +92,7 @@ JudgeRun = Callable[..., dict[str, Any]]
 
 
 class ReviewRefusal(Exception):
-    """The review could not tell, so it refuses and never passes. The message names the next step."""
+    """The review could not tell, so it refuses and never passes. The message names the way on."""
 
     def __init__(self, message: str, next_command: str) -> None:
         super().__init__(message)
@@ -367,7 +367,7 @@ class Reviewer:
     # --- every track ------------------------------------------------------------------------
 
     def review_all(self) -> list[TrackReport]:
-        """Review each combined branch that holds a piece. The first refusal is raised at the end."""
+        """Review each combined branch that holds a piece. The first refusal is raised last."""
         reports: list[TrackReport] = []
         first: ReviewRefusal | None = None
         for key in self.loop.tracks():
@@ -656,14 +656,15 @@ class Reviewer:
                 f"{self.name}")
         code, dirty, _ = integrate._git(folder, "status", "--porcelain", "--untracked-files=all")
         if code != 0 or dirty:
+            first = dirty.splitlines()[0].strip() if dirty else "git failed"
             raise ReviewRefusal(
-                f"the folder {folder} holds unsaved work ({dirty.splitlines()[0].strip() if dirty else 'git failed'}), "
-                "and review will not commit beside it", f"commit or keep that work, then "
-                f"run.py --run {self.name}")
+                f"the folder {folder} holds unsaved work ({first}), and review will not "
+                "commit beside it", f"commit or keep that work, then run.py --run {self.name}")
         if (folder / path).exists():
             raise ReviewRefusal(
                 f"the file {path} already exists on piece-{piece}, and review adds a new test "
-                "and never overwrites one", f"read the findings file, then run.py --run {self.name}")
+                "and never overwrites one",
+                f"read the findings file, then run.py --run {self.name}")
         return folder
 
     # --- acting -----------------------------------------------------------------------------

@@ -11,8 +11,8 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 from typing import Any
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "kit" / "scripts"))
@@ -92,9 +92,8 @@ class TheFindingsSchema(unittest.TestCase):
             "an extra key": finding(severity="high"),
         }
         for why, item in bad.items():
-            with self.subTest(why):
-                with self.assertRaises(review.ReviewRefusal):
-                    self.parse(document(item))
+            with self.subTest(why), self.assertRaises(review.ReviewRefusal):
+                self.parse(document(item))
 
     def test_one_bad_finding_refuses_the_whole_file(self) -> None:
         self.refused(document(finding(1), finding(kind="nit")), "finding 2")
@@ -204,7 +203,7 @@ class TheReviewersSession(unittest.TestCase):
         self.assertEqual(review.findings_file(self.paths, "night-1", "main", 1), Path(findings))
 
 
-class ReviewCase(test_integrate.IntegrationCase):
+class ReviewCase(test_integrate.IntegrationCase):  # type: ignore[misc, unused-ignore]
     """Two pieces built and joined, the final check green, and a reviewer that reads a script."""
 
     ROUNDS = 2
@@ -246,7 +245,7 @@ class ReviewCase(test_integrate.IntegrationCase):
 
     def joined_and_green(self) -> integrate.Integrator:
         self.built()
-        loop = self.make()
+        loop: integrate.Integrator = self.make()
         loop.start()
         loop.drain()
         report = loop.finish()
@@ -410,7 +409,7 @@ class AFailingCheckFinding(ReviewCase):
 
     def test_the_piece_goes_to_building_by_move_eight_with_the_test_and_a_justification(
             self) -> None:
-        _, result = self.sent_back()
+        self.sent_back()
         number, target, reason, options = self.moves[0]
         self.assertEqual((number, target), (2, "building"))
         self.assertEqual(options["review_test_path"], PATH)
@@ -428,7 +427,8 @@ class AFailingCheckFinding(ReviewCase):
         loop, _ = self.sent_back()
         self.assertEqual(loop.joined(), [1])
         self.assertTrue(loop.combined().endswith("-r2"))
-        subjects = git(self.root, "log", "--first-parent", "--format=%s", f"main..{loop.combined()}")
+        subjects = git(self.root, "log", "--first-parent", "--format=%s",
+                       f"main..{loop.combined()}")
         self.assertNotIn("evert", subjects)
         self.assertIn("night-1", git(self.root, "branch", "--list", "combined-night-1"))
 
@@ -726,9 +726,9 @@ class NeverACleanReviewByDefault(ReviewCase):
                 return 128, "", "fatal: bad object"
             return real(folder, *args, **more)
 
-        with mock.patch.object(integrate, "_git", broken):
-            with self.assertRaises((review.ReviewRefusal, integrate.IntegrationRefusal)):
-                self.reviewer(loop).review("main")
+        with mock.patch.object(integrate, "_git", broken), self.assertRaises(
+                (review.ReviewRefusal, integrate.IntegrationRefusal)):
+            self.reviewer(loop).review("main")
         self.assertEqual(self.sessions_started, [])
         self.assertNotEqual(self.state().get("status"), "clean")
 

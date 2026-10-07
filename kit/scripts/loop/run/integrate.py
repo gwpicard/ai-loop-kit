@@ -82,8 +82,10 @@ HeldRuns = Callable[["PieceView"], Sequence[tuple[str, Mapping[str, str]]]]
 DocsCommit = Callable[..., Any]
 
 
-def frozen_files(judge_files: Sequence[str], record: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
-    """The judge files and the files review froze, in that order. None is charged to the touches."""
+def frozen_files(
+    judge_files: Sequence[str], record: Sequence[Mapping[str, Any]]
+) -> tuple[str, ...]:
+    """The judge files and the files review froze, in that order. No touch is charged for them."""
     found = list(judge_files)
     found += [path for path in bar.review_files(record) if path not in found]
     return tuple(found)
