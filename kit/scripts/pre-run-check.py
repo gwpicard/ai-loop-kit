@@ -325,6 +325,7 @@ def check_hook(kit: Path) -> list[Refusal]:
 
 def check_settings(root: Path, kit: Path) -> list[Refusal]:
     """Deny rules, sandbox and the values a person's setting must not beat."""
+    kit = kit.resolve()
     template_path = kit / "templates" / "claude-settings.json"
     try:
         text = template_path.read_text(encoding="utf-8").replace("{{KIT_DIR}}", str(kit))
