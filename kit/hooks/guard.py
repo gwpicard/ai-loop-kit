@@ -567,8 +567,8 @@ WRAPPERS: dict[str, tuple[frozenset[str], int]] = {
     }), 0),
     "doas": (frozenset({"-u", "-C"}), 0),
     "xargs": (frozenset({
-        "-I", "--replace", "-L", "--max-lines", "-n", "--max-args", "-P", "--max-procs",
-        "-s", "--max-chars", "-d", "--delimiter", "-E", "--eof", "-a", "--arg-file",
+        "-I", "-L", "-n", "--max-args", "-P", "--max-procs",
+        "-s", "--max-chars", "-d", "--delimiter", "-E", "-a", "--arg-file",
     }), 0),
     "caffeinate": (frozenset({"-t", "-w"}), 0),
 }
@@ -582,7 +582,10 @@ WRAPPER_FLAGS = {
     "sudo": {"--askpass", "--background", "--bell", "--edit", "--login", "--non-interactive",
              "--preserve-env", "--set-home", "--shell", "--stdin", "--validate",
              "--remove-timestamp", "--reset-timestamp", "--list"},
-    "xargs": {"--no-run-if-empty", "--interactive", "--verbose", "--exit", "--null"},
+    # These three optional values must be attached with '='; a bare flag keeps
+    # the next word as the executable.
+    "xargs": {"--no-run-if-empty", "--interactive", "--verbose", "--exit", "--null",
+              "--replace", "--max-lines", "--eof"},
 }
 
 
