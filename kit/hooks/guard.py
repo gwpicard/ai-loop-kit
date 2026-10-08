@@ -38,7 +38,10 @@ What the hook refuses:
 - a write to the guards: the settings, the piece records, the policy file, the
   workflows, the git hooks, a run's record and lock, and the installed kit.
 
-What it asks about: a comment or a review posted in the person's name.
+What it asks about: a comment or a review posted in the person's name, an
+unresolved executable, externally supplied Git configuration and GraphQL
+payloads held in files, stdin or unresolved variables. Those forms cannot be
+inspected here. Arbitrary imported code remains a sandbox and App-key boundary.
 
 A line the hook cannot read asks. A fault in the hook asks. Input that is not
 JSON is refused with exit 2, so a broken hook input never lets a call run.
@@ -372,7 +375,7 @@ def normalise(text: str) -> str:
     A newline outside quotes becomes `;`. A heredoc body is dropped, since it is
     text and not a command. A backslash and a newline join the lines. `\\;`
     becomes a marker word, so that `find -exec ... \\;` keeps its end. Backticks
-    outside quotes become parentheses.
+    outside quotes become substitution parentheses with an unresolved word.
     """
     out: list[str] = []
     pending: list[str] = []
@@ -415,7 +418,7 @@ def normalise(text: str) -> str:
                 continue
             out.append(c)
         elif c == "`":
-            out.append(" ) " if tick else " ( ")
+            out.append(" ) " if tick else " $ ( ")
             tick = not tick
         elif c == "\n":
             out.append(" ; ")
@@ -514,7 +517,7 @@ WRAPPERS: dict[str, tuple[frozenset[str], int]] = {
     "time": (frozenset({"-f", "-o"}), 0),
     "builtin": (frozenset(), 0),
     "setsid": (frozenset(), 0),
-    "env": (frozenset({"-u", "-C", "-S"}), 0),
+    "env": (frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--argv0"}), 0),
     "nice": (frozenset({"-n"}), 0),
     "ionice": (frozenset({"-c", "-n", "-p"}), 0),
     "timeout": (frozenset({"-s", "-k"}), 1),
@@ -556,7 +559,7 @@ def _split_string_option(option: str, rest: list[str]) -> list[str] | None:
         return []
 
 
-def unwrap(words: Sequence[str]) -> list[str]:
+def unwrap(words: Sequence[str], assignments: set[str] | None = None) -> list[str]:
     rest = list(words)
     while rest:
         if rest[0] in KEYWORDS:
@@ -566,6 +569,8 @@ def unwrap(words: Sequence[str]) -> list[str]:
             del rest[:2]
             continue
         if ASSIGNMENT.match(rest[0]):
+            if assignments is not None:
+                assignments.add(rest[0].split("=", 1)[0])
             rest.pop(0)
             continue
         name = program_name(rest[0])
@@ -684,26 +689,46 @@ def _work_folder(cwd: Path) -> Path | None:
 
 def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
     here = cwd
+    uncertain: Decision | None = None
     i = 0
     while i < len(args) and args[i].startswith("-"):
         if args[i] == "-C" and i + 1 < len(args):
             here = _real(os.path.join(here, args[i + 1]))
             i += 2
-        elif args[i] in GIT_VALUE_OPTIONS:
-            if (
-                args[i] == "-c"
-                and i + 1 < len(args)
-                and args[i + 1].lower().startswith("core.hookspath")
-            ):
+        elif args[i].split("=", 1)[0] == "--config-env":
+            uncertain = ask(
+                "Git configuration is supplied through an environment variable.",
+                "use a literal -c setting that the guard can inspect.",
+            )
+            i += 1 if "=" in args[i] else 2
+        elif args[i] == "-c" or args[i].startswith("-c"):
+            attached = args[i] != "-c"
+            setting = args[i][2:] if attached else (args[i + 1] if i + 1 < len(args) else "")
+            key = setting.split("=", 1)[0].lower()
+            if key == "core.hookspath":
                 return refuse(HOOKS_PATH_WHAT, HOOKS_PATH_NEXT)
+            if key.startswith("alias."):
+                return refuse(
+                    "a git alias can hide a refused command behind a short name.",
+                    "type the full git command. Ask the person to add an alias.",
+                )
+            if not setting or any(ch in setting for ch in "$`") or key.startswith(
+                ("include.", "includeif.")
+            ):
+                uncertain = ask(
+                    "this Git configuration cannot be inspected from the command.",
+                    "use literal settings without external configuration files.",
+                )
+            i += 1 if attached else 2
+        elif args[i] in GIT_VALUE_OPTIONS:
             i += 2
         else:
             i += 1
     if i >= len(args):
-        return None
+        return uncertain
     sub, rest = args[i], list(args[i + 1 :])
     if sub == "push":
-        return check_push(rest, here)
+        return _first_decision([uncertain, check_push(rest, here)])
     if sub == "commit" and any(
         a == "--no-verify" or re.fullmatch(r"-[a-zA-Z]*n[a-zA-Z]*", a) for a in rest
     ):
@@ -720,6 +745,11 @@ def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
             return refuse(
                 "a git alias can hide a refused command behind a short name.",
                 "type the full git command. Ask the person to add an alias.",
+            )
+        if not reading and any(n.startswith(("include.", "includeif.")) for n in names):
+            return ask(
+                "this setting imports Git configuration from a file.",
+                "ask the person to change external Git configuration.",
             )
     if sub == "reset" and "--hard" in rest:
         return refuse(
@@ -750,7 +780,7 @@ def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
             "a forced worktree removal can throw away unsaved work.",
             "run worktree.sh remove, which keeps a worktree that holds unsaved work.",
         )
-    return None
+    return uncertain
 
 
 def _label_values(args: Sequence[str]) -> list[str]:
@@ -802,11 +832,14 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
     fields = False
     endpoint = ""
     field_keys: list[str] = []
+    opaque_payload = False
     i = 0
     while i < len(args):
         arg = args[i]
         name = arg.split("=", 1)[0] if arg.startswith("--") else arg
         value = arg.split("=", 1)[1] if arg.startswith("--") and "=" in arg else None
+        if arg.startswith(("-f", "-F")) and len(arg) > 2:
+            name, value = arg[:2], arg[2:]
         if name in value_options:
             if value is None and i + 1 < len(args):
                 value = args[i + 1]
@@ -815,6 +848,11 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
                 method = value.upper()
             if name in {"-f", "--raw-field", "-F", "--field", "--input"}:
                 fields = True
+                opaque_payload |= name == "--input" or bool(
+                    value and any(ch in value for ch in "$`")
+                )
+                if name in {"-F", "--field"} and value:
+                    opaque_payload |= "=@" in value
                 if value and name != "--input":
                     field_keys.append(value.split("=", 1)[0])
         elif arg.startswith("-X") and len(arg) > 2:
@@ -829,6 +867,11 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
             return refuse("this GraphQL call changes labels.", GATE_NEXT_LABEL)
         if any(m in text for m in MERGE_MUTATIONS):
             return refuse(MERGE_WHAT, MERGE_NEXT)
+        if opaque_payload:
+            return ask(
+                "this GraphQL payload comes from a file, stdin or an unresolved variable.",
+                "write the complete query literally so the guard can inspect it.",
+            )
         if any(m in text for m in COMMENT_MUTATIONS) or re.search(r"\bmutation\b", text):
             return ask("this GraphQL call posts in the person's name.", COMMENT_NEXT)
         return None
@@ -1233,7 +1276,18 @@ def check_words(
     for word in words:
         for inner in substitutions(word):
             found.append(check_command(inner, ctx, cwd, depth + 1))
-    rest = unwrap(words)
+    assignments: set[str] = set()
+    rest = unwrap(words, assignments)
+    # Preserve override names when descending into shells, eval or find -exec.
+    # Their values need not be read: external Git configuration always asks.
+    config_assignments = {name: "" for name in assignments if name.startswith("GIT_CONFIG")}
+    if config_assignments:
+        ctx = replace(ctx, vars={**ctx.vars, **config_assignments})
+    if rest and any(ch in rest[0] for ch in "$`*?["):
+        found.append(ask(
+            "the executable is held in a variable, substitution or pattern.",
+            "write a literal executable so the guard can inspect the command.",
+        ))
     found.append(check_gate(rest))
     found.append(check_pull_request_merge(rest))
     found.append(check_pre_approved_run(rest))
@@ -1248,6 +1302,15 @@ def check_words(
         elif prog == "eval":
             found.append(check_command(" ".join(args), ctx, cwd, depth + 1))
         elif prog == "git":
+            # Git also accepts configuration through inherited environment variables,
+            # assignments and env wrappers. Its normal config stays a sandbox boundary.
+            config_names = set(ctx.env) | set(ctx.vars)
+            config_names.update(assignments)
+            if any(name.startswith("GIT_CONFIG") for name in config_names):
+                found.append(ask(
+                    "Git configuration is supplied through the environment.",
+                    "run Git without GIT_CONFIG overrides so the guard can inspect it.",
+                ))
             found.append(check_git(args, cwd))
         elif prog == "gh":
             found.append(check_gh(args))
