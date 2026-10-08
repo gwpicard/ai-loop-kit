@@ -66,8 +66,9 @@ piece. It does not prove every input or runtime boundary.
 | P26 merge | pull-request/merge gates and merge-door tests | Exact-head checks present; manual completion is F1, indirect mutation forms CR-03. |
 | P27 rehearsal | e2e-core fixtures/script, stand-ins, manual smoke entry | Useful diagnostic coverage; explicitly asserts F1 and supplies a manual policy transition around F2. |
 
-Module paths in this table are under `kit/scripts/` and unit files under
-`tests/unit/` unless a full path is given.
+Throughout this document, module paths without a kit prefix are under
+`kit/scripts/`; unit filenames are under `tests/unit/`. Full paths override
+that convention.
 
 ## Findings to shape
 
@@ -292,9 +293,11 @@ piece branch without a no-force recovery route; `test_ready.py:291` asserts it.
 `loop/gates/claim.py:249-298` treats a content-preserving judge-commit rebase
 as a changed judge.
 
-**Repair:** record the fetched baseline and compare judge content as well as
-ancestry. Recommend a recovery that preserves published history. Keep the
-new need/repeat rules from trapping an unchanged judge in repeated kickbacks.
+**Repair:** record the fetched baseline and use judge content and ancestry
+to diagnose a change. Any accepted recovery must be gate-owned, recorded and
+legitimately re-fingerprinted; content equality alone must not bypass frozen
+authority. Preserve published history and keep the new need/repeat rules from
+trapping an unchanged judge in repeated kickbacks.
 
 ### CR-14. Hold the decided records model
 
@@ -309,7 +312,7 @@ area-rule paths to match the map and AGENTS lines not to repeat a hook/check.
 flags to compare. Optional area-rule paths are not checked; duplicate prose
 checks cover literal long paragraphs, not copied enforcement. The plan narrows
 those requirements without a superseding decision.
-`loop/run/docs_commit.py:233-263` appends Changed lines like Added lines,
+`loop/run/docs_commit.py:233-265` appends Changed lines like Added lines,
 retaining superseded behaviour and a textual piece reference rather than a
 real issue link. Current decisions/reasons are not reliably projected.
 
@@ -437,7 +440,7 @@ establish protection when it is absent.
 
 **Design:** “Every finding becomes one of three things”
 (`design.md:371`): a failing check, shaping issue or note, produced by the fresh reviewer. Explicit session settings
-hold the non-interactive boundary (`design.md:527`).
+hold the non-interactive boundary (`design.md:526`).
 
 **Evidence:** `kit/templates/reviewer-settings.json:8` grants Edit on the
 findings path but no Write grant. `loop/run/review.py:558-568` moves the old file
@@ -452,9 +455,9 @@ not a claim that a real Claude reviewer was run and failed.
 
 **F1, fix now:** move 11 includes the person's merge (`design.md:111`).
 `tests/fixtures/e2e-core/rehearse.py:273-313` asserts that the manual merge is
-not adopted and the pieces remain in review. The no-App ready/claim refusal
-for a hosted issue is another open attended-path limitation, not F1's merge
-tracking repair. Its dependency reads must never be assumed successful merely
+not adopted and the pieces remain in review. **Fix later before release:** the no-App ready/claim refusal
+for a hosted issue is another attended-path limitation, distinct from F1's
+merge tracking repair. Its dependency reads must never be assumed successful merely
 because the person synced labels.
 
 **F2, fix now:** the scaffold exception is decided (`design.md:47`).
@@ -465,7 +468,8 @@ ordinary empty-policy refusal. F1 cannot fix that hosted check.
 
 ## Explicit later work
 
-L1 to L10 are unbuilt release work, not completed core features. The core
+**Fix later for v1:** L1 to L10 are unbuilt release work, not completed core
+features. The core
 refusals for metric/reference judges and fuller research refresh are recorded
 interim rules. Do not call them accidental omissions.
 
@@ -503,7 +507,7 @@ resolve the recorded note, not that R1 independently ran every cited test.
 | 6 | Contract markers on every later callable script | **Still open, fix now.** Most new entry scripts have markers, but marker discovery cannot establish completeness and skill-called module doors remain outside it, CR-04. Internal library modules are not agent-facing commands. |
 | 7 | Idempotence with real arguments | **Still open, fix now.** `tests/lib/contract_check.py:111-145` repeats no-argument errors; individual gate/handoff/settings tests do not cover every valid door, CR-04. |
 | 8 | Real plugin-cache layout | **Still open, fix now.** `loop/paths.py:52` retains the guessed fallback; `test_paths.py:102-105` asserts the guess. Resolved-root settings and a real installation check are still required, CR-02. |
-| 9 | Done-when authority; obsolete hosting request | **Still open, fix later.** Root AGENTS now gives the checkable shape. `stack-research/SKILL.md:66-71,127-129` still treats the old hosting-request fields as current despite its earlier disclaimer. |
+| 9 | Done-when authority; obsolete hosting request | **Still open, fix later.** Root AGENTS now gives the checkable shape. `.agents/maintainer-skills/stack-research/SKILL.md:66-71,127-129` still treats the old hosting-request fields as current despite its earlier disclaimer. |
 | 10 | Raw spec block and shared writer | **Done.** `loop/spec.py:478,610-690` preserves the block and provides writers used by gate/ready. |
 | 11 | Every file-form unittest command failed | **No longer relevant as a blanket claim.** The P1 to P9 reviewer ran the exact spec-file form successfully, 40 tests. `tests/unit.sh` uses discovery. This is environment-specific evidence, not a guarantee of every file form on every machine. |
 | 12 | Common hook bypass rules; create asks; both log events; merge ask | **Done for the named common forms.** Settings deny no-verify/hook-path/aliases; `guard.py:902-905` asks for create/edit; hooks wire success/failure events. Literal merge is now refused by both layers, stronger than the old ask. Exotic forms remain items 16 and 58. |
@@ -530,7 +534,7 @@ resolve the recorded note, not that R1 independently ran every cited test.
 | 33 | Project-relative skill commands and fixtures | **Still open, fix now.** Setup/run actions partly use plugin root; shape and run injection/fallback remain relative. Lint/fixtures accept them, CR-01. |
 | 34 | Confirm refusing duplicate comment on uncaptured issue | **Still open, fix later.** The P18 plan records safe refusal rather than implicit capture/label writes; the helper follows it. That implementation choice does not establish the requested maintainer confirmation. |
 | 35 | Word overlap misses paraphrases | **Still open, fix later.** Shape duplicate helper retains the 0.6 threshold. Person confirmation limits false positives but does not recover missed paraphrases. No decided semantic-match guarantee is claimed. |
-| 36 | Private kit checkout; founding placeholders | **Still open, fix before release.** `setup.py:372-379` renders the placeholders. `kit/templates/checks.yml:11-15` still uses the default project token for the separate private kit checkout. Decide distribution/access without giving builders broader credentials. |
+| 36 | Private kit checkout; founding placeholders | **Still open, fix later before release.** `setup.py:372-379` renders the placeholders. `kit/templates/checks.yml:11-15` still uses the default project token for the separate private kit checkout. Decide distribution/access without giving builders broader credentials. |
 | 37 | Hosted checks omit closing-piece argument | **Still open, fix later.** `loop/run/docs_commit.py:346` supplies closing pieces to the local final records check. Hosted checks still omit it, so hosted-only coverage does not enforce those entries. The local closing gate is present. |
 | 38 | Sensitivity compared by name only | **Still open, fix now.** `loop/records.py:27-28` explicitly omits flags from the map, contrary to the decided model, CR-14. |
 | 39 | Rebased judge SHA and anti-circle recovery | **Still open, fix now.** Claim compares commit identity (`claim.py:249-298`); unchanged content can kick back and repeat. Today-main overlays alone do not settle recovery, CR-13. |
@@ -538,20 +542,20 @@ resolve the recorded note, not that R1 independently ran every cited test.
 | 41 | Incompatible design research example | **Still open, fix later.** `design.md:800-803` retains the old help-page/package-version shape; fixtures/parser reject it (`test_needs.py:215-219`). Correct the maintainer's example rather than weakening the parser. |
 | 42 | Invalid Checked-date fallback; lint import ignores | **Still open, fix later.** `loop/spec.py:728-738` falls back to another valid date after invalid Checked; `tests/lint.sh:178` and test_claim import ignores retain the lint cleanup. Choose explicit invalid-date refusal. |
 | 43 | Absolute paths stale after plugin update | **Still open, fix later in L5.** Setup renders installed paths once and preserves existing files; there is no update-time migration. Current protection needs CR-02 before release. |
-| 44 | Version state in movable plugin folder | **Still open, fix before release.** `setup.py:349-365` writes version.json into the plugin root and pre-run reads it there. Choose stable state placement and migrate it with L5. |
-| 45 | No plugin release version; hosted follows main | **Still open, maintainer release step.** Manifest has no version; `setup.py:184-192` falls back to main. Select the immutable release/ref when preparing release. |
+| 44 | Version state in movable plugin folder | **Still open, fix later before release.** `setup.py:349-365` writes version.json into the plugin root and pre-run reads it there. Choose stable state placement and migrate it with L5. |
+| 45 | No plugin release version; hosted follows main | **Still open, fix later as a maintainer release step.** Manifest has no version; `setup.py:184-192` falls back to main. Select the immutable release/ref when preparing release. |
 | 46 | Local empty-project pre-run deadlock | **Done for the generated empty policy.** `pre-run-check.py:911,961` and `tests/pre-run-check.sh:355-391` implement the scaffold-only exception. F2 hosted refusal and CR-20's proposed-command variant remain separate. |
 | 47 | Existing-runner project gets scaffold | **Still open, fix now.** `setup.py:525-573` omits project_has_runner during first-piece capture, CR-20. |
 | 48 | Guessed plugin-cache deny misses actual root | **Still open, fix now.** Early edit deny retains the guess; resolved builder sandbox is a separate useful layer, CR-02. |
-| 49 | Early stop, L7 metrics, real-gate attempt-limit rehearsal | **Still open.** Engine early-stop routing exists; metric/hypothesis work is deliberately L7. Unit exhaustion coverage does not supply the requested real-gate attempt-limit end-to-end case; add it before release. |
+| 49 | Early stop, L7 metrics, real-gate attempt-limit rehearsal | **Still open, fix later before release.** Engine early-stop routing exists; metric/hypothesis work is deliberately L7. Unit exhaustion coverage does not supply the requested real-gate attempt-limit end-to-end case; add it before release. |
 | 50 | Bar paths, hidden markers, unknown languages, new area, main-merge brief | **Still open, fix now.** Engine supplies bar paths but session API permits omission, CR-04/CR-06; hidden validation is late, CR-11; unknown-language lint skips, CR-07. Spec/docs support declared new areas, but the person-owned area-map decision needs an explicit route. `kit/briefs/builder.md` still lacks the explicit main-merge instruction and refers to a Done-when field absent from the shared spec. |
-| 51 | Frozen bar needs controlled source/bar assembly | **Still open, harden before release.** `loop/bar.py` recognises known configuration files; there is no allowed-source judge assembly. Treat this as architectural hardening after closing known routes, not a proven property or a demand to solve arbitrary code with text parsing. |
+| 51 | Frozen bar needs controlled source/bar assembly | **Still open, fix later before release.** `loop/bar.py` recognises known configuration files; there is no allowed-source judge assembly. Treat this as architectural hardening after closing known routes, not a proven property or a demand to solve arbitrary code with text parsing. |
 | 52 | Aggregate net trim permits per-file growth | **No longer relevant as an omitted rule.** `loop/trim.py:208` sums net lines; this is a reasonable fold interpretation. The design does not require each file to shrink. Stacked skipping remains CR-19. |
 | 53 | Conservative unknown build cost; missing caller mutation | **Still open, fix now for coverage.** Safe-direction fallback remains intentional. Direct spend tests do not prove the caller retains its budget argument; add that regression with CR-16. |
 | 54 | Caffeinate after pre-run | **Done.** `kit/scripts/run.py:237-245` now starts the awake wrapper first. Mac-specific checks are conditional in the watch/mailbox tests. |
 | 55 | Integration leave, multiple dependencies, stacked trim | **Still open, fix now for trim.** `loop/run/review.py:780,809` calls leave during rejection. Multiple-dependency stacking lacks the requested case; stacked trim is explicitly skipped, CR-19. |
 | 56 | Unreadable reviewer cost counted zero | **Still open, fix now.** `loop/run/review.py:604-607` still omits it, CR-16. |
-| 57 | In-process proof forgery by arbitrary script | **Still open, L1 security validation.** Text guards cannot authenticate arbitrary imported code. Sandbox and inaccessible App credentials must hold the stronger boundary. No exploit or real credential-isolation check ran in R1. |
+| 57 | In-process proof forgery by arbitrary script | **Still open, fix later through L1 security validation.** Text guards cannot authenticate arbitrary imported code. Sandbox and inaccessible App credentials must hold the stronger boundary. No exploit or real credential-isolation check ran in R1. |
 | 58 | Indirect gh and file-fed GraphQL | **Still open, fix now.** The parser probes reproduced the cited forms without executing them, CR-03. |
 
 ## What the speed-ups left
@@ -559,13 +563,13 @@ resolve the recorded note, not that R1 independently ran every cited test.
 | Original deferred item | R1 disposition |
 | --- | --- |
 | 1. No separate core readiness review | **Done as a review.** All 27 pieces have fresh design/decision coverage above. Findings need shaped repair pieces; review does not close them. |
-| 2. No removal readiness review | **Done for tracked file inventory; external housekeeping still open.** Root keep/adapt/archive paths agree with the removal inventory. Old adapters, root plugin, migration tooling/docs, WORKFLOW, GEMINI and release scripts are absent; maintainer skills, credits, guards and archived design inputs remain. Remote branches/settings need maintainer evidence. |
+| 2. No removal readiness review | **Done for tracked file inventory; fix later for external housekeeping.** Root keep/adapt/archive paths agree with the removal inventory. Old adapters, root plugin, migration tooling/docs, WORKFLOW, GEMINI and release scripts are absent; maintainer skills, credits, guards and archived design inputs remain. Remote branches/settings need maintainer evidence. |
 | 3. Parallel removal and bootstrap | **Reviewed, with known later adaptation.** Searches find old names in document exclusion/fixture inputs and fake-host recipe fixtures, not active bootstrap calls into deleted tools. BORROWED explicitly lists recipe/prepare leftovers. Baseline suite evidence is separate from this path audit. |
 | 4. Short briefs | **Done as conformance review.** Reviewers read the relevant whole design and decisions; CR findings expose requirements missed or narrowed by brief/plan. |
-| 5. Parallel interface assumptions | **Partly done.** P27 exercises the whole stand-in route; F1/F2 remain open baseline faults. Real smoke and missing targeted cases in items 31, 49 and 55 still need evidence. |
-| 6. No GitHub checks | **Still open, maintainer decision.** Choose hosted workflows and cost before release; local green checks are not that decision. |
-| 7. Refused housekeeping | **Still open for maintainer evidence.** Branch cleanup elsewhere and paused local allow rules were not changed by R1. Preserve unsaved work and leave settings to the maintainer. |
-| 8. Automatic handover and host restart survival | **Still open.** Record-based run resume is implemented. launchd KeepAlive/watch belong to L1; automatic coordinator handover before context exhaustion has no implemented core path or shaped plan entry. |
+| 5. Parallel interface assumptions | **Partly done; fix later before release.** P27 exercises the whole stand-in route; F1/F2 remain open baseline faults. Real smoke and missing targeted cases in items 31, 49 and 55 still need evidence. |
+| 6. No GitHub checks | **Still open, fix later as a maintainer decision.** Choose hosted workflows and cost before release; local green checks are not that decision. |
+| 7. Refused housekeeping | **Still open, fix later with maintainer evidence.** Branch cleanup elsewhere and paused local allow rules were not changed by R1. Preserve unsaved work and leave settings to the maintainer. |
+| 8. Automatic handover and host restart survival | **Still open, fix later.** Record-based run resume is implemented. launchd KeepAlive/watch belong to L1; automatic coordinator handover before context exhaustion has no implemented core path or shaped plan entry. |
 
 This inventory checks repository paths, not remote settings or the maintainer's
 other repository. Retained old names in borrowed recipe fixtures are declared
