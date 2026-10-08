@@ -15,7 +15,7 @@ What the first half of `/setup` asks, writes and leaves alone.
 Ask them in one batch. Each has a recommended answer. A skipped answer never stops founding: the script writes it as an open question.
 
 1. What does the product do, and who is it for? Recommended: read the README and the code first, then write your own guess and ask the person to correct it. This fills `docs/overview.md`.
-2. What command runs every test? Recommended: the language's usual one. An empty project has none, and the first piece sets it up. Pass it as `--test-command` to `first-piece`. Pass it to `found` too when the project already has a test runner.
+2. What command runs every test? Recommended: the language's usual one. An empty project has none, and the first piece sets it up. Pass it as `--test-command` to `first-piece`. Pass it to `found` too when the project already has a test runner. `first-piece` sets the generated hosted check's scaffold command to this same command, including when it was unknown at founding. The policy stays empty until the runner exists.
 3. Which language? The script detects it from the files. Pass `--language` only when the project is empty and the person knows.
 4. Do you pay for Claude by subscription or by API key? Recommended: subscription. With an API key, ask for a spend cap for one piece and one for a whole run, and pass `--billing-mode api_key --spend-cap-piece N --spend-cap-run N`.
 5. Is the repository private, and is the GitHub plan free? Pass `--repo-visibility` and `--plan`. A private repository on the free plan gets a plain warning: GitHub gives it no server-side rules, so the local guards carry every rule.
@@ -36,7 +36,9 @@ It writes each file only when the file is absent.
 
 ## What stays as it is
 
-A file that is there stays as it is. The person's settings rules stay, and the kit's rules are added beside them. The script copies nothing of the kit into the project. The kit runs from its plugin folder.
+`found` keeps each existing file. When `first-piece` captures the scaffold, it updates only the generated `SCAFFOLD_TEST_COMMAND` entry in `checks.yml`. It preserves the rest of the workflow, including uncommitted changes. A custom workflow without this entry stays as it is.
+
+The person's settings rules stay, and the kit's rules are added beside them. The script copies nothing of the kit into the project. The kit runs from its plugin folder.
 
 ## The tools
 

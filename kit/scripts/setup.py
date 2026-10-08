@@ -382,6 +382,9 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         return str(merge.render((templates / name).read_text("utf-8"), values))
 
     language = args.language or detect_language(root)
+    values["SCAFFOLD_TEST_COMMAND"] = json.dumps(
+        args.test_command or TEST_COMMANDS.get(str(language), "")
+    )
     if language is None:
         plan.open_questions.append(
             "Which language is this project written in? The network allowlist is empty until "
@@ -522,6 +525,38 @@ def first_piece_body(kit: Path, command: str) -> str:
     return str(merge.render(text, {"TEST_COMMAND": command}))
 
 
+def sync_scaffold_command(root: Path, command: str, *, dry_run: bool) -> None:
+    """Keep the generated bootstrap entry aligned with the first piece's judge.
+
+    Only this named entry belongs to the kit. Preserve every other byte of the
+    workflow, including changes the person has not committed. A custom workflow
+    without the entry stays as it is.
+    """
+    workflow = root / ".github" / "workflows" / "checks.yml"
+    if not workflow.exists():
+        return
+    text = workflow.read_bytes().decode("utf-8")
+    prefix = "          SCAFFOLD_TEST_COMMAND: "
+    lines = text.splitlines(keepends=True)
+    entries = [i for i, line in enumerate(lines) if line.startswith(prefix)]
+    if not entries:
+        return
+    if len(entries) != 1:
+        raise cli.Failure(
+            "checks.yml has more than one scaffold command entry",
+            next_command="keep one SCAFFOLD_TEST_COMMAND entry in checks.yml, then try again",
+            code=cli.ExitCode.REFUSED,
+        )
+    index = entries[0]
+    newline = "\r\n" if lines[index].endswith("\r\n") else (
+        "\n" if lines[index].endswith("\n") else ""
+    )
+    lines[index] = prefix + json.dumps(command) + newline
+    updated = "".join(lines)
+    if not dry_run and updated != text:
+        workflow.write_bytes(updated.encode("utf-8"))
+
+
 def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
     kit = Path(args.kit_dir).resolve() if args.kit_dir else HERE.parent
@@ -556,6 +591,7 @@ def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
             + ' first-piece --test-command "<the command that runs every test>"',
             code=cli.ExitCode.REFUSED,
         )
+    sync_scaffold_command(root, command, dry_run=args.dry_run)
     with tempfile.TemporaryDirectory() as folder:
         body = Path(folder) / "first-piece.md"
         body.write_text(first_piece_body(kit, command), encoding="utf-8")

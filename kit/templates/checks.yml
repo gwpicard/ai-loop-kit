@@ -6,6 +6,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       # The kit is not part of the project, so the runner fetches it. Founding
       # replaces {{KIT_REF}} with the kit version that founded the project.
       - uses: actions/checkout@v6
@@ -19,11 +21,10 @@ jobs:
           kit="${CLAUDE_PLUGIN_ROOT:-.kit/kit}"
           python3 "$kit/scripts/records-check.py"
       - name: Install and test
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SCAFFOLD_TEST_COMMAND: {{SCAFFOLD_TEST_COMMAND}}
         run: |
           command -v python3 >/dev/null 2>&1 || { echo 'Install and test needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }
-          cmd=$(python3 -c 'import json; print(json.load(open(".agents/loop/policy.json")).get("test_command", ""))') || { echo 'The policy file .agents/loop/policy.json cannot be read. Restore it, then push again.'; exit 2; }
-          if [ -z "$cmd" ]; then
-            echo 'The policy has no test_command, so no test has run and nothing is verified. Write the test command in .agents/loop/policy.json, then push again.'
-            exit 1
-          fi
-          sh -c "$cmd"
+          kit="${CLAUDE_PLUGIN_ROOT:-.kit/kit}"
+          python3 "$kit/scripts/hosted-check.py" --base "${PR_BASE_SHA:-}" --scaffold-command "${SCAFFOLD_TEST_COMMAND:-}"

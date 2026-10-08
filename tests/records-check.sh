@@ -195,13 +195,42 @@ esac
 
 test_step=$(step_run "Install and test")
 [ -n "$test_step" ] || fail "checks.yml has no step named Install and test with a run block"
-code=0
-said=$(cd "$TP_ROOT" && sh -c "$test_step" 2>&1) || code=$?
-[ "$code" = 1 ] || fail "with no test_command the test step should exit 1, got $code"
+base=$(git -C "$TP_ROOT" rev-parse HEAD)
+run_hosted() {
+  code=0
+  said=$(cd "$1" && CLAUDE_PLUGIN_ROOT="$ROOT/kit" PR_BASE_SHA="$base" \
+    SCAFFOLD_TEST_COMMAND="${2:-}" sh -c "$test_step" 2>&1) || code=$?
+}
+run_hosted "$TP_ROOT"
+[ "$code" = 0 ] || fail "F2-FOUND founding with no runner should pass: $said"
 case "$said" in
-  *"no test_command"*) ok "with no test_command the test step is red and says why" ;;
-  *) fail "the test step did not name the missing test_command: $said" ;;
+  *"no project tests exist yet"*) ok "F2-FOUND founding says tests are unavailable" ;;
+  *) fail "F2-FOUND founding must not claim project tests passed: $said" ;;
 esac
+
+bootstrap="$TP_BASE/bootstrap"
+git clone -q "$TP_ROOT" "$bootstrap"
+mkdir "$bootstrap/tests"
+printf '#!/bin/sh\necho scaffold tests ran\n' > "$bootstrap/tests/run.sh"
+save "$bootstrap" "Add the first test runner"
+run_hosted "$bootstrap" "sh tests/run.sh"
+[ "$code" = 0 ] || fail "F2-SCAFFOLD the scaffold command should run: $said"
+case "$said" in
+  *"scaffold tests ran"*) ok "F2-SCAFFOLD empty policy runs the scaffold judge" ;;
+  *) fail "F2-SCAFFOLD no scaffold judge ran: $said" ;;
+esac
+run_hosted "$bootstrap" "exit 1"
+[ "$code" = 1 ] || fail "F2-RED a failing scaffold command must fail: $said"
+run_hosted "$bootstrap"
+[ "$code" = 1 ] || fail "F2-MISSING a scaffold with no known command must fail: $said"
+base=$(git -C "$bootstrap" rev-parse HEAD)
+run_hosted "$bootstrap" "echo must not run"
+[ "$code" = 1 ] || fail "F2-LATER a project with a runner requires policy test_command: $said"
+case "$said" in
+  *"no test_command"*) ok "F2-LATER existing projects keep the empty-policy refusal" ;;
+  *) fail "F2-LATER the refusal must name test_command: $said" ;;
+esac
+base=$(git -C "$TP_ROOT" rev-parse HEAD)
 python3 - "$TP_ROOT/.agents/loop/policy.json" <<'PY'
 import json, sys
 path = sys.argv[1]
@@ -210,7 +239,7 @@ data["test_command"] = "echo the tests ran"
 json.dump(data, open(path, "w"))
 PY
 code=0
-said=$(cd "$TP_ROOT" && sh -c "$test_step" 2>&1) || code=$?
+said=$(cd "$TP_ROOT" && CLAUDE_PLUGIN_ROOT="$ROOT/kit" sh -c "$test_step" 2>&1) || code=$?
 [ "$code" = 0 ] || fail "with a test_command the test step should pass, got $code: $said"
 case "$said" in
   *"the tests ran"*) ok "the test step runs the policy's test command" ;;

@@ -162,14 +162,21 @@ done
 ok "the foundation files are written"
 
 # No placeholder is left in any written file.
-if grep -rl '{{' "$TP_ROOT" --exclude-dir=.git >/dev/null 2>&1; then
-  grep -rn '{{' "$TP_ROOT" --exclude-dir=.git | head -3 >&2
+if grep -rlE '\{\{[A-Z_]+\}\}' "$TP_ROOT" --exclude-dir=.git >/dev/null 2>&1; then
+  grep -rnE '\{\{[A-Z_]+\}\}' "$TP_ROOT" --exclude-dir=.git | head -3 >&2
   fail "a placeholder is left unfilled in a founded project"
 fi
 grep -q "$KIT/scripts/records-check.py" "$TP_ROOT/AGENTS.md" || fail "AGENTS.md has no absolute kit path"
 [ ! -e "$TP_ROOT/kit" ] || fail "a copy of the kit was placed inside the project"
 grep -q 'ref: "' "$TP_ROOT/.github/workflows/checks.yml" || fail "checks.yml has no ref"
 ok "no placeholder is left, the kit paths are absolute and the kit is not copied in"
+python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'PYTEST' || fail "F2-RENDER the scaffold command was not rendered"
+import json, sys
+line = next(line for line in open(sys.argv[1]) if "SCAFFOLD_TEST_COMMAND:" in line)
+assert json.loads(line.split(":", 1)[1]) == "sh -c 'exit 0'", "F2-RENDER"
+PYTEST
+ok "F2-RENDER founding records the scaffold command without filling the policy"
+
 
 # Settings: the template merged, the hook wired with an absolute path.
 python3 - "$TP_ROOT/.claude/settings.json" "$KIT" <<'PY' || fail "the settings are not what the template says"
@@ -479,6 +486,49 @@ import json, sys
 assert json.load(open(sys.argv[1]))["test_command"] == ""
 PY
 ok "--test-command is carried as the first piece's Command, not as the policy's"
+
+
+# The scaffold command can be chosen after founding, including an unknown language.
+python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'PYTEST' || fail "F2-AGREED unknown-language scaffold command differs from hosted command"
+import json, sys
+line = next(line for line in open(sys.argv[1]) if "SCAFFOLD_TEST_COMMAND:" in line)
+assert json.loads(line.split(":", 1)[1]) == "make check", "F2-AGREED"
+PYTEST
+ok "F2-AGREED an unknown-language scaffold uses the agreed hosted command"
+
+new_project custom-bootstrap
+run_setup found --language python
+[ "$CODE" -eq 0 ] || fail "F2-CUSTOM founding failed"
+printf '\n# The person added this before capturing the scaffold.\n' >> "$TP_ROOT/.github/workflows/checks.yml"
+before_workflow=$(shasum "$TP_ROOT/.github/workflows/checks.yml")
+run_setup first-piece --dry-run --test-command "sh tests/run.sh"
+[ "$CODE" -eq 0 ] || fail "F2-DRY first-piece dry run failed"
+[ "$(shasum "$TP_ROOT/.github/workflows/checks.yml")" = "$before_workflow" ] \
+  || fail "F2-DRY first-piece dry run changed the workflow"
+run_setup first-piece --test-command "sh tests/run.sh"
+[ "$CODE" -eq 0 ] || { cat "$ERR"; fail "F2-CUSTOM first-piece failed"; }
+python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'PYTEST' || fail "F2-CUSTOM hosted command differs or custom workflow text changed"
+import json, sys
+text = open(sys.argv[1]).read()
+line = next(line for line in text.splitlines() if "SCAFFOLD_TEST_COMMAND:" in line)
+assert json.loads(line.split(":", 1)[1]) == "sh tests/run.sh", "F2-CUSTOM"
+assert text.endswith("# The person added this before capturing the scaffold.\n"), "F2-PRESERVE"
+PYTEST
+mkdir "$TP_ROOT/tests"
+printf 'echo F2-CUSTOM a failing scaffold >&2\nexit 9\n' > "$TP_ROOT/tests/run.sh"
+git -C "$TP_ROOT" add -A
+git -C "$TP_ROOT" commit -qm "The scaffold"
+bootstrap_cmd=$(python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'PYTEST'
+import json, sys
+line = next(line for line in open(sys.argv[1]) if "SCAFFOLD_TEST_COMMAND:" in line)
+print(json.loads(line.split(":", 1)[1]))
+PYTEST
+)
+code=0
+(cd "$TP_ROOT" && python3 "$(dirname "$SETUP_SRC")/hosted-check.py" --base HEAD^ \
+  --scaffold-command "$bootstrap_cmd") > "$TP_BASE/hosted.out" 2>&1 || code=$?
+[ "$code" = 9 ] || fail "F2-CUSTOM hosted check skipped the failing custom judge: $(cat "$TP_BASE/hosted.out")"
+ok "F2-CUSTOM the custom scaffold judge fails hosted checks and the person's workflow text stays"
 
 if [ "$FAIL" -ne 0 ]; then
   echo "Setup first-half checks FAILED" >&2
