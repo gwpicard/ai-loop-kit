@@ -27,7 +27,7 @@ pass() {
 
 if ! python3 -m pytest --version >/dev/null 2>&1; then
   echo "skipped: pytest is not installed, so the judge-runner check did not run"
-  exit 0
+  exit 77
 fi
 
 tp_new demo

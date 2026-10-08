@@ -43,7 +43,7 @@ unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SIMPLE ANTHROPIC_API_KEY \
 
 if ! python3 -m pytest --version >/dev/null 2>&1; then
   echo "skipped: pytest is not installed, so the review-loop check did not run"
-  exit 0
+  exit 77
 fi
 
 . "$ROOT/tests/lib/throwaway-project.sh"
