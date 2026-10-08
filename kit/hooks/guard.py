@@ -369,13 +369,14 @@ def write_block(path: Path, ctx: Context) -> Decision | None:
 # --- reading a command line --------------------------------------------------------
 
 
-def normalise(text: str) -> str:
+def normalise(text: str, literal_marks: tuple[str, str] | None = None) -> str:
     """Prepare a line for the shell lexer.
 
     A newline outside quotes becomes `;`. A heredoc body is dropped, since it is
     text and not a command. A backslash and a newline join the lines. `\\;`
     becomes a marker word, so that `find -exec ... \\;` keeps its end. Backticks
     outside quotes become substitution parentheses with an unresolved word.
+    Optional marks retain literal dollar signs and backticks through quote removal.
     """
     out: list[str] = []
     pending: list[str] = []
@@ -385,7 +386,7 @@ def normalise(text: str) -> str:
     while i < n:
         c = text[i]
         if quote == "'":
-            out.append(c)
+            out.append(literal_marks["$`".index(c)] if literal_marks and c in "$`" else c)
             if c == "'":
                 quote = ""
             i += 1
@@ -395,7 +396,9 @@ def normalise(text: str) -> str:
             if nxt == "\n":
                 i += 2
                 continue
-            if nxt == ";" and not quote:
+            if literal_marks and nxt in "$`":
+                out.append(literal_marks["$`".index(nxt)])
+            elif nxt == ";" and not quote:
                 out.append(f" {SEMI} ")
             else:
                 out.append(c + nxt)
@@ -459,11 +462,46 @@ class Simple:
     redirects: list[tuple[str, str]]
 
 
-def split_commands(text: str) -> list[Simple]:
-    lexer = shlex.shlex(normalise(text), posix=True, punctuation_chars=True)
+class ShellWord(str):
+    """A decoded shell word that retains whether its syntax can expand."""
+
+    expands: bool
+
+    def __new__(cls, value: str, expands: bool) -> ShellWord:
+        word = super().__new__(cls, value)
+        word.expands = expands
+        return word
+
+
+def _shell_expands(word: str) -> bool:
+    return word.expands if isinstance(word, ShellWord) else any(c in word for c in "$`")
+
+
+def _lex_shell(text: str, punctuation: bool = True) -> list[str]:
+    # Pick single characters absent from the input. A caller cannot supply a
+    # marker to disguise an expansion; shell quote removal cannot invent one.
+    marks: list[str] = []
+    point = 0xE000
+    while len(marks) < 2:
+        mark = chr(point)
+        if mark not in text:
+            marks.append(mark)
+        point += 1
+    lexer = shlex.shlex(
+        normalise(text, (marks[0], marks[1])), posix=True, punctuation_chars=punctuation
+    )
     lexer.whitespace_split = True
     lexer.commenters = ""
-    tokens = list(lexer)
+    return [
+        ShellWord(
+            token.replace(marks[0], "$").replace(marks[1], "`"),
+            any(c in token for c in "$`"),
+        ) for token in lexer
+    ]
+
+
+def split_commands(text: str) -> list[Simple]:
+    tokens = _lex_shell(text)
     commands: list[Simple] = []
     current = Simple([], [])
     i = 0
@@ -514,18 +552,37 @@ WRAPPERS: dict[str, tuple[frozenset[str], int]] = {
     "command": (frozenset(), 0),
     "exec": (frozenset({"-a"}), 0),
     "nohup": (frozenset(), 0),
-    "time": (frozenset({"-f", "-o"}), 0),
+    "time": (frozenset({"-f", "--format", "-o", "--output"}), 0),
     "builtin": (frozenset(), 0),
     "setsid": (frozenset(), 0),
     "env": (frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--argv0"}), 0),
-    "nice": (frozenset({"-n"}), 0),
-    "ionice": (frozenset({"-c", "-n", "-p"}), 0),
-    "timeout": (frozenset({"-s", "-k"}), 1),
-    "stdbuf": (frozenset({"-i", "-o", "-e"}), 0),
-    "sudo": (frozenset({"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U"}), 0),
+    "nice": (frozenset({"-n", "--adjustment"}), 0),
+    "ionice": (frozenset({"-c", "--class", "-n", "--classdata", "-p", "--pid"}), 0),
+    "timeout": (frozenset({"-s", "--signal", "-k", "--kill-after"}), 1),
+    "stdbuf": (frozenset({"-i", "--input", "-o", "--output", "-e", "--error"}), 0),
+    "sudo": (frozenset({
+        "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
+        "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-T", "--command-timeout",
+        "-U", "--other-user", "-r", "--role", "-t", "--type",
+    }), 0),
     "doas": (frozenset({"-u", "-C"}), 0),
-    "xargs": (frozenset({"-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a"}), 0),
+    "xargs": (frozenset({
+        "-I", "--replace", "-L", "--max-lines", "-n", "--max-args", "-P", "--max-procs",
+        "-s", "--max-chars", "-d", "--delimiter", "-E", "--eof", "-a", "--arg-file",
+    }), 0),
     "caffeinate": (frozenset({"-t", "-w"}), 0),
+}
+
+WRAPPER_FLAGS = {
+    "time": {"--append", "--portability", "--quiet", "--verbose"},
+    "setsid": {"--ctty", "--fork", "--wait"},
+    "env": {"--ignore-environment", "--null", "--debug"},
+    "ionice": {"--ignore"},
+    "timeout": {"--preserve-status", "--foreground", "--verbose"},
+    "sudo": {"--askpass", "--background", "--bell", "--edit", "--login", "--non-interactive",
+             "--preserve-env", "--set-home", "--shell", "--stdin", "--validate",
+             "--remove-timestamp", "--reset-timestamp", "--list"},
+    "xargs": {"--no-run-if-empty", "--interactive", "--verbose", "--exit", "--null"},
 }
 
 
@@ -539,11 +596,15 @@ KEYWORDS = frozenset(
 )
 
 
-def _split_string_option(option: str, rest: list[str]) -> list[str] | None:
+def _split_string_option(
+    option: str, rest: list[str], uncertain: list[Decision] | None = None
+) -> list[str] | None:
     """The words of `env -S 'words'` or `env --split-string=words`, or None."""
     text: str | None = None
+    source = option
     if option in {"-S", "--split-string"}:
         text = rest.pop(0) if rest else ""
+        source = text
     elif option.startswith("--split-string="):
         text = option.split("=", 1)[1]
     else:
@@ -551,15 +612,22 @@ def _split_string_option(option: str, rest: list[str]) -> list[str] | None:
         cluster = re.fullmatch(r"-[iv0]*S(.*)", option, re.DOTALL)
         if cluster:
             text = cluster.group(1) if cluster.group(1) else (rest.pop(0) if rest else "")
+            source = option if cluster.group(1) else text
     if text is None:
         return None
+    if uncertain is not None and _shell_expands(source):
+        uncertain.append(ask("the wrapper command string can expand before it is parsed.",
+                             "write the wrapper's command string literally."))
     try:
-        return shlex.split(text)
+        return _lex_shell(text, punctuation=False)
     except ValueError:
         return []
 
 
-def unwrap(words: Sequence[str], assignments: set[str] | None = None) -> list[str]:
+def unwrap(
+    words: Sequence[str], assignments: set[str] | None = None,
+    uncertain: list[Decision] | None = None,
+) -> list[str]:
     rest = list(words)
     while rest:
         if rest[0] in KEYWORDS:
@@ -581,12 +649,22 @@ def unwrap(words: Sequence[str], assignments: set[str] | None = None) -> list[st
         while rest and rest[0].startswith("-") and rest[0] != "-":
             option = rest.pop(0)
             if name == "env":
-                inner = _split_string_option(option, rest)
+                inner = _split_string_option(option, rest, uncertain)
                 if inner is not None:
                     rest[0:0] = inner
                     break
-            if option in value_options and rest:
-                rest.pop(0)
+            option_name = option.split("=", 1)[0] if option.startswith("--") else option
+            if option_name in value_options:
+                if "=" not in option and rest:
+                    rest.pop(0)
+            elif (
+                option.startswith("--") and option_name not in {"--help", "--version", "--"}
+                and option_name not in WRAPPER_FLAGS.get(name, set()) and uncertain is not None
+            ):
+                uncertain.append(ask(
+                    "a wrapper option cannot be parsed with certainty.",
+                    "use the full supported option name or run without a wrapper.",
+                ))
         for _ in range(skip):
             if rest and not rest[0].startswith("-"):
                 rest.pop(0)
@@ -838,19 +916,19 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
         arg = args[i]
         name = arg.split("=", 1)[0] if arg.startswith("--") else arg
         value = arg.split("=", 1)[1] if arg.startswith("--") and "=" in arg else None
+        payload_word = arg
         if arg.startswith(("-f", "-F")) and len(arg) > 2:
             name, value = arg[:2], arg[2:]
         if name in value_options:
             if value is None and i + 1 < len(args):
                 value = args[i + 1]
+                payload_word = args[i + 1]
                 i += 1
             if name in {"-X", "--method"} and value:
                 method = value.upper()
             if name in {"-f", "--raw-field", "-F", "--field", "--input"}:
                 fields = True
-                opaque_payload |= name == "--input" or bool(
-                    value and any(ch in value for ch in "$`")
-                )
+                opaque_payload |= name == "--input" or _shell_expands(payload_word)
                 if name in {"-F", "--field"} and value:
                     opaque_payload |= "=@" in value
                 if value and name != "--input":
@@ -1277,7 +1355,9 @@ def check_words(
         for inner in substitutions(word):
             found.append(check_command(inner, ctx, cwd, depth + 1))
     assignments: set[str] = set()
-    rest = unwrap(words, assignments)
+    uncertain: list[Decision] = []
+    rest = unwrap(words, assignments, uncertain)
+    found.extend(uncertain)
     # Preserve override names when descending into shells, eval or find -exec.
     # Their values need not be read: external Git configuration always asks.
     config_assignments = {name: "" for name in assignments if name.startswith("GIT_CONFIG")}
@@ -1297,9 +1377,15 @@ def check_words(
             for j, arg in enumerate(args):
                 if arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]:
                     if j + 1 < len(args):
+                        if _shell_expands(args[j + 1]):
+                            found.append(ask("the shell script can expand before it is inspected.",
+                                             "write the shell script literally."))
                         found.append(check_command(args[j + 1], ctx, cwd, depth + 1))
                     break
         elif prog == "eval":
+            if any(_shell_expands(arg) for arg in args):
+                found.append(ask("the eval input can expand before it is inspected.",
+                                 "write the command literally without eval."))
             found.append(check_command(" ".join(args), ctx, cwd, depth + 1))
         elif prog == "git":
             # Git also accepts configuration through inherited environment variables,
