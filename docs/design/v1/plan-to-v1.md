@@ -7,8 +7,8 @@ to the maintainer's settings.
 
 The baseline includes the merged R1 review and F1 manual-completion repair.
 F1's after-checks passed on merged main: both core rehearsal cases, 1,757 unit
-tests, lint and house rules. F2's hosted empty-policy repair is authorised and
-pending. It must merge and pass its after-checks before the release gate.
+tests, lint and house rules. F2's hosted empty-policy repair is merged, and its
+after-checks passed on main. CR-20 remains a separate local runner repair.
 R1 describes the earlier baseline, so its F1 finding remains useful history.
 
 The [decisions](decisions-2026-10-05.md) win where sources disagree, followed by
@@ -40,17 +40,50 @@ workaround.
 
 ## Order and parallel work
 
-1. Complete F2 and its after-checks. CR-20 is a separate local runner repair,
-   so F2 alone does not close it.
-2. Repair the safety and evidence boundaries: CR-02, CR-03, CR-05, CR-06,
-   CR-07, CR-08, CR-09, CR-11, CR-17 and CR-21. Then finish the remaining
-   core repair pieces with their dependencies below. All CR pieces block a
-   claim that the core conforms.
-3. Build L1 to L10 in dependency order. Close the extra release pieces Q1 to
-   Q7 and the skills pass H1. Resolve the maintainer's open choices below.
-4. Run the release rehearsal V1 and the authorised real validation V2.
-   Repair or explicitly amend any remaining decided requirement before the
-   maintainer makes the release decision.
+The maintainer chose three release tracks on 8 October. The preview is an
+attended local release. It does not claim full core conformance or provide the
+App, walk-away runs or deployment. The v1.0 design remains the target.
+
+| Track | Pieces in the maintainer's order | Release boundary |
+| --- | --- | --- |
+| Preview 0.1 | CI0; CR-02, CR-03, CR-21, CR-17, CR-22; CR-05, CR-07, CR-08, CR-06, CR-09, CR-13, CR-18; Q4; H1; V1; REL0.1 | Attended runs on the person's own computer, installed as a public plugin from a pinned tagged release. |
+| 0.2 | CR-01, CR-04, CR-10, CR-11, CR-12, CR-14, CR-15, CR-16, CR-19, CR-20, Q2 | The deferred core repairs, after the maintainer says to continue. |
+| v1.0 | L1 to L10, Q1, Q3, Q5, Q6, Q7, V2, REL1.0 | The later capabilities and real validation, in dependency order. |
+
+1. Verify F2's after-checks on merged main, then complete CI0. CI0 enables
+   pull-request and main-push checks, keeps manual dispatch, selects a runner
+   that supports the stand-ins and installs the required tools. Its own pull
+   request must show the full hosted suite green. Only CI0 may change this
+   repository's v1-checks workflow; no repository setting is authorised.
+2. Build the preview pieces above. Dependencies win over their listed order:
+   CR-06 precedes CR-07, and CR-09 precedes CR-13. Each pull request after CI0
+   needs the hosted check and local suite green, with skips reported separately.
+3. Apply H1 to the skills shipped in the preview and V1 to the preview's
+   attended scope. Neither depends on unfinished 0.2 or v1.0 capabilities.
+   Any required real skill eval waits for the maintainer; agents never run
+   real Claude or the real smoke command during this phase.
+4. REL0.1 prepares version `0.1.0` in the plugin manifest, a `CHANGELOG.md`
+   entry, README scope, limitations and install steps, and `SECURITY.md`
+   pointing to private vulnerability reporting. The README names the deferred
+   0.2 repairs and the preview's limits. Stop after preparation, before any
+   publication action, with `waiting_on_maintainer` set to:
+   "preview 0.1 ready: make the repository public, turn on private vulnerability
+   reporting, tag v0.1.0 and publish". The maintainer performs those actions.
+   Start no 0.2 work until the maintainer says to go on.
+5. Finish the 0.2 and v1.0 tracks before claiming the full design conforms.
+   Repeat skills hardening after later skills change and the full offline
+   rehearsal before V2 and REL1.0. The maintainer decides each release.
+
+The preview dependency changes separate independent repairs from later shared
+module work. CR-22's output permission follows CR-02; reviewer spend stays in
+CR-16. CR-13's fetched-baseline and recovery checks follow CR-09; list agreement
+and examples stay in CR-12. CR-18 follows CR-08 and tests integration execution;
+hidden-case admission at ready stays in CR-11 and records semantics in CR-14.
+The deferred findings remain open and must be disclosed in the preview,
+including later Q3 judge-assembly and Q5 hosted-dependency-read limits. Attended
+use does not prove sandbox enforcement, shared budget reservations or exact
+risk-notice enforcement. A preview claim never counts unrepaired behaviour as
+passing conformance.
 
 Parallel work requires both satisfied dependencies and disjoint files. These
 are conservative starting groups, not permission to edit a shared module:
@@ -60,7 +93,7 @@ are conservative starting groups, not permission to edit a shared module:
 | A | CR-03, CR-05, CR-09, CR-17, CR-21 | CR-05 and CR-17 may share run rehearsals, so run them serially unless shaped files prove disjoint. The other pieces have distinct hook, fingerprint or scanner files. |
 | B | CR-01, CR-02, CR-06, CR-07, CR-08 | CR-06, CR-07 and CR-08 share attempt code or tests, so run them serially in that order. CR-02 needs a settings permission route. |
 | C | CR-10, CR-14, CR-16, CR-20 | CR-10 and CR-20 both touch ready; finish CR-10 first. CR-14 and CR-16 use separate records and spend code. |
-| D | CR-04, CR-11, CR-12, CR-13, CR-15, CR-18, CR-19, CR-22 | Ready repairs CR-11 to CR-13 are serial. CR-19 follows CR-15 and CR-18 and shares their engine/integration tests. Run CR-04 last because its inventory spans command doors. CR-22 follows CR-02 and CR-16. |
+| D | CR-04, CR-11, CR-12, CR-13, CR-15, CR-18, CR-19, CR-22 | Serialise ready repairs whose shaped files overlap; CR-13 ships independently in the preview. CR-19 follows CR-15 and CR-18 and shares their engine/integration tests. Run CR-04 last because its inventory spans command doors. CR-22 follows CR-02 in the preview; CR-16 remains on the 0.2 track. |
 | E | L7, L4, Q1 | L7 and L4 can start together after their CR dependencies. Finish L7 before Q1, whose test edits must avoid L4's rehearsals. |
 | F | L1, L10, Q2 | L1 needs security repairs; L10 follows CR-07 and CR-19. Q2 aligns the format, parser and briefs, with separate files from L1/L10. |
 | G | L2, L9, L6 | L2 follows L1. L9 and L6 can run together only if their needs/spec and lesson edits remain separate. |
@@ -68,8 +101,9 @@ are conservative starting groups, not permission to edit a shared module:
 | I | L5, Q4, Q5 | Finish Q4 before L5 or Q5. Finish L6 before L5's lesson drift work. L5/Q5 must run serially if setup or records files overlap. |
 | J | H1, Q6, Q7, V1, V2 | H1 follows all skills. Q6 and Q7 may run beside H1 only with disjoint files. V1 follows all three; V2 follows V1 and maintainer preparation. |
 
-Groups describe scheduling waves. A dependency in a piece's entry always wins
-over a group. When a planned file overlaps another piece, serialise or split
+Groups describe scheduling waves for the full v1.0 plan; the release tracks
+above decide which pieces may start. H1 and V1 also run at the preview boundary.
+A dependency in a piece's entry always wins over a group. When a planned file overlaps another piece, serialise or split
 the pieces rather than resolving cross-piece conflicts. Update this table
 after shaping determines the actual file sets.
 
@@ -95,16 +129,16 @@ Paths beginning `loop/` below are under `kit/scripts/`; unit tests are under
 | CR-10. Require notice and exact risk acceptance. | A quotation/date without the risk notice is a need and refuses ready. An invalid calendar date refuses; the person's exact words survive gate updates. Syntax is never described as authenticating consent. | Change `loop/spec.py`, `loop/needs.py`, `loop/gates/ready.py`, `kit/spec-format.md`, sensitive fixtures and tests. | CR-09; before CR-12 and CR-20. | M |
 | CR-11. Validate executable hidden cases at ready. | Descriptive text, unsafe paths and missing command substitution refuse before ready. Executable hidden files run through the real gate and stay unreadable to builders. | Change `loop/heldout.py`, `loop/gates/ready.py`, `loop/gates/attempt.py`, `tests/ready-gate.sh` and hidden fixtures. | CR-08; after CR-10. | M |
 | CR-12. Show list disagreements as needs and require concrete examples. | Differing spec-ID lists appear in computed needs and clear after agreement. The word no alone cannot stand in for example data; use a corrected empty-state example. | Change `loop/needs.py`, `loop/lint.py`, `loop/gates/ready.py`, spec fixtures and the design example through a reviewed docs change. | CR-10, CR-11. | M |
-| CR-13. Establish current main and safe judge recovery. | Advance origin while local main is stale: ready/claim use a recorded fetched baseline. A content-preserving rewritten judge is diagnosed without accepting changed authority or requiring force-push. Recovery is gate-owned, recorded and legitimately re-fingerprinted; repeat kickbacks do not trap it. | Change ready/claim gates, fingerprint/evidence helpers, `kit/spec-format.md`, ready/claim tests. | CR-09, CR-12. | L |
-| CR-14. Enforce the decided records model. | Mutations in sensitivity flags, optional area-rule paths and copied enforcement prose fail. Changed/Removed behaviour replaces or refuses ambiguous current text; decisions retain reasons and real piece links. New-area map changes have a person-owned route. | Change `loop/records.py`, `loop/run/docs_commit.py`, area/overview templates, records/document rehearsals. | CR-10; before CR-18 and L5. | L |
+| CR-13. Establish current main and safe judge recovery. | Advance origin while local main is stale: ready/claim use a recorded fetched baseline. A content-preserving rewritten judge is diagnosed without accepting changed authority or requiring force-push. Recovery is gate-owned, recorded and legitimately re-fingerprinted; repeat kickbacks do not trap it. | Change ready/claim gates, fingerprint/evidence helpers, `kit/spec-format.md`, ready/claim tests. | CR-09 for preview; CR-12 remains a 0.2 repair. | L |
+| CR-14. Enforce the decided records model. | Mutations in sensitivity flags, optional area-rule paths and copied enforcement prose fail. Changed/Removed behaviour replaces or refuses ambiguous current text; decisions retain reasons and real piece links. New-area map changes have a person-owned route. | Change `loop/records.py`, `loop/run/docs_commit.py`, area/overview templates, records/document rehearsals. | CR-10; before L5. CR-18 ships independently in the preview. | L |
 | CR-15. Put parked questions and decisions on the piece. | A park keeps its state but writes the question and needs-you; clear/resume removes the need. Before App, person sync delivers queued writes. Decisions made alone survive as marked spec decisions. | Change gate-owned park/decision doors, `loop/run/engine.py`, inbox/answer handling, run/watch rehearsals. New tests for visible piece records. | CR-10, CR-12, CR-17. | M |
-| CR-16. Account for reviewer spend and reserve shared budgets. | Unreadable reviewer cost uses a conservative bound. Concurrent workers cannot reserve the same remaining cap. A caller mutation dropping the budget argument fails. Waiting for the person is visible. | Change `loop/run/engine.py`, `loop/run/review.py`, shared budget records and engine/review tests. | CR-17; before CR-22 and L8. | L |
+| CR-16. Account for reviewer spend and reserve shared budgets. | Unreadable reviewer cost uses a conservative bound. Concurrent workers cannot reserve the same remaining cap. A caller mutation dropping the budget argument fails. Waiting for the person is visible. | Change `loop/run/engine.py`, `loop/run/review.py`, shared budget records and engine/review tests. | CR-17; before L8. CR-22 ships independently in the preview. | L |
 | CR-17. Acquire one atomic project lock. | Two processes with different run names race: exactly one starts. A crash/restart recovers the recorded owner safely without admitting two runs. | Change `loop/paths.py`, `loop/run/record.py`, `kit/scripts/run.py`, lock/unit/run rehearsals. | None; before L1. | M |
-| CR-18. Run complete checks on trial and final trees. | Hidden cross-piece conflict fails at the trial; the combined branch stays unchanged. An unrelated project regression fails final checks after docs/changelog even when every selected judge passes. Run any existing validator on that exact tree. | Change `loop/run/integrate.py`, integration/final-check tests and fixtures. | CR-08, CR-11, CR-14. | M |
+| CR-18. Run complete checks on trial and final trees. | Hidden cross-piece conflict fails at the trial; the combined branch stays unchanged. An unrelated project regression fails final checks after docs/changelog even when every selected judge passes. Run any existing validator on that exact tree. | Change `loop/run/integrate.py`, integration/final-check tests and fixtures. | CR-08 for preview; CR-11 and CR-14 remain 0.2 repairs. | M |
 | CR-19. Trim stacked pieces with a trustworthy base. | A dependent's trim runs and can only remove/fold its added code; test edits or a failed re-run discard the scratch trim without moving the piece branch. Exercise multiple dependency bases. | Change `loop/run/engine.py`, `loop/trim.py`, trim/engine/integration tests. | CR-06, CR-15, CR-18. | M |
 | CR-20. Distinguish an existing runner from a proposed command. | Existing-runner setup creates no needless scaffold. An empty project with a future test command can build only its verified scaffold; normal runner checks remain required afterwards. | Change `kit/scripts/setup.py`, pre-run and ready gates, setup/pre-run rehearsals. | F2, CR-10; serialize with ready repairs. | M |
 | CR-21. Scan known secret shapes in commit messages. | Safe synthetic secret shapes in messages refuse both scan points without printing values; clean messages pass without gitleaks. Keep limits for ambiguous or split values explicit. | Change `kit/scripts/secret-scan.py`, `test_secret_scan.py`, secret-scan rehearsal. | None. | S |
-| CR-22. Permit exactly the reviewer's new findings output. | With the prior output moved aside, the reviewer can create its one new findings file and cannot write unrelated files. Stand-ins prove rendering; V2 proves real dontAsk enforcement. | Change `kit/templates/reviewer-settings.json`, session/review renderer, review/settings tests. Protected changes need maintainer permission. | CR-02, CR-16. | M |
+| CR-22. Permit exactly the reviewer's new findings output. | With the prior output moved aside, the reviewer can create its one new findings file and cannot write unrelated files. Stand-ins prove rendering; V2 proves real dontAsk enforcement. | Change `kit/templates/reviewer-settings.json`, session/review renderer, review/settings tests. Protected changes need maintainer permission. | CR-02 for preview; CR-16 remains a 0.2 repair. | M |
 
 The holders remain the gate's validated evidence and independent hook/settings
 or sandbox layers where relevant. CR-03's parser is not a proof of arbitrary
@@ -323,7 +357,7 @@ Their tests and exact files must be refined during shaping.
 | Q1. Close missing real-gate rehearsals. | Prove ready blocked-by with the App stand-in and a real link, attempt exhaustion and no-improvement routing, plus multiple-dependency stacking. Each tests the actual gate rather than replacing it with a hub. | `tests/ready-gate.sh`, run/attempt/integration rehearsals and fixtures. | CR-08, CR-13, CR-19, L7 for metric early-stop. | M |
 | Q2. Align the authoritative format and examples. | Make page/package classification explicit, refuse invalid Checked dates rather than fallback, align design/format examples, correct the stale hosting-request maintainer skill and builder's absent Done-when/main-merge instructions. Fixtures follow the single parser. | `kit/spec-format.md`, `loop/spec.py`, spec/design examples, `kit/briefs/builder.md`, `.agents/maintainer-skills/stack-research/SKILL.md`; narrow unused lint ignores if proved unnecessary. | CR-04, CR-12, CR-13. | M |
 | Q3. Assemble judges from controlled inputs. | A builder's source change cannot replace base bar/test-runner inputs or gain hidden access. Plant known plugin/config bypasses and test an explicit source allowlist in a separate judge checkout. Document supported boundaries rather than promising to parse arbitrary code. | bar/judge/session assembly, `tests/judge-runner.sh`, sandbox fixtures. | CR-02, CR-06, CR-08, CR-11, CR-18. | L |
-| Q4. Distribution and reproducible version state. | Choose private/public distribution with the maintainer. A generated check can obtain the kit without builders receiving broader credentials; founding placeholders are filled and the immutable kit ref resolves. Version state survives moving plugin roots. | setup/pre-run/version modules, plugin manifest, hosted template and installation/update fixtures through authorised routes. | F2, CR-02; maintainer distribution choice. | M |
+| Q4. Distribution and reproducible version state. | Use the maintainer's chosen public plugin from a pinned tagged release. A generated check can obtain the kit without builders receiving broader credentials; founding placeholders are filled and the immutable kit ref resolves. Version state survives moving plugin roots. | setup/pre-run/version modules, plugin manifest, hosted template and installation/update fixtures through authorised routes. | F2, CR-02; maintainer distribution choice. | M |
 | Q5. Attended hosted pieces and hosted records evidence. | Before App, hosted ready/claim dependency reads either work through a defined person route or park with an exact next line; sync alone is not proof. Hosted records checks receive closing pieces so missing changelog entries refuse. | ready/claim/GitHub read doors, hosted template, records fixtures. | F1, F2, CR-14, Q4; maintainer hosted-checks choice. | M |
 | Q6. Automatic coordinator handover. | Before context exhaustion, finish agents in flight, save state and pending needs, then resume in a fresh session without duplicate work or lost unsaved changes. A replay proves this separately from host restart survival in L1. | New coordinator handover/recovery helper, run-summary/state contract, replay fixture and documented person invocation. Exact integration surface is a shaping decision. | CR-15, CR-17, L1, L4. | M |
 | Q7. Harden the real-smoke fixtures offline. | Hidden source copies outside the held-out store remain unreadable to builders. Prove safe placement and real-mode prerequisites with stand-ins before selecting the V1 candidate head. No live execution in this piece. | `tests/smoke/run-real.sh`, smoke fixtures and safe-placement tests. | CR-02, CR-11, L1. | M |
@@ -359,7 +393,11 @@ or worktree removal is automatic, and unsaved work always stays.
 ## Skills hardening before release
 
 **H1. Goal.** Review every shipped skill against all 17 decided principles
-and the prior skills audit, after the command/gate changes settle.
+and the prior skills audit, after the current track's command and gate changes
+settle. The preview pass covers every shipped preview skill. Repeat it when
+later skills or commands change. CR-01's unfinished holder repairs and
+CR-04's installed-command gaps stay open and disclosed; the preview pass cannot claim those principles pass mechanical
+conformance before their holders are repaired.
 
 **Test.** Write and preserve normal, edge and refusal scenarios before changing
 each skill. Mutations exercise every static lint rule and actual holders;
@@ -372,32 +410,35 @@ estimated tokens without introducing a new numeric cap. Obtain the person's
 authorisation for paid model runs; a written eval is not executed evidence.
 
 **Files.** `kit/skills/`, their `evals/` and references, check-skills mutations,
-script contracts and the skills audit record. **Dependencies.** All CR pieces,
+script contracts and the skills audit record. **Dependencies.** For preview:
+CI0, all preview CR pieces and Q4. For the final v1.0 pass: all CR pieces,
 L1 to L10 and Q2; Q5 if it changes skill instructions. **Size.** L, split by
 skill with a final cross-skill consistency review. **Held by.** Static lint,
 contract tests, independently checked holders and scenario graders. Real
 validator/eval capability must be verified before choosing the command; record
-an unsupported tool as a gap rather than assuming a green run.
+an unsupported tool as a gap rather than assuming a green run. Missing real
+scenario evidence keeps H1 and its release gate open. The maintainer must
+authorise and supply that execution; agents do not substitute stand-ins or a
+written eval for it.
 
 ## Maintainer choices before validation
 
-**GitHub checks and cost.** Decide whether this kit repository will re-enable
-hosted workflows, retain local checks with an enforced post-merge main gate, or
-use another explicit checked route. Specify who pays and the required check
-set. No checks is never green, including for pre-approved merges. Test the
-chosen path on the exact head and prove stale main or missing checks refuses.
-The existing manual-dispatch workflow is not evidence it actually ran.
+**GitHub checks and cost.** The maintainer chose hosted checks on 8 October.
+CI0 may edit this repository's v1-checks workflow only, enabling pull-request
+and main-push triggers alongside manual dispatch. It must prove the hosted
+check green on its own pull request. Later pull requests need both local and
+hosted checks green. This grants no repository-setting permission and changes
+no other workflow. No checks is never green, including for pre-approved merges.
 
 This choice is separate from F2/Q5's generated-project hosted checks and L2's
-post-deploy health Action, which has to work with the laptop off. Agents may
-prepare templates and tests only through the permitted route. The maintainer
-authorises repository settings and workflow activation; this plan switches
-nothing on.
+post-deploy health Action, which has to work with the laptop off. Templates and
+service actions still require their own permitted route.
 
-**Distribution and safety.** Decide how a private project obtains an immutable
-kit release, confirm the stable machine-local version home and accept no
-broader builder credentials as a shortcut. Review the settings changes needed
-for CR-02/CR-22 and updates. Confirm the unresolved Proposed choices in the
+**Distribution and safety.** The maintainer chose a public Claude Code plugin
+from a pinned tagged release on 8 October. Q4 tests that route without broader
+builder credentials and confirms the stable machine-local version home. The
+maintainer makes the repository public, tags and publishes. Review the
+settings changes needed for CR-02/CR-22 and updates. Confirm the unresolved Proposed choices in the
 inventory above, the duplicate/refusal behaviour and human label reconciliation.
 Resolve any unavailable working-hours integration rather than replacing the
 decided notification behaviour silently.
@@ -411,16 +452,32 @@ This is the speed-up housekeeping left open, not a product fix R2 can claim.
 
 ### V1. Offline release rehearsal
 
-**Goal.** Prove the repaired core and all v1.0 capabilities hold together.
-**Test.** Run required local checks with skip accounting, supported Python 3.10,
-fresh lint and every judge-kind end-to-end case on throwaway projects. Cover
-attended manual completion and App completion, exact tested heads, trial clashes,
-stale main, all fourteen move refusals, guard removal one layer at a time,
-anti-gaming cases, docs/changelog final checks, budgets/locks, deploy rollback,
-notifications, lessons and host-independent resume. A failure opens a shaped
-repair and the release gate stays closed. Retain scratch and evidence safely.
+**Goal.** Prove the preview's attended scope holds together at its immutable
+candidate head. Repeat the full rehearsal when preparing v1.0.
+
+**Test for preview.** Run required local and hosted checks with skip accounting,
+Python 3.10 and fresh lint. Exercise acceptance and reproducing-test pieces,
+attended manual completion, exact tested heads, trial clashes, stale main,
+all existing move-refusal regressions, guard removal one layer at a time,
+frozen-bar and anti-gaming checks, docs/changelog final checks,
+complete judge evidence, final project checks and the atomic project lock.
+Prove unsupported measurement/reference routes and unattended runs before the
+App still refuse. Test public pinned installation without broad credentials.
+Retain existing stand-in regressions, but an App stand-in is not evidence that
+the App, deployment or real enforcement ships in the preview. Record the 0.2
+findings as deferred limitations, never as repaired or passing conformance.
+
+**Full v1.0 repeat.** After all later pieces, add every judge-kind end-to-end
+case, App completion, all fourteen move refusals, complete records semantics,
+reviewer/shared budgets, deploy rollback, notifications, lessons and
+host-independent resume. Run this at the candidate head before V2.
+
+A failure opens a shaped repair and the relevant release gate stays closed.
+Retain scratch and evidence safely.
 **Files.** Release rehearsal fixtures/report and affected end-to-end tests.
-**Dependencies.** F2, all CR/L/Q pieces, H1 and maintainer choices.
+**Dependencies.** For preview: F2, CI0, all preview CR pieces, Q4, H1 and the
+maintainer's distribution choice. For the full v1.0 repeat: all CR/L/Q pieces
+and the final H1 pass.
 **Size.** M. **Held by.** Executed required checks and independent fresh review
 on the candidate immutable head; no skipped check is claimed as a pass.
 
@@ -455,10 +512,15 @@ gate evidence. R2 does not run the real Claude command or this smoke script.
 
 ### Release actions for the maintainer
 
-Before publication, review the closed repair evidence, L1 to L10, H1, V1 and
-V2, and any amended design decisions. Select the plugin version and immutable
-kit ref; rehearse installation/update from that candidate into a fresh project,
-including private checkout if the repository stays private. Check credits,
+For preview publication, review its closed repair evidence, preview H1 and V1,
+and the documented deferred findings. REL0.1 prepares the files; the maintainer
+makes the repository public, enables private vulnerability reporting, tags
+v0.1.0 and publishes. No agent performs those service changes.
+
+Before v1.0 publication, review the closed repair evidence, L1 to L10, the final
+H1 and V1 passes, V2, and any amended design decisions. Select the plugin
+version and immutable kit ref; rehearse installation/update from that candidate into a fresh project,
+through the public pinned-release route chosen for the preview. Check credits,
 licence, support/limitations and release notes. A merge or green offline suite
 alone does not declare the kit ready.
 
@@ -467,9 +529,9 @@ The maintainer then gives separate explicit yeses, each naming the action:
 1. **Publish v1.0.** Approve the exact version and candidate head, create the
    immutable release/tag and publish the reviewed artefacts and notes. Verify
    their ref and a clean installation afterwards. No agent releases by default.
-2. **Make the repository public, if chosen.** Review tracked history for secrets
-   and private material, credits and the intended access change first. Public
-   visibility is optional and needs its own yes, not an implication of release.
+2. **Make the repository public for the preview.** Review tracked history for
+   secrets and private material, credits and the intended access change first.
+   The maintainer performs the chosen action; agents do not change visibility.
 3. **Enable private vulnerability reporting.** Confirm availability for the
    chosen repository visibility/plan and the receiving maintainer, then change
    the repository setting with a named yes and verify the reporting route.
