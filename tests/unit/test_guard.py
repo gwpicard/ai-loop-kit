@@ -1331,6 +1331,18 @@ class OpaqueCommands(Cases):
 class ResumedOpaqueCommands(Cases):
     """The two remaining findings, including quoting and wrapper controls."""
 
+    def test_optional_xargs_values_keep_the_command(self) -> None:
+        for option in ("--replace", "--eof", "--max-lines", "--replace={}",
+                       "--eof=STOP", "--max-lines=2"):
+            for command, kind in (
+                ("git push origin main", DENY),
+                ('"$TOOL" status', ASK),
+                ("env GIT_CONFIG_COUNT=1 git status", ASK),
+                ("git status", ALLOW),
+            ):
+                with self.subTest(option=option, command=command):
+                    self.expect(f"xargs {option} {command}", kind)
+
     def test_supported_long_wrappers_ask(self) -> None:
         for command in (
             'timeout --signal TERM 5 "$TOOL" status',
