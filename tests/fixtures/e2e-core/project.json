@@ -1,0 +1,26 @@
+{
+  "scaffold": {
+    "bug.py": "def total(items: list[int]) -> int | None:\n    return sum(items) if items else None\n",
+    "tests/test_scaffold.py": "from bug import total\n\ndef test_scaffold() -> None:\n    assert total([2, 3]) == 5, 'FL-1 the test command runs; EC-1 it works on a clean copy'\n"
+  },
+  "feature": {
+    "greeting.py": "def greet(name: str) -> str:\n    return 'Hello ' + (name or 'friend')\n"
+  },
+  "bug": {
+    "bug.py": "def total(items: list[int]) -> int:\n    return sum(items)\n"
+  },
+  "judges": {
+    "feature": "import importlib.util\nimport importlib\n\ndef test_greeting() -> None:\n    module = importlib.import_module('greeting') if importlib.util.find_spec('greeting') else None\n    value = module.greet('Ada') if module else None\n    assert value == 'Hello Ada', 'FL-1 the greeting names the person'\n    assert module.greet('') == 'Hello friend', 'EC-1 an empty name means friend'\n",
+    "bug": "from bug import total\n\ndef test_empty_total() -> None:\n    assert total([]) == 0, 'FL-1 the empty total is zero'\n    assert total([2, 3]) == 5, 'EC-1 non-empty totals keep their sum'\n"
+  },
+  "held": {
+    "feature": {
+      "FL-1": "from greeting import greet\n\ndef test_other_name() -> None:\n    assert greet('Grace') == 'Hello Grace'\n",
+      "EC-1": "from greeting import greet\n\ndef test_empty_name() -> None:\n    assert greet('') == 'Hello friend'\n"
+    },
+    "bug": {
+      "FL-1": "from bug import total\n\ndef test_empty_list() -> None:\n    assert total([]) == 0\n",
+      "EC-1": "from bug import total\n\ndef test_negative_number() -> None:\n    assert total([-3, 5]) == 2\n"
+    }
+  }
+}

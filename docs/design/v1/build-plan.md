@@ -595,7 +595,9 @@ With no App credential, nothing is pushed or opened on GitHub: the run stops at 
 - Before the App: the run is attended. The GitHub steps (labels, comments, the pull request) wait for the person, each with its `next:` line. The test runs those commands by hand against the GitHub stand-in, as the person would. An unattended run and a pre-approved merge are each refused, naming the second half of `/setup`.
 - With the stand-in App credential, as the second half would leave it: the run is unattended, runs both pieces with the Claude stand-in, joins, reviews and opens the pull request as the App, and the person merges on the GitHub stand-in.
 
-In both cases both pieces end done, the changelog holds two entries, and the records check passes. `tests/smoke/run-real.sh` does the same with the real `claude` and a real test App on a tiny project, by hand only. It covers the App path.
+After merging the scaffold, the person sets the policy’s test command to the runner that now exists.
+
+With the App, both pieces end done, the changelog holds two new entries, and the records check passes. Before the App, the rehearsal covers the current waiting path and a manual merge. It records the completion gap as a follow-up: queue sync does not advance a waiting pull request entry, and a manual merge is not adopted into the local records. The pieces remain in review, although their changes are merged and their records check passes. This scope was agreed by the maintainer on 8 October 2026. `tests/smoke/run-real.sh` does the same with the real `claude` and a real test App on a tiny project, by hand only. It covers the App path.
 
 **Files.**
 - New: `tests/e2e-core.sh`; `tests/smoke/run-real.sh`; `tests/fixtures/e2e-core/`.
