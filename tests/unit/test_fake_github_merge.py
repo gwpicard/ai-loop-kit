@@ -79,10 +79,6 @@ class PersonMainMove(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FailedRemoteMerge(unittest.TestCase):
     def test_conflict_prints_git_output_and_keeps_clone(self):
         import contextlib
@@ -156,6 +152,7 @@ class ScratchEvidence(unittest.TestCase):
         (raw / "data").mkdir()
         (raw / "data/app-key.pem").write_text("private fixture key\n")
         (raw / "other.txt").write_text("-----BEGIN PRIVATE KEY-----\nprivate fixture key\n")
+        (raw / "gh-state.json").write_text('{"app_tokens": ["private-token"]}\n')
         (raw / "gh.log").write_text("Authorization: Bearer private-token\n")
         (raw / "project/.git/objects/ab/object").write_bytes(b"compressed-secret-fixture")
         (raw / "origin.git/objects/object").write_bytes(b"compressed-secret-fixture")
@@ -181,3 +178,7 @@ class ScratchEvidence(unittest.TestCase):
         ]:
             self.assertNotIn(value, text)
         self.assertTrue((raw / "data/app-key.pem").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()
