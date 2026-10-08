@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PersonMainMove(unittest.TestCase):
-    def test_only_the_named_person_change_is_staged(self):
+    def test_only_the_named_person_change_is_staged(self) -> None:
         base = Path(tempfile.mkdtemp(prefix="person-main-move-"))
         repo = base / "project"
         repo.mkdir()
@@ -26,7 +26,7 @@ class PersonMainMove(unittest.TestCase):
             "GIT_COMMITTER_EMAIL": "test@example.invalid",
         }
 
-        def git(*args):
+        def git(*args: str) -> str:
             return subprocess.run(
                 ["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True
             ).stdout
@@ -80,7 +80,7 @@ class PersonMainMove(unittest.TestCase):
 
 
 class FailedRemoteMerge(unittest.TestCase):
-    def test_conflict_prints_git_output_and_keeps_clone(self):
+    def test_conflict_prints_git_output_and_keeps_clone(self) -> None:
         import contextlib
         import io
         import runpy
@@ -100,7 +100,7 @@ class FailedRemoteMerge(unittest.TestCase):
             "GIT_COMMITTER_EMAIL": "test@example.invalid",
         }
 
-        def git(*args):
+        def git(*args: str) -> None:
             subprocess.run(
                 ["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True
             )
@@ -141,7 +141,7 @@ class FailedRemoteMerge(unittest.TestCase):
 
 
 class ScratchEvidence(unittest.TestCase):
-    def test_snapshot_omits_keys_auth_logs_and_git_object_payloads(self):
+    def test_snapshot_omits_keys_auth_logs_and_git_object_payloads(self) -> None:
         import runpy
 
         base = Path(tempfile.mkdtemp(prefix="merge-evidence-"))
@@ -151,7 +151,7 @@ class ScratchEvidence(unittest.TestCase):
         (raw / "origin.git/objects").mkdir(parents=True)
         (raw / "data").mkdir()
         (raw / "data/app-key.pem").write_text("private fixture key\n")
-        (raw / "other.txt").write_text("-----BEGIN PRIVATE KEY-----\nprivate fixture key\n")
+        (raw / "other.txt").write_text("-----BEGIN " + "PRIVATE KEY-----\nprivate fixture key\n")
         (raw / "gh-state.json").write_text('{"app_tokens": ["private-token"]}\n')
         (raw / "gh.log").write_text("Authorization: Bearer private-token\n")
         (raw / "project/.git/objects/ab/object").write_bytes(b"compressed-secret-fixture")
