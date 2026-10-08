@@ -355,7 +355,8 @@ class Settings(Base):
                                        paths=paths, worktree=self.worktree, handoff_file=handoff)
         self.assertIn(str(actual), data["sandbox"]["filesystem"]["denyWrite"], "CR-02")
         for tool in ("Edit", "Write"):
-            for relative in ("scripts/gate.py", "hooks/guard.py", "templates/builder-settings.json"):
+            for relative in ("scripts/gate.py", "hooks/guard.py",
+                             "templates/builder-settings.json"):
                 self.assertTrue(matcher.file_denied(data["permissions"]["deny"], tool,
                                                     str(actual / relative), str(self.worktree),
                                                     str(self.project)), "CR-02")

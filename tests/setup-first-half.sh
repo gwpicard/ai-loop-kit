@@ -468,9 +468,10 @@ E=$(cat "$OUT")
 js "$E" '"AGENTS.md" in d["kept"]' | grep -q true || fail "AGENTS.md is not reported as kept"
 js "$E" '".githooks/pre-push" in d["kept"]' | grep -q true || fail "the existing hook is not reported as kept"
 grep -q 'next:' "$TP_BASE/err.txt" 2>/dev/null || true
-python3 - "$TP_ROOT/.claude/settings.json" <<'PY' || fail "the person's settings were not kept"
+python3 - "$TP_ROOT/.claude/settings.json" "$KIT" <<'PY' || fail "the person's settings were not kept"
 import json, sys
 s = json.load(open(sys.argv[1]))
+kit = sys.argv[2]
 assert "Bash(curl:*)" in s["permissions"]["deny"]
 assert s["permissions"]["allow"] == ["Bash(npm test:*)"]
 assert s["model"] == "mine"
