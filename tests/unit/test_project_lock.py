@@ -110,7 +110,7 @@ class ProjectLockTest(LockCase):
         winner = children[results.index("admitted")]
         loser = children[results.index("refused")]
         loser.wait(timeout=10)
-        project_lock = self.paths.runs_dir / "project.lock"
+        project_lock = self.paths.runs_dir / ".project.lock"
         owner = json.loads(project_lock.read_text())
         self.assertEqual(owner["pid"], winner.pid)
         self.assertEqual(owner["run"], names[results.index("admitted")])
@@ -139,7 +139,7 @@ class ProjectLockTest(LockCase):
         self.send(child)
         self.assertEqual(json.loads(self.line(child)),
                          {"status": record.BUILT, "branch": "saved-work"})
-        project_lock = self.paths.runs_dir / "project.lock"
+        project_lock = self.paths.runs_dir / ".project.lock"
         self.assertTrue(project_lock.exists(), "CR-17: admission must have a project lock")
         inode = project_lock.stat().st_ino
         child.kill()
@@ -169,6 +169,15 @@ class ProjectLockTest(LockCase):
                 record.acquire_lock(self.paths, "third")
         finally:
             next_lock.release()
+
+    def test_owner_write_failure_releases_admission_and_its_mirror(self) -> None:
+        with (patch.object(os, "fsync", side_effect=OSError("owner write failed")),
+              self.assertRaises(record.LockHeld)):
+            record.acquire_lock(self.paths, "failed-write")
+        self.assertFalse(self.paths.lock_file("failed-write").exists(),
+                         "CR-17: failed admission must not leave a live PID mirror")
+        lock = record.acquire_lock(self.paths, "successor")
+        lock.release()
 
     def test_different_projects_are_independent(self) -> None:
         other = Paths.for_project(self.folder / "other", data_base=self.folder / "data")
@@ -203,7 +212,8 @@ class RunAdmissionRecordTest(LockCase):
     def test_run_created_during_preflight_is_resumed(self) -> None:
         self.check_reload(already_exists=False)
 
-    def check_reload(self, *, already_exists: bool, changed_order: bool = False) -> None:
+    def check_reload(self, *, already_exists: bool, changed_order: bool = False,
+                     changed_infos: bool = False) -> None:
         module = run_module()
         if already_exists:
             record.RunRecord.create(self.paths, "saved", [1], attended=True,
@@ -228,6 +238,9 @@ class RunAdmissionRecordTest(LockCase):
             self.assertEqual(admitted.status(1), record.BUILT,
                              "CR-17: admission must reload finished-piece state")
             self.assertEqual(admitted.data["starts"], 8)
+            if changed_infos:
+                self.assertEqual(args[4][0].title, "fresh title",
+                                 "CR-17: engine inputs must be refreshed under admission")
             return SimpleNamespace(run=lambda: SimpleNamespace(
                 status=record.FINISHED, data={}, code=0, next_command="read summary"))
 
@@ -236,6 +249,8 @@ class RunAdmissionRecordTest(LockCase):
         args = parser.parse_args(["--run", "saved"])
         args.dry_run = False
         info = SimpleNamespace(number=1, title="piece", issue="piece URL", areas={"code"})
+        fresh_info = SimpleNamespace(number=1, title="fresh title", issue="piece URL",
+                                     areas={"fresh area"})
         with (patch.object(module, "_paths", return_value=self.paths),
               patch.object(module, "_numbers", return_value=[1]),
               patch.object(module, "_policy", return_value={"min_free_memory_mb": 0,
@@ -246,7 +261,9 @@ class RunAdmissionRecordTest(LockCase):
               patch.object(module, "_pre_run_check", side_effect=preflight),
               patch.object(module, "_first_command", return_value=["stand-in"]),
               patch.object(module.github, "GitHub"),
-              patch.object(module.engine, "read_infos", return_value=[info]),
+              patch.object(module.engine, "read_infos",
+                           side_effect=[[info], [fresh_info]] if changed_infos else None,
+                           return_value=[info]),
               patch.object(module.engine, "Engine", side_effect=engine_factory),
               patch.object(module.plan, "make_plan", return_value=SimpleNamespace(as_dict=dict))):
             if changed_order:
@@ -259,3 +276,6 @@ class RunAdmissionRecordTest(LockCase):
 
     def test_changed_run_order_refuses_before_engine(self) -> None:
         self.check_reload(already_exists=True, changed_order=True)
+
+    def test_run_refreshes_engine_inputs_under_admission(self) -> None:
+        self.check_reload(already_exists=True, changed_infos=True)
