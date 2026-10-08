@@ -153,7 +153,8 @@ class Rehearsal:
             checked(local.is_file() and json.loads(local.read_text()).get("github_app"),
                     "E2E-REAL configure the installed test App first")
         result = self.data("python3", str(self.kit / "scripts/setup.py"), "found",
-                           "--language", "python", "--billing-mode", "subscription",
+                           "--language", "python", "--test-command", "python3 -m pytest -q",
+                           "--billing-mode", "subscription",
                            "--repo-visibility", "private", "--plan", "free", "--kit-ref", "main",
                            "--json")
         if not self.real:
