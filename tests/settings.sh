@@ -400,6 +400,37 @@ wired(c.get("hooks"), "SessionStart", "session-start.sh", "the settings template
 
 # --- merging keeps the person's rules ----------------------------------------------
 merge = root / "kit" / "scripts" / "merge-settings.py"
+# CR-02: the public merge CLI renders the same canonical root as setup and sessions.
+Path(kit).mkdir(parents=True)
+kit_link = Path(base, "installed-kit")
+kit_link.symlink_to(kit, target_is_directory=True)
+canonical_target = Path(base, "canonical-settings.json")
+canonical_args = [sys.executable, str(merge), str(T / "claude-settings.json"),
+                  str(canonical_target), "--set", "KIT_DIR=" + str(kit_link)]
+canonical_merge = subprocess.run(canonical_args, capture_output=True, text=True,
+                                 env=guard_env, check=False)
+if canonical_merge.returncode:
+    fail("CR-02 the direct symlink-root merge failed: " + canonical_merge.stderr)
+else:
+    canonical_text = canonical_target.read_text()
+    canonical_settings = json.loads(canonical_text)
+    if "Edit(/" + kit + "/**)" not in canonical_settings["permissions"]["deny"]:
+        fail("CR-02 direct merge CLI lacks the canonical installed-root Edit deny")
+    if kit not in canonical_settings["sandbox"]["filesystem"].get("denyWrite", []):
+        fail("CR-02 direct merge CLI lacks the canonical installed-root sandbox block")
+    if str(kit_link) in canonical_text or "{{" in canonical_text:
+        fail("CR-02 direct merge CLI retains a symlink alias or placeholder")
+    repeated = subprocess.run(canonical_args, capture_output=True, text=True,
+                              env=guard_env, check=False)
+    if repeated.returncode or canonical_target.read_text() != canonical_text:
+        fail("CR-02 direct canonical merge is not idempotent")
+relative_target = Path(base, "relative-settings.json")
+relative_merge = subprocess.run(
+    [sys.executable, str(merge), str(T / "claude-settings.json"), str(relative_target),
+     "--set", "KIT_DIR=relative-kit"], capture_output=True, text=True, env=guard_env, check=False)
+if relative_merge.returncode == 0 or relative_target.exists() or "KIT_DIR" not in relative_merge.stderr:
+    fail("CR-02 direct merge CLI does not refuse a relative kit root before writing")
+
 mine = Path(base, "mine.json")
 mine.write_text(json.dumps({
     "permissions": {"allow": ["Bash(npm test:*)"], "deny": ["Bash(npm publish:*)"],
