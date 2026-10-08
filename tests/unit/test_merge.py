@@ -1677,6 +1677,21 @@ class ManualCompletion(Running):
         self.assertEqual(made.record_manual("main", number, self.gate)["state"], "merged")
         self.assertEqual(self.pushed, [])
 
+    def test_the_gate_refuses_manual_check_evidence_without_the_person(self) -> None:
+        self.build([10])
+        self.gate.env = {"CLAUDECODE": "1"}
+        self.gate.terminal = lambda: True
+        before = self.gate.piece(1).record
+        with self.assertRaises(moves.MoveError):
+            self.gate.record_manual_main_check(1, pull_request=7, merge_commit="a" * 40,
+                                               main_moved=True, green=True)
+        self.gate.env = {}
+        self.gate.terminal = lambda: False
+        with self.assertRaises(moves.MoveError):
+            self.gate.record_manual_main_check(1, pull_request=7, merge_commit="a" * 40,
+                                               main_moved=True, green=True)
+        self.assertEqual(self.gate.piece(1).record, before)
+
     def test_a_different_head_is_refused_before_any_state_change(self) -> None:
         self.build([10])
         made = self.person_step()

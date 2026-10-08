@@ -721,6 +721,21 @@ class Gate:
             return "person"
         return ""
 
+    def record_manual_main_check(
+        self, number: int, *, pull_request: int, merge_commit: str,
+        main_moved: bool, green: bool,
+    ) -> None:
+        """Record project checks for the person's already merged tree."""
+        if self.merge_authority() != "person":
+            raise MoveError("only a person at a terminal can record manual merge checks",
+                            next_command="record the manual merge in your terminal")
+        piece = self.piece(number)
+        evidence.append(self.paths, piece.number, [{
+            "kind": "main-check", "pull_request": pull_request,
+            "merge_commit": merge_commit, "main_moved": main_moved,
+            "tested_commit_merged": True, "result": "green" if green else "red",
+        }])
+
     def _check(
         self,
         move: states.Move,

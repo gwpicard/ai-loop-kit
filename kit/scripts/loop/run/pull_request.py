@@ -752,14 +752,12 @@ class PullRequests:
                                              "configure the policy's test command and try again")
                 result = judge.run(command, self.root, pr.merge_commit,
                                    time_limit=int(self.policy.get("test_timeout_seconds", 600)))
-                main_check = {"kind": "main-check", "pull_request": number,
-                              "merge_commit": pr.merge_commit, "main_moved": bool(behind),
-                              "tested_commit_merged": True,
-                              "result": "green" if result.get("exit_code") == 0 and
-                              not result.get("timed_out") else "red"}
+                green = result.get("exit_code") == 0 and not result.get("timed_out")
                 for piece in pieces:
-                    evidence.append(self.paths, piece, [main_check])
-                if main_check["result"] != "green":
+                    gate.record_manual_main_check(piece, pull_request=number,
+                                                  merge_commit=pr.merge_commit,
+                                                  main_moved=bool(behind), green=green)
+                if not green:
                     raise PullRequestRefusal("the person's merged tree failed its project checks",
                                              "tell the person; capture a bug piece for the failure")
         for piece in pieces:
