@@ -1328,5 +1328,127 @@ class OpaqueCommands(Cases):
         self.refused('env --chdir . git push origin main')
 
 
+class ResumedOpaqueCommands(Cases):
+    """The two remaining findings, including quoting and wrapper controls."""
+
+    def test_supported_long_wrappers_ask(self) -> None:
+        for command in (
+            'timeout --signal TERM 5 "$TOOL" status',
+            'timeout --signal=TERM 5 env GIT_CONFIG_COUNT=1 git status',
+            'sudo --user root "$TOOL" status',
+            'sudo --user root GIT_CONFIG_COUNT=1 git status',
+            "sh -c 'timeout --signal TERM 5 env GIT_CONFIG_COUNT=1 git status'",
+            'timeout --kill-after 2 5 "$TOOL" status',
+            'nice --adjustment 5 "$TOOL" status',
+            'stdbuf --output L "$TOOL" status',
+            'xargs --max-args 1 "$TOOL" status',
+            'timeout --sig TERM 5 "$TOOL" status',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_literal_graphql_variables_pass(self) -> None:
+        for command in (
+            (
+                "gh api graphql -f 'query=query($login: String!) { user(login: $login) { "
+                "login } }' -F login=octocat"
+            ),
+            (
+                "gh api graphql --raw-field='query=query($login: String!) { user(login: $"
+                "login) { login } }' -F login=octocat"
+            ),
+            (
+                'gh api graphql -f "query=query(\\$login: String!) { user(login: \\$login) '
+                '{ login } }" -F login=octocat'
+            ),
+            (
+                'env -S "gh api graphql -f \'query=query(\\$login: String!) { user(login: \\'
+                '$login) { login } }\' -F login=octocat"'
+            ),
+            'timeout --signal TERM 5 git status',
+            'sudo --user root git status',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ALLOW)
+
+    def test_real_shell_expansion_still_asks(self) -> None:
+        for command in (
+            (
+                'gh api graphql -f "query=query($login: String!) { user(login: $login) { '
+                'login } }" -F login=octocat'
+            ),
+            (
+                "gh api graphql -f 'query=query($login: String!) { user(login: $login) { "
+                'login } }\' -F login="$LOGIN"'
+            ),
+            'gh api graphql -f \'query=query($login: String!)\'"$EXTRA"',
+            'sh -c "gh api graphql -f \'query=$QUERY\'"',
+            'env -S "gh api graphql -f \'query=$QUERY\'"',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_known_mutations_still_refuse(self) -> None:
+        for command in (
+            'timeout --signal TERM 5 git push origin main',
+            'sudo --user root git push --force origin piece-1',
+            (
+                "gh api graphql -f 'query=mutation($id: ID!) { mergePullRequest(input: {p"
+                "ullRequestId: $id}) { clientMutationId } }' -F id=fake"
+            ),
+            (
+                "gh api graphql -f 'query=mutation($id: ID!) { addLabelsToLabelable(input"
+                ": {labelableId: $id}) { clientMutationId } }' -F id=fake"
+            ),
+        ):
+            with self.subTest(command=command):
+                self.expect(command, DENY)
+
+    def test_nested_quoting_and_marker_inputs(self) -> None:
+        for command, kind in (
+            (
+                (
+                    'sh -c \'gh api graphql -f \'"\'"\'query=query($login: String!) { user'
+                    '(login: $login) { login } }\'"\'"\' -F login=octocat\''
+                ),
+                ALLOW,
+            ),
+            (
+                (
+                    'eval \'gh api graphql -f \'"\'"\'query=query($login: String!) { user('
+                    'login: $login) { login } }\'"\'"\' -F login=octocat\''
+                ),
+                ALLOW,
+            ),
+            (
+                (
+                    'env --split-string=\'gh api graphql -f \'"\'"\'query=query($login: St'
+                    'ring!) { user(login: $login) { login } }\'"\'"\' -F login=octocat\''
+                ),
+                ALLOW,
+            ),
+            (
+                (
+                    'eval "gh api graphql -f \'query=$QUERY\'"'
+                ),
+                ASK,
+            ),
+            (
+                (
+                    'gh api graphql -f "query=\ue000\ue001$QUERY"'
+                ),
+                ASK,
+            ),
+            (
+                (
+                    "gh api graphql -f 'query=mutation($id: ID!) { mergePullRequest(in"
+                    'put: {pullRequestId: $id}) { clientMutationId } }\' -F id="$ID"'
+                ),
+                DENY,
+            ),
+        ):
+            with self.subTest(command=command):
+                self.expect(command, kind)
+
 if __name__ == "__main__":
     unittest.main()
