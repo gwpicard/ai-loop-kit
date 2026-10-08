@@ -343,6 +343,39 @@ class Settings(Base):
         command = f"{sessions.handoff_command(self.kit)} done --summary finished"
         self.assertTrue(matcher.any_match(data["permissions"]["allow"], command))
 
+    def test_symlinked_marketplace_root_protects_the_canonical_kit_and_handoff(self) -> None:
+        actual = self.base / "home/.claude/plugins/cache/marketplace/ai-loop-kit/0.1.0"
+        actual.mkdir(parents=True)
+        actual = actual.resolve()
+        link = self.base / "installed-kit"
+        link.symlink_to(actual, target_is_directory=True)
+        paths = Paths.for_project(self.project, data_base=self.base / "data", kit_folder=link)
+        handoff = paths.run_dir("night-1") / "handoff-p7-a1.json"
+        data = sessions.render_settings(self.kit / "templates/builder-settings.json",
+                                       paths=paths, worktree=self.worktree, handoff_file=handoff)
+        self.assertIn(str(actual), data["sandbox"]["filesystem"]["denyWrite"], "CR-02")
+        for tool in ("Edit", "Write"):
+            for relative in ("scripts/gate.py", "hooks/guard.py", "templates/builder-settings.json"):
+                self.assertTrue(matcher.file_denied(data["permissions"]["deny"], tool,
+                                                    str(actual / relative), str(self.worktree),
+                                                    str(self.project)), "CR-02")
+        self.assertFalse(matcher.file_denied(data["permissions"]["deny"], "Edit",
+                                             str(self.worktree / "src/app.py"),
+                                             str(self.worktree), str(self.project)), "CR-02")
+        command = f"{sessions.handoff_command(link)} done --summary finished"
+        self.assertTrue(matcher.any_match(data["permissions"]["allow"], command), "CR-02")
+        self.assertIn(str(actual / "scripts/handoff.py"), command, "CR-02")
+        self.assertEqual(data["sandbox"]["filesystem"]["allowWrite"], [str(handoff)], "CR-02")
+        self.assertNotIn(str(link), json.dumps(data), "CR-02")
+
+    def test_relative_kit_root_is_refused_before_canonicalisation(self) -> None:
+        paths = Paths.for_project(self.project, data_base=self.base / "data",
+                                  kit_folder=Path("relative-kit"))
+        with self.assertRaisesRegex(sessions.SessionError, "KIT_DIR"):
+            sessions.render_settings(self.kit / "templates/builder-settings.json", paths=paths,
+                                     worktree=self.worktree,
+                                     handoff_file=self.paths.run_dir("night-1") / "handoff.json")
+
     def test_the_settings_wire_the_hooks_from_the_kit(self) -> None:
         text = self.plan().settings_file.read_text()
         self.assertIn(f"{self.kit}/hooks/guard.py", text)

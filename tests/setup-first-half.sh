@@ -59,8 +59,12 @@ snap() {
 # and a data folder with no App key in it.
 new_project() {
   tp_new "$1"
-  KIT="$TP_BASE/plugin"
+  KIT="$TP_BASE/home/.claude/plugins/cache/marketplace/ai-loop-kit/0.1.0"
+  mkdir -p "$(dirname -- "$KIT")"
   cp -R "$ROOT/kit" "$KIT"
+  KIT=$(cd "$KIT" && pwd -P)
+  KIT_LINK="$TP_BASE/installed-kit"
+  ln -s "$KIT" "$KIT_LINK"
   TP_DATA2="$TP_BASE/data-no-app"
   mkdir -p "$TP_DATA2"
   AI_LOOP_KIT_DATA="$TP_DATA2"
@@ -165,7 +169,7 @@ run_setup found --dry-run
 ok "--dry-run lists what it would write and writes nothing"
 
 # The real run, with a test command so the pre-run check can pass later.
-run_setup found --test-command "sh -c 'exit 0'" --billing-mode subscription \
+run_setup found --kit-dir "$KIT_LINK" --test-command "sh -c 'exit 0'" --billing-mode subscription \
   --repo-visibility private --plan paid --language node
 [ "$CODE" -eq 0 ] || { cat "$ERR"; fail "found failed (got $CODE)"; }
 FOUND=$(cat "$OUT")
@@ -200,6 +204,8 @@ s = json.load(open(sys.argv[1]))
 kit = sys.argv[2]
 assert s["sandbox"]["enabled"] is True
 assert "Bash(git push -f:*)" in s["permissions"]["deny"]
+assert "Edit(/" + kit + "/**)" in s["permissions"]["deny"], "CR-02 installed-root Edit deny"
+assert kit in s["sandbox"]["filesystem"]["denyWrite"], "CR-02 installed-root sandbox block"
 cmd = json.dumps(s["hooks"]["SessionStart"])
 assert kit + "/scripts/session-start.sh" in cmd, cmd
 PY
@@ -469,6 +475,8 @@ assert "Bash(curl:*)" in s["permissions"]["deny"]
 assert s["permissions"]["allow"] == ["Bash(npm test:*)"]
 assert s["model"] == "mine"
 assert "Bash(git push -f:*)" in s["permissions"]["deny"]
+assert "Edit(/" + kit + "/**)" in s["permissions"]["deny"], "CR-02 installed-root Edit deny"
+assert kit in s["sandbox"]["filesystem"]["denyWrite"], "CR-02 installed-root sandbox block"
 assert s["sandbox"]["enabled"] is True
 PY
 head -2 "$TP_ROOT/.gitignore" | grep -q '^build/$' || fail "the person's ignore lines moved"

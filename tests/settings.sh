@@ -103,10 +103,10 @@ work = os.path.join(main, ".agents", "worktrees", "w1")
 git("worktree", "add", "-q", work, "-b", "piece-1")
 # The kit's throwaway env file in the worktree, which a builder may read.
 Path(work, ".env").write_text(guard_module.THROWAWAY_MARKER + "\nPORT=3000\n")
-guard_env = {"PATH": os.environ["PATH"], "HOME": home, "AI_LOOP_KIT_DATA": os.path.join(base, "data"),
+kit = os.path.join(home, ".claude", "plugins", "cache", "marketplace", "ai-loop-kit", "0.1.0")
+guard_env = {"CLAUDE_PLUGIN_ROOT": kit, "PATH": os.environ["PATH"], "HOME": home, "AI_LOOP_KIT_DATA": os.path.join(base, "data"),
              "AI_LOOP_KIT_RUN": "night-1", "PYTHONDONTWRITEBYTECODE": "1"}
 paths = loop_paths.Paths.for_project(Path(main), env=guard_env)
-kit = os.path.join(home, ".claude", "plugins", "cache", "ai-loop-kit")
 values = {"main": main, "work": work, "home": home, "data": str(paths.data_dir), "kit": kit}
 render_values = {"PROJECT_ROOT": main, "WORKTREE": work, "KIT_DIR": kit,
                  "DATA_DIR": str(paths.data_dir),
@@ -137,7 +137,10 @@ def expand(text):
 def attended_only(rule):
     """A rule for the person's own session. A builder's own worktree holds a throwaway .env, so
     the builder settings name the main folder's real path instead of these floating shapes."""
-    return rule.startswith("Read(//**/.env") or re.fullmatch(r"Bash\(\w+ \*\.env\*\)", rule) is not None
+    return rule in {"Read(//**/.env)", "Read(//**/.env.*)"} or rule in {
+        "Bash(%s *.env*)" % command
+        for command in ("cat", "head", "tail", "less", "more", "grep", "rg", "sed", "awk", "bat", "cp", "source")
+    }
 
 
 def layer1(template, tool, text):
@@ -173,6 +176,25 @@ def guard(tool, text):
         return "ask"
     return "none" if result.returncode == 0 else "fault"
 
+
+# CR-02: inspect each template's own rules, without inherited attended denies.
+for name in ("claude-settings", "builder-settings"):
+    node = rendered[name]
+    own_deny = node["permissions"]["deny"]
+    for tool in ("Edit", "Write"):
+        for relative in ("scripts/gate.py", "hooks/guard.py", "templates/builder-settings.json"):
+            target = os.path.join(kit, relative)
+            if not matcher.file_denied(own_deny, tool, target, work, main, home):
+                fail("CR-02 %s lacks its own installed-root %s deny for %s" % (name, tool, relative))
+    if kit not in node["sandbox"]["filesystem"].get("denyWrite", []):
+        fail("CR-02 %s lacks its own installed-root sandbox write block" % name)
+    if matcher.file_denied(own_deny, "Edit", work + "/src/app.py", work, main, home):
+        fail("CR-02 %s blocks ordinary source edits" % name)
+    if "~/.claude/plugins/cache/ai-loop-kit" in json.dumps(node):
+        fail("CR-02 %s retains the guessed plugin-cache protection" % name)
+
+if attended_only("Bash(unexpected *.env*)") or attended_only("Read(//**/.env-backup)"):
+    fail("CR-02 the attended-only exemption hides an unrelated guard")
 
 # --- the two-layer table ---------------------------------------------------------
 single = 0
