@@ -19,7 +19,8 @@ def snapshot(source: Path, destination: Path) -> None:
         if (
             "objects" in relative.parts
             or "data" in relative.parts
-            or path.name in {"gh.log", "config", "index", "local.json", "credentials"}
+            or path.name
+            in {"gh.log", "gh-state.json", "config", "index", "local.json", "credentials"}
             or path.suffix in {".pem", ".key", ".pack", ".idx"}
         ):
             continue
