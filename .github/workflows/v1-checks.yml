@@ -12,7 +12,7 @@ jobs:
     # The gate names this repository only.
     if: github.repository == 'gwpicard/ai-loop-kit'
     # The computer stand-ins model macOS tools used by the pre-run check.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -22,6 +22,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
+      - name: Check the offline test path
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            echo "Remove real Claude from the test PATH, then rerun." >&2
+            exit 1
+          fi
       - name: Install check tools
         run: |
           python3 -m pip install pytest==8.4.2 ruff==0.15.12 mypy==1.17.1
