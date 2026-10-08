@@ -1365,8 +1365,8 @@ class Running(test_moves.Base):  # type: ignore[misc, unused-ignore]
             self.addCleanup(patch.stop)
         self.numbers: list[int] = []
 
-    def build(self, sizes: Sequence[int], *, track: str = "main", branch: str = "combined-r1"
-              ) -> list[int]:
+    def build(self, sizes: Sequence[int], *, track: str = "main", branch: str = "combined-r1",
+              early_doc: bool = False) -> list[int]:
         r = self.repo
         numbers: list[int] = []
         for size in sizes:
@@ -1375,11 +1375,14 @@ class Running(test_moves.Base):  # type: ignore[misc, unused-ignore]
             numbers.append(number)
             r.branch(f"piece-{number}")
             r.commit(f"src/piece{number}.txt", "line\n" * size)
+            if early_doc and len(numbers) == 1:
+                r.commit("docs/reports.md", "- the docs (piece 1)\n", "Docs")
             r.git("checkout", "-q", "main")
         r.branch(branch, "main")
         for number in numbers:
             r.join(f"piece-{number}", number)
-        self.head = r.commit("docs/reports.md", "- the docs (piece 1)\n", "Docs")
+        self.head = r.commit("docs/other.md" if early_doc else "docs/reports.md",
+                             "- the docs (piece 1)\n", "Docs")
         r.git("checkout", "-q", "main")
         if track != "main":
             self.tracks.pop("main", None)
@@ -1663,6 +1666,8 @@ class ManualCompletion(Running):
         self.repo.git("merge", "--no-ff", entry["branch"], "-m", "Person merged")
         self.pulls.view_of[number] = dataclasses.replace(
             self.pulls.view_of[number], merge_commit=self.repo.git("rev-parse", "HEAD"))
+        self.repo.git("push", "-q", "origin", "main")
+        self.repo.git("fetch", "-q", "origin", "main")
         self.assertEqual(made.record_manual("main", number, self.gate)["state"], "merged")
         for piece in numbers:
             saved = self.gate.piece(piece)
@@ -1686,7 +1691,7 @@ class ManualCompletion(Running):
         self.assertEqual(self.gate.piece(1).state, "review")
         self.assertEqual(made.entries()[0]["state"], "waiting")
 
-    def merged_manual(self) -> tuple[pr_loop.PullRequests, int]:
+    def merged_manual(self, *, published: bool = True) -> tuple[pr_loop.PullRequests, int]:
         self.build([10])
         made = self.person_step()
         made.open_all()
@@ -1698,6 +1703,9 @@ class ManualCompletion(Running):
         self.pulls.view_of[number] = dataclasses.replace(
             self.pulls.view_of[number], state="MERGED",
             merge_commit=self.repo.git("rev-parse", "HEAD"))
+        if published:
+            self.repo.git("push", "-q", "origin", "main")
+            self.repo.git("fetch", "-q", "origin", "main")
         made.policy = {"test_command": "python3 -m pytest -q"}
         return made, number
 
@@ -1738,6 +1746,87 @@ class ManualCompletion(Running):
         with self.assertRaises(pr_loop.PullRequestRefusal):
             made.record_manual("main", number, self.gate)
         self.assertEqual(self.gate.piece(1).state, "review")
+
+    def split_manual(self, *, early_doc: bool = False
+                     ) -> tuple[pr_loop.PullRequests, list[dict[str, Any]]]:
+        self.build([30, 30], early_doc=early_doc)
+        made = self.person_step()
+        made.policy = {"pull_request_size_limit": 40}
+        made.open_all()
+        entries = made.entries()
+        self.assertEqual(len(entries), 2)
+        return made, entries
+
+    def open_manual(self, entry: Mapping[str, Any]) -> int:
+        number, _ = self.pulls.create(base=entry["base"], head=entry["branch"], title="Manual",
+                                      body=Path(entry["body_file"]).read_text())
+        return number
+
+    def person_merge(self, entry: Mapping[str, Any], number: int, *, target: str) -> None:
+        self.repo.git("checkout", "-q", target)
+        self.repo.git("merge", "--no-ff", entry["branch"], "-m", "Person merged")
+        self.pulls.view_of[number] = dataclasses.replace(
+            self.pulls.view_of[number], state="MERGED",
+            merge_commit=self.repo.git("rev-parse", "HEAD"))
+        if target == "main":
+            self.repo.git("push", "-q", "origin", "main")
+            self.repo.git("fetch", "-q", "origin", "main")
+
+    def test_a_merge_into_the_preceding_branch_cannot_complete_a_piece(self) -> None:
+        made, entries = self.split_manual()
+        second = entries[1]
+        number = self.open_manual(second)
+        self.person_merge(second, number, target=second["base"])
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            made.record_manual(second["key"], number, self.gate)
+        self.assertEqual(self.gate.piece(2).state, "review")
+
+    def test_manual_parts_register_and_complete_after_retargeting_to_main(self) -> None:
+        made, entries = self.split_manual()
+        first, second = entries
+        first_number = self.open_manual(first)
+        made.record_manual(first["key"], first_number, self.gate)
+        self.person_merge(first, first_number, target="main")
+        made.record_manual(first["key"], first_number, self.gate)
+        second_number = self.open_manual(second)
+        self.pulls.set_base(second_number, "main")
+        self.assertEqual(made.record_manual(second["key"], second_number, self.gate)
+                         ["state"], "open")
+        self.person_merge(second, second_number, target="main")
+        self.assertEqual(made.record_manual(second["key"], second_number, self.gate)
+                         ["state"], "merged")
+        self.assertEqual([self.gate.piece(n).state for n in (1, 2)], ["done", "done"])
+
+    def test_later_manual_parts_keep_docs_changed_only_in_the_first_part(self) -> None:
+        made, entries = self.split_manual(early_doc=True)
+        first, second = entries
+        first_number = self.open_manual(first)
+        made.record_manual(first["key"], first_number, self.gate)
+        second_number = self.open_manual(second)
+        self.assertEqual(made.record_manual(second["key"], second_number, self.gate)
+                         ["state"], "open")
+
+    def test_the_recorded_merge_must_reach_fetched_origin_main(self) -> None:
+        made, number = self.merged_manual(published=False)
+        with (mock.patch.object(judge, "run", return_value={"exit_code": 0}),
+              self.assertRaises(pr_loop.PullRequestRefusal)):
+            made.record_manual("main", number, self.gate)
+        self.assertEqual(self.gate.piece(1).state, "review")
+
+    def test_the_real_cli_refuses_an_agent_marker_even_with_a_terminal(self) -> None:
+        self.build([10])
+        self.person_step().open_all()
+        env = {**os.environ, "CLAUDECODE": "1",
+               "PYTHONPATH": str(ROOT / "kit/scripts") + os.pathsep +
+               os.environ.get("PYTHONPATH", "")}
+        result = subprocess.run([
+            sys.executable, str(ROOT / "tests/lib/as-person.py"), sys.executable,
+            "-m", "loop.run.pull_request", "record-manual", "--run", self.run_name,
+            "--pull-request", "7", "--dry-run", "--json"], cwd=self.paths.root,
+            env=env, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn("only the person", result.stderr)
+
 
 
 class MergingPullRequests(Running):

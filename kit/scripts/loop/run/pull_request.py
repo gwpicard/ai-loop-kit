@@ -620,6 +620,8 @@ class PullRequests:
                 "base": part.base, "since": _must(self.root, "read the base commit",
                                                   "rev-parse", part.since),
                 "stack_head": stack_head,
+                "stack_since": _must(self.root, "read the stack base", "merge-base",
+                                      MAIN, stack_head),
                 "base_pr": base_pr if base_pr is not None else "",
                 "pieces": ",".join(str(n) for n in part.pieces),
                 "stack": ",".join(str(n) for n in stack), "stack_branch": branch}
@@ -694,12 +696,28 @@ class PullRequests:
             raise PullRequestRefusal("this entry already records a different pull request",
                                      f"python3 -m loop.run.pull_request status --run {self.name}")
         pr = self.api.view(number)
+        if int(entry["part"]) > 1:
+            predecessor = next((e for e in self.entries(str(entry["track"]))
+                                if int(e["part"]) == int(entry["part"]) - 1), None)
+            if predecessor is None or not predecessor.get("pull_request"):
+                raise PullRequestRefusal("record the preceding manual pull request first",
+                                         "record-manual --key <preceding key> --pull-request N")
+            previous_number = int(predecessor["pull_request"])
+            previous = self.api.view(previous_number)
+            if (pr.state == "MERGED" or pr.base == MAIN) and (
+                    predecessor.get("state") != "merged" or previous.state != "MERGED" or
+                    previous.head_oid != predecessor["head"]):
+                raise PullRequestRefusal("the preceding tested pull request has not reached done",
+                                         "record the preceding manual merge first")
+            entry["base_pr"] = previous_number
         opening = merge_gate.Opening({**entry, "pull_request": number})
-        faults = merge_gate.online_faults(pr, opening)
+        faults = merge_gate.online_faults(pr, opening, merging=True)
         if pr.state == "MERGED":
             faults = [f for f in faults if f != "the pull request is merged, not open"]
             if not pr.merge_commit:
                 faults.append("GitHub gave no merge commit")
+            if pr.base != MAIN:
+                faults.append("the pull request merged into another branch, not main")
         if entry.get("state") != "merged":
             faults += merge_gate.offline_faults(self.paths, opening, title=pr.title,
                                                 body=pr.body, manual=True)
@@ -709,6 +727,13 @@ class PullRequests:
         pieces = self._pieces_of(entry)
         if pr.state == "MERGED" and entry.get("state") != "merged":
             try:
+                remote_main = "refs/remotes/origin/main"
+                _must(self.root, "read fetched origin/main", "rev-parse", "--verify", remote_main)
+                if _git(self.root, "merge-base", "--is-ancestor", pr.merge_commit,
+                        remote_main)[0] != 0:
+                    raise PullRequestRefusal("the recorded merge is not on fetched origin/main",
+                                             "in your terminal, git fetch origin main; then "
+                                             "record the manual merge again")
                 parent = merge_gate._must(self.root, "read the fetched merge commit",
                                           "rev-parse", f"{pr.merge_commit}^1")
                 behind = merge_gate.moved(self.root, opening.head, [parent])
@@ -752,7 +777,8 @@ class PullRequests:
                 gate.move(piece, "done")
             self.record.update(piece, pull_request=number, pr_key=key, github_next="")
         state = "merged" if pr.state == "MERGED" else "open"
-        self._set(key, pull_request=number, url=pr.url, state=state, waits="", next="")
+        self._set(key, pull_request=number, url=pr.url, state=state, waits="", next="",
+                  base_pr=entry.get("base_pr") or "")
         self._name_the_run_pull_request(str(entry["track"]), number)
         self.record.note(f"The person recorded pull request {number}: {state}.")
         return {"key": key, "pull_request": number, "state": state, "pieces": pieces}
@@ -1110,7 +1136,7 @@ def _handle(args: argparse.Namespace) -> dict[str, Any]:
         dry = bool(getattr(args, "dry_run", False))
         if args.command == "record-manual":
             person = github.GitHub(paths, as_person=True)
-            gate = moves.Gate(paths, person)
+            gate = moves.Gate(paths, person, env=os.environ)
             if gate.merge_authority() != "person":
                 raise PullRequestRefusal("only the person records their manual pull request "
                                          "in their own terminal", "tell the person to run it")

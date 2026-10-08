@@ -218,7 +218,7 @@ def issues_of(paths: Paths, numbers: Sequence[int]) -> dict[int, int]:
 # --- what a pull request holds ----------------------------------------------------------------
 
 OPENING_OPTIONS = ("run", "track", "part", "parts", "pull_request", "branch", "head", "base",
-                   "since", "stack_head", "base_pr", "pieces", "stack")
+                   "since", "stack_head", "base_pr", "pieces", "stack", "stack_since")
 
 
 class Opening:
@@ -241,6 +241,7 @@ class Opening:
             self.head = str(data["head"])
             self.base = str(data["base"])
             self.since = str(data["since"])
+            self.stack_since = str(data.get("stack_since") or self.since)
             self.stack_head = str(data["stack_head"])
             self.base_pr = int(data["base_pr"]) if str(data.get("base_pr", "")).strip() else None
             self.pieces = _numbers(data["pieces"])
@@ -252,7 +253,8 @@ class Opening:
 
     @classmethod
     def from_options(cls, options: Mapping[str, str]) -> Opening:
-        missing = [name for name in OPENING_OPTIONS if name not in options]
+        missing = [name for name in OPENING_OPTIONS
+                   if name not in options and name != "stack_since"]
         if missing:
             raise Unreadable(f"move 10 needs the options {', '.join(missing)}",
                              "the run's pull request step gives them: python3 -m "
@@ -267,6 +269,7 @@ class Opening:
         return {"kind": KIND, "run": self.run, "track": self.track, "part": self.part,
                 "parts": self.parts, "pull_request": self.number, "branch": self.branch,
                 "head": self.head, "base": self.base, "since": self.since,
+                "stack_since": self.stack_since,
                 "stack_head": self.stack_head,
                 "base_pr": self.base_pr if self.base_pr is not None else "",
                 "pieces": self.pieces, "stack": self.stack}
@@ -313,7 +316,7 @@ def offline_faults(paths: Paths, opening: Opening, *, title: str, body: str,
         faults.append(f"piece {', '.join(str(n) for n in absent)} is not joined in the tested "
                       "commit")
     specs = piece_specs(paths, opening.stack)
-    faults += doc_faults(root, opening.stack_head, specs, opening.since if manual else "")
+    faults += doc_faults(root, opening.stack_head, specs, opening.stack_since if manual else "")
     issues = issues_of(paths, opening.pieces)
     try:
         commits = closing.commits_between(str(root), opening.since, opening.head)

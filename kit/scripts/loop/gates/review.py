@@ -3,11 +3,13 @@
 The run's pull request step asks for this move after it opened the pull request, once for each
 piece the pull request holds, and gives the facts as options (`merge.OPENING_OPTIONS`). The gate
 does not take them on trust. It reads the run record and Git, and it reads the pull request from
-GitHub as the App. It passes only when:
+GitHub as the App. The manual completion door reads as the person and may record a request
+they already merged. It passes only when:
 
 - the final combined check was green on the head of the branch the pull request is cut from;
 - the review of the track was clean on that head, and the verdict of each piece is clean;
-- the pull request is open, its head is the tested commit, and its base is the one said;
+- the pull request is open (or already merged through the manual door), its head is the tested
+  commit, and its base is the one said;
 - the tested commit holds each piece's join, and the branch points at it;
 - every doc a piece names was changed, and no closing word stands anywhere but on a `Closes`
   line, one line for each piece.
@@ -32,7 +34,7 @@ def check(ctx: CheckContext) -> CheckResult:
                            f"--run {opening.run}")
         pr = merge_gate.pulls_for(ctx).view(opening.number)
         manual = ctx.person_github and ctx.authority == "person"
-        online = merge_gate.online_faults(pr, opening)
+        online = merge_gate.online_faults(pr, opening, merging=manual)
         if manual and pr.state == "MERGED":
             online = [f for f in online if f != "the pull request is merged, not open"]
         faults = online + merge_gate.offline_faults(

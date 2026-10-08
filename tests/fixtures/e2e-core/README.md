@@ -19,7 +19,9 @@ commands. The person runs `python3 -m loop.run.pull_request record-manual
 --run NAME --pull-request N` in their terminal to record the actual pull
 request and its merge. Fetch `origin/main` before recording a merge. If main
 moved or the merged tree differs, the project checks must pass on that tree.
-The gate checks the tested commit, review and final
+The recorded merge must be on fetched `origin/main`. Stacked requests are
+recorded in part order; a later request can retarget to main after its
+predecessor reaches done. The gate checks the tested commit, review and final
 checks, records the merge as the person's action, and moves each piece to done.
 An agent or a pipe cannot use this command. Repeating it is safe.
 
