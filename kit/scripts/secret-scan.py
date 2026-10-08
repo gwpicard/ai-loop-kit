@@ -8,10 +8,12 @@ Two ways to call it, both read-only:
     secret-scan.py --range "A..B"      every commit in a range, as a push sends them
 
 Without an option it scans what is staged. It reads only the lines a change
-adds. It finds known key shapes and long strings with high entropy. It also
-runs `gitleaks` when that tool is installed, and says so when it is not.
+adds, and known key shapes in each commit message of a range. It finds long
+strings with high entropy in added file lines. It also runs `gitleaks` when
+that tool is installed, and says so when it is not.
 
-A finding names the file, the line and the kind. It never holds the value.
+A finding names the file or commit message, the line and the kind. It never
+holds the value.
 There is no allow-list to edit. A real hit is removed from the change.
 """
 
@@ -55,8 +57,14 @@ in that shape is not caught.
 gitleaks. When gitleaks is installed, it runs too. If it fails or writes no
 report that can be read, the scan fails closed with exit 4.
 
+Commit messages. Every commit selected by --range is checked, including empty
+and merge commits. Known key shapes and explicitly labelled AWS secret access
+keys refuse the scan. Findings name the commit and message line, never its
+text. Arbitrary high-entropy prose and unlabelled ambiguous strings in messages
+are not checked by the built-in scan. --staged scans added file lines only;
+it has no proposed commit message to read.
+
 What the scan does not catch, and the later layer meant to cover it:
-  - a secret in a commit message: not covered yet.
   - a secret split across lines: not covered yet. Only gitleaks, when it is
     installed, can see some of these.
   - a plain `password = "..."` value with no known shape and low entropy: not
@@ -65,8 +73,7 @@ What the scan does not catch, and the later layer meant to cover it:
   - a 64-character hex value, for example from a token generator: not covered
     yet. Its entropy is at most 4.0 bits, below the limit, which also keeps Git
     hashes safe.
-The pre-push hook and the gate's push step (P11) run this same scan. Until P11
-lands, the hook is the only layer.
+The pre-push hook and the gate's push step run this same range scan.
 """
 
 # Known shapes, most specific first. A line gets one finding.
@@ -267,6 +274,27 @@ def diff_range(root: Path, spec: str) -> str:
     return git(root, "log", "-p", "--format=", *DIFF_FLAGS, *range_words(spec), "--")
 
 
+
+def scan_messages(root: Path, spec: str) -> list[Finding]:
+    """Read messages separately from patches, including empty and merge commits.
+
+    A commit hash identifies each message without trusting delimiters in its
+    text. Only known shapes are checked; entropy in ordinary prose is outside
+    this scan's scope. No finding retains the message or a matched value.
+    """
+    findings: list[Finding] = []
+    commits = git(root, "rev-list", *range_words(spec), "--").splitlines()
+    for commit in commits:
+        message = git(root, "show", "--no-patch", "--format=%B", commit, "--")
+        for line_no, line in enumerate(message.splitlines(), 1):
+            kind = next((name for name, pattern in PATTERNS if pattern.search(line)), None)
+            if kind is None and AWS_SECRET_KEYWORD.search(line):
+                kind = "aws-secret-key"
+            if kind is not None:
+                findings.append(Finding(f"commit-message:{commit}", line_no, kind))
+    return findings
+
+
 def run_gitleaks(root: Path, spec: str | None) -> tuple[str, list[Finding]]:
     """Run gitleaks when it is installed. Returns its state and its findings."""
     exe = shutil.which("gitleaks")
@@ -325,6 +353,8 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
     spec: str | None = args.range
     diff = diff_staged(root) if spec is None else diff_range(root, spec)
     findings = scan_diff(diff)
+    if spec is not None:
+        findings.extend(scan_messages(root, spec))
     state, extra = run_gitleaks(root, spec)
     for finding in extra:
         if finding not in findings:

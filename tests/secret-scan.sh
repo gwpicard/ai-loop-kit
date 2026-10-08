@@ -98,6 +98,42 @@ ok "the range scan gives the same refusal"
 (cd "$TP_ROOT" && python3 "$SCAN" --json --range="main..clean" >/dev/null) || fail "the range scan refused a clean range"
 ok "a clean range passes"
 
+# --- CR-21: a message-only secret meets both scan points without gitleaks ---
+# Keep only required tools on PATH for these cases, so a host gitleaks cannot
+# supply the protection being tested.
+mkdir "$TP_BASE/scan-bin"
+for tool in python3 git sh dirname; do
+  ln -s "$(command -v "$tool")" "$TP_BASE/scan-bin/$tool"
+done
+SCAN_PATH="$TP_BASE/scan-bin"
+git -C "$TP_ROOT" checkout -q clean
+git -C "$TP_ROOT" checkout -q -b message-leak
+printf 'Synthetic message\n\ncontext\n%s\n' "$KEY" > "$TP_BASE/message.txt"
+git -C "$TP_ROOT" commit -q --allow-empty --file "$TP_BASE/message.txt"
+MESSAGE_HEAD=$(git -C "$TP_ROOT" rev-parse HEAD)
+if PATH="$SCAN_PATH" git -C "$TP_ROOT" push -q origin message-leak 2>"$TP_BASE/message-push.err"; then
+  fail "CR-21: the hook allowed a message-only secret"
+fi
+grep -q "commit-message:$MESSAGE_HEAD:4" "$TP_BASE/message-push.err" || fail "CR-21: hook must identify the message line"
+grep -q 'github-token' "$TP_BASE/message-push.err" || fail "CR-21: hook must name the kind"
+grep -q 'gitleaks is not installed' "$TP_BASE/message-push.err" || fail "CR-21: test must run without gitleaks"
+if grep -q "$KEY" "$TP_BASE/message-push.err"; then fail "CR-21: hook printed a value"; fi
+if git -C "$TP_BASE/origin.git" rev-parse -q --verify refs/heads/message-leak >/dev/null; then
+  fail "CR-21: message-only secret reached the remote"
+fi
+if (cd "$TP_ROOT" && PATH="$SCAN_PATH" python3 "$SCAN" --json --range="main..message-leak" >"$TP_BASE/message-range.out" 2>"$TP_BASE/message-range.err"); then
+  fail "CR-21: gate range scan allowed a message-only secret"
+else
+  code=$?
+fi
+[ "$code" -eq 3 ] || fail "CR-21: message range must exit 3"
+grep -q "commit-message:$MESSAGE_HEAD" "$TP_BASE/message-range.out" || fail "CR-21: range must name commit"
+grep -q '"line": 4' "$TP_BASE/message-range.out" || fail "CR-21: range must name line"
+if grep -q "$KEY" "$TP_BASE/message-range.out" "$TP_BASE/message-range.err"; then fail "CR-21: range printed a value"; fi
+(cd "$TP_ROOT" && PATH="$SCAN_PATH" python3 "$SCAN" --json --range="main..clean" >"$TP_BASE/message-clean.out") || fail "CR-21: clean message range must pass"
+grep -q '"gitleaks": "not installed"' "$TP_BASE/message-clean.out" || fail "CR-21: clean range must work without gitleaks"
+ok "CR-21: both scan points refuse message-only secrets without printing values"
+
 # --- a missing scan stops the push, and no override opens it ----------------
 mv "$TP_ROOT/kit/scripts/secret-scan.py" "$TP_ROOT/kit/scripts/secret-scan.py.away"
 git -C "$TP_ROOT" checkout -q clean
