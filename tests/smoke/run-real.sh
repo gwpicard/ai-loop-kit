@@ -4,7 +4,8 @@
 # The project must have only README.md tracked, a clean working tree, a GitHub
 # origin, and its test App already configured in .agents/loop/local.json.
 # It must be a disposable test repository with no production services.
-# The person reviews and merges each pull request on GitHub when prompted.
+# The person reviews and merges founding, scaffold, policy and piece pull
+# requests on GitHub when prompted. No commit is pushed directly to main.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 [ "${AI_LOOP_KIT_REAL_SMOKE:-}" = 1 ] && [ -t 0 ] && [ -t 1 ] || {

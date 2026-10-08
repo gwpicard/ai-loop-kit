@@ -163,9 +163,21 @@ class Rehearsal:
                 "E2E-EMPTY founding does not pretend a runner exists")
         with (self.project / "docs/area-map").open("a") as out:
             out.write("tests/ project-records\n")
+        if self.real:
+            self.call("git", "checkout", "-b", "smoke-foundation")
         self.call("git", "add", "-A")
         self.call("git", "commit", "-m", "Found the tiny project")
-        self.call("git", "push", "origin", "main")
+        if self.real:
+            founding = self.call("git", "rev-parse", "HEAD").stdout.strip()
+            self.call("git", "push", "origin", "smoke-foundation")
+            input("Open a founding pull request from smoke-foundation, review and merge it "
+                  "on GitHub with a merge commit, then press Return: ")
+            self.call("git", "fetch", "origin", "main")
+            self.call("git", "merge-base", "--is-ancestor", founding, "origin/main")
+            self.call("git", "checkout", "main")
+            self.call("git", "merge", "--ff-only", "origin/main")
+        else:
+            self.call("git", "push", "origin", "main")
         if self.app:
             if not self.real:
                 app: dict[str, Any] = json.loads(
@@ -302,6 +314,14 @@ class Rehearsal:
                         for i in issues),
                     "E2E-DONE GitHub issues and labels")
             if self.app:
+                lines = self.github_calls().splitlines()
+                creates = [index for index, line in enumerate(lines)
+                           if line.startswith("CALL\tpr create ") and
+                           "--head " + entry["branch"] + " " in line]
+                actor = json.loads((ROOT / "tests/stand-ins/fake-app/app.json").read_text())
+                checked(len(creates) == 1 and lines[creates[0] + 1] ==
+                        "AS\t" + actor["slug"] + "[bot]",
+                        "E2E-APP the App opened this pull request")
                 checked(all(any(str(e["actor"]).endswith("[bot]") for e in i["events"])
                             for i in issues), "E2E-APP App writes the labels")
             else:
@@ -326,8 +346,10 @@ class Rehearsal:
         # for the later pieces, not a claim that the kit updates the policy itself.
         policy_path = self.project / ".agents/loop/policy.json"
         if self.real:
-            input("Set test_command in .agents/loop/policy.json to python3 -m pytest -q, "
-                  "commit that change, then press Return: ")
+            input("On GitHub, open and merge a pull request setting test_command in "
+                  ".agents/loop/policy.json to python3 -m pytest -q, then press Return: ")
+            self.call("git", "fetch", "origin", "main")
+            self.call("git", "merge", "--ff-only", "origin/main")
         else:
             configured = json.loads(policy_path.read_text())
             configured["test_command"] = "python3 -m pytest -q"
