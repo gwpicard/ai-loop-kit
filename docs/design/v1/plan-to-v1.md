@@ -47,7 +47,7 @@ workaround.
    core repair pieces with their dependencies below. All CR pieces block a
    claim that the core conforms.
 3. Build L1 to L10 in dependency order. Close the extra release pieces Q1 to
-   Q6 and the skills pass H1. Resolve the maintainer's open choices below.
+   Q7 and the skills pass H1. Resolve the maintainer's open choices below.
 4. Run the release rehearsal V1 and the authorised real validation V2.
    Repair or explicitly amend any remaining decided requirement before the
    maintainer makes the release decision.
@@ -57,19 +57,19 @@ are conservative starting groups, not permission to edit a shared module:
 
 | Group | Pieces that can run together | Serial work within the group |
 | --- | --- | --- |
-| A | CR-03, CR-05, CR-09, CR-17, CR-21 | Each has distinct hook, harness, fingerprint, lock or scanner files. |
+| A | CR-03, CR-05, CR-09, CR-17, CR-21 | CR-05 and CR-17 may share run rehearsals, so run them serially unless shaped files prove disjoint. The other pieces have distinct hook, fingerprint or scanner files. |
 | B | CR-01, CR-02, CR-06, CR-07, CR-08 | CR-06, CR-07 and CR-08 share attempt code or tests, so run them serially in that order. CR-02 needs a settings permission route. |
 | C | CR-10, CR-14, CR-16, CR-20 | CR-10 and CR-20 both touch ready; finish CR-10 first. CR-14 and CR-16 use separate records and spend code. |
 | D | CR-04, CR-11, CR-12, CR-13, CR-15, CR-18, CR-19, CR-22 | Ready repairs CR-11 to CR-13 are serial. CR-19 follows CR-15 and CR-18 and shares their engine/integration tests. Run CR-04 last because its inventory spans command doors. CR-22 follows CR-02 and CR-16. |
-| E | L7, L4, Q1 | L7 and L4 can start together after their CR dependencies. Q1 is test-only and must avoid their new rehearsals. |
-| F | L1, L10, Q2 | L1 needs security repairs; L10 follows CR-07 and CR-19. Q2 is docs-only. |
+| E | L7, L4, Q1 | L7 and L4 can start together after their CR dependencies. Finish L7 before Q1, whose test edits must avoid L4's rehearsals. |
+| F | L1, L10, Q2 | L1 needs security repairs; L10 follows CR-07 and CR-19. Q2 aligns the format, parser and briefs, with separate files from L1/L10. |
 | G | L2, L9, L6 | L2 follows L1. L9 and L6 can run together only if their needs/spec and lesson edits remain separate. |
 | H | L3, L8, Q3 | L3 follows L1/L2; L8 follows L7 and reviewer repairs. Q3 follows the safety repairs. |
-| I | L5, Q4, Q5 | Finish L6 before L5's lesson drift work. Q4/Q5 must not share setup or records files with L5. |
-| J | H1, Q6, V1, V2 | H1 follows all skills. Q6 may run beside H1. V1 follows both; V2 follows V1 and maintainer preparation. |
+| I | L5, Q4, Q5 | Finish Q4 before L5 or Q5. Finish L6 before L5's lesson drift work. L5/Q5 must run serially if setup or records files overlap. |
+| J | H1, Q6, Q7, V1, V2 | H1 follows all skills. Q6 and Q7 may run beside H1 only with disjoint files. V1 follows all three; V2 follows V1 and maintainer preparation. |
 
 Groups describe scheduling waves. A dependency in a piece's entry always wins
-over a group. When a planned file overlaps another piece, serialize or split
+over a group. When a planned file overlaps another piece, serialise or split
 the pieces rather than resolving cross-piece conflicts. Update this table
 after shaping determines the actual file sets.
 
@@ -277,7 +277,8 @@ provider choice/consent and reproduced checks for advisory findings.
 ### L9. Crews and fuller research refresh
 
 **Goal.** Research/design needs can use bounded crews; claims refresh stale
-findings without needless shaping when the confirmed answer leaves the spec.
+findings without needless shaping when the confirmed answer leaves the spec
+unchanged.
 
 **Test.** A research need launches distinct source readers; disagreement
 becomes a visible need until a further check or the person settles it. Design
@@ -325,6 +326,7 @@ Their tests and exact files must be refined during shaping.
 | Q4. Distribution and reproducible version state. | Choose private/public distribution with the maintainer. A generated check can obtain the kit without builders receiving broader credentials; founding placeholders are filled and the immutable kit ref resolves. Version state survives moving plugin roots. | setup/pre-run/version modules, plugin manifest, hosted template and installation/update fixtures through authorised routes. | F2, CR-02; maintainer distribution choice. | M |
 | Q5. Attended hosted pieces and hosted records evidence. | Before App, hosted ready/claim dependency reads either work through a defined person route or park with an exact next line; sync alone is not proof. Hosted records checks receive closing pieces so missing changelog entries refuse. | ready/claim/GitHub read doors, hosted template, records fixtures. | F1, F2, CR-14, Q4; maintainer hosted-checks choice. | M |
 | Q6. Automatic coordinator handover. | Before context exhaustion, finish agents in flight, save state and pending needs, then resume in a fresh session without duplicate work or lost unsaved changes. A replay proves this separately from host restart survival in L1. | New coordinator handover/recovery helper, run-summary/state contract, replay fixture and documented person invocation. Exact integration surface is a shaping decision. | CR-15, CR-17, L1, L4. | M |
+| Q7. Harden the real-smoke fixtures offline. | Hidden source copies outside the held-out store remain unreadable to builders. Prove safe placement and real-mode prerequisites with stand-ins before selecting the V1 candidate head. No live execution in this piece. | `tests/smoke/run-real.sh`, smoke fixtures and safe-placement tests. | CR-02, CR-11, L1. | M |
 
 The remaining R1 later concerns have these owners. Row numbers below refer to
 the review's inventory, never issue numbers:
@@ -434,17 +436,19 @@ Approve model cost, account access and each needed service/permission action.
 Prepare a clean main branch and the required checks/distribution route. Review
 the smoke's current prerequisites before approving execution.
 
-**Test.** Harden `tests/smoke/run-real.sh` so hidden source copies cannot be
-read by builders outside the held-out store; first prove the fixtures and safe
-placement offline. Then the maintainer runs that script in their own terminal
-with the real test App. Check actual installed paths, duplicate hook effects,
-reviewer output creation in dontAsk, held-out/guard read-write denial and lack
-of inherited personal/App credentials. Include an imported-code authority
+**Test.** Q7's offline smoke hardening must be part of the immutable candidate
+which passed V1 and independent review. The maintainer runs that exact version
+of `tests/smoke/run-real.sh` in their own terminal with the real test App.
+Check actual installed paths, duplicate hook effects, reviewer output creation
+in dontAsk, held-out read denial, guard write denial and lack of inherited
+personal/App credentials. Required tools remain readable/executable. Include an imported-code authority
 probe against throwaway credentials, never a real destructive action. Record
 the exact head, tools, results and limits without secrets. A failure is a
 release blocker requiring a shaped repair, not a reason to weaken a guard.
+Any smoke-code repair makes a new candidate which must pass V1 and fresh
+independent review before real execution resumes.
 
-**Files.** Smoke script/fixtures, authorised scenario evidence and release
+**Files.** Authorised scenario evidence and release
 validation report. **Dependencies.** V1, H1, L1 and maintainer preparation.
 **Size.** M. **Held by.** Real App scope, independent permissions/sandbox and
 gate evidence. R2 does not run the real Claude command or this smoke script.
