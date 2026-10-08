@@ -1393,7 +1393,7 @@ class Running(test_moves.Base):  # type: ignore[misc, unused-ignore]
         head = self.repo.git("rev-parse", f"refs/heads/{branch}")
         target = self.paths.run_record(self.run_name)
         target.parent.mkdir(parents=True, exist_ok=True)
-        data = json.loads(target.read_text()) if target.exists() else {
+        data: dict[str, Any] = json.loads(target.read_text()) if target.exists() else {
             "version": 1, "run": self.run_name, "order": [], "pieces": {}, "status": "finished",
             "merge_pre_approved": pre_approved, "decisions": [], "notes": [], "problems": [],
             "integration": {"final": {}, "worth_knowing": []},
