@@ -748,7 +748,9 @@ class Gate:
         ctx = CheckContext(number=number, move=move, origin=origin, target=target,
                            reason=reason, title=title, body=body, spec=parsed,
                            record=record, paths=self.paths, options=dict(options),
-                           authority=self.merge_authority())
+                           authority=self.merge_authority(),
+                           person_github=(self.merge_authority() == "person" and
+                                          bool(getattr(self.hub, "as_person", False))))
         result = check(ctx)
         if not result.ok:
             raise MoveError(

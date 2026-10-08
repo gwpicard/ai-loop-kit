@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "kit" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_moves  # type: ignore[import-not-found, unused-ignore]  # noqa: E402
-from loop import closing, evidence, github, moves, pulls, spec  # noqa: E402
+from loop import closing, evidence, github, judge, moves, pulls, spec  # noqa: E402
 from loop.gates import merge as merge_gate  # noqa: E402
 from loop.gates import recheck as recheck_gate  # noqa: E402
 from loop.gates import review as review_gate  # noqa: E402
@@ -1617,6 +1617,126 @@ class OpeningPullRequests(Running):
         self.pulls.fail_create = True
         with self.assertRaises(pr_loop.PullRequestRefusal):
             self.step().open_all()
+        self.assertEqual(self.gate.piece(1).state, "review")
+
+
+class ManualCompletion(Running):
+    def setUp(self) -> None:
+        super().setUp()
+        patch = mock.patch.object(merge_gate, "pulls_for", lambda ctx: self.pulls)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def person_step(self) -> pr_loop.PullRequests:
+        made = self.step(app=False)
+        self.gate.env = {}
+        self.gate.terminal = lambda: True
+        self.gate.hub.as_person = True
+        return made
+
+    def test_only_a_person_at_a_terminal_can_record_a_manual_pull_request(self) -> None:
+        self.build([10])
+        made = self.step(app=False)
+        made.open_all()
+        self.gate.env = {"CLAUDECODE": "1"}
+        self.gate.terminal = lambda: True
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            made.record_manual("main", 7, self.gate)
+        self.gate.env = {}
+        self.gate.terminal = lambda: False
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            made.record_manual("main", 7, self.gate)
+        self.assertEqual(self.pulls.created, [])
+        self.assertEqual(self.moves_made, [])
+
+    def test_a_person_records_their_open_pull_request_and_later_its_merge(self) -> None:
+        numbers = self.build([10, 20])
+        made = self.person_step()
+        made.open_all()
+        entry = made.entries()[0]
+        body = Path(entry["body_file"]).read_text()
+        number, _ = self.pulls.create(base="main", head=entry["branch"], title="Manual", body=body)
+        self.assertEqual(made.record_manual("main", number, self.gate)["state"], "open")
+        for piece in numbers:
+            self.assertEqual(self.gate.piece(piece).state, "approval")
+        self.pulls.merge(number, head_commit=entry["head"])
+        self.repo.git("merge", "--no-ff", entry["branch"], "-m", "Person merged")
+        self.pulls.view_of[number] = dataclasses.replace(
+            self.pulls.view_of[number], merge_commit=self.repo.git("rev-parse", "HEAD"))
+        self.assertEqual(made.record_manual("main", number, self.gate)["state"], "merged")
+        for piece in numbers:
+            saved = self.gate.piece(piece)
+            self.assertEqual(saved.state, "done")
+            merge = [e for e in saved.record if e.get("kind") == "merged"][-1]
+            self.assertEqual((merge["pull_request"], merge["by"]), (number, "person"))
+        self.assertEqual(made.record_manual("main", number, self.gate)["state"], "merged")
+        self.assertEqual(self.pushed, [])
+
+    def test_a_different_head_is_refused_before_any_state_change(self) -> None:
+        self.build([10])
+        made = self.person_step()
+        made.open_all()
+        entry = made.entries()[0]
+        number, _ = self.pulls.create(base="main", head=entry["branch"], title="Manual",
+                                      body=Path(entry["body_file"]).read_text())
+        self.pulls.view_of[number] = dataclasses.replace(self.pulls.view_of[number],
+                                                        head_oid="0" * 40)
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            made.record_manual("main", number, self.gate)
+        self.assertEqual(self.gate.piece(1).state, "review")
+        self.assertEqual(made.entries()[0]["state"], "waiting")
+
+    def merged_manual(self) -> tuple[pr_loop.PullRequests, int]:
+        self.build([10])
+        made = self.person_step()
+        made.open_all()
+        entry = made.entries()[0]
+        number, _ = self.pulls.create(base="main", head=entry["branch"], title="Manual",
+                                      body=Path(entry["body_file"]).read_text())
+        self.repo.commit("src/main-change.txt", "Main moved\n")
+        self.repo.git("merge", "--no-ff", entry["branch"], "-m", "Person merged")
+        self.pulls.view_of[number] = dataclasses.replace(
+            self.pulls.view_of[number], state="MERGED",
+            merge_commit=self.repo.git("rev-parse", "HEAD"))
+        made.policy = {"test_command": "python3 -m pytest -q"}
+        return made, number
+
+    def test_a_manual_merge_after_main_moved_runs_the_project_checks(self) -> None:
+        made, number = self.merged_manual()
+        with mock.patch.object(judge, "run", return_value={"exit_code": 0}) as check:
+            self.assertEqual(made.record_manual("main", number, self.gate)["state"], "merged")
+        self.assertEqual(check.call_args.args[2], self.pulls.view_of[number].merge_commit)
+        self.assertEqual(self.gate.piece(1).state, "done")
+        self.assertEqual([e for e in self.gate.piece(1).record
+                          if e.get("kind") == "main-check"][-1]["result"], "green")
+
+    def test_red_merged_checks_do_not_complete_the_piece(self) -> None:
+        made, number = self.merged_manual()
+        with (mock.patch.object(judge, "run", return_value={"exit_code": 1}),
+              self.assertRaises(pr_loop.PullRequestRefusal)):
+            made.record_manual("main", number, self.gate)
+        self.assertEqual(self.gate.piece(1).state, "review")
+        self.assertEqual(made.entries()[0]["state"], "waiting")
+        self.assertEqual([e for e in self.gate.piece(1).record
+                          if e.get("kind") == "main-check"][-1]["result"], "red")
+
+    def test_an_empty_policy_refuses_an_untested_merged_tree(self) -> None:
+        made, number = self.merged_manual()
+        made.policy = {}
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            made.record_manual("main", number, self.gate)
+        self.assertEqual(self.gate.piece(1).state, "review")
+
+    def test_a_closed_pull_request_cannot_complete_a_piece(self) -> None:
+        self.build([10])
+        made = self.person_step()
+        made.open_all()
+        entry = made.entries()[0]
+        number, _ = self.pulls.create(base="main", head=entry["branch"], title="Manual",
+                                      body=Path(entry["body_file"]).read_text())
+        self.pulls.close(number, "Closed")
+        with self.assertRaises(pr_loop.PullRequestRefusal):
+            made.record_manual("main", number, self.gate)
         self.assertEqual(self.gate.piece(1).state, "review")
 
 

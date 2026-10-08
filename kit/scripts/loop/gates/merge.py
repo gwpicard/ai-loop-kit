@@ -130,15 +130,16 @@ def fetch_main(paths: Paths) -> None:
                          "known whether main moved", error.next_command) from error
 
 
-def changed_files(root: Path, head: str) -> set[str]:
+def changed_files(root: Path, head: str, since: str = "") -> set[str]:
     """The files `head` changes against `main`, from where the two branches parted."""
     base = f"refs/heads/{MAIN}" if _exists(root, f"refs/heads/{MAIN}") else f"origin/{MAIN}"
     out = _must(root, f"list what {head} changes", "diff", "--no-renames", "--name-only", "-z",
-                f"{base}...{head}")
+                f"{since or base}...{head}")
     return {p for p in out.split("\0") if p}
 
 
-def doc_faults(root: Path, head: str, specs: Mapping[int, Mapping[str, Any]]) -> list[str]:
+def doc_faults(root: Path, head: str, specs: Mapping[int, Mapping[str, Any]],
+               since: str = "") -> list[str]:
     """Each doc a piece names (`Docs:` under its changes) that the branch did not change."""
     names: list[tuple[int, str]] = []
     faults: list[str] = []
@@ -151,7 +152,7 @@ def doc_faults(root: Path, head: str, specs: Mapping[int, Mapping[str, Any]]) ->
                 names.append((number, str(pure)))
     if not names:
         return faults
-    changed = changed_files(root, head)
+    changed = changed_files(root, head, since)
     for number, doc in names:
         if doc not in changed:
             faults.append(f"piece {number} names the doc {doc}, and the pull request did not "
@@ -281,7 +282,8 @@ def _numbers(value: Any) -> list[int]:
     return sorted({int(v) for v in value})
 
 
-def offline_faults(paths: Paths, opening: Opening, *, title: str, body: str) -> list[str]:
+def offline_faults(paths: Paths, opening: Opening, *, title: str, body: str,
+                   manual: bool = False) -> list[str]:
     """Every fault a pull request has that Git and the run record can show, with no GitHub call."""
     root = paths.root
     faults: list[str] = []
@@ -305,13 +307,13 @@ def offline_faults(paths: Paths, opening: Opening, *, title: str, body: str) -> 
     if code != 0 or tip != opening.head:
         faults.append(f"the branch {opening.branch} does not point at the tested commit "
                       f"{opening.head[:7]}")
-    joined = _joined(root, opening.head)
+    joined = _joined(root, opening.head, opening.since if manual else "")
     absent = [n for n in opening.pieces if n not in joined]
     if absent:
         faults.append(f"piece {', '.join(str(n) for n in absent)} is not joined in the tested "
                       "commit")
     specs = piece_specs(paths, opening.stack)
-    faults += doc_faults(root, opening.stack_head, specs)
+    faults += doc_faults(root, opening.stack_head, specs, opening.since if manual else "")
     issues = issues_of(paths, opening.pieces)
     try:
         commits = closing.commits_between(str(root), opening.since, opening.head)
@@ -324,9 +326,9 @@ def offline_faults(paths: Paths, opening: Opening, *, title: str, body: str) -> 
     return faults
 
 
-def _joined(root: Path, head: str) -> set[int]:
+def _joined(root: Path, head: str, since: str = "") -> set[int]:
     out = _must(root, "list the joins", "log", "--first-parent", "--format=%B%x00", head,
-                f"^refs/heads/{MAIN}")
+                f"^{since or 'refs/heads/' + MAIN}")
     found: set[int] = set()
     for message in out.split("\0"):
         found.update(int(n) for n in re.findall(r"^Piece: #(\d+)[ \t]*$", message, re.MULTILINE))
@@ -351,6 +353,13 @@ def online_faults(pr: pulls.PullRequest, opening: Opening, *, merging: bool = Fa
 
 def make_pulls(paths: Paths) -> pulls.Pulls:
     return pulls.Pulls(github.GitHub(paths))
+
+
+def pulls_for(ctx: CheckContext) -> pulls.Pulls:
+    """The person's completion command may read their manually opened pull request."""
+    if ctx.person_github and ctx.authority == "person":
+        return pulls.Pulls(github.GitHub(ctx.paths, as_person=True))
+    return make_pulls(ctx.paths)
 
 
 def _unreadable(error: Unreadable) -> CheckResult:
@@ -441,7 +450,7 @@ def check(ctx: CheckContext) -> CheckResult:
             "python3 -m loop.run.pull_request open --run <name>")
     try:
         opening = Opening.from_entry(entry)
-        api = make_pulls(ctx.paths)
+        api = pulls_for(ctx)
         pr = api.view(opening.number)
         if pr.state == "MERGED":
             if pr.head_oid != opening.head:

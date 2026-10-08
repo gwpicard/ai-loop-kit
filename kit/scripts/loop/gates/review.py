@@ -30,9 +30,13 @@ def check(ctx: CheckContext) -> CheckResult:
             return refused([f"piece {ctx.number} is not one of the pieces of pull request "
                             f"{opening.number}"], "python3 -m loop.run.pull_request status "
                            f"--run {opening.run}")
-        pr = merge_gate.make_pulls(ctx.paths).view(opening.number)
-        faults = merge_gate.online_faults(pr, opening) + merge_gate.offline_faults(
-            ctx.paths, opening, title=pr.title, body=pr.body)
+        pr = merge_gate.pulls_for(ctx).view(opening.number)
+        manual = ctx.person_github and ctx.authority == "person"
+        online = merge_gate.online_faults(pr, opening)
+        if manual and pr.state == "MERGED":
+            online = [f for f in online if f != "the pull request is merged, not open"]
+        faults = online + merge_gate.offline_faults(
+            ctx.paths, opening, title=pr.title, body=pr.body, manual=manual)
     except merge_gate.Unreadable as error:
         return refused([str(error)], error.next_command)
     except github.GitHubError as error:

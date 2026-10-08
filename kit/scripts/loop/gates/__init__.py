@@ -54,6 +54,7 @@ class CheckContext:
     # Who asks: "run", "person" or "". Set by the gate from its own process, never by a caller's
     # words or options.
     authority: str = ""
+    person_github: bool = False  # the gate selected the person's sign-in at a terminal
 
 
 @dataclass(frozen=True)

@@ -597,7 +597,9 @@ With no App credential, nothing is pushed or opened on GitHub: the run stops at 
 
 After merging the scaffold, the person sets the policy’s test command to the runner that now exists.
 
-With the App, both pieces end done, the changelog holds two new entries, and the records check passes. Before the App, the rehearsal covers the current waiting path and a manual merge. It records the completion gap as a follow-up: queue sync does not advance a waiting pull request entry, and a manual merge is not adopted into the local records. The pieces remain in review, although their changes are merged and their records check passes. This scope was agreed by the maintainer on 8 October 2026. `tests/smoke/run-real.sh` does the same with the real `claude` and a real test App on a tiny project, by hand only. It covers the App path.
+Both cases end with done pieces, closed issues with done labels, two new changelog entries and a passing records check. Before the App, queue sync lets the pull request step prepare the exact push and open commands. The person pushes, opens and merges the pull request, then fetches `origin/main` and runs `python3 -m loop.run.pull_request record-manual --run NAME --pull-request N` in their terminal. The command checks the actual pull request against the tested head, review and final checks, records the person's merge and takes the pieces through approval to done. Repeating it is safe. An agent session or a pipe is refused before it reads GitHub. If the merged tree differs from the tested tree, the project checks must pass on it before completion.
+
+`tests/smoke/run-real.sh` does the same with the real `claude` and a real test App on a tiny project, by hand only. It covers the App path.
 
 **Files.**
 - New: `tests/e2e-core.sh`; `tests/smoke/run-real.sh`; `tests/fixtures/e2e-core/`.

@@ -270,18 +270,22 @@ class Rehearsal:
                     "E2E-LOCAL the pull request waits")
             checked("gate.py sync" in entry["next"], "E2E-LOCAL exact queue command")
             self.queue_sync()
-            # Today's waiting entry remains unchanged after sync. The person can still
-            # push and open a pull request themselves, outside the kit's completion path.
             opened = self.data("python3", "-m", "loop.run.pull_request", "open",
                                "--run", name, "--json")
-            checked(opened["opened"][0]["status"] == "already",
-                    "E2E-LOCAL waiting entry is retained after sync")
+            checked(opened["opened"][0]["status"] == "waiting",
+                    "E2E-LOCAL sync lets the kit prepare manual pull request commands")
+            entry = self.record(name)["pull_requests"]["main"]
+            checked("gh pr create" in entry["next"], "E2E-LOCAL exact person commands")
             self.call("git", "push", "origin", entry["branch"], person=True)
-            body = "Manual rehearsal merge.\n" + "\n".join(
-                "Closes " + "#" + str(n) for n in pieces)
             made = self.call("gh", "pr", "create", "--base", "main", "--head", entry["branch"],
-                             "--title", "Manual " + name, "--body", body, person=True)
+                             "--title", "Manual " + name, "--body-file", entry["body_file"],
+                             person=True)
             pr = made.stdout.strip().rsplit("/", 1)[-1]
+            calls = self.github_calls()
+            refused = self.call("python3", "-m", "loop.run.pull_request", "record-manual",
+                                "--run", name, "--pull-request", pr, "--json", codes=(3,))
+            checked("person" in refused.stderr and self.github_calls() == calls,
+                    "E2E-LOCAL an agent cannot use the person's GitHub sign-in")
         else:
             for number in pieces:
                 checked(self.state(number) == "approval", "E2E-APPROVAL local piece")
@@ -293,24 +297,28 @@ class Rehearsal:
         if self.app:
             self.data("python3", self.gate, "check-main", "--json")
         else:
-            calls = self.github_calls()
-            result = self.data("python3", self.gate, "check-main", "--json")
-            checked(not result["merges"] and self.github_calls() == calls,
-                    "E2E-LOCAL check-main records no manual merge without the App")
+            self.call("git", "fetch", "origin", "main", person=True)
+            self.call("git", "merge", "--ff-only", "origin/main", person=True)
+            result = self.data("python3", "-m", "loop.run.pull_request", "record-manual",
+                               "--run", name, "--pull-request", pr, "--json", person=True)
+            checked(result["state"] == "merged", "E2E-LOCAL the person's merge is recorded")
             remaining = self.record(name)["pull_requests"]["main"]
-            checked(remaining["state"] == "waiting" and remaining["pull_request"] == 0,
-                    "E2E-LOCAL manual merge is not adopted")
+            checked(remaining["state"] == "merged" and remaining["pull_request"] == int(pr),
+                    "E2E-LOCAL the waiting entry records the actual pull request")
+            again = self.data("python3", "-m", "loop.run.pull_request", "record-manual",
+                              "--run", name, "--pull-request", pr, "--json", person=True)
+            checked(again["state"] == "merged", "E2E-LOCAL repeated completion is safe")
         self.call("git", "fetch", "origin", "main")
         self.call("git", "merge", "--ff-only", "origin/main")
         for number in pieces:
-            checked(self.state(number) == ("done" if self.app else "review"),
-                    "E2E-DONE local piece, or the recorded before-App gap")
+            checked(self.state(number) == "done",
+                    "E2E-DONE local piece")
         if not self.real:
             state: dict[str, Any] = json.loads(Path(self.env["FAKE_GH_STATE"]).read_text())
             issues = [i for i in state["issues"] if i["number"] in pieces]
             checked(len(issues) == len(pieces), "E2E-DONE issues exist")
             checked(all(i["state"] == "closed" and
-                        ("state:done" if self.app else "state:review") in i["labels"]
+                        "state:done" in i["labels"]
                         for i in issues),
                     "E2E-DONE GitHub issues and labels")
             if self.app:
@@ -341,7 +349,7 @@ class Rehearsal:
                         "E2E-LOCAL " + flag + " names the missing setup half")
         self.build_and_merge("core-scaffold", [scaffold])
         print("  ok: scaffold built and merged; " +
-              ("recorded done" if self.app else "manual completion gap reproduced"), flush=True)
+              "recorded done", flush=True)
         # A person configures the runner now that it exists. This is preparation
         # for the later pieces, not a claim that the kit updates the policy itself.
         policy_path = self.project / ".agents/loop/policy.json"
@@ -366,7 +374,7 @@ class Rehearsal:
                     "E2E-CHANGELOG one entry per merged piece")
         checked("### Added" in changelog and "### Fixed" in changelog, "E2E-CHANGELOG types")
         self.call("python3", "-m", "pytest", "-q")
-        print("  ok: feature and bug " + ("done" if self.app else "waiting after manual merge") +
+        print("  ok: feature and bug done" +
               ", two new changelog entries and records green", flush=True)
         print("  scratch: " + str(self.base), flush=True)
 
