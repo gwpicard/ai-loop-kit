@@ -56,6 +56,28 @@ else:
 """
 
 
+CRASH_WRITER = """
+import os, signal, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from loop.paths import Paths
+from loop.run import record
+paths = Paths.for_project(Path(sys.argv[2]), data_base=Path(sys.argv[2]) / 'data')
+name = sys.argv[3]
+actual_open = os.open
+def crash_open(path, *args, **kwargs):
+    fd = actual_open(path, *args, **kwargs)
+    target = Path(path)
+    if target.parent == paths.run_dir(name) and target.name.startswith('lock'):
+        os.kill(os.getpid(), signal.SIGKILL)
+    return fd
+os.open = crash_open
+print('ready', flush=True)
+sys.stdin.readline()
+record.acquire_lock(paths, name)
+"""
+
+
 def run_module() -> Any:
     spec = importlib.util.spec_from_file_location("project_lock_run", ROOT / "kit/scripts/run.py")
     assert spec is not None and spec.loader is not None
@@ -90,9 +112,11 @@ class LockCase(unittest.TestCase):
         child.stdin.write("go\n")
         child.stdin.flush()
 
-    def start(self, name: str, *, saved: bool = False) -> subprocess.Popen[str]:
+    def start(self, name: str, *, saved: bool = False,
+              crash_write: bool = False) -> subprocess.Popen[str]:
         child = subprocess.Popen(
-            [sys.executable, "-c", WORKER, str(ROOT / "kit/scripts"), str(self.folder), name,
+            [sys.executable, "-c", CRASH_WRITER if crash_write else WORKER,
+             str(ROOT / "kit/scripts"), str(self.folder), name,
              *(["saved"] if saved else [])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True)
         self.children.append(child)
@@ -134,6 +158,12 @@ class ProjectLockTest(LockCase):
         child.wait(timeout=10)
         self.race(("restart-one", "restart-two"))
 
+    def test_crash_before_pid_write_does_not_block_successors(self) -> None:
+        child = self.start("crashed-write", crash_write=True)
+        self.send(child)
+        self.assertEqual(child.wait(timeout=10), -9)
+        self.race(("restart-one", "restart-two"))
+
     def test_same_name_crash_restart_keeps_finished_work_and_project_inode(self) -> None:
         child = self.start("saved", saved=True)
         self.send(child)
@@ -171,7 +201,14 @@ class ProjectLockTest(LockCase):
             next_lock.release()
 
     def test_owner_write_failure_releases_admission_and_its_mirror(self) -> None:
-        with (patch.object(os, "fsync", side_effect=OSError("owner write failed")),
+        original_sync = os.fsync
+
+        def fail_owner_sync(fd: int) -> None:
+            if os.fstat(fd).st_ino == self.paths.project_lock.stat().st_ino:
+                raise OSError("owner write failed")
+            original_sync(fd)
+
+        with (patch.object(os, "fsync", side_effect=fail_owner_sync),
               self.assertRaises(record.LockHeld)):
             record.acquire_lock(self.paths, "failed-write")
         self.assertFalse(self.paths.lock_file("failed-write").exists(),
