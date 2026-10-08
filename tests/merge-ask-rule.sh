@@ -128,8 +128,8 @@ for rule in merge_rules:
         stop("taking out %s changes nothing, so the check does not need it" % rule)
 print("  ok: taking out either rule is caught")
 
-# The founded settings carry no ask list: founding adds the rules only where
-# every merge goes live.
+# The founded settings carry no merge ask rule: founding adds those only where
+# every merge goes live. Their ask list holds only the pre-approved run rule.
 for path, what in ((founded, "the founded settings template"),):
     held = json.load(open(path)).get("permissions", {}).get("ask", [])
     if any(r in held for r in rules):
@@ -158,7 +158,8 @@ code, out, err = run("add", settings)
 if code != 0:
     stop("add on the founded settings exited %d: %s" % (code, err))
 after = json.load(open(settings))
-if after["permissions"].get("ask") != rules:
+founded_ask = before["permissions"].get("ask", [])
+if after["permissions"].get("ask") != founded_ask + rules:
     stop("add left the ask list as %r" % after["permissions"].get("ask"))
 if after["permissions"]["deny"] != before["permissions"]["deny"]:
     stop("add changed the deny list")

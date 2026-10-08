@@ -37,6 +37,7 @@ split into steps.
 - git reflog expire (throws away the history Git uses to recover lost work)
 - git gc with --prune (the same, for work nothing points at any more)
 - any command that drops or empties a database table
+- gh pr merge, a write to a pull request's merge endpoint, python3 -m loop.run.pull_request merge, and gate.py move to done (an agent never merges; the person merges, or a run the person pre-approved)
 
 ## Standing restrictions
 

@@ -21,7 +21,17 @@
     {"id": "no-hooks-path-global", "template": "claude-settings", "tool": "Bash", "input": "git config --global core.hooksPath /tmp/none", "layer1": "deny", "guard": "deny"},
     {"id": "no-alias", "template": "claude-settings", "tool": "Bash", "input": "git config alias.st status", "layer1": "deny", "guard": "deny"},
     {"id": "no-alias-global", "template": "claude-settings", "tool": "Bash", "input": "git config --global alias.st status", "layer1": "deny", "guard": "deny"},
-    {"id": "ask-before-merge", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr merge 12 --squash", "layer1": "ask", "guard": "none", "other_layer": "nothing else in a session: the settings ask rule is the only layer. The person decides the merge on GitHub"},
+    {"id": "ask-pre-approved-run", "template": "claude-settings", "tool": "Bash", "input": "python3 {kit}/scripts/run.py --run night-1 --pieces 1 --merge-pre-approved", "layer1": "ask", "guard": "ask"},
+    {"id": "no-pre-approved-run-for-a-builder", "template": "builder-settings", "tool": "Bash", "input": "python3 {kit}/scripts/run.py --run night-1 --pieces 1 --merge-pre-approved", "layer1": "deny", "guard": "ask"},
+    {"id": "no-gh-alias-set", "template": "claude-settings", "tool": "Bash", "input": "gh alias set m 'pr merge'", "layer1": "deny", "guard": "deny"},
+    {"id": "ask-before-merge", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr merge 12 --squash", "layer1": "ask", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-0", "template": "claude-settings", "tool": "Bash", "input": "gh pr merge 12 --squash", "layer1": "deny", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-1", "template": "builder-settings", "tool": "Bash", "input": "gh pr merge 12 --squash", "layer1": "deny", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-2", "template": "claude-settings", "tool": "Bash", "input": "gh api -X PUT repos/o/r/pulls/12/merge", "layer1": "deny", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-3", "template": "claude-settings", "tool": "Bash", "input": "python3 -m loop.run.pull_request merge --run night-1 --said merge", "layer1": "deny", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-4", "template": "builder-settings", "tool": "Bash", "input": "python3 -m loop.run.pull_request merge --run night-1 --said merge", "layer1": "deny", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-5", "template": "claude-settings", "tool": "Bash", "input": "python3 {kit}/scripts/gate.py move 3 done --option merge=agent --option said=merge", "layer1": "deny", "guard": "deny"},
+    {"id": "no-merge-by-an-agent-6", "template": "builder-settings", "tool": "Bash", "input": "python3 {kit}/scripts/gate.py move 3 done --option merge=agent --option said=merge", "layer1": "deny", "guard": "deny"},
     {"id": "guard-settings-file", "template": "claude-settings", "tool": "Edit", "input": "{main}/.claude/settings.json", "layer1": "deny", "guard": "deny"},
     {"id": "guard-local-settings-file", "template": "claude-settings", "tool": "Write", "input": "{main}/.claude/settings.local.json", "layer1": "deny", "guard": "deny"},
     {"id": "guard-settings-file-in-worktree", "template": "claude-settings", "tool": "Edit", "input": "{work}/.claude/settings.json", "layer1": "deny", "guard": "deny"},
@@ -42,7 +52,7 @@
     {"id": "builder-no-gh-config-read", "template": "builder-settings", "tool": "Read", "input": "{home}/.config/gh/hosts.yml", "layer1": "deny", "guard": "deny"},
     {"id": "builder-no-keychain-read", "template": "builder-settings", "tool": "Read", "input": "{home}/Library/Keychains/login.keychain-db", "layer1": "deny", "guard": "deny"},
     {"id": "builder-no-local-settings-read", "template": "builder-settings", "tool": "Read", "input": "{main}/.agents/loop/local.json", "layer1": "deny", "guard": "none", "other_layer": "the sandbox read-block on the same file"},
-    {"id": "builder-no-run-folder-write", "template": "builder-settings", "tool": "Edit", "input": "{main}/.agents/runs/night-1/run.json", "layer1": "deny", "guard": "none", "other_layer": "the sandbox, which allows one hand-off file in the run folder and no other write there"},
+    {"id": "builder-no-run-folder-write", "template": "builder-settings", "tool": "Edit", "input": "{main}/.agents/runs/night-1/run.json", "layer1": "deny", "guard": "deny"},
     {"id": "builder-no-run-log-write", "template": "builder-settings", "tool": "Write", "input": "{main}/.agents/runs/night-1/commands.log", "layer1": "deny", "guard": "none", "other_layer": "the sandbox, which allows one hand-off file in the run folder and no other write there"},
     {"id": "ask-issue-create", "template": "merge-ask-rules", "tool": "Bash", "input": "gh issue create --title x --body y", "layer1": "ask", "guard": "ask"},
     {"id": "ask-pr-create", "template": "merge-ask-rules", "tool": "Bash", "input": "gh pr create --fill", "layer1": "ask", "guard": "ask"},
@@ -127,6 +137,9 @@
     {"template": "builder-settings", "tool": "Read", "input": "{work}/README.md"},
     {"template": "builder-settings", "tool": "Read", "input": "{work}/.env"},
     {"template": "builder-settings", "tool": "Bash", "input": "cat {work}/.env"},
-    {"template": "builder-settings", "tool": "Edit", "input": "{work}/.env"}
+    {"template": "builder-settings", "tool": "Edit", "input": "{work}/.env"},
+    {"template": "claude-settings", "tool": "Bash", "input": "python3 -m loop.run.pull_request status --run night-1"},
+    {"template": "claude-settings", "tool": "Bash", "input": "python3 {kit}/scripts/gate.py move 3 review"},
+    {"template": "claude-settings", "tool": "Bash", "input": "gh pr view 12 --json state"}
   ]
 }

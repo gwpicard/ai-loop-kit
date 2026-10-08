@@ -49,7 +49,10 @@ stand_in() {
   # stand_in <exit code> <stdout text>
   cat > "$KIT/scripts/gate.py" <<PY
 import os, sys
-open(os.environ["ARGS_LOG"], "w").write(" ".join(sys.argv[1:]) + "\n")
+open(os.environ["ARGS_LOG"], "a").write(" ".join(sys.argv[1:]) + "\n")
+if sys.argv[1] == "check-main":
+    sys.stdout.write(os.environ.get("CHECK_MAIN_OUT", "") + "\n")
+    sys.exit(int(os.environ.get("CHECK_MAIN_EXIT", "0")))
 sys.stdout.write('''$2''' + "\n")
 sys.exit($1)
 PY
@@ -78,9 +81,33 @@ assert out["hookEventName"] == "SessionStart", out
 assert '"state":"building"' in out["additionalContext"].replace(" ", ""), out
 PYEOF
 ok "after a compaction it passes the brief report to the session"
-[ "$(cat "$ARGS_LOG")" = "report --json --brief" ] || \
-  fail "the hook called the gate with '$(cat "$ARGS_LOG")', not 'report --json --brief'"
+[ "$(head -1 "$ARGS_LOG")" = "report --json --brief" ] || \
+  fail "the hook called the gate with '$(head -1 "$ARGS_LOG")', not 'report --json --brief'"
 ok "it calls gate.py with report --json --brief"
+grep -qx "check-main --brief --json" "$ARGS_LOG" \
+  || fail "the hook did not ask the gate for a check on a merge by the person"
+ok "it also calls gate.py check-main --brief --json, which does nothing while a run is going"
+
+# --- a merge by the person is told to the session ------------------------------------
+CHECK_MAIN_OUT='{"ok": true, "line": "The person merged pull request 7 after main moved. Run gate.py check-main to record it and check main."}'
+export CHECK_MAIN_OUT
+run_hook "$COMPACT"
+grep -qF 'The person merged pull request 7 after main moved' "$OUT" \
+  || fail "a merge by the person was not told to the session"
+run_hook "$COMPACT" --claude-hook
+grep -qF 'building' "$OUT" || fail "the report is gone when a merge is told"
+grep -qF 'pull request 7' "$OUT" || fail "Claude hook mode did not carry the merge line"
+ok "a merge by the person is told to the session, after the report"
+CHECK_MAIN_OUT='{"ok": true, "line": ""}'
+run_hook "$COMPACT"
+grep -qF 'merged pull request' "$OUT" && fail "a quiet check still spoke"
+CHECK_MAIN_OUT='not json at all'
+CHECK_MAIN_EXIT=4
+export CHECK_MAIN_EXIT
+run_hook "$COMPACT"
+grep -qF '"state":"building"' "$OUT" || fail "a failing check on a merge hid the report"
+ok "a quiet or failing check on a merge never hides the report"
+unset CHECK_MAIN_OUT CHECK_MAIN_EXIT
 
 run_hook "$STARTUP" --claude-hook
 grep -qF 'building' "$OUT" || fail "a session start does not get the report too"

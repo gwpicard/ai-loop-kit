@@ -474,8 +474,8 @@ assert "Bash" in d["permissions"]["deny"] and not [r for r in d["permissions"]["
 PY
 ok "the reviewer saw only the specs and the diff, carried no GitHub credential and may write one file"
 
-[ "$(state_of 2)" = review ] && [ "$(state_of 1)" = review ] \
-  || fail "a piece is not in review after a clean review: $(state_of 1) $(state_of 2)"
+[ "$(state_of 2)" = approval ] && [ "$(state_of 1)" = approval ] \
+  || fail "a piece is not in approval after a clean review: $(state_of 1) $(state_of 2)"
 ok "both pieces wait in review with a clean verdict"
 
 # ==============================================================================================
@@ -497,7 +497,7 @@ assert len(nines) == 1 and "cannot both hold" in nines[0]["reason"], nines
 PY
 [ "$(state_of 4)" = shaping ] || fail "delta is $(state_of 4), not shaping"
 [ "$(needs_you_of 4)" = True ] || fail "delta has no needs-you flag"
-[ "$(state_of 3)" = review ] || fail "gamma is $(state_of 3), not review"
+[ "$(state_of 3)" = approval ] || fail "gamma is $(state_of 3), not approval"
 [ "$(trailers_of combined-rev-b-r2)" = "3" ] || fail "the rebuilt branch holds $(trailers_of combined-rev-b-r2), not 3"
 git ls-tree -r --name-only combined-rev-b-r2 | grep -qx "rd/command.txt" && fail "delta is still on the rebuilt branch"
 ok "a wrong spec sent only delta to shaping by move 9 with needs-you, and the branch was rebuilt without it"
@@ -523,7 +523,7 @@ assert "2 rounds" in nines[0]["reason"] and "second file" in nines[0]["reason"],
 PY
 [ "$(state_of 6)" = shaping ] && [ "$(needs_you_of 6)" = True ] \
   || fail "zeta is $(state_of 6) with needs-you $(needs_you_of 6)"
-[ "$(state_of 5)" = review ] || fail "epsilon is $(state_of 5), not review"
+[ "$(state_of 5)" = approval ] || fail "epsilon is $(state_of 5), not approval"
 [ "$(trailers_of combined-rev-c-r3)" = "5" ] \
   || fail "the last rebuilt branch holds $(trailers_of combined-rev-c-r3), not 5"
 git ls-tree -r --name-only piece-6 | grep -qx "tests/test_review_zeta_again.py" \

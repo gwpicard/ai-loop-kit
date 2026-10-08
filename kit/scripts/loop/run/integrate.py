@@ -868,6 +868,34 @@ class Integrator:
             return JoinResult("rebuilt", number, reason, branch=self.combined(key),
                               restarted=restarted)
 
+    def refresh(self, key: str, reason: str) -> JoinResult:
+        """Rebuild the track's combined branch on the new `main`, with every piece, fresh name.
+
+        `main` moved after the final combined check, so the tested tree is no longer the one
+        that would merge. The old branch stays as it was, and every piece is joined again as a
+        trial, in its old order. Nothing leaves, nothing is reverted, nothing is forced.
+        """
+        with self._lock:
+            if key not in self.tracks():
+                return JoinResult("refused", 0, f"there is no combined branch for {key}",
+                                  "python3 -m loop.run.integrate status --run " + self.name)
+            keep = self.joined(key)
+            with self.record.lock:
+                track = self._track(key)
+                old = str(track["branch"])
+                track["generation"] = int(track["generation"]) + 1
+                track["branch"] = self._branch_name(key, int(track["generation"]))
+                track["pending"] = keep
+                track.setdefault("retired", []).append(old)
+                self._save()
+            for number in keep:
+                self.record.update(number, joined=None)
+            self.record.note(f"{old} is rebuilt from {MAIN} as {track['branch']} ({reason})")
+            self._ensure(key)
+            restarted = self._replay(key)
+            return JoinResult("rebuilt", 0, reason, branch=self.combined(key),
+                              restarted=restarted)
+
     def _replay(self, key: str) -> list[int]:
         """Join the pieces a rebuild still owes, in order. Returns the pieces sent back."""
         sent: list[int] = []

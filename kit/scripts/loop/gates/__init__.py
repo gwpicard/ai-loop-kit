@@ -15,6 +15,9 @@ A passing result may carry data the gate records:
 - `body`: a new issue body, a change the gate itself makes to the spec;
 - `must_look`: the must-look reasons the ready gate wrote, a list of text. The
   gate records them on the move, and a piece with one gets individual review;
+- `act`: a function with no arguments that the gate runs once, on a real move and never on a
+  dry run, after the checks and before it writes the record. The merge gate hands over the
+  merge this way. An action that raises a `GitHubError` refuses the move and changes nothing;
 - `entries`: more entries for the piece record, such as the judge runs and the
   test lists the check made. Each has a `kind` that the gate's own kinds do not use.
 
@@ -48,6 +51,9 @@ class CheckContext:
     record: Sequence[Mapping[str, Any]]
     paths: Paths
     options: Mapping[str, str] = field(default_factory=dict)
+    # Who asks: "run", "person" or "". Set by the gate from its own process, never by a caller's
+    # words or options.
+    authority: str = ""
 
 
 @dataclass(frozen=True)

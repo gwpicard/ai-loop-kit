@@ -48,6 +48,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -337,6 +338,28 @@ class HandChange(Exception):
     """A label or a body on GitHub that differs from what the gate expects."""
 
 
+class RunMergeAuthority:
+    """Proof, held inside one process, that the process is the run script of a named run.
+
+    `run.py` takes the run's lock, a file that holds its own process number. The merge of a
+    pre-approved run is asked for inside that same process, by handing the gate this object. No
+    command line, option or environment variable can make one: it is a Python object, and it
+    holds only while this process still owns the run's lock.
+    """
+
+    def __init__(self, paths: Paths, run: str) -> None:
+        self.paths = paths
+        self.run = run
+
+    def held(self) -> bool:
+        """True while the run's lock file holds this very process's number."""
+        try:
+            held = self.paths.lock_file(self.run).read_text(encoding="utf-8").split()
+        except (OSError, ValueError):
+            return False
+        return bool(held) and held[0] == str(os.getpid())
+
+
 class Gate:
     """The only mover. See the module note."""
 
@@ -349,8 +372,10 @@ class Gate:
         today: Callable[[], str] | None = None,
         env: Mapping[str, str] | None = None,
         terminal: Callable[[], bool] | None = None,
+        run_authority: RunMergeAuthority | None = None,
     ) -> None:
         self.paths = paths
+        self.run_authority = run_authority
         self.terminal = terminal or _at_a_terminal
         self.hub = hub
         self.loader = loader
@@ -682,6 +707,20 @@ class Gate:
         evidence.append(self.paths, local, [capture, *entries_after, *queue])
         return {"piece": local, "issue": number, **summary, **self._waiting()}
 
+    def merge_authority(self) -> str:
+        """Who is asking: "run" (the run script's own process), "person" or "" (an agent).
+
+        An agent session holds neither. The run script hands the gate a `RunMergeAuthority`
+        object, which holds only in the process that owns the run's lock. A person is a call
+        with no agent-session marker, made with standard input and output on a terminal, as
+        `sync` checks it. A pipe, a script and a hook have no terminal.
+        """
+        if self.run_authority is not None and self.run_authority.held():
+            return "run"
+        if not github.in_agent_session(self.env) and self.terminal():
+            return "person"
+        return ""
+
     def _check(
         self,
         move: states.Move,
@@ -708,7 +747,8 @@ class Gate:
             parsed = None
         ctx = CheckContext(number=number, move=move, origin=origin, target=target,
                            reason=reason, title=title, body=body, spec=parsed,
-                           record=record, paths=self.paths, options=dict(options))
+                           record=record, paths=self.paths, options=dict(options),
+                           authority=self.merge_authority())
         result = check(ctx)
         if not result.ok:
             raise MoveError(
@@ -800,6 +840,9 @@ class Gate:
             summary["must_look"] = list(result.data["must_look"])
         if dry_run:
             return summary
+        self._act(result)
+        if issue is not None and result.data.get("act") is not None:
+            issue = self._read_after_act(piece, issue)
         old_labels = issue["labels"] if issue is not None else piece.labels()
         new_labels = [states.label(target), *(
             [states.NEEDS_YOU] if needs_you else [])]
@@ -833,6 +876,45 @@ class Gate:
         if fp_entry:
             summary["fingerprint"] = fp_entry["fingerprint"]["fingerprint"]
         return {**summary, **written}
+
+    def _read_after_act(self, piece: Piece, before: dict[str, Any]) -> dict[str, Any]:
+        """The issue again, after an action that may have changed it.
+
+        A merge closes the issues its `Closes` lines name, so the issue's state is allowed to
+        differ from the first read. Its labels and its body are not. The read made after the
+        action is the one the second read, just before the write, is compared with.
+        """
+        assert piece.issue is not None
+        try:
+            now = self.hub.read_issue(piece.issue)
+        except github.GitHubError as error:
+            raise MoveError(error.message, next_command=error.next_command,
+                            code=error.code) from error
+        if sorted(now["labels"]) != sorted(before["labels"]) or now["body"] != before["body"]:
+            raise MoveError(
+                f"issue {piece.issue} changed while the action of the move ran, so another "
+                "session or the person changed it",
+                next_command="run gate.py report, then the same command again",
+            )
+        return now
+
+    @staticmethod
+    def _act(result: CheckResult) -> None:
+        """Run the action a check handed over, once, on a real move and never on a dry run.
+
+        The merge is the one such action: the check proves every condition holds, and the gate
+        merges only then. It runs before the record is written. A failed action leaves the piece
+        where it was. A merge that went through while the record failed is made right by asking
+        the same move again, which finds the pull request merged.
+        """
+        act = result.data.get("act")
+        if act is None:
+            return
+        try:
+            act()
+        except github.GitHubError as error:
+            raise MoveError(error.message, next_command=error.next_command,
+                            code=error.code) from error
 
     def _failed_attempt(self, piece: Piece, error: MoveError) -> MoveError:
         """The refusal of an attempt the gate judged and failed (move 5).

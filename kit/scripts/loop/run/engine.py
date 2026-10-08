@@ -744,7 +744,7 @@ class Engine:
             self.record.update(number, waiting_for_reset=None)
         return True
 
-    def _budget(self, number: int) -> float | None | str:
+    def _budget(self, number: int) -> float | str | None:
         """The cost cap for the next session, None for no cap, or "parked"."""
         if self.run_parked:
             self.record.set_status(number, record.PARKED_SPEND, reason=self.run_parked,
@@ -845,7 +845,7 @@ class Engine:
                 getattr(error, "next_command", "") or f"gate.py report {number}") from error
 
     def _session(self, number: int, folder: Path, piece: moves.Piece,
-                 budget: float | None | str) -> sessions.Result | None:
+                 budget: float | str | None) -> sessions.Result | None:
         count = int(self.record.piece(number).get("sessions", 0)) + 1
         self.record.update(number, sessions=count)
         brief_template = (self.paths.kit_dir / "briefs" / "builder.md").read_text(encoding="utf-8")
@@ -1058,7 +1058,7 @@ class Engine:
         self.record.set_status(number, record.BUILT)
         self.hook("piece-built", piece=number)
 
-    def _budget_for_trim(self, number: int) -> float | None | str:
+    def _budget_for_trim(self, number: int) -> float | str | None:
         """The cap for the trim session, None for no cap set, or "skip" when a cap is used up."""
         left: list[float] = []
         if self.cap_piece is not None:

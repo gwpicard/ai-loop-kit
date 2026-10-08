@@ -29,10 +29,14 @@ What the hook refuses:
 - `gate.py sync`, which only the person runs, also when reached through a
   variable, `env -u` or a blanked agent-session variable, or `python3 -c` with
   `runpy`;
+- a merge: `gh pr merge`, a write to a pull request's merge endpoint, a GraphQL
+  merge, `python3 -m loop.run.pull_request merge` and `gate.py move <n> done`,
+  with the same hidden spellings refused. The person merges, or a run the
+  person pre-approved does, inside its own process;
 - a read of a real env file, the App key, the held-out folder, the `gh` config
   and the keychain, and `gh auth token`;
 - a write to the guards: the settings, the piece records, the policy file, the
-  workflows, the git hooks and the installed kit.
+  workflows, the git hooks, a run's record and lock, and the installed kit.
 
 What it asks about: a comment or a review posted in the person's name.
 
@@ -319,6 +323,11 @@ def _relative_parts(path: Path, anchor: Path | None) -> tuple[str, ...] | None:
     return path.relative_to(anchor).parts
 
 
+# The run record holds the run's pre-approval to merge, and the lock names the process that
+# holds the run. Only run.py writes them.
+RUN_GUARDED = {"run.json", "lock"}
+
+
 def write_block(path: Path, ctx: Context) -> Decision | None:
     """A refusal when the path is one of the guards, or None."""
     anchors = [a for a in (ctx.main_root, ctx.work_root, ctx.home) if a is not None]
@@ -329,6 +338,7 @@ def write_block(path: Path, ctx: Context) -> Decision | None:
         guarded = (
             (parts[0] == ".claude" and len(parts) == 2 and parts[1].startswith("settings"))
             or parts[:2] == (".agents", "pieces")
+            or (parts[:2] == (".agents", "runs") and len(parts) == 4 and parts[3] in RUN_GUARDED)
             or parts[:3] in {(".agents", "loop", "policy.json"), (".agents", "loop", "local.json")}
             or parts[:2] == (".github", "workflows")
             or parts[0] == ".githooks"
@@ -779,6 +789,7 @@ LABEL_MUTATIONS = (
     "updatelabel",
     "deletelabel",
 )
+MERGE_MUTATIONS = ("mergepullrequest", "enablepullrequestautomerge")
 COMMENT_MUTATIONS = ("addcomment", "addpullrequestreview", "addpullrequestreviewcomment")
 
 
@@ -816,9 +827,13 @@ def _gh_api(args: Sequence[str]) -> Decision | None:
     if "graphql" in endpoint:
         if any(m in text for m in LABEL_MUTATIONS):
             return refuse("this GraphQL call changes labels.", GATE_NEXT_LABEL)
+        if any(m in text for m in MERGE_MUTATIONS):
+            return refuse(MERGE_WHAT, MERGE_NEXT)
         if any(m in text for m in COMMENT_MUTATIONS) or re.search(r"\bmutation\b", text):
             return ask("this GraphQL call posts in the person's name.", COMMENT_NEXT)
         return None
+    if write and re.search(r"(^|/)pulls/[^/]+/merge/?$", endpoint):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
     labels_path = bool(re.search(r"(^|/)labels(/|$)", endpoint))
     label_field = any(k.startswith("labels") for k in field_keys)
     family_text = bool(
@@ -865,6 +880,13 @@ def check_gh(args: Sequence[str]) -> Decision | None:
         return refuse(
             "this prints the sign-in token. A builder holds no GitHub credential.",
             "ask the person to run the command that needs the sign-in.",
+        )
+    if group == "pr" and action == "merge":
+        return refuse(MERGE_WHAT, MERGE_NEXT)
+    if group == "alias" and action in {"set", "import"}:
+        return refuse(
+            "a gh alias can hide a merge behind a short name, so a later line shows no merge.",
+            "tell the person which alias you wanted, and let them set it in their own terminal.",
         )
     if group in {"issue", "pr"} and action in {"edit", "create"}:
         values = _label_values(tail)
@@ -941,6 +963,51 @@ def check_gate(words: Sequence[str]) -> Decision | None:
         positional = [w for w in words[index + 1 :] if not w.startswith("-")]
         if positional[:1] == ["sync"]:
             return refuse(SYNC_WHAT, SYNC_NEXT)
+        if positional[:1] == ["move"] and "done" in positional[1:]:
+            return refuse(MERGE_WHAT, MERGE_NEXT)
+    return None
+
+
+MERGE_WHAT = (
+    "a merge puts work into main, and only the person decides it. This is a merge, or a move "
+    "that ends in a merge."
+)
+MERGE_NEXT = (
+    "tell the person: merge the pull request yourself on GitHub, or run the merge in your own "
+    "terminal. A run the person started with run.py --merge-pre-approved merges by itself "
+    "when every condition holds."
+)
+_PULL_REQUEST_SCRIPT = ("loop.run.pull_request", "pull_request.py")
+PRE_APPROVED_FLAG = "--merge-pre-approved"
+
+
+def check_pre_approved_run(words: Sequence[str]) -> Decision | None:
+    """`run.py ... --merge-pre-approved`: a run that merges, started only with the person's yes.
+
+    The run script proves it runs inside run.py, not that the person asked. So an agent
+    session may start such a run only when the person answers this box. A program that is a
+    variable or a backtick is asked about too, because the script name is then unreadable.
+    """
+    flag = any(w == PRE_APPROVED_FLAG or w.startswith(PRE_APPROVED_FLAG + "=") for w in words)
+    if not flag:
+        return None
+    if any(program_name(w) == "run.py" or "$" in w or "`" in w for w in words):
+        return ask(
+            "this starts a run that merges pull requests without a further yes.",
+            "the person says yes to this box only if they pre-approved the run.",
+        )
+    return None
+
+
+def check_pull_request_merge(words: Sequence[str]) -> Decision | None:
+    """`python3 -m loop.run.pull_request merge`, or the script run by its path."""
+    for index, word in enumerate(words):
+        name = program_name(word)
+        if name not in _PULL_REQUEST_SCRIPT and word not in _PULL_REQUEST_SCRIPT:
+            continue
+        positional = [w for w in words[index + 1 :] if not w.startswith("-")]
+        if "merge" in positional:
+            return refuse(MERGE_WHAT, MERGE_NEXT)
     return None
 
 
@@ -982,6 +1049,23 @@ PTY_WHAT = (
 PTY_NEXT = "run the python command or gate.py directly, without a pretend terminal."
 
 
+_MERGE_MODULES = r"(?:moves|gates|run|github|sessions|pull_request)"
+_MERGE_IMPORT = re.compile(
+    r"\b(?:import|from)\b[^;\n]*\bloop\." + _MERGE_MODULES + r"\b"
+    r"|\bfrom\s+loop\s+import\b[^;\n]*\b" + _MERGE_MODULES + r"\b"
+    r"|\b(?:import_module|__import__)\s*\(\s*[\"']loop\." + _MERGE_MODULES + r"\b"
+)
+IMPORT_WHAT = (
+    "this python text imports a module that can merge or move a piece to done "
+    "(loop.moves, loop.gates, loop.run, loop.github or loop.sessions). Only the person "
+    "decides a merge."
+)
+IMPORT_NEXT = (
+    "run the gate through its script, such as python3 kit/scripts/gate.py report. A script "
+    "file is not read by this check: the sandbox and the App key hold that road."
+)
+
+
 def check_gate_text(text: str) -> Decision | None:
     """`gate.py sync` reached by a road the word checks cannot follow.
 
@@ -998,12 +1082,38 @@ def check_gate_text(text: str) -> Decision | None:
         return refuse(PTY_WHAT, PTY_NEXT)
     if "gate.py" in text and (_GATE_HIDES.search(text) or _HIDES_SESSION.search(text)):
         return refuse(GATE_HIDDEN_WHAT, GATE_HIDDEN_NEXT)
+    if re.search(r"\bpython", text) and _MERGE_IMPORT.search(text):
+        return refuse(IMPORT_WHAT, IMPORT_NEXT)
+    if "pull_request" in text:
+        found = _pull_request_text(text)
+        if found is not None:
+            return found
     if not _SYNC_WORD.search(text):
         return None
     if _SCRIPT_THEN_SYNC.search(text) or _VARIABLE_THEN_SYNC.search(text):
         return refuse(SYNC_WHAT, SYNC_NEXT)
     if _INDIRECT_RUN.search(text) and re.search(r"\bpython", text):
         return refuse(SYNC_WHAT, SYNC_NEXT)
+    return None
+
+
+def _pull_request_text(text: str) -> Decision | None:
+    """The pull request script's merge, reached by a road the word check cannot follow.
+
+    As for `gate.py`: a line that holds the script's name may not hold a variable, a
+    backtick, `xargs`, `eval`, `unset`, `env -u`, `env -i` or an agent-session name. Python
+    told to run the script by `runpy` or an import, with the word `merge` in the line, is
+    refused. A pretend terminal beside python is refused above. A text check is never
+    complete: the in-code refusal and the sandbox hold behind it.
+    """
+    if _GATE_HIDES.search(text) or _HIDES_SESSION.search(text):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
+    if not re.search(r"\bpython", text):
+        return None
+    if re.search(r"\bmerge\b", text) and _INDIRECT_RUN.search(text):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
+    if re.search(r"\b(?:import|from)\b[^;\n]*\bpull_request\b", text):
+        return refuse(MERGE_WHAT, MERGE_NEXT)
     return None
 
 
@@ -1125,6 +1235,8 @@ def check_words(
             found.append(check_command(inner, ctx, cwd, depth + 1))
     rest = unwrap(words)
     found.append(check_gate(rest))
+    found.append(check_pull_request_merge(rest))
+    found.append(check_pre_approved_run(rest))
     if rest:
         prog, args = program_name(rest[0]), rest[1:]
         if prog in SHELLS:
