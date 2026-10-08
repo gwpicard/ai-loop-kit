@@ -56,7 +56,7 @@ class Rehearsal:
                     str(Path(self.env["TP_BIN"]) / "gh"), "E2E-ISOLATION GitHub stand-in")
         else:
             self.project = real.resolve()
-            self.base = self.project / ".agents/smoke"
+            self.base = self.project / ".agents/tmp/smoke"
             self.base.mkdir(parents=True, exist_ok=True)
             self.kit = (kit or ROOT / "kit").resolve()
             checked(self.project != ROOT.resolve(), "E2E-ISOLATION use a separate test project")
@@ -142,7 +142,7 @@ class Rehearsal:
             checked(not self.call("git", "status", "--porcelain", "--untracked-files=no").stdout,
                     "E2E-REAL the test repository must be clean")
             extra = self.call("git", "ls-files", "--others", "--exclude-standard").stdout
-            checked(all(name == ".agents/loop/local.json" or name.startswith(".agents/smoke/")
+            checked(all(name == ".agents/loop/local.json" or name.startswith(".agents/tmp/smoke/")
                         for name in extra.splitlines()),
                     "E2E-REAL only machine-local App settings may be untracked")
             checked(self.call("git", "branch", "--show-current").stdout.strip() == "main",
