@@ -19,6 +19,7 @@ import contextlib
 import fcntl
 import json
 import os
+import tempfile
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -348,10 +349,14 @@ def acquire_lock(paths: Paths, name: str, *, pid: int | None = None) -> Lock:
             # The project lock serialises stale mirror recovery. Preserve the old evidence.
             stale = mirror.with_name(f"lock.stale-{time.time_ns()}-{mine}")
             os.replace(mirror, stale)
-        mirror_fd = os.open(mirror, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        wrote_mirror = True
+        mirror_fd, pending = tempfile.mkstemp(prefix="lock.pending-", dir=mirror.parent)
         with os.fdopen(mirror_fd, "w", encoding="utf-8") as handle:
             handle.write(f"{mine}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Readers see a complete PID mirror, even if this process dies during its write.
+        os.replace(pending, mirror)
+        wrote_mirror = True
         owner = {"pid": mine, "run": name, "record": str(paths.run_record(name))}
         with os.fdopen(os.dup(fd), "w", encoding="utf-8") as handle:
             handle.seek(0)
