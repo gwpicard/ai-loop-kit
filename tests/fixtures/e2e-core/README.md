@@ -33,6 +33,7 @@ The real App path is a separate manual smoke in `tests/smoke/run-real.sh`.
 It requires an explicit opt-in, a terminal and a separate tiny test repository
 with an installed test App. It calls real Claude and leaves each merge to the
 person. The person also merges the founding and policy-configuration pull
-requests. The generated hosted check refuses the empty policy test command
-during founding and the scaffold; that existing kit limitation remains a
-follow-up. The automated suite never runs the real smoke.
+requests. The generated hosted check reports that founding has no project
+tests. The scaffold runs the command selected during founding. That command
+is committed in the person-merged foundation before the gate creates the
+piece branch. The automated suite never runs the real smoke.

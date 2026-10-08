@@ -51,9 +51,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from loop import evidence, github, judge, moves, policy, spec, states
+from loop import bootstrap, evidence, github, judge, moves, policy, spec, states
 from loop.cli import ExitCode, Failure, run
 from loop.gates import merge as merge_gate
+from loop.gates import ready as ready_gate
 from loop.paths import PathError, Paths, find_project_root
 
 PROG = "gate.py"
@@ -187,12 +188,20 @@ def _options(raw: list[str]) -> dict[str, str]:
 
 
 def _branch(gate: moves.Gate, paths: Paths, args: argparse.Namespace, dry: bool) -> dict[str, Any]:
-    number = gate.piece(args.number).number
+    piece = gate.piece(args.number)
+    number = piece.number
     name = f"piece-{number}"
+    parsed = spec.parse(piece.body).to_dict()
+    scaffold = parsed["found"] and parsed["path"] == "quick" and ready_gate._is_scaffold(parsed)
+    command = str(parsed["judge"]["command"] or "") if scaffold else ""
+    if scaffold:
+        bootstrap.check(paths.root, command)
     root = str(paths.root)
     have = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q",
                            f"refs/heads/{name}"], capture_output=True, text=True, check=False)
     made = False
+    if scaffold and have.returncode == 0:
+        bootstrap.check(paths.root, command, ref=name, use_working_marker=False)
     if have.returncode != 0 and not dry:
         done = subprocess.run(["git", "-C", root, "branch", name, "main"],
                               capture_output=True, text=True, check=False)

@@ -39,7 +39,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from loop import cli, github, policy, states
+from loop import bootstrap, cli, github, policy, states
 from loop.paths import PathError, Paths, find_project_root
 
 PROG = "setup.py"
@@ -592,6 +592,7 @@ def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
             code=cli.ExitCode.REFUSED,
         )
     sync_scaffold_command(root, command, dry_run=args.dry_run)
+    bootstrap.check(root, command)
     with tempfile.TemporaryDirectory() as folder:
         body = Path(folder) / "first-piece.md"
         body.write_text(first_piece_body(kit, command), encoding="utf-8")

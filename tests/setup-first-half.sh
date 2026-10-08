@@ -83,6 +83,21 @@ run_setup() {
   set -e
 }
 
+# The person publishes preparation only on the local origin and GitHub stand-in.
+prepare_foundation() {
+  (cd "$TP_ROOT"
+    git checkout -q -b "$1"
+    git add -A
+    git commit -qm 'Prepare the foundation and its scaffold command'
+    git push -q origin "$1"
+    pr=$(gh pr create --base main --head "$1" --title 'Prepare the foundation' --body 'Person preparation.')
+    gh pr merge "${pr##*/}" --merge --match-head-commit "$(git rev-parse HEAD)" >/dev/null
+    git fetch -q origin main
+    git checkout -q main
+    git merge -q --ff-only origin/main
+  )
+}
+
 echo "First half of /setup:"
 
 # --- the script follows the contract ----------------------------------------------
@@ -269,6 +284,10 @@ run_setup found --test-command "sh -c 'exit 0'" --billing-mode subscription \
 [ "$(snap "$TP_ROOT")" = "$AFTER" ] || fail "the second run changed a file"
 [ "$(js "$(cat "$OUT")" 'd["created"]')" = "[]" ] || fail "the second run created files"
 ok "a second run changes nothing"
+
+# The person commits and merges the foundation before the piece gets its own branch.
+prepare_foundation founding
+: > "$FAKE_GH_LOG"
 
 # The first piece, captured locally on the quick path.
 run_setup first-piece --test-command "sh -c 'exit 0'"
@@ -479,6 +498,9 @@ grep -qi 'every test' "$TP_ROOT/docs/open-questions.md" || fail "no open questio
 [ ! -d "$TP_ROOT/.agents/pieces" ] || fail "first-piece captured a piece with no command"
 ok "first-piece with no known command writes an open question and stops with a next: line"
 run_setup first-piece --test-command "make check"
+[ "$CODE" -eq 3 ] || fail "F2-UNKNOWN a chosen command without committed preparation was accepted"
+prepare_foundation unknown-command
+run_setup first-piece --test-command "make check"
 [ "$CODE" -eq 0 ] || { cat "$ERR"; fail "first-piece with --test-command failed"; }
 grep -rq 'Command: make check' "$TP_ROOT/.agents" || fail "the command did not reach the first piece"
 python3 - "$TP_ROOT/.agents/loop/policy.json" <<'PY' || fail "first-piece wrote the command into the policy"
@@ -502,9 +524,12 @@ run_setup found --language python
 printf '\n# The person added this before capturing the scaffold.\n' >> "$TP_ROOT/.github/workflows/checks.yml"
 before_workflow=$(shasum "$TP_ROOT/.github/workflows/checks.yml")
 run_setup first-piece --dry-run --test-command "sh tests/run.sh"
-[ "$CODE" -eq 0 ] || fail "F2-DRY first-piece dry run failed"
+[ "$CODE" -eq 3 ] || fail "F2-DRY first-piece dry run should report missing preparation"
 [ "$(shasum "$TP_ROOT/.github/workflows/checks.yml")" = "$before_workflow" ] \
   || fail "F2-DRY first-piece dry run changed the workflow"
+run_setup first-piece --test-command "sh tests/run.sh"
+[ "$CODE" -eq 3 ] || fail "F2-CUSTOM capture did not require person preparation"
+prepare_foundation custom-command
 run_setup first-piece --test-command "sh tests/run.sh"
 [ "$CODE" -eq 0 ] || { cat "$ERR"; fail "F2-CUSTOM first-piece failed"; }
 python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'PYTEST' || fail "F2-CUSTOM hosted command differs or custom workflow text changed"
