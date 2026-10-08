@@ -1,8 +1,9 @@
 """Pull requests as the gate sees them: create, read, merge, close, comment.
 
-Every call goes through `GitHub._gh`, so each one asks `credential()` first and acts as the
-App. With no App it raises `NoApp` and starts nothing. This module never starts `gh` itself,
-and never uses the person's sign-in.
+Every call goes through `GitHub._gh`, so each one asks `credential()` first. Normal calls act
+as the App and refuse with `NoApp` when it is absent. The person-only manual completion door
+supplies the person's hub after its terminal and agent-marker checks. This module never
+starts `gh` itself.
 
 A merge always names the tested commit (`--match-head-commit`), so GitHub refuses it when the
 branch moved after the last check. It never uses `--admin` or `--auto`.
