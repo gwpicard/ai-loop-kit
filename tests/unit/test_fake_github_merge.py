@@ -1,10 +1,11 @@
 """The merge rehearsal keeps unrelated local work out of the person's commit."""
+
 import os
-from pathlib import Path
 import re
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -15,13 +16,20 @@ class PersonMainMove(unittest.TestCase):
         repo = base / "project"
         repo.mkdir()
         remote = base / "origin.git"
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
-               "GIT_AUTHOR_NAME": "Test Person", "GIT_AUTHOR_EMAIL": "test@example.invalid",
-               "GIT_COMMITTER_NAME": "Test Person", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+        env = {
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_AUTHOR_NAME": "Test Person",
+            "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "Test Person",
+            "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        }
 
         def git(*args):
-            return subprocess.run(["git", *args], cwd=repo, env=env, check=True,
-                                  capture_output=True, text=True).stdout
+            return subprocess.run(
+                ["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True
+            ).stdout
 
         git("init", "-q", "--bare", "-b", "main", str(remote))
         git("init", "-q", "-b", "main")
@@ -43,11 +51,18 @@ class PersonMainMove(unittest.TestCase):
         source = (ROOT / "tests/merge-decision.sh").read_text()
         function = re.search(r"^move_main\(\) \{.*?^\}", source, re.M | re.S)
         assert function is not None
-        subprocess.run(["sh", "-c", function.group() + "\nmove_main moved-g"],
-                       cwd=repo, env={**env, "TP_ROOT": str(repo)}, check=True,
-                       capture_output=True, text=True)
-        self.assertEqual(git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines(),
-                         ["sp/moved-g.txt"])
+        subprocess.run(
+            ["sh", "-c", function.group() + "\nmove_main moved-g"],
+            cwd=repo,
+            env={**env, "TP_ROOT": str(repo)},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines(),
+            ["sp/moved-g.txt"],
+        )
         self.assertEqual((repo / "CHANGELOG.md").read_text(), "unrelated local entry\n")
         # A clean remote-side merge must still succeed even though the
         # attended worktree holds a conflicting, uncommitted changelog.
@@ -55,12 +70,18 @@ class PersonMainMove(unittest.TestCase):
         git("clone", "-q", str(remote), str(clean))
         git("push", "-q", "origin", "piece")
         subprocess.run(["git", "fetch", "-q", "origin"], cwd=clean, env=env, check=True)
-        subprocess.run(["git", "merge", "-q", "--no-ff", "origin/piece", "-m", "Merge the piece"],
-                       cwd=clean, env=env, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "merge", "-q", "--no-ff", "origin/piece", "-m", "Merge the piece"],
+            cwd=clean,
+            env=env,
+            check=True,
+            capture_output=True,
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
+
 
 class FailedRemoteMerge(unittest.TestCase):
     def test_conflict_prints_git_output_and_keeps_clone(self):
@@ -73,13 +94,20 @@ class FailedRemoteMerge(unittest.TestCase):
         repo = base / "project"
         repo.mkdir()
         remote = base / "origin.git"
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
-               "GIT_AUTHOR_NAME": "Test Person", "GIT_AUTHOR_EMAIL": "test@example.invalid",
-               "GIT_COMMITTER_NAME": "Test Person", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+        env = {
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_AUTHOR_NAME": "Test Person",
+            "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "Test Person",
+            "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        }
 
         def git(*args):
-            subprocess.run(["git", *args], cwd=repo, env=env, check=True,
-                           capture_output=True, text=True)
+            subprocess.run(
+                ["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True
+            )
 
         git("init", "-q", "--bare", "-b", "main", str(remote))
         git("init", "-q", "-b", "main")
@@ -94,14 +122,18 @@ class FailedRemoteMerge(unittest.TestCase):
         (repo / "same.txt").write_text("person\n")
         git("commit", "-qam", "Move main")
         git("push", "-q", "origin", "main", "piece")
-        module = runpy.run_path(str(ROOT / "tests/stand-ins/fake-github/gh"), run_name="fake_github")
+        module = runpy.run_path(
+            str(ROOT / "tests/stand-ins/fake-github/gh"), run_name="fake_github"
+        )
         stderr = io.StringIO()
         old = Path.cwd()
         make_temp = tempfile.mkdtemp
         try:
             os.chdir(repo)
-            with patch.dict(os.environ, env), contextlib.redirect_stderr(stderr), patch(
-                "tempfile.mkdtemp", side_effect=lambda **kw: make_temp(dir=base, **kw)
+            with (
+                patch.dict(os.environ, env),
+                contextlib.redirect_stderr(stderr),
+                patch("tempfile.mkdtemp", side_effect=lambda **kw: make_temp(dir=base, **kw)),
             ):
                 landed = module["land_on_remote"]({"head": "piece", "base": "main", "number": 1})
         finally:
@@ -110,6 +142,7 @@ class FailedRemoteMerge(unittest.TestCase):
         self.assertIn("merge", stderr.getvalue())
         self.assertIn("CONFLICT", stderr.getvalue())
         self.assertTrue(list(base.glob("fake-gh-merge-*/clone/.git")))
+
 
 class ScratchEvidence(unittest.TestCase):
     def test_snapshot_omits_keys_auth_logs_and_git_object_payloads(self):
@@ -127,16 +160,24 @@ class ScratchEvidence(unittest.TestCase):
         (raw / "project/.git/objects/ab/object").write_bytes(b"compressed-secret-fixture")
         (raw / "origin.git/objects/object").write_bytes(b"compressed-secret-fixture")
         (raw / "project/.git/refs/heads/main").write_text("a" * 40 + "\n")
-        (raw / "project/.git/config").write_text("url = https://user:password@example.invalid/repo\n")
+        (raw / "project/.git/config").write_text(
+            "url = https://user:password@example.invalid/repo\n"
+        )
         (raw / "merge.err").write_text("CONFLICT: same.txt\nAuthorization: Bearer private-token\n")
         (raw / "linked-key").symlink_to(raw / "data/app-key.pem")
-        module = runpy.run_path(str(ROOT / "tests/lib/merge-rehearsal-evidence.py"),
-                               run_name="merge_evidence")
+        module = runpy.run_path(
+            str(ROOT / "tests/lib/merge-rehearsal-evidence.py"), run_name="merge_evidence"
+        )
         module["snapshot"](raw, out)
         files = {str(p.relative_to(out)): p.read_bytes() for p in out.rglob("*") if p.is_file()}
         self.assertIn("project/.git/refs/heads/main", files)
         self.assertIn(b"CONFLICT: same.txt", files["merge.err"])
         text = b"\n".join(files.values())
-        for value in [b"private fixture key", b"private-token", b"compressed-secret-fixture", b"password"]:
+        for value in [
+            b"private fixture key",
+            b"private-token",
+            b"compressed-secret-fixture",
+            b"password",
+        ]:
             self.assertNotIn(value, text)
         self.assertTrue((raw / "data/app-key.pem").is_file())
