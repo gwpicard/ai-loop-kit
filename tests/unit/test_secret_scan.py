@@ -324,6 +324,93 @@ class SecretScanTest(unittest.TestCase):
                 self.assertIn("gitleaks", done.stderr)
                 self.assertIn("next:", done.stderr)
 
+    def commit_message(self, text: str) -> str:
+        message = self.tmp / "message.txt"
+        message.write_text(text)
+        git(self.repo, "commit", "-q", "--allow-empty", "--file", str(message))
+        return git(self.repo, "rev-parse", "HEAD")
+
+    def test_cr21_known_message_shapes_refuse_without_gitleaks(self) -> None:
+        filler = "AbCdEf" * 9
+        cases = [(kind, value) for kind, value in fake_keys().items()
+                 if kind != "high-entropy-string"]
+        cases += [
+            ("openai-key", "sk-" + filler),
+            ("openai-key", "sk-" + "proj-" + filler),
+            ("aws-access-key", "AS" + "IA" + "ABCDEFGHIJKLMNOP"),
+            ("github-token", "github" + "_pat_" + filler),
+            ("stripe-key", "rk" + "_test_" + filler),
+            ("private-key", "-----BEGIN " + "PGP PRIVATE" + " KEY BLOCK-----"),
+        ]
+        cases += [("github-token", "gh" + variant + "_" + filler)
+                  for variant in "ousr"]
+        cases += [("slack-token", "xo" + "x" + variant + "-" + filler)
+                  for variant in "aprs"]
+        for kind, value in cases:
+            for line, message in ((1, value + "\n"),
+                                  (4, "Synthetic heading\n\ncontext\n" + value + "\n")):
+                with self.subTest(kind=kind, line=line):
+                    base = git(self.repo, "rev-parse", "HEAD")
+                    head = self.commit_message(message)
+                    done = scan(self.repo, f"--range={base}..{head}")
+                    self.assertEqual(done.returncode, 3, "CR-21: message must refuse")
+                    body = json.loads(done.stdout)
+                    self.assertEqual(body["gitleaks"], "not installed")
+                    self.assertEqual(body["findings"], [
+                        {"file": f"commit-message:{head}", "line": line, "kind": kind}
+                    ])
+                    self.assertTrue(value not in done.stdout + done.stderr,
+                                    "CR-21: JSON refusal must redact message values")
+                    env = {**os.environ, "PATH": "/usr/bin:/bin"}
+                    plain = subprocess.run(
+                        ["python3", str(SCRIPT), f"--range={base}..{head}"],
+                        cwd=self.repo, env=env, capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(plain.returncode, 3, "CR-21: text must refuse")
+                    self.assertTrue(value not in plain.stdout + plain.stderr,
+                                    "CR-21: text refusal must redact message values")
+
+    def test_cr21_later_clean_commit_and_diff_like_message_do_not_hide_hit(self) -> None:
+        base = git(self.repo, "rev-parse", "HEAD")
+        value = fake_keys()["github-token"]
+        message = "Synthetic heading\n\ndiff --git a/a b/a\n+++ b/package-lock.json\n" + value
+        head = self.commit_message(message)
+        self.commit_message("Later clean message")
+        done = scan(self.repo, f"--range=HEAD --not {base}")
+        self.assertEqual(done.returncode, 3, "CR-21: every selected message must be scanned")
+        self.assertEqual(json.loads(done.stdout)["findings"], [
+            {"file": f"commit-message:{head}", "line": 5, "kind": "github-token"}
+        ])
+        self.assertTrue(value not in done.stdout + done.stderr, "CR-21: redact values")
+
+    def test_cr21_merge_commit_message_is_scanned(self) -> None:
+        base = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "branch", "side")
+        self.commit_message("First parent")
+        first = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "side")
+        side = self.commit_message("Second parent")
+        value = fake_keys()["github-token"]
+        message = self.tmp / "merge-message.txt"
+        message.write_text("Merge context\n\n" + value + "\n")
+        merge = git(self.repo, "commit-tree", "HEAD^{tree}", "-p", first, "-p", side,
+                    "-F", str(message))
+        done = scan(self.repo, f"--range={base}..{merge}")
+        self.assertEqual(done.returncode, 3, "CR-21: merge message must refuse")
+        self.assertEqual(json.loads(done.stdout)["findings"], [
+            {"file": f"commit-message:{merge}", "line": 3, "kind": "github-token"}
+        ])
+        self.assertTrue(value not in done.stdout + done.stderr, "CR-21: redact values")
+
+    def test_cr21_clean_ambiguous_message_and_staged_scan_stay_clean(self) -> None:
+        base = git(self.repo, "rev-parse", "HEAD")
+        self.commit_message('Clean heading\n\npassword = "example"\n' + random_text(18, 48))
+        self.stage("fine.txt", "clean change\n")
+        for option in (f"--range={base}..HEAD", "--staged"):
+            done = scan(self.repo, option)
+            self.assertEqual(done.returncode, 0, "CR-21: clean messages must pass")
+            self.assertEqual(json.loads(done.stdout)["findings"], [])
+
     def test_help_names_what_the_scan_misses(self) -> None:
         done = subprocess.run(
             ["python3", str(SCRIPT), "--help"], check=False, capture_output=True, text=True
