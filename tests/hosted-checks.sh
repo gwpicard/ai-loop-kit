@@ -15,6 +15,7 @@ checks = {
     'stand-ins run on macOS': r'runs-on: macos-',
     'suite has at least an hour': r'timeout-minutes: (?:60|90|120)',
     'required Python tools are installed': r'pip install.*pytest.*ruff.*mypy',
+    'real Claude is excluded before rehearsing': r'if command -v claude',
     'the full suite runs': r'run: tests/run-all.sh',
     'Actions are pinned to exact commits': r'uses: actions/checkout@[a-f0-9]{40}',
     'repository permissions stay read-only': r'permissions:\n  contents: read',
