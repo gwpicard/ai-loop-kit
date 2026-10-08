@@ -58,6 +58,19 @@ check grep -qF '1 of 1 rehearsals passed' "$tree/output.log"
 check grep -qF '0 skipped, 0 failed' "$tree/output.log"
 check grep -qF 'optional validator unavailable' "$tree/output.log"
 check grep -qF 'optional validator unavailable' "$tree/summary.md"
+new_tree optional-package-manager
+stub dependency-check 'skipped: optional package manager unavailable
+dependency-check.sh passed (1 skipped)' 0
+run
+check test "$status" -eq 0
+check grep -qF '1 of 1 rehearsals passed' "$tree/output.log"
+check grep -qF '0 skipped, 0 failed' "$tree/output.log"
+check grep -qF 'optional package manager unavailable' "$tree/summary.md"
+new_tree incomplete-package-manager
+stub dependency-check 'skipped: required tool unavailable' 0
+run
+check test "$status" -eq 1
+check grep -qF '0 of 1 rehearsals passed' "$tree/output.log"
 new_tree empty
 run
 check test "$status" -eq 1

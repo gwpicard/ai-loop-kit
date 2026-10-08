@@ -36,6 +36,8 @@ cd "$ROOT" || exit 1
 # Exit 77 means a required rehearsal did not run. Older rehearsals use a
 # top-level "skipped:" line with exit zero; keep those outside the pass total.
 # Indented skip lines describe optional subchecks, never extra passes.
+# dependency-check also prints optional package-manager skips at the top level,
+# followed by its completion line. Recognise that existing producer explicitly.
 failed=""
 skipped=""
 failed_count=0
@@ -58,12 +60,22 @@ for script in tests/*.sh; do
   status=0
   "$script" > "$WORK/$name.log" 2>&1 || status=$?
   cat "$WORK/$name.log"
+  optional_pattern='^  *skipped:'
+  required_skip=0
+  if grep -q '^skipped:' "$WORK/$name.log"; then
+    if [ "$name" = dependency-check ] &&
+      grep -q '^dependency-check.sh passed ([0-9][0-9]* skipped)$' "$WORK/$name.log"; then
+      optional_pattern='^ *skipped:'
+    else
+      required_skip=1
+    fi
+  fi
   # A real failure takes precedence over any skip marker in its output.
   if [ "$status" -ne 0 ] && [ "$status" -ne 77 ]; then
     printf '  FAILED: %s\n' "$name"
     failed="$failed $name"
     failed_count=$((failed_count + 1))
-  elif [ "$status" -eq 77 ] || grep -q '^skipped:' "$WORK/$name.log"; then
+  elif [ "$status" -eq 77 ] || [ "$required_skip" -eq 1 ]; then
     printf '  skipped: %s\n' "$name"
     skipped="$skipped $name"
     skipped_count=$((skipped_count + 1))
@@ -71,9 +83,9 @@ for script in tests/*.sh; do
     printf '  passed: %s\n' "$name"
     passed_count=$((passed_count + 1))
   fi
-  if grep -q '^  *skipped:' "$WORK/$name.log"; then
+  if grep -q "$optional_pattern" "$WORK/$name.log"; then
     printf '%s:\n' "$name" >> "$optional"
-    grep '^  *skipped:' "$WORK/$name.log" >> "$optional"
+    grep "$optional_pattern" "$WORK/$name.log" >> "$optional"
   fi
 done
 
