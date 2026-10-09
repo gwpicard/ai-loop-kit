@@ -83,6 +83,7 @@ class OptionalTooling(unittest.TestCase):
             self.retired_groups.add(process.pid)
             output, _ = process.communicate()
             self.fail("optional probe prevented the tooling report from returning: " + output)
+        assert process.returncode is not None
         return process.returncode, output, time.monotonic() - started
 
     def worker(self, *, parent_exit: int | None = None) -> None:
