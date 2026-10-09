@@ -1172,7 +1172,28 @@ def assess_text(
                 required_test=test,
             )
             result.findings = findings + result.findings
-            result.coverage["checks_performed"] = ["Python line smell rules"]
+            line_rules = {rule for rule, _ in PY_LINE_RULES} | {
+                Rule.SUPPRESSION, Rule.DEBUG_LEFTOVER, Rule.OWN_MODULE_MOCK
+            }
+            enabled = line_rules & rules
+            if not own_modules:
+                enabled.discard(Rule.OWN_MODULE_MOCK)
+                if Rule.OWN_MODULE_MOCK in rules:
+                    result.coverage["checks_omitted"].append(
+                        "own-module mock detection without module inventory"
+                    )
+            result.coverage["checks_omitted"].append("Python AST test smell rules")
+            result.coverage["checks_omitted"].remove("test smell checks")
+            result.coverage["checks_performed"] = ["Python syntax parsing (failed)"]
+            if enabled:
+                result.coverage["checks_performed"].append(
+                    "Python line smell rules: " + ", ".join(sorted(rule.value for rule in enabled))
+                )
+            disabled = sorted(rule.value for rule in DEFAULT_RULES - rules)
+            if disabled:
+                result.coverage["checks_omitted"].append(
+                    "disabled smell rules: " + ", ".join(disabled)
+                )
             return result
         coverage["checks_performed"] = [
             "Python syntax parsing",

@@ -58,11 +58,8 @@ def setup(parser: argparse.ArgumentParser) -> None:
 def _git(root: Path, *args: str) -> str:
     try:
         done = subprocess.run(
-            ["git", "-C", str(root), "-c", "core.quotePath=false", *args],
+            ["git", "--literal-pathspecs", "-C", str(root), "-c", "core.quotePath=false", *args],
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="surrogateescape",
             check=False,
         )
     except OSError as error:
@@ -72,13 +69,20 @@ def _git(root: Path, *args: str) -> str:
             code=ExitCode.ENVIRONMENT,
         ) from error
     if done.returncode != 0:
-        first = next((ln for ln in done.stderr.splitlines() if ln.strip()), "no message")
+        first = next(
+            (
+                ln for ln in done.stderr.decode("utf-8", "surrogateescape").splitlines()
+                if ln.strip()
+            ),
+            "no message",
+        )
         raise Failure(
             f"git {args[0]} failed ({first.strip()})",
             next_command="check the --base commit with: git rev-parse --verify <ref>",
             code=ExitCode.ENVIRONMENT,
         )
-    return done.stdout
+    # NUL inventory is decoded directly; text-mode CR/LF conversion changes filenames.
+    return done.stdout.decode("utf-8", "surrogateescape")
 
 
 def _root() -> Path:
@@ -163,23 +167,32 @@ def judge_base(
             else:
                 added: set[int] | None = None
                 touched: set[int] = set()
-                if state != "?":
-                    diff = _git(
-                        root,
-                        "diff",
-                        "--unified=0",
-                        "--no-color",
-                        "--no-ext-diff",
-                        "--no-renames",
-                        base,
-                        "--",
-                        path,
+                try:
+                    if state != "?":
+                        diff = _git(
+                            root,
+                            "diff",
+                            "--unified=0",
+                            "--no-color",
+                            "--no-ext-diff",
+                            "--no-textconv",
+                            "--text",
+                            "--no-renames",
+                            base,
+                            "--",
+                            path,
+                        )
+                        lines = _lines(diff)
+                        added, touched = lines.added, lines.touched
+                except Failure as error:
+                    assessment = nl.unchecked(
+                        path, state, f"added/touched-line scope is unavailable: {error.message}",
+                        input_error=True,
                     )
-                    lines = _lines(diff)
-                    added, touched = lines.added, lines.touched
-                assessment = nl.assess_text(
-                    path, text, status=state, added=added, touched=touched, own_modules=own
-                )
+                else:
+                    assessment = nl.assess_text(
+                        path, text, status=state, added=added, touched=touched, own_modules=own
+                    )
         findings.extend(assessment.findings)
         coverage.append(assessment.coverage)
         if assessment.coverage["outcome"] in {"checked", "partial"}:
@@ -244,7 +257,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
     if unreadable:
         raise Failure(
             f"{len(unreadable)} input(s) could not be checked: {unreadable[0]['path']}",
-            next_command=f"provide readable UTF-8 content for every input, then run {again}",
+            next_command=f"restore readable UTF-8 inputs and Git diff access, then run {again}",
             code=ExitCode.ENVIRONMENT,
             data=data,
         )
