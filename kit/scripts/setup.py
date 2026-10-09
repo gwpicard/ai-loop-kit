@@ -30,6 +30,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -39,7 +40,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from loop import bootstrap, cli, github, policy, states
+from loop import bootstrap, cli, github, policy, states, versions
 from loop.paths import PathError, Paths, find_project_root
 
 PROG = "setup.py"
@@ -181,15 +182,9 @@ def project_has_runner(root: Path) -> bool:
         return False
 
 
-def kit_ref(kit: Path, given: str) -> str | None:
-    if given:
-        return given
-    try:
-        manifest = json.loads((kit / ".claude-plugin" / "plugin.json").read_text("utf-8"))
-        version = manifest.get("version")
-        return str(version) if version else None
-    except (OSError, ValueError):
-        return None
+def kit_ref(kit: Path, given: str) -> str:
+    """Select a release tag or an already verified full SHA, never a branch."""
+    return versions.request(kit, given)
 
 
 # --- writing, never overwriting ---------------------------------------------------
@@ -345,19 +340,11 @@ def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
         )
 
 
-def write_kit_record(kit: Path, root: Path, dry_run: bool) -> str:
-    """The plugin's version record, which the pre-run check reads. See write_record()."""
-    if kit.resolve() == (root / "kit").resolve():
-        return "not needed: the kit is this project's own kit/ folder"
-    if (kit / "version.json").exists():
-        return "kept"
-    if dry_run:
-        return "would write"
-    try:
-        load_module("pre_run_check", HERE / "pre-run-check.py").write_record(kit)
-    except OSError as error:
-        return f"could not write ({error}). Run the installer's record step for {kit}"
-    return "written"
+def write_kit_record(kit: Path, root: Path, dry_run: bool,
+                     prepared: versions.Prepared | None = None) -> str:
+    """Publish the verified release baseline in the stable machine-local home."""
+    release = prepared or versions.prepare(kit, root, dry_run=dry_run)
+    return versions.publish(release)
 
 
 # --- the steps --------------------------------------------------------------------
@@ -369,14 +356,13 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     check_origin(root, check_tooling(root))
     plan = Plan(root, bool(getattr(args, "dry_run", False)))
     templates = kit / "templates"
-    ref = kit_ref(kit, args.kit_ref)
-    if ref is None:
-        ref = "main"
-        plan.open_questions.append(
-            "Which kit version should checks.yml fetch? It uses main until the kit names one."
-        )
+    try:
+        release = versions.prepare(kit, root, kit_ref(kit, args.kit_ref), dry_run=plan.dry_run)
+    except versions.VersionError as error:
+        raise cli.Failure(str(error), next_command=error.next_command,
+                          code=cli.ExitCode.REFUSED) from error
     merge = load_module("merge_settings", HERE / "merge-settings.py")
-    values = {"KIT_DIR": str(kit), "KIT_REF": ref}
+    values = {"KIT_DIR": str(kit), "KIT_REF": release.commit}
 
     def rendered(name: str) -> str:
         return str(merge.render((templates / name).read_text("utf-8"), values))
@@ -398,7 +384,7 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
             "known, and the first piece sets up the test runner."
         )
 
-    for source, target in (
+    foundation = (
         ("AGENTS.md", "AGENTS.md"),
         ("CLAUDE.md", "CLAUDE.md"),
         ("overview.md", "docs/overview.md"),
@@ -407,8 +393,22 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         ("CHANGELOG.md", "CHANGELOG.md"),
         ("checks.yml", ".github/workflows/checks.yml"),
         ("blocked-commands.md", ".agents/guard/blocked-commands.md"),
-    ):
-        plan.place(target, rendered(source))
+    )
+    # Read and render every foundation input before publishing or changing the project.
+    rendered_files = [(target, rendered(source)) for source, target in foundation]
+    workflow = next(text for target, text in rendered_files
+                    if target == ".github/workflows/checks.yml")
+    if re.search(r"\{\{(?:KIT_[A-Z_]+|SCAFFOLD_TEST_COMMAND)\}\}", workflow):
+        raise cli.Failure("the generated check has unresolved distribution placeholders",
+                          next_command="reinstall the tagged kit release, then run setup.py found",
+                          code=cli.ExitCode.REFUSED)
+    try:
+        record = write_kit_record(kit, root, plan.dry_run, release)
+    except versions.VersionError as error:
+        raise cli.Failure(str(error), next_command=error.next_command,
+                          code=cli.ExitCode.REFUSED) from error
+    for target, text in rendered_files:
+        plan.place(target, text)
     extend_ignore(plan, (templates / "gitignore").read_text("utf-8"))
     place_settings(plan, kit)
     install_hooks(plan, kit, merge)
@@ -432,7 +432,6 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
 
     write_open_questions(plan)
     labels = label_step(root)
-    record = write_kit_record(kit, root, plan.dry_run)
     return {
         "project": str(root),
         "kit_dir": str(kit),
@@ -446,6 +445,8 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         "open_questions": plan.open_questions,
         "labels": labels,
         "kit_record": record,
+        "kit_revision": release.commit,
+        "kit_version": release.body["version"],
         "closing": CLOSING,
     }
 

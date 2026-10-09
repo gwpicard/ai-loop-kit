@@ -8,17 +8,25 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
       # The kit is not part of the project, so the runner fetches it. Founding
       # replaces {{KIT_REF}} with the kit version that founded the project.
-      - uses: actions/checkout@v6
-        with:
-          repository: gwpicard/ai-loop-kit
-          ref: "{{KIT_REF}}"
-          path: .kit
+      - name: Acquire and verify the public kit revision
+        env:
+          KIT_REVISION: "{{KIT_REF}}"
+          GIT_TERMINAL_PROMPT: "0"
+          GIT_ASKPASS: /usr/bin/false
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: "1"
+        run: |
+          git init -q .kit
+          git -C .kit -c credential.helper= -c http.extraHeader= fetch --depth=1 --no-tags https://github.com/gwpicard/ai-loop-kit.git "$KIT_REVISION"
+          git -C .kit checkout -q --detach FETCH_HEAD
+          test "$(git -C .kit rev-parse HEAD)" = "$KIT_REVISION" || { echo 'The kit checkout differs from its verified release revision.'; exit 3; }
       - name: Check the records
         run: |
           command -v python3 >/dev/null 2>&1 || { echo 'Check the records needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }
-          kit="${CLAUDE_PLUGIN_ROOT:-.kit/kit}"
+          kit=".kit/kit"
           python3 "$kit/scripts/records-check.py"
       - name: Install and test
         env:
@@ -26,5 +34,5 @@ jobs:
           SCAFFOLD_TEST_COMMAND: {{SCAFFOLD_TEST_COMMAND}}
         run: |
           command -v python3 >/dev/null 2>&1 || { echo 'Install and test needs Python 3, which this runner does not have. Add a step that installs Python 3 before this one.'; exit 2; }
-          kit="${CLAUDE_PLUGIN_ROOT:-.kit/kit}"
+          kit=".kit/kit"
           python3 "$kit/scripts/hosted-check.py" --base "${PR_BASE_SHA:-}" --scaffold-command "${SCAFFOLD_TEST_COMMAND:-}"
