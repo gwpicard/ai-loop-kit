@@ -33,9 +33,21 @@ export PYTHONDONTWRITEBYTECODE
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT" || exit 1
 
+# Exit 77 means a required rehearsal did not run. Older rehearsals use a
+# top-level "skipped:" line with exit zero; keep those outside the pass total.
+# Indented skip lines describe optional subchecks, never extra passes.
+# dependency-check also prints optional package-manager skips at the top level,
+# followed by its completion line. Recognise that existing producer explicitly.
 failed=""
+skipped=""
 failed_count=0
+skipped_count=0
+passed_count=0
 total=0
+WORK=$(mktemp -d) || exit 1
+# Keep the output files as evidence, including on failure.
+optional="$WORK/optional.log"
+: > "$optional"
 
 for script in tests/*.sh; do
   name=$(basename "$script" .sh)
@@ -45,28 +57,70 @@ for script in tests/*.sh; do
 
   total=$((total + 1))
   printf '\n=== %s ===\n' "$name"
-  if "$script"; then
-    printf '  passed: %s\n' "$name"
-  else
+  status=0
+  "$script" > "$WORK/$name.log" 2>&1 || status=$?
+  cat "$WORK/$name.log"
+  optional_pattern='^  *skipped:'
+  required_skip=0
+  if grep -q '^skipped:' "$WORK/$name.log"; then
+    if [ "$name" = dependency-check ] &&
+      grep -q '^dependency-check.sh passed ([0-9][0-9]* skipped)$' "$WORK/$name.log"; then
+      optional_pattern='^ *skipped:'
+    else
+      required_skip=1
+    fi
+  fi
+  # A real failure takes precedence over any skip marker in its output.
+  if [ "$status" -ne 0 ] && [ "$status" -ne 77 ]; then
     printf '  FAILED: %s\n' "$name"
     failed="$failed $name"
     failed_count=$((failed_count + 1))
+  elif [ "$status" -eq 77 ] || [ "$required_skip" -eq 1 ]; then
+    printf '  skipped: %s\n' "$name"
+    skipped="$skipped $name"
+    skipped_count=$((skipped_count + 1))
+  else
+    printf '  passed: %s\n' "$name"
+    passed_count=$((passed_count + 1))
+  fi
+  if grep -q "$optional_pattern" "$WORK/$name.log"; then
+    printf '%s:\n' "$name" >> "$optional"
+    grep "$optional_pattern" "$WORK/$name.log" >> "$optional"
   fi
 done
 
-passed_count=$((total - failed_count))
-
 printf '\n===================================\n'
 printf '%d of %d rehearsals passed\n' "$passed_count" "$total"
+printf '%d skipped, %d failed\n' "$skipped_count" "$failed_count"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
     printf '## Rehearsals\n\n'
     printf '%d of %d passed.\n\n' "$passed_count" "$total"
+    printf '%d skipped, %d failed.\n\n' "$skipped_count" "$failed_count"
+    for name in $skipped; do
+      printf -- '- skipped: `%s`\n' "$name"
+    done
     for name in $failed; do
       printf -- '- failed: `%s`\n' "$name"
     done
+    if [ -s "$optional" ]; then
+      printf '\nOptional checks omitted (outside the pass total):\n\n'
+      cat "$optional"
+    fi
   } >> "$GITHUB_STEP_SUMMARY"
+fi
+
+if [ "$total" -eq 0 ]; then
+  printf 'No rehearsals ran.\n'
+  exit 1
+fi
+
+if [ "$skipped_count" -gt 0 ]; then
+  printf '\nRequired rehearsals skipped:\n'
+  for name in $skipped; do
+    printf -- '  - %s\n' "$name"
+  done
 fi
 
 if [ "$failed_count" -gt 0 ]; then
@@ -78,4 +132,5 @@ if [ "$failed_count" -gt 0 ]; then
   exit 1
 fi
 
+[ "$skipped_count" -eq 0 ] || exit 1
 printf 'Every rehearsal passed.\n'
