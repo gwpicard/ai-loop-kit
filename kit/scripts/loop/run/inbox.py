@@ -405,17 +405,18 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
         raise cli.Failure(str(error), next_command="cd into the project, then run inbox.py again",
                           code=cli.ExitCode.USAGE) from error
     try:
-        rec = record.RunRecord.load(paths, args.run)
-    except record.RecordError as error:
-        raise cli.Failure(str(error), next_command=error.next_command,
-                          code=cli.ExitCode.REFUSED) from error
-    try:
         lock = record.acquire_lock(paths, args.run)
     except record.LockHeld as error:
         raise cli.Failure(
             f"{error}. A live run reads the comments itself.", next_command=error.next_command,
             code=cli.ExitCode.REFUSED) from error
     try:
+        # Admission protects the snapshot that mailbox handling will save whole.
+        try:
+            rec = record.RunRecord.load(paths, args.run)
+        except record.RecordError as error:
+            raise cli.Failure(str(error), next_command=error.next_command,
+                              code=cli.ExitCode.REFUSED) from error
         context = SimpleNamespace(paths=paths, name=args.run, record=rec,
                                   resume_piece=lambda number: None, gate_lock=threading.RLock())
         mailbox_answers(context, dry_run=args.dry_run)
