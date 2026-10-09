@@ -41,7 +41,7 @@ unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
 
 if ! python3 -m pytest --version >/dev/null 2>&1; then
   echo "skipped: pytest is not installed, so the trim check did not run"
-  exit 0
+  exit 77
 fi
 
 . "$ROOT/tests/lib/throwaway-project.sh"
