@@ -122,7 +122,13 @@ class Paths:
     def run_record(self, name: str) -> Path:
         return self.run_dir(name) / "run.json"
 
+    @property
+    def project_lock(self) -> Path:
+        """One retained admission lock for every run name in this project."""
+        return self.runs_dir / ".project.lock"
+
     def lock_file(self, name: str) -> Path:
+        """The run's PID mirror, read by pre-run and merge checks."""
         return self.run_dir(name) / "lock"
 
     def heartbeat(self, name: str) -> Path:
