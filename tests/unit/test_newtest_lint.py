@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kit" / "scripts"))
 
@@ -637,10 +638,10 @@ class MoreShapes(unittest.TestCase):
         text = "import time\n\n\ndef f():\n    time.sleep(1)\n    print('x')\n"
         self.assertEqual(nl.lint_text("src/app.py", text), [])
 
-    def test_python_that_does_not_parse_is_reported_not_refused(self) -> None:
+    def test_python_that_does_not_parse_is_reported_and_refused_as_unchecked(self) -> None:
         found = nl.lint_text("test_a.py", "def test_a(:\n    pass\n")
-        self.assertEqual(refused(found), set())
-        self.assertEqual(ids(found), {"unparsed"})
+        self.assertEqual(refused(found), {"unchecked"})
+        self.assertEqual(ids(found), {"unparsed", "unchecked"})
 
     def test_monkeypatch_of_an_own_module_is_a_mock_of_it(self) -> None:
         text = (
@@ -745,6 +746,201 @@ class TestPaths(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(nl.is_snapshot_path(path))
         self.assertFalse(nl.is_snapshot_path("src/app.ts"))
+
+
+class CheckerCoverageRequired(unittest.TestCase):
+    """Coverage refusals are separate from switchable test-smell rules."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="unchecked-tests-")
+        self.addCleanup(temporary.cleanup)
+        self.project = Path(temporary.name)
+        self.fixture = FIXTURES / "unchecked"
+
+    def write(self, name: str, content: str) -> Path:
+        path = self.project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def git(self, *args: str) -> str:
+        done = subprocess.run(
+            ["git", "-C", str(self.project), *args], capture_output=True, text=True, check=True
+        )
+        return done.stdout.strip()
+
+    def command(self, *args: str) -> tuple[int, dict[str, Any], str]:
+        done = subprocess.run(
+            [sys.executable, str(ROOT / "kit/scripts/newtest-lint.py"), *args, "--json"],
+            cwd=self.project,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "MYPYPATH": ""},
+        )
+        return done.returncode, json.loads(done.stdout), done.stderr
+
+    def initial_commit(self) -> None:
+        self.git("init", "-q")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.write("README.md", "Fixture\n")
+        self.git("add", "README.md")
+        self.git("commit", "-qm", "Fixture")
+
+    def test_library_refuses_unknown_test_even_with_no_smell_rules(self) -> None:
+        found = nl.lint_text(
+            "tests/example.rb",
+            self.fixture.joinpath("unsupported.rb.fixture").read_text(),
+            rules=frozenset(),
+        )
+        self.assertTrue(nl.refusals(found), "unsupported required tests silently pass")
+
+    def test_library_refuses_invalid_python_even_with_no_smell_rules(self) -> None:
+        found = nl.lint_text(
+            "tests/example.py",
+            self.fixture.joinpath("invalid.py.fixture").read_text(),
+            rules=frozenset(),
+        )
+        self.assertTrue(nl.refusals(found), "invalid required test syntax silently passes")
+
+    def test_explicit_file_route_uses_test_directory_context(self) -> None:
+        path = self.write("tests/example.rb", "describe('release') {}\n")
+        code, body, error = self.command("--file", str(path))
+        self.assertEqual(code, 1)
+        self.assertFalse(body["ok"])
+        self.assertIn("next: ", error)
+
+    def test_file_route_retains_all_inputs_when_a_read_fails(self) -> None:
+        clean = self.write("tests/clean.py", "def test_result():\n    assert result() == 2\n")
+        missing = self.project / "tests/missing.py"
+        unknown = self.write("tests/example.rb", "unknown\n")
+        code, body, error = self.command(
+            "--file", str(clean), "--file", str(missing), "--file", str(unknown)
+        )
+        self.assertEqual(code, 4)
+        coverage = body.get("coverage", [])
+        self.assertEqual(
+            {entry["path"] for entry in coverage}, {str(clean), str(missing), str(unknown)}
+        )
+        self.assertIn("next: ", error)
+
+    def test_file_route_reports_decoding_and_directory_read_failures(self) -> None:
+        path = self.write("tests/binary.py", "temporary")
+        path.write_bytes(b"\xff\xfe")
+        directory = self.project / "tests"
+        code, body, _ = self.command("--file", str(path), "--file", str(directory))
+        self.assertEqual(code, 4)
+        self.assertEqual(len(body.get("coverage", [])), 2)
+
+    def test_base_route_inventories_untracked_names_with_tabs_newlines_and_quotes(self) -> None:
+        self.initial_commit()
+        names = [
+            "tests/space name.rb",
+            "tests/tab\tname.rb",
+            "tests/line\nname.rb",
+            'tests/quote"name.rb',
+        ]
+        for name in names:
+            self.write(name, "unknown\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["path"] for entry in body.get("coverage", [])}, set(names))
+
+    def test_base_route_reports_a_binary_test_without_hunks(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/binary.py", "initial\n")
+        self.git("add", "tests/binary.py")
+        self.git("commit", "-qm", "Existing test")
+        path.write_bytes(b"\x00\xff\xfe")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 4)
+        self.assertEqual([entry["path"] for entry in body.get("coverage", [])], ["tests/binary.py"])
+
+    def test_base_route_reports_a_mode_only_unsupported_test(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/example.rb", "unknown\n")
+        self.git("add", "tests/example.rb")
+        self.git("commit", "-qm", "Existing test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [entry["path"] for entry in body.get("coverage", [])], ["tests/example.rb"]
+        )
+
+    def test_tracked_odd_paths_preserve_hunk_identity_and_old_line_scope(self) -> None:
+        self.initial_commit()
+        names = [
+            "tests/space name.py",
+            "tests/tab\tname.py",
+            "tests/line\nname.py",
+            'tests/quote"name.py',
+        ]
+        for name in names:
+            self.write(
+                name, "import time\ndef test_old():\n    time.sleep(1)\n    assert result() == 2\n"
+            )
+        self.git("add", "tests")
+        self.git("commit", "-qm", "Existing tests")
+        for name in names:
+            path = self.project / name
+            path.write_text(path.read_text() + "\ndef test_new():\n    assert True\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["path"] for entry in body["coverage"]}, set(names))
+        self.assertEqual({entry["file"] for entry in body["refusals"]}, set(names))
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+
+    def test_source_snapshot_and_deletion_have_explicit_non_test_accounting(self) -> None:
+        self.initial_commit()
+        deleted = self.write("tests/deleted.rb", "unsupported\n")
+        self.git("add", "tests/deleted.rb")
+        self.git("commit", "-qm", "Existing test")
+        deleted.unlink()
+        self.write("src/example.rb", "ordinary source\n")
+        self.write("tests/__snapshots__/new.snap", "snapshot\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 0)
+        kinds = {entry["path"]: entry["kind"] for entry in body["coverage"]}
+        self.assertEqual(
+            kinds,
+            {
+                "tests/deleted.rb": "deletion",
+                "src/example.rb": "source",
+                "tests/__snapshots__/new.snap": "snapshot",
+            },
+        )
+        self.assertEqual(body["refusals"], [])
+
+    def test_read_error_precedes_smells_but_keeps_both_findings(self) -> None:
+        missing = self.project / "tests/missing.py"
+        smelly = self.write("tests/smelly.py", "def test_result():\n    assert True\n")
+        code, body, _ = self.command("--file", str(missing), "--file", str(smelly))
+        self.assertEqual(code, 4)
+        self.assertEqual(
+            {entry["rule"] for entry in body["refusals"]}, {"assert_true", "unchecked"}
+        )
+        self.assertEqual(len(body["coverage"]), 2)
+
+    def test_library_reports_limited_language_and_omitted_module_checks(self) -> None:
+        python = nl.assess_text(
+            "tests/example.py", "def test_result():\n    assert result() == 2\n"
+        )
+        typescript = nl.assess_text(
+            "tests/example.ts", "it('result', () => { expect(result()).toBe(2); });"
+        )
+        self.assertEqual(python.coverage["outcome"], "partial")
+        self.assertIn("module", " ".join(python.coverage["checks_omitted"]))
+        self.assertEqual(typescript.coverage["outcome"], "partial")
+        self.assertIn("syntax validation", " ".join(typescript.coverage["checks_omitted"]))
+
+    def test_supported_directory_named_test_still_runs_smell_rules(self) -> None:
+        path = self.write("tests/example.py", "def test_result():\n    assert True\n")
+        code, body, _ = self.command("--file", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("assert_true", {entry["rule"] for entry in body.get("refusals", [])})
 
 
 if __name__ == "__main__":

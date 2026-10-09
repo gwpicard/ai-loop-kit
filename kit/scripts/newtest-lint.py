@@ -5,7 +5,7 @@
 Commands:
   newtest-lint.py --base <ref>        judge what the working tree adds to <ref>
   newtest-lint.py --file <path> [--file <path> ...]
-                                      judge whole files (by their names only)
+                                      judge whole files (with full path context)
 
 The lint (loop/newtest_lint.py) reads only the lines a change adds, so an old
 smell is left alone. It finds: no assertion, a skip marker, `assert True`, a
@@ -61,6 +61,8 @@ def _git(root: Path, *args: str) -> str:
             ["git", "-C", str(root), "-c", "core.quotePath=false", *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             check=False,
         )
     except OSError as error:
@@ -95,11 +97,13 @@ def _root() -> Path:
     return Path(done.stdout.strip())
 
 
-def _read(path: Path) -> str | None:
+def _read(path: Path) -> tuple[str | None, str]:
     try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+        return path.read_text(encoding="utf-8"), ""
+    except UnicodeDecodeError:
+        return None, "content is not valid UTF-8; no content checks ran"
+    except OSError as error:
+        return None, f"content cannot be read ({type(error).__name__}); no content checks ran"
 
 
 def _detect_here() -> frozenset[str]:
@@ -111,70 +115,97 @@ def _detect_here() -> frozenset[str]:
     return nl.detect_own_modules(root)
 
 
+def _lines(diff: str) -> nl.FileChange:
+    """One path is selected by Git's argv; hunk headers cannot rename that path."""
+    changed = nl.FileChange()
+    for line in diff.splitlines():
+        match = nl.HUNK.match(line)
+        if match:
+            start = int(match.group(1))
+            count = 1 if match.group(2) is None else int(match.group(2))
+            if count == 0:
+                changed.touched.update({start, start + 1})
+            else:
+                changed.added.update(range(start, start + count))
+    return changed
+
+
 def judge_base(
     base: str, extra_modules: frozenset[str]
-) -> tuple[list[nl.Finding], list[str], frozenset[str]]:
+) -> tuple[list[nl.Finding], list[str], frozenset[str], list[nl.Coverage]]:
     root = _root()
     own = nl.detect_own_modules(root) | extra_modules
-    diff = _git(
-        root, "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", base, "--"
-    )
-    status = _git(root, "diff", "--name-status", "--no-renames", base, "--")
+    status = _git(root, "diff", "--name-status", "-z", "--no-renames", base, "--")
+    parts = status.split("\0")
+    if parts[-1] == "":
+        parts.pop()
+    if len(parts) % 2:
+        raise Failure(
+            "Git returned an incomplete path inventory",
+            next_command="check the Git project, then repeat the lint",
+            code=ExitCode.ENVIRONMENT,
+        )
+    changes = list(zip(parts[::2], parts[1::2], strict=True))
     untracked = [
-        p for p in _git(root, "ls-files", "--others", "--exclude-standard").splitlines() if p
+        p for p in _git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0") if p
     ]
-    changed = nl.parse_diff(diff)
-    changes: list[tuple[str, str]] = []
-    for line in status.splitlines():
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            changes.append((parts[0], parts[-1]))
-    changes.extend(("A", p) for p in untracked)
+    changes.extend(("?", p) for p in untracked)
     findings = nl.lint_changes(changes)
     checked: list[str] = []
-    wanted: dict[str, tuple[set[int] | None, set[int]]] = {
-        path: (change.added, change.touched) for path, change in changed.items()
-    }
-    for path in untracked:
-        wanted[path] = (None, set())
-    for path, (added, touched) in sorted(wanted.items()):
-        if nl.language_of(path) is None:
-            continue
-        text = _read(root / path)
-        if text is None:
-            continue
-        checked.append(path)
-        findings.extend(nl.lint_text(path, text, added=added, touched=touched, own_modules=own))
-    return findings, checked, own
+    coverage: list[nl.Coverage] = []
+    for state, path in sorted(changes, key=lambda entry: entry[1]):
+        if state.startswith("D"):
+            assessment = nl.assess_text(path, "", status=state)
+        else:
+            text, error = _read(root / path)
+            if text is None:
+                assessment = nl.unchecked(path, state, error, input_error=True)
+            else:
+                added: set[int] | None = None
+                touched: set[int] = set()
+                if state != "?":
+                    diff = _git(
+                        root,
+                        "diff",
+                        "--unified=0",
+                        "--no-color",
+                        "--no-ext-diff",
+                        "--no-renames",
+                        base,
+                        "--",
+                        path,
+                    )
+                    lines = _lines(diff)
+                    added, touched = lines.added, lines.touched
+                assessment = nl.assess_text(
+                    path, text, status=state, added=added, touched=touched, own_modules=own
+                )
+        findings.extend(assessment.findings)
+        coverage.append(assessment.coverage)
+        if assessment.coverage["outcome"] in {"checked", "partial"}:
+            checked.append(path)
+    return findings, checked, own, coverage
 
 
 def judge_files(
     files: list[str], extra_modules: frozenset[str]
-) -> tuple[list[nl.Finding], list[str], frozenset[str]]:
+) -> tuple[list[nl.Finding], list[str], frozenset[str], list[nl.Coverage]]:
     own = _detect_here() | extra_modules
     findings: list[nl.Finding] = []
     checked: list[str] = []
+    coverage: list[nl.Coverage] = []
     for name in files:
-        path = Path(name)
-        text = _read(path)
-        if text is None:
-            raise Failure(
-                f"cannot read {name}",
-                next_command="newtest-lint.py --file <path to a readable file>",
-                code=ExitCode.ENVIRONMENT,
-            )
-        if nl.language_of(path.name) is None:
-            continue
-        checked.append(name)
-        findings.extend(
-            nl.lint_text(
-                name,
-                text,
-                own_modules=own,
-                is_test=nl.is_test_path(path.name),
-            )
+        text, error = _read(Path(name))
+        assessment = (
+            nl.unchecked(name, "file", error, input_error=True)
+            if text is None
+            else nl.assess_text(name, text, status="file", own_modules=own)
         )
-    return findings, checked, own
+        findings.extend(assessment.findings)
+        coverage.append(assessment.coverage)
+        if assessment.coverage["outcome"] in {"checked", "partial"}:
+            checked.append(name)
+    return findings, checked, own, coverage
 
 
 def handle(args: argparse.Namespace) -> dict[str, Any]:
@@ -186,10 +217,10 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
         )
     extra = frozenset(args.own_module)
     if args.base:
-        findings, checked, own = judge_base(args.base, extra)
+        findings, checked, own, coverage = judge_base(args.base, extra)
         again = f"newtest-lint.py --base {args.base}"
     else:
-        findings, checked, own = judge_files(args.file, extra)
+        findings, checked, own, coverage = judge_files(args.file, extra)
         again = "newtest-lint.py --file " + " --file ".join(args.file)
     notes: list[str] = []
     if not own and any(nl.language_of(name) == "py" for name in checked):
@@ -207,7 +238,16 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
         "mode": "base" if args.base else "file",
         "own_modules": sorted(own),
         "notes": notes,
+        "coverage": coverage,
     }
+    unreadable = [entry for entry in coverage if entry["input_error"]]
+    if unreadable:
+        raise Failure(
+            f"{len(unreadable)} input(s) could not be checked: {unreadable[0]['path']}",
+            next_command=f"provide readable UTF-8 content for every input, then run {again}",
+            code=ExitCode.ENVIRONMENT,
+            data=data,
+        )
     if refused:
         first = refused[0]
         places = ", ".join(f"{f['file']}:{f['line']} ({f['rule']})" for f in refused[:5])

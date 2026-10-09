@@ -1006,7 +1006,7 @@ def _ts_lint(
 # --- the entry points ---------------------------------------------------------
 
 
-def lint_text(
+def _lint_supported_text(
     path: str,
     text: str,
     *,
@@ -1029,6 +1029,206 @@ def lint_text(
     else:
         _ts_lint(text, own_modules, scope, collector.add)
     return collector.result()
+
+
+class Coverage(TypedDict):
+    path: str
+    status: str
+    kind: str
+    outcome: str
+    reason: str
+    checks_performed: list[str]
+    checks_omitted: list[str]
+    input_error: bool
+
+
+@dataclass
+class Assessment:
+    findings: list[Finding]
+    coverage: Coverage
+
+
+def unchecked(
+    path: str,
+    status: str,
+    reason: str,
+    *,
+    input_error: bool = False,
+    required_test: bool | None = None,
+) -> Assessment:
+    """Account for unavailable content independently of switchable smell rules."""
+    test = is_test_path(path) if required_test is None else required_test
+    kind = "snapshot" if is_snapshot_path(path) else "test" if test else "source"
+    coverage: Coverage = {
+        "path": path,
+        "status": status,
+        "kind": kind,
+        "outcome": "unchecked",
+        "reason": reason,
+        "checks_performed": [],
+        "checks_omitted": ["test smell checks" if kind == "test" else "content checks"],
+        "input_error": input_error,
+    }
+    findings: list[Finding] = []
+    if kind == "test":
+        findings.append(
+            {
+                "rule": "unchecked",
+                "severity": "refuse",
+                "file": path,
+                "line": 0,
+                "message": reason,
+                "next": (
+                    "provide readable valid tests in a supported language; "
+                    "unsupported test review is not admitted"
+                ),
+            }
+        )
+    return Assessment(findings, coverage)
+
+
+def assess_text(
+    path: str,
+    text: str,
+    *,
+    status: str = "M",
+    added: set[int] | None = None,
+    touched: set[int] | None = None,
+    own_modules: frozenset[str] = frozenset(),
+    rules: frozenset[Rule] = DEFAULT_RULES,
+    is_test: bool | None = None,
+) -> Assessment:
+    """Account for content coverage and then apply the selected smell rules."""
+    test = is_test_path(path) if is_test is None else is_test
+    kind = (
+        "deletion"
+        if status.startswith("D")
+        else ("snapshot" if is_snapshot_path(path) else "test" if test else "source")
+    )
+    coverage: Coverage = {
+        "path": path,
+        "status": status,
+        "kind": kind,
+        "outcome": "checked",
+        "reason": "declared checks processed this content",
+        "checks_performed": [],
+        "checks_omitted": [],
+        "input_error": False,
+    }
+    if kind == "deletion":
+        coverage.update(
+            {
+                "outcome": "deleted",
+                "reason": "deletion inventoried; no new deletion policy",
+                "checks_performed": ["change inventory"],
+                "checks_omitted": ["deleted content"],
+            }
+        )
+        return Assessment([], coverage)
+    if kind == "snapshot":
+        coverage.update(
+            {
+                "reason": "snapshot accounted by the separate change guard",
+                "checks_performed": ["snapshot change inventory"],
+                "checks_omitted": ["test-language smell rules"],
+            }
+        )
+        return Assessment([], coverage)
+    language = language_of(path)
+    if language is None:
+        if test:
+            return unchecked(
+                path,
+                status,
+                "unsupported test language; no test smell checks ran",
+                required_test=test,
+            )
+        coverage.update(
+            {
+                "outcome": "unchecked",
+                "reason": "ordinary unsupported source is outside this checker",
+                "checks_omitted": ["unsupported source content"],
+            }
+        )
+        return Assessment([], coverage)
+    findings = _lint_supported_text(
+        path, text, added=added, touched=touched, own_modules=own_modules, rules=rules, is_test=test
+    )
+    if not test:
+        coverage.update(
+            {
+                "checks_performed": ["source under-test detection"],
+                "checks_omitted": ["test-only smell rules"],
+            }
+        )
+    elif language == "py":
+        try:
+            ast.parse(text)
+        except (SyntaxError, ValueError, TypeError):
+            result = unchecked(
+                path,
+                status,
+                "invalid Python test syntax; AST test rules did not run",
+                required_test=test,
+            )
+            result.findings = findings + result.findings
+            result.coverage["checks_performed"] = ["Python line smell rules"]
+            return result
+        coverage["checks_performed"] = [
+            "Python syntax parsing",
+            "Python added/touched-line smell rules",
+        ]
+        if not own_modules:
+            coverage.update(
+                {
+                    "outcome": "partial",
+                    "reason": "Python parsed; no own modules found for mock checks",
+                    "checks_omitted": ["own-module mock detection without module inventory"],
+                }
+            )
+    else:
+        coverage.update(
+            {
+                "outcome": "partial",
+                "reason": "limited JavaScript/TypeScript smell scanner ran",
+                "checks_performed": [
+                    "limited JavaScript/TypeScript added/touched-line smell scanner"
+                ],
+                "checks_omitted": ["complete JavaScript/TypeScript syntax validation"],
+            }
+        )
+    disabled = sorted(rule.value for rule in DEFAULT_RULES - rules)
+    if disabled:
+        coverage["outcome"] = "partial"
+        coverage["checks_omitted"].append("disabled smell rules: " + ", ".join(disabled))
+        if not rules:
+            coverage["checks_performed"] = (
+                ["Python syntax parsing"] if test and language == "py" else []
+            )
+        coverage["reason"] = "selected checks processed content; some smell rules were disabled"
+    return Assessment(findings, coverage)
+
+
+def lint_text(
+    path: str,
+    text: str,
+    *,
+    added: set[int] | None = None,
+    touched: set[int] | None = None,
+    own_modules: frozenset[str] = frozenset(),
+    rules: frozenset[Rule] = DEFAULT_RULES,
+    is_test: bool | None = None,
+) -> list[Finding]:
+    """Keep the finding-list API; mandatory coverage refusals cannot be disabled."""
+    return assess_text(
+        path,
+        text,
+        added=added,
+        touched=touched,
+        own_modules=own_modules,
+        rules=rules,
+        is_test=is_test,
+    ).findings
 
 
 def lint_changes(
