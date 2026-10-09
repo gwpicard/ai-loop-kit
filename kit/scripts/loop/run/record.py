@@ -8,15 +8,18 @@ piece's state from the gate before it resumes a piece.
 The file is written whole, to a new name, then renamed over the old one, so a reader never sees
 half a record. A record that cannot be read is a refusal (`RecordError`), never an empty record.
 
-The lock file holds the process number of the live run. A second copy of the same run is
-refused. A lock whose process is gone is stale, and the next run takes it over.
+One retained project file holds an operating-system lock for the admitted process. It records
+that process's number, run name and record path. A crash releases admission automatically.
+Per-run PID mirrors remain for pre-run and merge checks, including live legacy runs.
 """
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import json
 import os
+import tempfile
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -276,52 +279,102 @@ def _alive(pid: int) -> bool:
 class Lock:
     path: Path
     pid: int
+    descriptor: int | None
 
     def release(self) -> None:
-        """Remove the lock, but only when it still holds this process's number."""
-        try:
-            held = self.path.read_text(encoding="utf-8").split()
-        except OSError:
+        """Release admission once, leaving the project file's inode in place."""
+        fd = self.descriptor
+        if fd is None:
             return
-        if held and held[0] == str(self.pid):
-            with contextlib.suppress(OSError):
-                self.path.unlink()
+        self.descriptor = None
+        try:
+            try:
+                held = self.path.read_text(encoding="utf-8").split()
+            except OSError:
+                held = []
+            if held and held[0] == str(self.pid):
+                with contextlib.suppress(OSError):
+                    self.path.unlink()
+            os.ftruncate(fd, 0)
+        finally:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+
+def _legacy_locks(paths: Paths, name: str, mine: int) -> None:
+    """Refuse live or unreadable PID mirrors while project admission is held."""
+    again = f"run.py --run {name}"
+    for folder in sorted(paths.runs_dir.iterdir()):
+        path = folder / "lock"
+        if not folder.is_dir() or not path.exists():
+            continue
+        try:
+            held = path.read_text(encoding="utf-8").split()
+        except OSError as error:
+            raise LockHeld(f"the lock {path} cannot be read ({error.strerror})",
+                           f"check {path}, then {again}") from error
+        if not held or not held[0].isdigit():
+            raise LockHeld(
+                f"the lock {path} holds no process number, so it cannot be told from a "
+                "live one", f"look at {path}; when no run is live, move it aside, then "
+                f"{again}")
+        other = int(held[0])
+        if other == mine or _alive(other):
+            raise LockHeld(f"the run {folder.name} is live: process {other} holds {path}",
+                           "wait for that run to finish, or stop it by its process "
+                           f"number, then {again}")
 
 
 def acquire_lock(paths: Paths, name: str, *, pid: int | None = None) -> Lock:
-    """Take the run's lock, or raise `LockHeld`. A lock of a dead process is taken over."""
+    """Admit one local run across all names, retaining the locked inode on recovery."""
     mine = os.getpid() if pid is None else pid
-    path = paths.lock_file(name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    again = f"run.py --run {name}"
-    for _ in range(3):
+    mirror = paths.lock_file(name)  # Validate the name before making any file.
+    project = paths.project_lock
+    again = f"check {project}, then run.py --run {name}"
+    fd: int | None = None
+    wrote_mirror = False
+    try:
+        project.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(project, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            try:
-                held = path.read_text(encoding="utf-8").split()
-            except OSError as error:
-                raise LockHeld(f"the lock {path} cannot be read ({error.strerror})",
-                               f"check {path}, then {again}") from error
-            if not held or not held[0].isdigit():
-                raise LockHeld(
-                    f"the lock {path} holds no process number, so it cannot be told from a "
-                    "live one", f"look at {path}; when no run is live, move it aside, then "
-                    f"{again}") from None
-            other = int(held[0])
-            if other == mine or _alive(other):
-                raise LockHeld(f"the run {name} is live: process {other} holds {path}",
-                               "wait for that run to finish, or stop it by its process "
-                               f"number, then {again}") from None
-            # A stale lock: move it aside under a new name, and try again.
-            stale = path.with_name(f"lock.stale-{other}-{int(time.time())}")
-            with contextlib.suppress(OSError):
-                os.replace(path, stale)
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise LockHeld(f"another run holds the project lock {project}",
+                           f"wait for that run to finish, then run.py --run {name}") from error
+        _legacy_locks(paths, name, mine)
+        mirror.parent.mkdir(parents=True, exist_ok=True)
+        if mirror.exists():
+            # The project lock serialises stale mirror recovery. Preserve the old evidence.
+            stale = mirror.with_name(f"lock.stale-{time.time_ns()}-{mine}")
+            os.replace(mirror, stale)
+        mirror_fd, pending = tempfile.mkstemp(prefix="lock.pending-", dir=mirror.parent)
+        with os.fdopen(mirror_fd, "w", encoding="utf-8") as handle:
             handle.write(f"{mine}\n")
-        return Lock(path, mine)
-    raise LockHeld(f"the lock {path} would not settle", f"check {path}, then {again}")
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Readers see a complete PID mirror, even if this process dies during its write.
+        os.replace(pending, mirror)
+        wrote_mirror = True
+        owner = {"pid": mine, "run": name, "record": str(paths.run_record(name))}
+        with os.fdopen(os.dup(fd), "w", encoding="utf-8") as handle:
+            handle.seek(0)
+            handle.write(json.dumps(owner) + "\n")
+            handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+        lock = Lock(mirror, mine, fd)
+        fd = None  # The returned lock owns the descriptor until release.
+        return lock
+    except OSError as error:
+        raise LockHeld(f"the project lock {project} cannot be used ({error})", again) from error
+    finally:
+        if fd is not None:
+            if wrote_mirror:
+                with contextlib.suppress(OSError):
+                    mirror.unlink()
+            os.close(fd)
 
 
 # --- the heartbeat ---------------------------------------------------------------------
