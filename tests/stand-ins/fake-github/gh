@@ -166,11 +166,17 @@ def land_on_remote(pr):
     A project with no remote has nowhere to land it, so the pull request is only
     marked merged, as before. Returns False when Git cannot merge the branch.
     """
-    import shutil
     import tempfile
 
     def git(*args, cwd=None):
         return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+
+    def failed(operation, result):
+        sys.stderr.write("fake GitHub merge failed at %s (exit %s). Scratch: %s\n"
+                         % (operation, result.returncode, work))
+        sys.stderr.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        return False
 
     remote = git("remote", "get-url", "origin")
     if remote.returncode != 0:
@@ -181,29 +187,33 @@ def land_on_remote(pr):
         remote = os.path.abspath(remote)
     head, base = pr.get("head", ""), pr.get("base", "main")
     work = tempfile.mkdtemp(prefix="fake-gh-merge-")
-    try:
-        clone = os.path.join(work, "clone")
-        if git("clone", "-q", remote, clone).returncode != 0:
-            return False
-        who = ["-c", "user.name=Replay person", "-c", "user.email=person@example.invalid",
-               "-c", "commit.gpgsign=false"]
-        if git("checkout", "-q", base, cwd=clone).returncode != 0:
-            # The harness starts every remote empty, so a scenario can tell a
-            # push it made from one it did not. On GitHub the base branch
-            # would already be there, so it is seeded from the project's own
-            # base before the merge. Without this, every merge failed.
-            if git("push", "-q", remote, "refs/heads/%s:refs/heads/%s" % (base, base)).returncode != 0:
-                return False
-            git("fetch", "-q", "origin", cwd=clone)
-            if git("checkout", "-q", "-b", base, "origin/" + base, cwd=clone).returncode != 0:
-                return False
-        merged = git(*who, "merge", "-q", "--no-ff", "origin/" + head,
-                     "-m", "Merge pull request #%s from %s" % (pr["number"], head), cwd=clone)
-        if merged.returncode != 0:
-            return False
-        return git("push", "-q", "origin", base, cwd=clone).returncode == 0
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    clone = os.path.join(work, "clone")
+    result = git("clone", "-q", remote, clone)
+    if result.returncode != 0:
+        return failed("clone", result)
+    who = ["-c", "user.name=Replay person", "-c", "user.email=person@example.invalid",
+           "-c", "commit.gpgsign=false"]
+    result = git("checkout", "-q", base, cwd=clone)
+    if result.returncode != 0:
+        # A scenario can start with an empty remote. Seed its base from the
+        # project's own branch, then fetch before checking it out.
+        result = git("push", "-q", remote, "refs/heads/%s:refs/heads/%s" % (base, base))
+        if result.returncode != 0:
+            return failed("seed base", result)
+        result = git("fetch", "-q", "origin", cwd=clone)
+        if result.returncode != 0:
+            return failed("fetch seeded base", result)
+        result = git("checkout", "-q", "-b", base, "origin/" + base, cwd=clone)
+        if result.returncode != 0:
+            return failed("checkout seeded base", result)
+    result = git(*who, "merge", "-q", "--no-ff", "origin/" + head,
+                 "-m", "Merge pull request #%s from %s" % (pr["number"], head), cwd=clone)
+    if result.returncode != 0:
+        return failed("merge", result)
+    result = git("push", "-q", "origin", base, cwd=clone)
+    if result.returncode != 0:
+        return failed("push merged base", result)
+    return True
 
 
 def current_branch():
