@@ -146,6 +146,18 @@ def only(*words, **more):
     return {"runs": [["python3", hand, *words]], **more}
 
 
+# Hold an actual session until the parent has observed pause and acknowledged it.
+mail_wait = r"""import sys, time
+from pathlib import Path
+started, acknowledgement = map(Path, sys.argv[1:])
+started.write_text('{"started": true}\n')
+deadline = time.monotonic() + 120
+while not acknowledgement.is_file():
+    if time.monotonic() >= deadline:
+        raise SystemExit("CI2 acknowledgement timed out")
+    time.sleep(0.1)
+"""
+
 scripts = {
     awake: done("awake", "awake.py"),
     # A builder that repeats one error: ended while it runs, and the gate counts the attempt.
@@ -155,8 +167,8 @@ scripts = {
     # A usage limit that resets in 4 seconds: the piece waits and goes on, counting nothing.
     limit: {"sequence": [{"usage_limit_in": 4, "exit_code": 1, "cost_usd": 0.1},
                          done("limit", "limit.py")]},
-    # The mailbox runs. The first piece is slow (20 s), so the run reads the pause before it ends.
-    steady: done("steady", "steady.py", sleep=20),
+    # The mailbox session waits for acknowledgement before its hand-off.
+    steady: done("steady", "steady.py"),
     after1: done("after1", "after1.py"),
     after2: done("after2", "after2.py"),
     hold1: done("hold1", "hold1.py", sleep=90),
@@ -181,6 +193,8 @@ scripts = {
     "default": {"runs": [["python3", "-c", "import os; open(os.environ['AI_LOOP_KIT_FINDINGS_FILE'], "
                                            "'w').write('{\"findings\": []}')"]]},
 }
+scripts[steady]["runs"].insert(0, ["python3", "-c", mail_wait,
+    str(fake / "mail-1-started.json"), str(fake / "mail-1-ack")])
 for number, body in scripts.items():
     (fake / f"{number}.json").write_text(json.dumps(body))
 PY
@@ -291,9 +305,12 @@ python3 "$RUN" --pieces "$P_steady,$P_after1,$P_after2" --run mail-1 --json \
 MAIL_PID=$!
 poll 60 'd["pieces"]["'"$P_steady"'"]["status"] == "building"' "$runs/mail-1/run.json" \
   || { cat "$TP_BASE/mail.err" >&2; fail "the first mailbox piece never started"; }
+poll 60 'd["started"] is True' "$FAKE/mail-1-started.json" \
+  || fail "the first mailbox session did not signal that it started"
 printf 'pause\n' >> "$runs/mail-1/mailbox"
 poll 20 'any("said pause" in n["text"] for n in d["notes"])' "$runs/mail-1/run.json" \
   || fail "the run did not read the pause"
+: > "$FAKE/mail-1-ack"
 poll 150 'd["pieces"]["'"$P_steady"'"]["status"] == "built"' "$runs/mail-1/run.json" \
   || fail "the piece in flight did not end its work while the run was paused"
 sleep 4
