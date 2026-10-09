@@ -65,7 +65,7 @@
       "Edit(//**/.githooks/**)",
       "Edit(//**/.agents/loop/policy.json)",
       "Edit(//**/.agents/loop/local.json)",
-      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Edit(/{{KIT_DIR}}/**)",
       "Read(~/.config/gh/**)",
       "Read(~/Library/Keychains/**)",
       "Bash(gh auth token*)",
@@ -110,6 +110,9 @@
       "denyRead": [
         "~/.config/gh",
         "~/Library/Keychains"
+      ],
+      "denyWrite": [
+        "{{KIT_DIR}}"
       ]
     }
   }
