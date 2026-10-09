@@ -213,6 +213,35 @@ class FileChange:
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
+def python_line_scope(text: str, change: FileChange) -> FileChange:
+    """Translate raw Git LF lines to Python's CR, CRLF and LF logical lines.
+
+    Each changed Git line includes its own logical-line fragments only. An
+    empty scope stays empty; deletion neighbours keep their boundary positions.
+    """
+    physical = logical = 1
+    mapped: dict[int, set[int]] = {}
+    for newline in re.finditer(r"\r\n|\r|\n", text):
+        mapped.setdefault(physical, set()).add(logical)
+        logical += 1
+        if newline.group().endswith("\n"):
+            physical += 1
+    mapped.setdefault(physical, set()).add(logical)
+
+    def translate(indices: set[int]) -> set[int]:
+        found: set[int] = set()
+        for index in indices:
+            if index < 1:
+                found.add(index)
+            elif index > physical:
+                found.add(logical + index - physical)
+            else:
+                found.update(mapped[index])
+        return found
+
+    return FileChange(translate(change.added), translate(change.touched))
+
+
 def parse_diff(diff: str) -> dict[str, FileChange]:
     """Read `git diff --unified=0` into the lines each file added."""
     changed: dict[str, FileChange] = {}

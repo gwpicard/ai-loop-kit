@@ -103,7 +103,7 @@ def _root() -> Path:
 
 def _read(path: Path) -> tuple[str | None, str]:
     try:
-        return path.read_text(encoding="utf-8"), ""
+        return path.read_bytes().decode("utf-8"), ""
     except UnicodeDecodeError:
         return None, "content is not valid UTF-8; no content checks ran"
     except OSError as error:
@@ -122,7 +122,7 @@ def _detect_here() -> frozenset[str]:
 def _lines(diff: str) -> nl.FileChange:
     """One path is selected by Git's argv; hunk headers cannot rename that path."""
     changed = nl.FileChange()
-    for line in diff.splitlines():
+    for line in diff.split("\n"):
         match = nl.HUNK.match(line)
         if match:
             start = int(match.group(1))
@@ -165,6 +165,9 @@ def judge_base(
             if text is None:
                 assessment = nl.unchecked(path, state, error, input_error=True)
             else:
+                raw_text = text
+                # Preserve the scanner's universal-newline input while keeping Git's raw scope.
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
                 added: set[int] | None = None
                 touched: set[int] = set()
                 try:
@@ -183,6 +186,8 @@ def judge_base(
                             path,
                         )
                         lines = _lines(diff)
+                        if nl.language_of(path) == "py":
+                            lines = nl.python_line_scope(raw_text, lines)
                         added, touched = lines.added, lines.touched
                 except Failure as error:
                     assessment = nl.unchecked(
@@ -212,7 +217,10 @@ def judge_files(
         assessment = (
             nl.unchecked(name, "file", error, input_error=True)
             if text is None
-            else nl.assess_text(name, text, status="file", own_modules=own)
+            else nl.assess_text(
+                name, text.replace("\r\n", "\n").replace("\r", "\n"),
+                status="file", own_modules=own,
+            )
         )
         findings.extend(assessment.findings)
         coverage.append(assessment.coverage)

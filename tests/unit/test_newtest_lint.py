@@ -790,6 +790,65 @@ class CheckerCoverageRequired(unittest.TestCase):
         self.git("add", "README.md")
         self.git("commit", "-qm", "Fixture")
 
+    def test_staged_cr_only_python_addition_keeps_assertion_in_scope(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/new.py", "")
+        path.write_bytes(b"def test_result():\r    assert True\r")
+        self.git("add", "tests/new.py")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {2})
+
+    def test_modified_cr_only_python_assertion_keeps_changed_scope(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/changed.py", "")
+        path.write_bytes(b"def test_result():\r    assert result() == 2\r")
+        self.git("add", "tests/changed.py")
+        self.git("commit", "-qm", "Existing CR test")
+        path.write_bytes(b"def test_result():\r    assert True\r")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {2})
+
+    def test_mixed_cr_lf_change_does_not_include_unchanged_old_smell(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/mixed.py", "")
+        old = b"def test_old():\r    assert True\r\n"
+        path.write_bytes(old)
+        self.git("add", "tests/mixed.py")
+        self.git("commit", "-qm", "Existing mixed-newline test")
+        path.write_bytes(old + b"\ndef test_new():\r    assert True\r\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {5})
+
+    def test_cr_only_mode_change_does_not_judge_old_smells(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/old.py", "")
+        path.write_bytes(b"def test_old():\r    assert True\r")
+        self.git("add", "tests/old.py")
+        self.git("commit", "-qm", "Existing CR test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 0)
+        self.assertEqual(body["refusals"], [])
+
+    def test_mixed_crlf_lf_content_preserves_old_line_exclusion(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/mixed.py", "")
+        old = b"def test_old():\r\n    assert True\r\n"
+        path.write_bytes(old)
+        self.git("add", "tests/mixed.py")
+        self.git("commit", "-qm", "Existing CRLF test")
+        path.write_bytes(old + b"\ndef test_new():\n    assert True\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {5})
+
     def test_readable_binary_attribute_cannot_hide_a_new_smell(self) -> None:
         self.initial_commit()
         self.write(".gitattributes", "tests/*.py -diff\n")
