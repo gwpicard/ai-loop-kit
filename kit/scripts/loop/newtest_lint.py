@@ -213,15 +213,18 @@ class FileChange:
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
-def python_line_scope(text: str, change: FileChange) -> FileChange:
-    """Translate raw Git LF lines to Python's CR, CRLF and LF logical lines.
+def python_line_scope(
+    text: str, change: FileChange, *, scanner: bool = False
+) -> FileChange:
+    """Translate Git LF lines to normalised LF or splitlines scanner coordinates.
 
     Each changed Git line includes its own logical-line fragments only. An
     empty scope stays empty; deletion neighbours keep their boundary positions.
     """
     physical = logical = 1
     mapped: dict[int, set[int]] = {}
-    for newline in re.finditer(r"\r\n|\r|\n", text):
+    boundaries = r"\r\n|[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]" if scanner else r"\r\n|\r|\n"
+    for newline in re.finditer(boundaries, text):
         mapped.setdefault(physical, set()).add(logical)
         logical += 1
         if newline.group().endswith("\n"):
@@ -824,21 +827,31 @@ def _py_test(
             add(Rule.MAGIC_NUMBER, node.lineno)
 
 
+def _masked_line_fragments(text: str, masked: str) -> list[tuple[str, str]]:
+    """Slice the mask using each raw splitlines fragment's character span."""
+    fragments: list[tuple[str, str]] = []
+    offset = 0
+    for fragment in text.splitlines(keepends=True):
+        raw = fragment.splitlines()[0] if fragment.splitlines() else ""
+        fragments.append((raw, masked[offset : offset + len(raw)]))
+        offset += len(fragment)
+    return fragments
+
+
 def _py_lint(
-    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None]
+    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None],
+    line_scope: Scope,
 ) -> None:
-    raw_lines = text.splitlines()
-    masked_lines = mask(text, "py").splitlines()
+    fragments = _masked_line_fragments(text, mask(text, "py"))
     try:
         tree: ast.AST | None = ast.parse(text)
     except SyntaxError:
         tree = None
         add(Rule.UNPARSED, 1)
     own_names = _py_own_names(tree, own) if tree is not None else set()
-    for number, raw in enumerate(raw_lines, 1):
-        if not scope.adds(number):
+    for number, (raw, masked) in enumerate(fragments, 1):
+        if not line_scope.adds(number):
             continue
-        masked = masked_lines[number - 1] if number <= len(masked_lines) else ""
         for rule, pattern in PY_LINE_RULES:
             if pattern.search(masked):
                 add(rule, number)
@@ -1000,16 +1013,15 @@ def _ts_test_rules(
 
 
 def _ts_lint(
-    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None]
+    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None],
+    line_scope: Scope,
 ) -> None:
-    raw_lines = text.splitlines()
     masked = mask(text, "ts")
-    masked_lines = masked.splitlines()
+    fragments = _masked_line_fragments(text, masked)
     lines = Lines(text)
-    for number, raw in enumerate(raw_lines, 1):
-        if not scope.adds(number):
+    for number, (raw, shown) in enumerate(fragments, 1):
+        if not line_scope.adds(number):
             continue
-        shown = masked_lines[number - 1] if number <= len(masked_lines) else ""
         for rule, pattern in TS_LINE_RULES:
             if pattern.search(shown):
                 add(rule, number)
@@ -1039,6 +1051,7 @@ def _lint_supported_text(
     path: str,
     text: str,
     *,
+    line_change: FileChange | None = None,
     added: set[int] | None = None,
     touched: set[int] | None = None,
     own_modules: frozenset[str] = frozenset(),
@@ -1050,13 +1063,15 @@ def _lint_supported_text(
     if language is None:
         return []
     scope = Scope(added, set(touched or ()))
+    line_scope = (Scope(line_change.added, line_change.touched)
+                  if line_change is not None else scope)
     collector = Collector(path, rules)
     if not (is_test_path(path) if is_test is None else is_test):
-        _source_rules(text.splitlines(), scope, collector.add)
+        _source_rules(text.splitlines(), line_scope, collector.add)
     elif language == "py":
-        _py_lint(text, own_modules, scope, collector.add)
+        _py_lint(text, own_modules, scope, collector.add, line_scope)
     else:
-        _ts_lint(text, own_modules, scope, collector.add)
+        _ts_lint(text, own_modules, scope, collector.add, line_scope)
     return collector.result()
 
 
@@ -1121,6 +1136,7 @@ def assess_text(
     text: str,
     *,
     status: str = "M",
+    line_change: FileChange | None = None,
     added: set[int] | None = None,
     touched: set[int] | None = None,
     own_modules: frozenset[str] = frozenset(),
@@ -1181,7 +1197,8 @@ def assess_text(
         )
         return Assessment([], coverage)
     findings = _lint_supported_text(
-        path, text, added=added, touched=touched, own_modules=own_modules, rules=rules, is_test=test
+        path, text, added=added, touched=touched, own_modules=own_modules, rules=rules,
+        is_test=test, line_change=line_change
     )
     if not test:
         coverage.update(

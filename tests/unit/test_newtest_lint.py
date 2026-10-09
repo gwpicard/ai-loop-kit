@@ -790,6 +790,118 @@ class CheckerCoverageRequired(unittest.TestCase):
         self.git("add", "README.md")
         self.git("commit", "-qm", "Fixture")
 
+    def test_staged_cr_only_ts_assertion_is_refused_on_line_two(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/new.ts", "")
+        path.write_bytes(b"function test_result() {\r expect(true).toBe(true);\r}\r")
+        self.git("add", "tests/new.ts")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("assert_true", 2)])
+
+    def test_ts_mixed_cr_lf_scope_keeps_old_assertion_out(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/mixed.ts", "")
+        old = b"function test_old() {\r expect(true).toBe(true);\r}\n"
+        path.write_bytes(old)
+        self.git("add", "tests/mixed.ts")
+        self.git("commit", "-qm", "Existing mixed TS test")
+        path.write_bytes(old + b"function test_new() {\r expect(true).toBe(true);\r}\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("assert_true", 5)])
+
+    def test_ts_cr_mode_only_scope_stays_empty(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/old.ts", "")
+        path.write_bytes(b"function test_old() {\r expect(true).toBe(true);\r}\r")
+        self.git("add", "tests/old.ts")
+        self.git("commit", "-qm", "Existing CR TS test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual((code, body["refusals"]), (0, []))
+
+    def test_ts_lf_and_crlf_scope_controls(self) -> None:
+        self.initial_commit()
+        for index, newline in enumerate((b"\n", b"\r\n")):
+            with self.subTest(newline=newline):
+                name = f"tests/control{index}.ts"
+                path = self.write(name, "")
+                path.write_bytes(newline.join((b"function test_result() {",
+                                              b" expect(true).toBe(true);", b"}", b"")))
+                self.git("add", name)
+                code, body, _ = self.command("--base", "HEAD")
+                own = [f for f in body["refusals"] if f["file"] == name]
+                self.assertEqual(code, 1)
+                self.assertEqual([(f["rule"], f["line"]) for f in own], [("assert_true", 2)])
+
+    def test_splitlines_boundaries_keep_new_line_rules_and_mask_spans(self) -> None:
+        self.initial_commit()
+        boundaries = "\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+        for index, boundary in enumerate(boundaries):
+            with self.subTest(boundary=repr(boundary)):
+                name = f"tests/boundary{index}.ts"
+                path = self.write(name, f"/* old{boundary} comment */\n")
+                self.git("add", name)
+                self.git("commit", "-qm", "Existing scanner boundary")
+                path.write_text(f"/* old{boundary} comment */\nconsole.log('new');\n",
+                                encoding="utf-8")
+                code, body, _ = self.command("--base", "HEAD")
+                own = [f for f in body["refusals"] if f["file"] == name]
+                self.assertEqual(code, 1)
+                self.assertEqual([(f["rule"], f["line"]) for f in own], [("debug_print", 3)])
+
+    def test_offset_scope_uses_lf_after_scanner_only_boundary(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/offset.ts", "/* old\u2028 comment */\n")
+        self.git("add", "tests/offset.ts")
+        self.git("commit", "-qm", "Existing offset context")
+        path.write_text("/* old\u2028 comment */\nit('new', () => {});\n", encoding="utf-8")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("no_assertion", 2)])
+
+    def test_ast_scope_uses_lf_after_form_feed_comment(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/ast.py", "# old\f# context\n")
+        self.git("add", "tests/ast.py")
+        self.git("commit", "-qm", "Existing AST context")
+        path.write_text("# old\f# context\ndef test_new():\n    assert True\n", encoding="utf-8")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("assert_true", 3)])
+
+    def test_source_splitlines_scope_excludes_old_detection(self) -> None:
+        self.initial_commit()
+        path = self.write("src/app.ts", "// old\v// PYTEST_CURRENT_TEST\n")
+        self.git("add", "src/app.ts")
+        self.git("commit", "-qm", "Existing source detection")
+        path.write_text("// old\v// PYTEST_CURRENT_TEST\n// new\v// PYTEST_CURRENT_TEST\n",
+                        encoding="utf-8")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("test_detect", 4)])
+
+    def test_scope_mapping_keeps_deletion_neighbours_and_empty_changes(self) -> None:
+        change = nl.FileChange(set(), {1, 2})
+        self.assertEqual(nl.python_line_scope("old\rnew\nlast", change).touched, {1, 2, 3})
+        self.assertEqual(nl.python_line_scope("old\rnew\nlast", nl.FileChange()),
+                         nl.FileChange())
+        scanner = nl.python_line_scope("old\vnew\nlast", change, scanner=True)
+        self.assertEqual(scanner.added, set())
+        self.assertEqual(scanner.touched, {1, 2, 3})
+        self.assertEqual(nl.python_line_scope("old\vnew\nlast", nl.FileChange(), scanner=True),
+                         nl.FileChange())
+        beyond = nl.python_line_scope("old\vnew\nlast", nl.FileChange(set(), {0, 3}),
+                                      scanner=True)
+        self.assertEqual(beyond.touched, {0, 4})
+
     def test_staged_cr_only_python_addition_keeps_assertion_in_scope(self) -> None:
         self.initial_commit()
         path = self.write("tests/new.py", "")

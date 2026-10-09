@@ -170,6 +170,7 @@ def judge_base(
                 text = text.replace("\r\n", "\n").replace("\r", "\n")
                 added: set[int] | None = None
                 touched: set[int] = set()
+                line_change: nl.FileChange | None = None
                 try:
                     if state != "?":
                         diff = _git(
@@ -186,8 +187,8 @@ def judge_base(
                             path,
                         )
                         lines = _lines(diff)
-                        if nl.language_of(path) == "py":
-                            lines = nl.python_line_scope(raw_text, lines)
+                        line_change = nl.python_line_scope(raw_text, lines, scanner=True)
+                        lines = nl.python_line_scope(raw_text, lines)
                         added, touched = lines.added, lines.touched
                 except Failure as error:
                     assessment = nl.unchecked(
@@ -196,7 +197,8 @@ def judge_base(
                     )
                 else:
                     assessment = nl.assess_text(
-                        path, text, status=state, added=added, touched=touched, own_modules=own
+                        path, text, status=state, added=added, touched=touched, own_modules=own,
+                        line_change=line_change
                     )
         findings.extend(assessment.findings)
         coverage.append(assessment.coverage)
