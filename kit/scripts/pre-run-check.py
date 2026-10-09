@@ -13,7 +13,7 @@ command that puts it back:
 - the guard hook, the deny rules, the sandbox, and the settings a person's own
   value must not beat (`.claude/settings.json` and `settings.local.json`);
 - the pre-push hook and the setting that turns it on;
-- the installed kit folder: the plugin's version record in a founded project,
+- the installed kit folder: the stable verified release record in a founded project,
   `git status` on `kit/` in the kit's own repository;
 - the policy file: readable, and every value valid (a bad one is named by key);
 - the lock: no other live run holds this project;
@@ -48,7 +48,6 @@ the system's temporary folder, which is left in place.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import os
@@ -63,14 +62,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from loop import cli, moves, policy, sessions, spec
+from loop import cli, moves, policy, sessions, spec, versions
 from loop.gates import ready as ready_gate
 from loop.paths import PathError, Paths, find_project_root
 
 FIRST_HALF = "the first half of /setup (shape and run locally)"
 SECOND_HALF = "the second half of /setup (make it safe to walk away)"
 MIN_CLAUDE = (2, 1, 219)
-RECORD = "version.json"
 MAIN_BRANCH = "main"
 APP_NOTICE = (
     "the second half of `/setup` is missing: the run stops if this computer sleeps "
@@ -449,26 +447,6 @@ def check_pre_push(root: Path, kit: Path) -> list[Refusal]:
     return refusals
 
 
-def kit_files(kit: Path) -> dict[str, str]:
-    """Each file of the kit folder, by relative path, with its SHA-256. Skips the record."""
-    found: dict[str, str] = {}
-    for folder, names, files in os.walk(kit):
-        names[:] = [name for name in names if name != "__pycache__"]
-        for name in files:
-            path = Path(folder) / name
-            relative = path.relative_to(kit).as_posix()
-            if relative == RECORD or name.endswith(".pyc"):
-                continue
-            found[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return dict(sorted(found.items()))
-
-
-def write_record(kit: Path) -> None:
-    """Write the plugin's version record. The installer calls this when it installs the kit."""
-    record = {"record": 1, "files": kit_files(kit)}
-    (kit / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-
-
 def check_kit_folder(root: Path, kit: Path) -> list[Refusal]:
     if kit.resolve() == (root / "kit").resolve():
         out = read_command(["git", "-C", str(root), "status", "--porcelain", "--", "kit"])
@@ -487,35 +465,14 @@ def check_kit_folder(root: Path, kit: Path) -> list[Refusal]:
                 )
             ]
         return []
-    record, error = read_json(kit / RECORD)
-    if error or not isinstance(record, dict) or not isinstance(record.get("files"), dict):
-        return [
-            first_half(
-                "kit-folder",
-                f"the plugin's version record {kit / RECORD} is missing or "
-                "unreadable, so the installed kit cannot be compared. Reinstall the kit",
-            )
-        ]
-    expected: dict[str, str] = record["files"]
-    now = kit_files(kit)
-    changed = sorted(name for name in expected if name in now and now[name] != expected[name])
-    gone = sorted(name for name in expected if name not in now)
-    added = sorted(name for name in now if name not in expected)
-    if not (changed or gone or added):
-        return []
-    parts = [
-        f"{label}: {', '.join(names[:5])}"
-        for label, names in (("changed", changed), ("missing", gone), ("added", added))
-        if names
-    ]
-    return [
-        first_half(
-            "kit-folder",
-            "the installed kit folder differs from its version record ("
-            + "; ".join(parts)
-            + "). Reinstall the kit",
-        )
-    ]
+    try:
+        baseline = versions.load(kit, root)
+        versions.verify(kit, baseline)
+    except versions.VersionError as error:
+        refusal = first_half("kit-folder", str(error))
+        refusal.fix += "; " + error.next_command
+        return [refusal]
+    return []
 
 
 def check_lock(paths: Paths, run: str) -> list[Refusal]:

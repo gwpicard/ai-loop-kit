@@ -70,7 +70,7 @@ class DocsCommitCase(unittest.TestCase):
         shutil.copy(TEMPLATES / "overview.md", self.root / "docs/overview.md")
         shutil.copy(TEMPLATES / "docs-README.md", self.root / "docs/README.md")
         shutil.copy(TEMPLATES / "area-map", self.root / "docs/area-map")
-        text = (TEMPLATES / "checks.yml").read_text().replace("{{KIT_REF}}", "main")
+        text = (TEMPLATES / "checks.yml").read_text().replace("{{KIT_REF}}", "a" * 40)
         (self.root / ".github/workflows/checks.yml").write_text(text)
         shutil.copy(TEMPLATES / "policy.json", self.root / ".agents/loop/policy.json")
         # One real area besides the records.

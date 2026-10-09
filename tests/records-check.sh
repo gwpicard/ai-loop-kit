@@ -53,7 +53,7 @@ cp "$TEMPLATES/CHANGELOG.md" "$TP_ROOT/CHANGELOG.md"
 cp "$TEMPLATES/overview.md" "$TP_ROOT/docs/overview.md"
 cp "$TEMPLATES/docs-README.md" "$TP_ROOT/docs/README.md"
 cp "$TEMPLATES/area-map" "$TP_ROOT/docs/area-map"
-sed 's/{{KIT_REF}}/main/' "$TEMPLATES/checks.yml" > "$TP_ROOT/.github/workflows/checks.yml"
+sed 's/{{KIT_REF}}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' "$TEMPLATES/checks.yml" > "$TP_ROOT/.github/workflows/checks.yml"
 cp "$TEMPLATES/policy.json" "$TP_ROOT/.agents/loop/policy.json"
 save "$TP_ROOT" "Found the project from the templates"
 
@@ -170,6 +170,13 @@ step_run() {
 grep -qi "ai.build.kit" "$TEMPLATES/checks.yml" && fail "checks.yml still names the old product"
 ok "checks.yml names no old product"
 
+# The acquisition step is rehearsed in distribution.sh. These consumer steps
+# must use .kit/kit even when a decoy plugin root is present.
+for project in "$TP_ROOT" "$clone"; do
+  mkdir -p "$project/.kit"
+  cp -R "$ROOT/kit" "$project/.kit/kit"
+  printf '\n.kit/\n' >> "$project/.git/info/exclude"
+done
 records_step=$(step_run "Check the records")
 [ -n "$records_step" ] || fail "checks.yml has no step named Check the records with a run block"
 code=0
@@ -197,6 +204,11 @@ test_step=$(step_run "Install and test")
 [ -n "$test_step" ] || fail "checks.yml has no step named Install and test with a run block"
 base=$(git -C "$TP_ROOT" rev-parse HEAD)
 run_hosted() {
+  if [ ! -d "$1/.kit/kit" ]; then
+    mkdir -p "$1/.kit"
+    cp -R "$ROOT/kit" "$1/.kit/kit"
+    printf '\n.kit/\n' >> "$1/.git/info/exclude"
+  fi
   code=0
   said=$(cd "$1" && CLAUDE_PLUGIN_ROOT="$ROOT/kit" PR_BASE_SHA="$base" \
     SCAFFOLD_TEST_COMMAND="${2:-}" sh -c "$test_step" 2>&1) || code=$?

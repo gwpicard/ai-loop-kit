@@ -66,15 +66,8 @@ PYTHONPATH="$KIT/scripts"
 export CLAUDE_PLUGIN_ROOT PYTHONPATH
 GATE="$KIT/scripts/gate.py"
 RUN="$KIT/scripts/run.py"
-python3 - "$ROOT/kit/scripts/pre-run-check.py" "$KIT" <<'PY'
-import importlib.util, sys
-from pathlib import Path
-spec = importlib.util.spec_from_file_location("pre_run_check", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-sys.modules["pre_run_check"] = module
-spec.loader.exec_module(module)
-module.write_record(Path(sys.argv[2]))
-PY
+Q4_RELEASE=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
+Q4_KIT_REF=$(printf '%s' "$Q4_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
 python3 "$KIT/scripts/merge-settings.py" "$KIT/templates/claude-settings.json" \
   "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$KIT" >/dev/null 2>&1 \
   || fail "the settings could not be merged"
@@ -110,7 +103,7 @@ cp "$KIT/templates/AGENTS.md" AGENTS.md
 cp "$KIT/templates/CLAUDE.md" CLAUDE.md
 cp "$KIT/templates/CHANGELOG.md" CHANGELOG.md
 cp "$KIT/templates/docs-README.md" docs/README.md
-sed 's/{{KIT_REF}}/main/' "$KIT/templates/checks.yml" > .github/workflows/checks.yml
+sed "s/{{KIT_REF}}/$Q4_KIT_REF/" "$KIT/templates/checks.yml" > .github/workflows/checks.yml
 AREAS="ra rb rc rd re rf rg rh ri"
 {
   echo "# One line for each rule: a pattern, then the area. The last matching line wins."
