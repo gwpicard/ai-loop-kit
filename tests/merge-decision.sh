@@ -54,6 +54,22 @@ fi
 
 echo "Merge decision checks:"
 tp_new merge-demo
+# Keep the original scratch. The hosted artifact is a filtered copy of this
+# rehearsal only, never the runner's whole temporary folder.
+rehearsal_exit() {
+  code=$?
+  trap - EXIT
+  if [ "$code" -ne 0 ]; then
+    echo "Failed merge rehearsal scratch: $TP_BASE" >&2
+    if [ -n "${MERGE_DECISION_ARTIFACT_DIR:-}" ]; then
+      python3 "$ROOT/tests/lib/merge-rehearsal-evidence.py" "$TP_BASE" \
+        "$MERGE_DECISION_ARTIFACT_DIR" \
+        || echo "FAIL: could not prepare merge rehearsal evidence" >&2
+    fi
+  fi
+  exit "$code"
+}
+trap rehearsal_exit EXIT
 FAKE_COMPUTER="$ROOT/tests/stand-ins/fake-computer"
 mkdir -p "$TP_BASE/tmp"
 TMPDIR="$TP_BASE/tmp"
@@ -293,8 +309,8 @@ run_state() {
 move_main() {
   # move_main <label>: the person's own work lands on main after the run's final check.
   printf '%s\n' "$1" > "$TP_ROOT/sp/$1.txt"
-  git -C "$TP_ROOT" add -A
-  git -C "$TP_ROOT" commit -q -m "Work on main: $1"
+  git -C "$TP_ROOT" add -- "sp/$1.txt"
+  git -C "$TP_ROOT" commit -q -m "Work on main: $1" -- "sp/$1.txt"
   git -C "$TP_ROOT" push -q origin main
 }
 sync_main() {
