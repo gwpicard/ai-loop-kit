@@ -33,4 +33,16 @@ jobs:
           python3 -m pip install pytest==8.4.2 ruff==0.15.12 mypy==1.17.1
           npm install --no-save --ignore-scripts playwright
       - name: Rehearse
+        id: rehearse
+        env:
+          MERGE_DECISION_ARTIFACT_DIR: ${{ runner.temp }}/merge-decision-evidence
         run: tests/run-all.sh
+      - name: Keep failed merge rehearsal evidence
+        if: failure() && steps.rehearse.outcome == 'failure'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: merge-decision-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/merge-decision-evidence
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
