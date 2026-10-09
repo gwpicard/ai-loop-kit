@@ -1236,5 +1236,231 @@ class HookBypasses(Cases):
         )
 
 
+class OpaqueCommands(Cases):
+    """Inspect text only, including unresolved words and externally supplied config."""
+
+    def test_unresolved_executables_ask(self) -> None:
+        for command in (
+            '$TOOL pr merge 7', '${TOOL} api graphql --input payload.json',
+            'env X=1 "$TOOL" status', 'command "$TOOL" status',
+            "sh -c '$TOOL status'", 'TOOL=gh; "$TOOL" pr merge 7',
+            'TOOL=git; "$TOOL" status', 'env TOOL=gh "$TOOL" pr merge 7',
+            '$(printf gh) pr merge 7', '`printf gh` pr merge 7',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_file_fed_graphql_asks(self) -> None:
+        for command in (
+            'gh api graphql --input payload.json', 'gh api graphql --input=-',
+            'gh api graphql -F query=@query.graphql',
+            'gh api graphql --field=query=@query.graphql',
+            'gh api graphql -Fquery=@query.graphql',
+            'gh api graphql --raw-field query="$QUERY"',
+            'gh api graphql -fquery="$QUERY"',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_git_external_config_asks(self) -> None:
+        for command in (
+            'git --config-env core.hooksPath=OVERRIDE commit -m x',
+            'git --config-env=alias.hide=OVERRIDE hide',
+            'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath '
+            'GIT_CONFIG_VALUE_0=/tmp/none git commit -m x',
+            'env GIT_CONFIG_PARAMETERS="core.hooksPath=/tmp/none" git status',
+            'env -S "GIT_CONFIG_COUNT=1 git status"',
+            'env --split-string="GIT_CONFIG_COUNT=1 git status"',
+            'env GIT_CONFIG_COUNT=1 sh -c "git status"',
+            'export GIT_CONFIG_COUNT=1; git status',
+            'git -c include.path=/tmp/config commit -m x',
+            'git -c includeIf.gitdir:demo.path=/tmp/config status',
+            'git -c "$CONFIG" status',
+            'git config include.path /tmp/config',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+        self.assertEqual(bash('git status', env={**P.env, 'GIT_CONFIG_COUNT': '1'}).kind, ASK)
+        self.assertEqual(
+            bash('git status', env={**P.env, 'GIT_CONFIG_PARAMETERS': 'x=y'}).kind, ASK
+        )
+
+    def test_literal_hidden_git_config_refuses(self) -> None:
+        self.refused(
+            'git -ccore.hooksPath=/tmp/none commit -m x',
+            'git -c alias.hide="!gh pr merge 7" hide',
+            'git -calias.hide="!gh pr merge 7" hide',
+        )
+
+    def test_allowed_reads_and_inline_payloads_still_pass(self) -> None:
+        self.passes(
+            'git status', 'git -c color.ui=false log -1',
+            'git config --get core.hooksPath', 'gh pr view 7',
+            'gh api graphql -f query="query { viewer { login } }"',
+            'gh api graphql -fquery="query { viewer { login } }"',
+            'printf "%s" "$TOOL"',
+            'env -S "X=1 git status"',
+            'git config --get include.path',
+        )
+
+    def test_known_git_refusals_win_over_opaque_options(self) -> None:
+        self.refused(
+            'git --config-env=foo.bar=OVERRIDE push origin main',
+            'git --config-env foo.bar=OVERRIDE push origin main',
+            'git -c include.path=/tmp/config commit --no-verify -m x',
+            'git -c "$CONFIG" -c core.hooksPath=/tmp/none commit -m x',
+            'git --config-env=foo.bar=OVERRIDE -calias.hide=status hide',
+        )
+
+    def test_long_env_options_preserve_opaque_commands(self) -> None:
+        for command in (
+            'env --unset UNUSED "$TOOL" pr merge 7',
+            'env --chdir . GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath '
+            'GIT_CONFIG_VALUE_0=/tmp/none git status',
+            'env --unset=UNUSED "$TOOL" pr merge 7',
+            'env --chdir=. GIT_CONFIG_COUNT=1 git status',
+            "sh -c 'env --unset UNUSED $TOOL pr merge 7'",
+            "sh -c 'env --chdir . GIT_CONFIG_COUNT=1 git status'",
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+        self.passes('env --unset UNUSED git status', 'env --chdir . git status')
+        self.refused('env --chdir . git push origin main')
+
+
+class ResumedOpaqueCommands(Cases):
+    """The two remaining findings, including quoting and wrapper controls."""
+
+    def test_optional_xargs_values_keep_the_command(self) -> None:
+        for option in ("--replace", "--eof", "--max-lines", "--replace={}",
+                       "--eof=STOP", "--max-lines=2"):
+            for command, kind in (
+                ("git push origin main", DENY),
+                ('"$TOOL" status', ASK),
+                ("env GIT_CONFIG_COUNT=1 git status", ASK),
+                ("git status", ALLOW),
+            ):
+                with self.subTest(option=option, command=command):
+                    self.expect(f"xargs {option} {command}", kind)
+
+    def test_supported_long_wrappers_ask(self) -> None:
+        for command in (
+            'timeout --signal TERM 5 "$TOOL" status',
+            'timeout --signal=TERM 5 env GIT_CONFIG_COUNT=1 git status',
+            'sudo --user root "$TOOL" status',
+            'sudo --user root GIT_CONFIG_COUNT=1 git status',
+            "sh -c 'timeout --signal TERM 5 env GIT_CONFIG_COUNT=1 git status'",
+            'timeout --kill-after 2 5 "$TOOL" status',
+            'nice --adjustment 5 "$TOOL" status',
+            'stdbuf --output L "$TOOL" status',
+            'xargs --max-args 1 "$TOOL" status',
+            'timeout --sig TERM 5 "$TOOL" status',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_literal_graphql_variables_pass(self) -> None:
+        for command in (
+            (
+                "gh api graphql -f 'query=query($login: String!) { user(login: $login) { "
+                "login } }' -F login=octocat"
+            ),
+            (
+                "gh api graphql --raw-field='query=query($login: String!) { user(login: $"
+                "login) { login } }' -F login=octocat"
+            ),
+            (
+                'gh api graphql -f "query=query(\\$login: String!) { user(login: \\$login) '
+                '{ login } }" -F login=octocat'
+            ),
+            (
+                'env -S "gh api graphql -f \'query=query(\\$login: String!) { user(login: \\'
+                '$login) { login } }\' -F login=octocat"'
+            ),
+            'timeout --signal TERM 5 git status',
+            'sudo --user root git status',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ALLOW)
+
+    def test_real_shell_expansion_still_asks(self) -> None:
+        for command in (
+            (
+                'gh api graphql -f "query=query($login: String!) { user(login: $login) { '
+                'login } }" -F login=octocat'
+            ),
+            (
+                "gh api graphql -f 'query=query($login: String!) { user(login: $login) { "
+                'login } }\' -F login="$LOGIN"'
+            ),
+            'gh api graphql -f \'query=query($login: String!)\'"$EXTRA"',
+            'sh -c "gh api graphql -f \'query=$QUERY\'"',
+            'env -S "gh api graphql -f \'query=$QUERY\'"',
+        ):
+            with self.subTest(command=command):
+                self.expect(command, ASK)
+
+    def test_known_mutations_still_refuse(self) -> None:
+        for command in (
+            'timeout --signal TERM 5 git push origin main',
+            'sudo --user root git push --force origin piece-1',
+            (
+                "gh api graphql -f 'query=mutation($id: ID!) { mergePullRequest(input: {p"
+                "ullRequestId: $id}) { clientMutationId } }' -F id=fake"
+            ),
+            (
+                "gh api graphql -f 'query=mutation($id: ID!) { addLabelsToLabelable(input"
+                ": {labelableId: $id}) { clientMutationId } }' -F id=fake"
+            ),
+        ):
+            with self.subTest(command=command):
+                self.expect(command, DENY)
+
+    def test_nested_quoting_and_marker_inputs(self) -> None:
+        for command, kind in (
+            (
+                (
+                    'sh -c \'gh api graphql -f \'"\'"\'query=query($login: String!) { user'
+                    '(login: $login) { login } }\'"\'"\' -F login=octocat\''
+                ),
+                ALLOW,
+            ),
+            (
+                (
+                    'eval \'gh api graphql -f \'"\'"\'query=query($login: String!) { user('
+                    'login: $login) { login } }\'"\'"\' -F login=octocat\''
+                ),
+                ALLOW,
+            ),
+            (
+                (
+                    'env --split-string=\'gh api graphql -f \'"\'"\'query=query($login: St'
+                    'ring!) { user(login: $login) { login } }\'"\'"\' -F login=octocat\''
+                ),
+                ALLOW,
+            ),
+            (
+                (
+                    'eval "gh api graphql -f \'query=$QUERY\'"'
+                ),
+                ASK,
+            ),
+            (
+                (
+                    'gh api graphql -f "query=\ue000\ue001$QUERY"'
+                ),
+                ASK,
+            ),
+            (
+                (
+                    "gh api graphql -f 'query=mutation($id: ID!) { mergePullRequest(in"
+                    'put: {pullRequestId: $id}) { clientMutationId } }\' -F id="$ID"'
+                ),
+                DENY,
+            ),
+        ):
+            with self.subTest(command=command):
+                self.expect(command, kind)
+
 if __name__ == "__main__":
     unittest.main()

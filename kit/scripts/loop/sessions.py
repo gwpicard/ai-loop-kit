@@ -130,7 +130,7 @@ def scrub_env(env: Mapping[str, str]) -> dict[str, str]:
 
 def handoff_command(kit_dir: Path) -> str:
     """The command a builder runs to hand back. The builder settings allow exactly this."""
-    return f"python3 {kit_dir}/scripts/handoff.py"
+    return f"python3 {kit_dir.resolve()}/scripts/handoff.py"
 
 
 # --- rendering ------------------------------------------------------------------
@@ -227,6 +227,7 @@ def render_settings(
                 f"{name} is {value!r}, which is not an absolute path",
                 next_command="start the session from a project found by an absolute path",
             )
+    values["KIT_DIR"] = str(paths.kit_dir.resolve())
     loaded = json.loads(template.read_text(encoding="utf-8"))
     rendered: dict[str, Any] = _render_json(loaded, values)
     rules, blocks = bar_rules(worktree, bar_paths)

@@ -72,7 +72,7 @@
       "Edit(//**/.githooks/**)",
       "Edit(//**/.agents/loop/policy.json)",
       "Edit(//**/.agents/loop/local.json)",
-      "Edit(~/.claude/plugins/cache/ai-loop-kit/**)",
+      "Edit(/{{KIT_DIR}}/**)",
       "Skill",
       "Read(/{{DATA_DIR}}/**)",
       "Read(~/.config/gh/**)",

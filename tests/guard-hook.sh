@@ -59,7 +59,13 @@ ERR="$TP_BASE/hook.err"
 # run_guard <tool> <field> <value> <cwd>: sets CODE and fills $OUT and $ERR.
 run_guard() {
   CODE=0
-  json_for "$@" | python3 "$GUARD" >"$OUT" 2>"$ERR" || CODE=$?
+  # The project fixture isolates Git through external configuration. These
+  # hook controls model a clean session; inherited overrides have unit cases.
+  json_for "$@" | python3 -c '
+import os, sys
+env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_CONFIG")}
+os.execve(sys.executable, [sys.executable, sys.argv[1]], env)
+' "$GUARD" >"$OUT" 2>"$ERR" || CODE=$?
 }
 
 last_log() {

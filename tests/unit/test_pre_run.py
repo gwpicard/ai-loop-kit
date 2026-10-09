@@ -6,7 +6,9 @@ green, unless every piece in the run is the quick-path scaffold piece.
 """
 
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -58,6 +60,33 @@ Touches: project-records
 
 FEATURE = SCAFFOLD.replace("Kind: scaffold", "Kind: acceptance tests, a single test")
 SLOW_SCAFFOLD = SCAFFOLD.replace("Path: quick", "Path: full")
+
+
+class InstalledSettingsTest(unittest.TestCase):
+    def test_symlinked_plugin_root_agrees_with_founded_settings_and_keeps_both_guards(self) -> None:
+        check = load()
+        base = Path(tempfile.mkdtemp()).resolve()
+        root = base / "project"
+        (root / ".claude").mkdir(parents=True)
+        kit = base / "home/.claude/plugins/cache/marketplace/ai-loop-kit/0.1.0"
+        (kit / "templates").mkdir(parents=True)
+        template = (ROOT / "kit/templates/claude-settings.json").read_text()
+        (kit / "templates/claude-settings.json").write_text(template)
+        (kit / "templates/builder-settings.json").write_text(
+            (ROOT / "kit/templates/builder-settings.json").read_text())
+        link = base / "installed-kit"
+        link.symlink_to(kit, target_is_directory=True)
+        settings = json.loads(template.replace("{{KIT_DIR}}", str(kit)))
+        target = root / ".claude/settings.json"
+        target.write_text(json.dumps(settings))
+        self.assertEqual(check.check_settings(root, link), [], "CR-02 canonical pre-run root")
+        settings["permissions"]["deny"].remove("Edit(/" + str(kit) + "/**)")
+        target.write_text(json.dumps(settings))
+        self.assertIn("deny-rule", [r.guard for r in check.check_settings(root, link)], "CR-02")
+        settings["permissions"]["deny"].append("Edit(/" + str(kit) + "/**)")
+        settings["sandbox"]["filesystem"]["denyWrite"].remove(str(kit))
+        target.write_text(json.dumps(settings))
+        self.assertIn("sandbox", [r.guard for r in check.check_settings(root, link)], "CR-02")
 
 
 class BareTest(unittest.TestCase):

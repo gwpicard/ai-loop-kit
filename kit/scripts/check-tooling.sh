@@ -270,8 +270,76 @@ if command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
 else
   eyes_missing magick "without it the walk-through cannot look at an SVG drawing" "$(install_line imagemagick imagemagick)"
 fi
-# --no-install asks only what is already here, so the report downloads nothing.
-if command -v npx >/dev/null 2>&1 && npx --no-install playwright --version >/dev/null 2>&1; then
+# Read installed executables, never npm's registry or package cache. A separate process
+# group bounds discovery as well as execution. Its leader stays unreaped until cleanup,
+# so cleanup cannot signal a reused process-group identifier.
+playwright_ready() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - <<'PY' >/dev/null 2>&1
+import os
+import select
+import signal
+import subprocess
+import sys
+import time
+
+worker = r'''
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+passed = False
+try:
+    folder = Path.cwd()
+    installed = None
+    for parent in (folder, *folder.parents):
+        candidate = parent / "node_modules" / ".bin" / "playwright"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            installed = str(candidate)
+            break
+    if installed is None:
+        installed = shutil.which("playwright")
+    if installed is not None:
+        passed = subprocess.run([installed, "--version"], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                check=False).returncode == 0
+except OSError:
+    pass
+os.write(sys.stdout.fileno(), b"0\n" if passed else b"1\n")
+while True:
+    signal.pause()
+'''
+
+process = subprocess.Popen([sys.executable, "-c", worker], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           start_new_session=True)
+passed = False
+try:
+    assert process.stdout is not None
+    if select.select([process.stdout], [], [], 2)[0]:
+        passed = os.read(process.stdout.fileno(), 3) == b"0\n"
+finally:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+        if sig == signal.SIGTERM:
+            time.sleep(.1)
+    try:
+        process.wait(timeout=.2)
+    except subprocess.TimeoutExpired:
+        passed = False
+    if process.stdout is not None:
+        process.stdout.close()
+sys.exit(0 if passed else 1)
+PY
+}
+if playwright_ready; then
   echo "Playwright is ready: the walk-through takes a screenshot of a web page with it where the coding agent has no browser tool of its own."
 else
   eyes_missing Playwright "without it, and without a browser tool in the coding agent, the walk-through cannot take a screenshot of a web page" "npm install --save-dev playwright && npx playwright install --with-deps chromium"

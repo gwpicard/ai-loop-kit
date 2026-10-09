@@ -244,7 +244,27 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
             lock = record.acquire_lock(paths, name)
         except record.LockHeld as error:
             raise _fail(str(error), error.next_command, lock=True) from error
-        run = existing or record.RunRecord.create(
+        # Planning reads a snapshot. Admission owns the authoritative resume record.
+        try:
+            current = (record.RunRecord.load(paths, name)
+                       if record.RunRecord.exists(paths, name) else None)
+        except record.RecordError as error:
+            raise _fail(str(error), error.next_command) from error
+        if existing is not None and current is None:
+            raise _fail(f"the run {name} record disappeared during admission",
+                        f"recover {paths.run_record(name)}, then run.py --run {name} again")
+        if current is not None and current.numbers() != numbers:
+            raise _fail(f"the run {name} changed its selected pieces during admission",
+                        f"run.py --run {name} again to plan its current pieces")
+        try:
+            infos = engine.read_infos(paths, numbers, hub)
+            made = plan.make_plan(infos, slots=count)
+        except (engine.EngineRefusal, plan.PlanError) as error:
+            raise _fail(str(error), error.next_command) from error
+        shown.update(resuming=current is not None, plan=made.as_dict(),
+                     titles={str(i.number): i.title for i in infos},
+                     areas={str(i.number): sorted(i.areas) for i in infos})
+        run = current or record.RunRecord.create(
             paths, name, numbers, attended=not args.unattended,
             merge_pre_approved=args.merge_pre_approved)
         run.set_run_status(record.RUNNING)
