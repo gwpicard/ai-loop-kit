@@ -56,7 +56,9 @@ App, walk-away runs or deployment. The v1.0 design remains the target.
    request must show the full hosted suite green. Only CI0 may change this
    repository's v1-checks workflow; no repository setting is authorised.
 2. Build the preview pieces above. Dependencies win over their listed order:
-   CR-06 precedes CR-07, and CR-09 precedes CR-13. Each pull request after CI0
+   CR-06 precedes complete CR-07 attempt integration. The named CR-07
+   checker stage below may start earlier in disjoint files. CR-09 precedes
+   CR-13. Each pull request after CI0
    needs the hosted check and local suite green, with skips reported separately.
 3. Apply H1 to the skills shipped in the preview and V1 to the preview's
    attended scope. Neither depends on unfinished 0.2 or v1.0 capabilities.
@@ -91,7 +93,7 @@ are conservative starting groups, not permission to edit a shared module:
 | Group | Pieces that can run together | Serial work within the group |
 | --- | --- | --- |
 | A | CR-03, CR-05, CR-09, CR-17, CR-21 | CR-05 and CR-17 may share run rehearsals, so run them serially unless shaped files prove disjoint. The other pieces have distinct hook, fingerprint or scanner files. |
-| B | CR-01, CR-02, CR-06, CR-07, CR-08 | CR-06, CR-07 and CR-08 share attempt code or tests, so run them serially in that order. CR-02 needs a settings permission route. |
+| B | CR-01, CR-02, CR-06, CR-07, CR-08 | CR-06, complete CR-07 attempt integration and CR-08 share attempt code or tests, so run them serially in that order. The CR-07 checker stage below may start in its named disjoint files before CR-06 merges. CR-02 needs a settings permission route. |
 | C | CR-10, CR-14, CR-16, CR-20 | CR-10 and CR-20 both touch ready; finish CR-10 first. CR-14 and CR-16 use separate records and spend code. |
 | D | CR-04, CR-11, CR-12, CR-13, CR-15, CR-18, CR-19, CR-22 | Serialise ready repairs whose shaped files overlap; CR-13 ships independently in the preview. CR-19 follows CR-15 and CR-18 and shares their engine/integration tests. Run CR-04 last because its inventory spans command doors. CR-22 follows CR-02 in the preview; CR-16 remains on the 0.2 track. |
 | E | L7, L4, Q1 | L7 and L4 can start together after their CR dependencies. Finish L7 before Q1, whose test edits must avoid L4's rehearsals. |
@@ -123,7 +125,7 @@ Paths beginning `loop/` below are under `kit/scripts/`; unit tests are under
 | CR-04. Check every callable agent door with valid operations. | An inventory includes skill-called modules such as heldout. Valid repeated and dry-run operations leave the expected state; invalid choices produce JSON errors with next commands rather than tracebacks. Name hook-protocol exceptions. | Change `loop/cli.py`, `tests/lib/contract_check.py`, `tests/script-contracts.sh`, callable markers and fixtures. | CR-01; repeat inventory after L1 to L10. | L |
 | CR-05. Separate pass, skip and failure. | Remove a required tool in a fixture: the aggregate cannot report complete green. An optional validator skip remains visible and outside the pass total. | Change `tests/run-all.sh` and skip-producing required rehearsals, including ready, judge, trim and review scripts. | None. | S |
 | CR-06. Refuse unchecked dependencies and preserve planned edits. | Workspace and supported inline lock entries parse accurately; a non-empty unparsed lock, unsupported manifest or lost source identity refuses. A caller regression fails if dependency-planned is omitted from bar paths. Test private sources as refusal until supported. | Change `kit/scripts/dependency-check.py`, `loop/bar.py`, `loop/gates/attempt.py`, `loop/run/engine.py`, dependency/attempt/engine tests. | CR-03; before CR-07 and CR-19. | L |
-| CR-07. Report unchecked new tests honestly. | Unknown-language and unreadable changed tests cannot silently pass. Supported Python/TypeScript mutations still fail; an explicit unsupported-language review route reports its limits. | Change `kit/scripts/newtest-lint.py`, `loop/newtest_lint.py`, `loop/gates/attempt.py`, test-smell fixtures and tests. | CR-06. | M |
+| CR-07. Report unchecked new tests honestly. | Unknown-language and unreadable changed tests cannot silently pass. Supported Python/TypeScript mutations still fail; an explicit unsupported-language review route reports its limits. | Change `kit/scripts/newtest-lint.py`, `loop/newtest_lint.py`, `loop/gates/attempt.py`, test-smell fixtures and tests. | CR-06 for complete attempt integration; named checker stage may start earlier. | M |
 | CR-08. Require complete judge execution evidence. | A named assertion cannot mask an unnamed one. Missing reports, zero execution and skipped acceptance cases cannot count as passed judges. Generic exit-code checks are separately identified. | Change `loop/judge.py`, `loop/gates/ready.py`, attempt evidence handling, judge/ready/attempt tests and runner fixtures. | CR-05; before CR-11 and L7. | M |
 | CR-09. Preserve semantic whitespace in the frozen spec. | Changing fenced Python indentation changes the fingerprint. Only explicit gate-owned fields are excluded; harmless formatting cases remain documented. | Change `loop/fingerprint.py`, `test_fingerprint.py`, spec fixtures. | None; before CR-13. | S |
 | CR-10. Require notice and exact risk acceptance. | A quotation/date without the risk notice is a need and refuses ready. An invalid calendar date refuses; the person's exact words survive gate updates. Syntax is never described as authenticating consent. | Change `loop/spec.py`, `loop/needs.py`, `loop/gates/ready.py`, `kit/spec-format.md`, sensitive fixtures and tests. | CR-09; before CR-12 and CR-20. | M |
@@ -144,6 +146,29 @@ The holders remain the gate's validated evidence and independent hook/settings
 or sandbox layers where relevant. CR-03's parser is not a proof of arbitrary
 code isolation. CR-08's report checks are not a proof that every runner is
 supported. Each piece must state those limits in its shaped issue.
+
+### CR-07 checker stage (maintainer, 9 October)
+
+Before CR-06 merges, build only the checker stage in
+`kit/scripts/newtest-lint.py`, `kit/scripts/loop/newtest_lint.py`,
+`tests/unit/test_newtest_lint.py`, `tests/newtest-lint.sh` and new fixtures
+under `tests/fixtures/test-smells/unchecked/`. Keep both attempt files out
+of this stage. Refuse unchecked required test inputs through the library
+and both real CLI routes, with complete per-path coverage evidence.
+Unsupported languages, unreadable or undecodable content and invalid Python
+test syntax cannot count as checked. Preserve supported smell mutations,
+added-line scope, snapshot guards and the limited TypeScript scanner.
+
+Shape the exact input inventory and result contract before the builder starts.
+No generic skip or review-approval switch is allowed. Until a trusted review
+contract is defined, unsupported required tests refuse and explain the checks
+that did not run. A report alone cannot authorise attempt admission.
+
+Checker-stage completion neither completes CR-07 nor clears downstream
+dependencies. Complete attempt integration still requires merged CR-06 and
+serial ownership of the shared attempt files. Run the stage's focused checks,
+full local suite and hosted check, with fresh independent review and disclosed
+skips.
 
 ## Later capabilities for v1.0
 

@@ -213,6 +213,38 @@ class FileChange:
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
+def python_line_scope(
+    text: str, change: FileChange, *, scanner: bool = False
+) -> FileChange:
+    """Translate Git LF lines to normalised LF or splitlines scanner coordinates.
+
+    Each changed Git line includes its own logical-line fragments only. An
+    empty scope stays empty; deletion neighbours keep their boundary positions.
+    """
+    physical = logical = 1
+    mapped: dict[int, set[int]] = {}
+    boundaries = r"\r\n|[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]" if scanner else r"\r\n|\r|\n"
+    for newline in re.finditer(boundaries, text):
+        mapped.setdefault(physical, set()).add(logical)
+        logical += 1
+        if newline.group().endswith("\n"):
+            physical += 1
+    mapped.setdefault(physical, set()).add(logical)
+
+    def translate(indices: set[int]) -> set[int]:
+        found: set[int] = set()
+        for index in indices:
+            if index < 1:
+                found.add(index)
+            elif index > physical:
+                found.add(logical + index - physical)
+            else:
+                found.update(mapped[index])
+        return found
+
+    return FileChange(translate(change.added), translate(change.touched))
+
+
 def parse_diff(diff: str) -> dict[str, FileChange]:
     """Read `git diff --unified=0` into the lines each file added."""
     changed: dict[str, FileChange] = {}
@@ -795,21 +827,31 @@ def _py_test(
             add(Rule.MAGIC_NUMBER, node.lineno)
 
 
+def _masked_line_fragments(text: str, masked: str) -> list[tuple[str, str]]:
+    """Slice the mask using each raw splitlines fragment's character span."""
+    fragments: list[tuple[str, str]] = []
+    offset = 0
+    for fragment in text.splitlines(keepends=True):
+        raw = fragment.splitlines()[0] if fragment.splitlines() else ""
+        fragments.append((raw, masked[offset : offset + len(raw)]))
+        offset += len(fragment)
+    return fragments
+
+
 def _py_lint(
-    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None]
+    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None],
+    line_scope: Scope,
 ) -> None:
-    raw_lines = text.splitlines()
-    masked_lines = mask(text, "py").splitlines()
+    fragments = _masked_line_fragments(text, mask(text, "py"))
     try:
         tree: ast.AST | None = ast.parse(text)
     except SyntaxError:
         tree = None
         add(Rule.UNPARSED, 1)
     own_names = _py_own_names(tree, own) if tree is not None else set()
-    for number, raw in enumerate(raw_lines, 1):
-        if not scope.adds(number):
+    for number, (raw, masked) in enumerate(fragments, 1):
+        if not line_scope.adds(number):
             continue
-        masked = masked_lines[number - 1] if number <= len(masked_lines) else ""
         for rule, pattern in PY_LINE_RULES:
             if pattern.search(masked):
                 add(rule, number)
@@ -971,16 +1013,15 @@ def _ts_test_rules(
 
 
 def _ts_lint(
-    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None]
+    text: str, own: frozenset[str], scope: Scope, add: Callable[[Rule, int], None],
+    line_scope: Scope,
 ) -> None:
-    raw_lines = text.splitlines()
     masked = mask(text, "ts")
-    masked_lines = masked.splitlines()
+    fragments = _masked_line_fragments(text, masked)
     lines = Lines(text)
-    for number, raw in enumerate(raw_lines, 1):
-        if not scope.adds(number):
+    for number, (raw, shown) in enumerate(fragments, 1):
+        if not line_scope.adds(number):
             continue
-        shown = masked_lines[number - 1] if number <= len(masked_lines) else ""
         for rule, pattern in TS_LINE_RULES:
             if pattern.search(shown):
                 add(rule, number)
@@ -1006,10 +1047,11 @@ def _ts_lint(
 # --- the entry points ---------------------------------------------------------
 
 
-def lint_text(
+def _lint_supported_text(
     path: str,
     text: str,
     *,
+    line_change: FileChange | None = None,
     added: set[int] | None = None,
     touched: set[int] | None = None,
     own_modules: frozenset[str] = frozenset(),
@@ -1021,14 +1063,239 @@ def lint_text(
     if language is None:
         return []
     scope = Scope(added, set(touched or ()))
+    line_scope = (Scope(line_change.added, line_change.touched)
+                  if line_change is not None else scope)
     collector = Collector(path, rules)
     if not (is_test_path(path) if is_test is None else is_test):
-        _source_rules(text.splitlines(), scope, collector.add)
+        _source_rules(text.splitlines(), line_scope, collector.add)
     elif language == "py":
-        _py_lint(text, own_modules, scope, collector.add)
+        _py_lint(text, own_modules, scope, collector.add, line_scope)
     else:
-        _ts_lint(text, own_modules, scope, collector.add)
+        _ts_lint(text, own_modules, scope, collector.add, line_scope)
     return collector.result()
+
+
+class Coverage(TypedDict):
+    path: str
+    status: str
+    kind: str
+    outcome: str
+    reason: str
+    checks_performed: list[str]
+    checks_omitted: list[str]
+    input_error: bool
+
+
+@dataclass
+class Assessment:
+    findings: list[Finding]
+    coverage: Coverage
+
+
+def unchecked(
+    path: str,
+    status: str,
+    reason: str,
+    *,
+    input_error: bool = False,
+    required_test: bool | None = None,
+) -> Assessment:
+    """Account for unavailable content independently of switchable smell rules."""
+    test = is_test_path(path) if required_test is None else required_test
+    kind = "snapshot" if is_snapshot_path(path) else "test" if test else "source"
+    coverage: Coverage = {
+        "path": path,
+        "status": status,
+        "kind": kind,
+        "outcome": "unchecked",
+        "reason": reason,
+        "checks_performed": [],
+        "checks_omitted": ["test smell checks" if kind == "test" else "content checks"],
+        "input_error": input_error,
+    }
+    findings: list[Finding] = []
+    if kind == "test":
+        findings.append(
+            {
+                "rule": "unchecked",
+                "severity": "refuse",
+                "file": path,
+                "line": 0,
+                "message": reason,
+                "next": (
+                    "provide readable valid tests in a supported language; "
+                    "unsupported test review is not admitted"
+                ),
+            }
+        )
+    return Assessment(findings, coverage)
+
+
+def assess_text(
+    path: str,
+    text: str,
+    *,
+    status: str = "M",
+    line_change: FileChange | None = None,
+    added: set[int] | None = None,
+    touched: set[int] | None = None,
+    own_modules: frozenset[str] = frozenset(),
+    rules: frozenset[Rule] = DEFAULT_RULES,
+    is_test: bool | None = None,
+) -> Assessment:
+    """Account for content coverage and then apply the selected smell rules."""
+    test = is_test_path(path) if is_test is None else is_test
+    kind = (
+        "deletion"
+        if status.startswith("D")
+        else ("snapshot" if is_snapshot_path(path) else "test" if test else "source")
+    )
+    coverage: Coverage = {
+        "path": path,
+        "status": status,
+        "kind": kind,
+        "outcome": "checked",
+        "reason": "declared checks processed this content",
+        "checks_performed": [],
+        "checks_omitted": [],
+        "input_error": False,
+    }
+    if kind == "deletion":
+        coverage.update(
+            {
+                "outcome": "deleted",
+                "reason": "deletion inventoried; no new deletion policy",
+                "checks_performed": ["change inventory"],
+                "checks_omitted": ["deleted content"],
+            }
+        )
+        return Assessment([], coverage)
+    if kind == "snapshot":
+        coverage.update(
+            {
+                "reason": "snapshot accounted by the separate change guard",
+                "checks_performed": ["snapshot change inventory"],
+                "checks_omitted": ["test-language smell rules"],
+            }
+        )
+        return Assessment([], coverage)
+    language = language_of(path)
+    if language is None:
+        if test:
+            return unchecked(
+                path,
+                status,
+                "unsupported test language; no test smell checks ran",
+                required_test=test,
+            )
+        coverage.update(
+            {
+                "outcome": "unchecked",
+                "reason": "ordinary unsupported source is outside this checker",
+                "checks_omitted": ["unsupported source content"],
+            }
+        )
+        return Assessment([], coverage)
+    findings = _lint_supported_text(
+        path, text, added=added, touched=touched, own_modules=own_modules, rules=rules,
+        is_test=test, line_change=line_change
+    )
+    if not test:
+        coverage.update(
+            {
+                "checks_performed": ["source under-test detection"],
+                "checks_omitted": ["test-only smell rules"],
+            }
+        )
+    elif language == "py":
+        try:
+            ast.parse(text)
+        except (SyntaxError, ValueError, TypeError):
+            result = unchecked(
+                path,
+                status,
+                "invalid Python test syntax; AST test rules did not run",
+                required_test=test,
+            )
+            result.findings = findings + result.findings
+            line_rules = {rule for rule, _ in PY_LINE_RULES} | {
+                Rule.SUPPRESSION, Rule.DEBUG_LEFTOVER, Rule.OWN_MODULE_MOCK
+            }
+            enabled = line_rules & rules
+            if not own_modules:
+                enabled.discard(Rule.OWN_MODULE_MOCK)
+                if Rule.OWN_MODULE_MOCK in rules:
+                    result.coverage["checks_omitted"].append(
+                        "own-module mock detection without module inventory"
+                    )
+            result.coverage["checks_omitted"].append("Python AST test smell rules")
+            result.coverage["checks_omitted"].remove("test smell checks")
+            result.coverage["checks_performed"] = ["Python syntax parsing (failed)"]
+            if enabled:
+                result.coverage["checks_performed"].append(
+                    "Python line smell rules: " + ", ".join(sorted(rule.value for rule in enabled))
+                )
+            disabled = sorted(rule.value for rule in DEFAULT_RULES - rules)
+            if disabled:
+                result.coverage["checks_omitted"].append(
+                    "disabled smell rules: " + ", ".join(disabled)
+                )
+            return result
+        coverage["checks_performed"] = [
+            "Python syntax parsing",
+            "Python added/touched-line smell rules",
+        ]
+        if not own_modules:
+            coverage.update(
+                {
+                    "outcome": "partial",
+                    "reason": "Python parsed; no own modules found for mock checks",
+                    "checks_omitted": ["own-module mock detection without module inventory"],
+                }
+            )
+    else:
+        coverage.update(
+            {
+                "outcome": "partial",
+                "reason": "limited JavaScript/TypeScript smell scanner ran",
+                "checks_performed": [
+                    "limited JavaScript/TypeScript added/touched-line smell scanner"
+                ],
+                "checks_omitted": ["complete JavaScript/TypeScript syntax validation"],
+            }
+        )
+    disabled = sorted(rule.value for rule in DEFAULT_RULES - rules)
+    if disabled:
+        coverage["outcome"] = "partial"
+        coverage["checks_omitted"].append("disabled smell rules: " + ", ".join(disabled))
+        if not rules:
+            coverage["checks_performed"] = (
+                ["Python syntax parsing"] if test and language == "py" else []
+            )
+        coverage["reason"] = "selected checks processed content; some smell rules were disabled"
+    return Assessment(findings, coverage)
+
+
+def lint_text(
+    path: str,
+    text: str,
+    *,
+    added: set[int] | None = None,
+    touched: set[int] | None = None,
+    own_modules: frozenset[str] = frozenset(),
+    rules: frozenset[Rule] = DEFAULT_RULES,
+    is_test: bool | None = None,
+) -> list[Finding]:
+    """Keep the finding-list API; mandatory coverage refusals cannot be disabled."""
+    return assess_text(
+        path,
+        text,
+        added=added,
+        touched=touched,
+        own_modules=own_modules,
+        rules=rules,
+        is_test=is_test,
+    ).findings
 
 
 def lint_changes(

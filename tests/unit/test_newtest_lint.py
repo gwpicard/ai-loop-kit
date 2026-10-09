@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kit" / "scripts"))
 
@@ -637,10 +638,10 @@ class MoreShapes(unittest.TestCase):
         text = "import time\n\n\ndef f():\n    time.sleep(1)\n    print('x')\n"
         self.assertEqual(nl.lint_text("src/app.py", text), [])
 
-    def test_python_that_does_not_parse_is_reported_not_refused(self) -> None:
+    def test_python_that_does_not_parse_is_reported_and_refused_as_unchecked(self) -> None:
         found = nl.lint_text("test_a.py", "def test_a(:\n    pass\n")
-        self.assertEqual(refused(found), set())
-        self.assertEqual(ids(found), {"unparsed"})
+        self.assertEqual(refused(found), {"unchecked"})
+        self.assertEqual(ids(found), {"unparsed", "unchecked"})
 
     def test_monkeypatch_of_an_own_module_is_a_mock_of_it(self) -> None:
         text = (
@@ -745,6 +746,481 @@ class TestPaths(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(nl.is_snapshot_path(path))
         self.assertFalse(nl.is_snapshot_path("src/app.ts"))
+
+
+class CheckerCoverageRequired(unittest.TestCase):
+    """Coverage refusals are separate from switchable test-smell rules."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="unchecked-tests-")
+        self.addCleanup(temporary.cleanup)
+        self.project = Path(temporary.name)
+        self.fixture = FIXTURES / "unchecked"
+
+    def write(self, name: str, content: str) -> Path:
+        path = self.project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def git(self, *args: str) -> str:
+        done = subprocess.run(
+            ["git", "-C", str(self.project), *args], capture_output=True, text=True, check=True
+        )
+        return done.stdout.strip()
+
+    def command(
+        self, *args: str, extra_env: dict[str, str] | None = None
+    ) -> tuple[int, dict[str, Any], str]:
+        done = subprocess.run(
+            [sys.executable, str(ROOT / "kit/scripts/newtest-lint.py"), *args, "--json"],
+            cwd=self.project,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "MYPYPATH": "", **(extra_env or {})},
+        )
+        return done.returncode, json.loads(done.stdout), done.stderr
+
+    def initial_commit(self) -> None:
+        self.git("init", "-q")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.write("README.md", "Fixture\n")
+        self.git("add", "README.md")
+        self.git("commit", "-qm", "Fixture")
+
+    def test_staged_cr_only_ts_assertion_is_refused_on_line_two(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/new.ts", "")
+        path.write_bytes(b"function test_result() {\r expect(true).toBe(true);\r}\r")
+        self.git("add", "tests/new.ts")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("assert_true", 2)])
+
+    def test_ts_mixed_cr_lf_scope_keeps_old_assertion_out(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/mixed.ts", "")
+        old = b"function test_old() {\r expect(true).toBe(true);\r}\n"
+        path.write_bytes(old)
+        self.git("add", "tests/mixed.ts")
+        self.git("commit", "-qm", "Existing mixed TS test")
+        path.write_bytes(old + b"function test_new() {\r expect(true).toBe(true);\r}\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("assert_true", 5)])
+
+    def test_ts_cr_mode_only_scope_stays_empty(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/old.ts", "")
+        path.write_bytes(b"function test_old() {\r expect(true).toBe(true);\r}\r")
+        self.git("add", "tests/old.ts")
+        self.git("commit", "-qm", "Existing CR TS test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual((code, body["refusals"]), (0, []))
+
+    def test_ts_lf_and_crlf_scope_controls(self) -> None:
+        self.initial_commit()
+        for index, newline in enumerate((b"\n", b"\r\n")):
+            with self.subTest(newline=newline):
+                name = f"tests/control{index}.ts"
+                path = self.write(name, "")
+                path.write_bytes(newline.join((b"function test_result() {",
+                                              b" expect(true).toBe(true);", b"}", b"")))
+                self.git("add", name)
+                code, body, _ = self.command("--base", "HEAD")
+                own = [f for f in body["refusals"] if f["file"] == name]
+                self.assertEqual(code, 1)
+                self.assertEqual([(f["rule"], f["line"]) for f in own], [("assert_true", 2)])
+
+    def test_splitlines_boundaries_keep_new_line_rules_and_mask_spans(self) -> None:
+        self.initial_commit()
+        boundaries = "\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+        for index, boundary in enumerate(boundaries):
+            with self.subTest(boundary=repr(boundary)):
+                name = f"tests/boundary{index}.ts"
+                path = self.write(name, f"/* old{boundary} comment */\n")
+                self.git("add", name)
+                self.git("commit", "-qm", "Existing scanner boundary")
+                path.write_text(f"/* old{boundary} comment */\nconsole.log('new');\n",
+                                encoding="utf-8")
+                code, body, _ = self.command("--base", "HEAD")
+                own = [f for f in body["refusals"] if f["file"] == name]
+                self.assertEqual(code, 1)
+                self.assertEqual([(f["rule"], f["line"]) for f in own], [("debug_print", 3)])
+
+    def test_offset_scope_uses_lf_after_scanner_only_boundary(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/offset.ts", "/* old\u2028 comment */\n")
+        self.git("add", "tests/offset.ts")
+        self.git("commit", "-qm", "Existing offset context")
+        path.write_text("/* old\u2028 comment */\nit('new', () => {});\n", encoding="utf-8")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("no_assertion", 2)])
+
+    def test_ast_scope_uses_lf_after_form_feed_comment(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/ast.py", "# old\f# context\n")
+        self.git("add", "tests/ast.py")
+        self.git("commit", "-qm", "Existing AST context")
+        path.write_text("# old\f# context\ndef test_new():\n    assert True\n", encoding="utf-8")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("assert_true", 3)])
+
+    def test_source_splitlines_scope_excludes_old_detection(self) -> None:
+        self.initial_commit()
+        path = self.write("src/app.ts", "// old\v// PYTEST_CURRENT_TEST\n")
+        self.git("add", "src/app.ts")
+        self.git("commit", "-qm", "Existing source detection")
+        path.write_text("// old\v// PYTEST_CURRENT_TEST\n// new\v// PYTEST_CURRENT_TEST\n",
+                        encoding="utf-8")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["line"]) for f in body["refusals"]],
+                         [("test_detect", 4)])
+
+    def test_scope_mapping_keeps_deletion_neighbours_and_empty_changes(self) -> None:
+        change = nl.FileChange(set(), {1, 2})
+        self.assertEqual(nl.python_line_scope("old\rnew\nlast", change).touched, {1, 2, 3})
+        self.assertEqual(nl.python_line_scope("old\rnew\nlast", nl.FileChange()),
+                         nl.FileChange())
+        scanner = nl.python_line_scope("old\vnew\nlast", change, scanner=True)
+        self.assertEqual(scanner.added, set())
+        self.assertEqual(scanner.touched, {1, 2, 3})
+        self.assertEqual(nl.python_line_scope("old\vnew\nlast", nl.FileChange(), scanner=True),
+                         nl.FileChange())
+        beyond = nl.python_line_scope("old\vnew\nlast", nl.FileChange(set(), {0, 3}),
+                                      scanner=True)
+        self.assertEqual(beyond.touched, {0, 4})
+
+    def test_staged_cr_only_python_addition_keeps_assertion_in_scope(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/new.py", "")
+        path.write_bytes(b"def test_result():\r    assert True\r")
+        self.git("add", "tests/new.py")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {2})
+
+    def test_modified_cr_only_python_assertion_keeps_changed_scope(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/changed.py", "")
+        path.write_bytes(b"def test_result():\r    assert result() == 2\r")
+        self.git("add", "tests/changed.py")
+        self.git("commit", "-qm", "Existing CR test")
+        path.write_bytes(b"def test_result():\r    assert True\r")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {2})
+
+    def test_mixed_cr_lf_change_does_not_include_unchanged_old_smell(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/mixed.py", "")
+        old = b"def test_old():\r    assert True\r\n"
+        path.write_bytes(old)
+        self.git("add", "tests/mixed.py")
+        self.git("commit", "-qm", "Existing mixed-newline test")
+        path.write_bytes(old + b"\ndef test_new():\r    assert True\r\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {5})
+
+    def test_cr_only_mode_change_does_not_judge_old_smells(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/old.py", "")
+        path.write_bytes(b"def test_old():\r    assert True\r")
+        self.git("add", "tests/old.py")
+        self.git("commit", "-qm", "Existing CR test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 0)
+        self.assertEqual(body["refusals"], [])
+
+    def test_mixed_crlf_lf_content_preserves_old_line_exclusion(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/mixed.py", "")
+        old = b"def test_old():\r\n    assert True\r\n"
+        path.write_bytes(old)
+        self.git("add", "tests/mixed.py")
+        self.git("commit", "-qm", "Existing CRLF test")
+        path.write_bytes(old + b"\ndef test_new():\n    assert True\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["line"] for entry in body["refusals"]}, {5})
+
+    def test_readable_binary_attribute_cannot_hide_a_new_smell(self) -> None:
+        self.initial_commit()
+        self.write(".gitattributes", "tests/*.py -diff\n")
+        self.git("add", ".gitattributes")
+        self.git("commit", "-qm", "Binary test attribute")
+        self.write("tests/new.py", "def test_result():\n    assert True\n")
+        self.git("add", "tests/new.py")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertIn("assert_true", {entry["rule"] for entry in body["refusals"]})
+        self.assertEqual([entry["path"] for entry in body["coverage"]], ["tests/new.py"])
+
+    def test_readable_binary_mode_only_change_keeps_old_smells_outside_scope(self) -> None:
+        self.initial_commit()
+        self.write(".gitattributes", "tests/*.py -diff\n")
+        path = self.write("tests/old.py", "def test_old():\n    assert True\n")
+        self.git("add", ".gitattributes", "tests/old.py")
+        self.git("commit", "-qm", "Existing attributed test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 0)
+        self.assertEqual(body["refusals"], [])
+        self.assertEqual([entry["path"] for entry in body["coverage"]], ["tests/old.py"])
+
+    def test_carriage_return_and_newline_names_keep_distinct_identity(self) -> None:
+        self.initial_commit()
+        smelly = "tests/test_\rx.py"
+        clean = "tests/test_\nx.py"
+        self.write(smelly, "def test_result():\n    assert True\n")
+        self.write(clean, "def test_result():\n    assert result() == 2\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["path"] for entry in body["coverage"]}, {smelly, clean})
+        self.assertEqual({entry["file"] for entry in body["refusals"]}, {smelly})
+
+    def test_literal_bracket_path_does_not_borrow_another_files_hunks(self) -> None:
+        self.initial_commit()
+        bracket = "tests/[ab].py"
+        self.write(bracket, "def test_old():\n    assert True\n# old comment\n")
+        self.write("tests/a.py", "def test_a():\n    assert result() == 2\n")
+        self.git("add", "tests")
+        self.git("commit", "-qm", "Existing literal bracket test")
+        self.write(bracket, "def test_old():\n    assert True\n# new comment\n")
+        self.write("tests/a.py", "def test_a():\n    assert result() == 3\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 0)
+        self.assertEqual(body["refusals"], [])
+        self.assertEqual({entry["path"] for entry in body["coverage"]}, {bracket, "tests/a.py"})
+
+    def test_literal_pathspec_magic_name_is_checked_normally(self) -> None:
+        self.initial_commit()
+        name = ":(bad)/test_result.py"
+        self.write(name, "def test_result():\n    assert result() == 2\n")
+        self.git("--literal-pathspecs", "add", "--", name)
+        self.git("commit", "-qm", "Existing literal magic path")
+        self.write(name, "def test_result():\n    assert True\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["file"] for entry in body["refusals"]}, {name})
+        self.assertEqual([entry["path"] for entry in body["coverage"]], [name])
+
+    def test_one_git_hunk_failure_keeps_other_coverage_and_findings(self) -> None:
+        self.initial_commit()
+        names = ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"]
+        for name in names:
+            self.write(name, "def test_result():\n    assert result() == 2\n")
+        self.git("add", "tests")
+        self.git("commit", "-qm", "Existing tests")
+        for name in names:
+            self.write(name, "def test_result():\n    assert True\n")
+        real_git = subprocess.run(
+            ["which", "git"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        shim = self.write(
+            ".git/lint-test-bin/git",
+            "#!/usr/bin/env python3\nimport os, sys\nargs = sys.argv[1:]\n"
+            "if '--unified=0' in args and args[-1].endswith('tests/test_b.py'):\n"
+            "    sys.stderr.write('synthetic hunk failure\\n')\n    sys.exit(42)\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *args])\n",
+        )
+        shim.chmod(0o755)
+        code, body, error = self.command(
+            "--base", "HEAD", extra_env={"PATH": str(shim.parent) + os.pathsep + os.environ["PATH"]}
+        )
+        self.assertEqual(code, 4)
+        self.assertEqual({entry["path"] for entry in body.get("coverage", [])}, set(names))
+        self.assertEqual({entry["file"] for entry in body.get("refusals", [])}, set(names))
+        self.assertEqual(
+            {entry["rule"] for entry in body["refusals"]}, {"assert_true", "unchecked"}
+        )
+        self.assertIn("next: ", error)
+
+    def test_invalid_python_discloses_disabled_rules_without_claiming_line_checks(self) -> None:
+        for rules in (frozenset(), frozenset({Rule.ASSERT_TRUE})):
+            with self.subTest(rules=rules):
+                found = nl.assess_text("tests/broken.py", "def test_broken(:\n", rules=rules)
+                self.assertTrue(nl.refusals(found.findings))
+                self.assertNotIn("line smell rules", " ".join(found.coverage["checks_performed"]))
+                self.assertIn("disabled smell rules", " ".join(found.coverage["checks_omitted"]))
+        enabled = nl.assess_text(
+            "tests/broken.py", "def test_broken(:\n    sleep(1)\n", rules=frozenset({Rule.SLEEP})
+        )
+        self.assertIn("sleep", " ".join(enabled.coverage["checks_performed"]))
+        self.assertIn("Python AST test smell rules", enabled.coverage["checks_omitted"])
+        self.assertIn("sleep", {entry["rule"] for entry in enabled.findings})
+
+    def test_library_refuses_unknown_test_even_with_no_smell_rules(self) -> None:
+        found = nl.lint_text(
+            "tests/example.rb",
+            self.fixture.joinpath("unsupported.rb.fixture").read_text(),
+            rules=frozenset(),
+        )
+        self.assertTrue(nl.refusals(found), "unsupported required tests silently pass")
+
+    def test_library_refuses_invalid_python_even_with_no_smell_rules(self) -> None:
+        found = nl.lint_text(
+            "tests/example.py",
+            self.fixture.joinpath("invalid.py.fixture").read_text(),
+            rules=frozenset(),
+        )
+        self.assertTrue(nl.refusals(found), "invalid required test syntax silently passes")
+
+    def test_explicit_file_route_uses_test_directory_context(self) -> None:
+        path = self.write("tests/example.rb", "describe('release') {}\n")
+        code, body, error = self.command("--file", str(path))
+        self.assertEqual(code, 1)
+        self.assertFalse(body["ok"])
+        self.assertIn("next: ", error)
+
+    def test_file_route_retains_all_inputs_when_a_read_fails(self) -> None:
+        clean = self.write("tests/clean.py", "def test_result():\n    assert result() == 2\n")
+        missing = self.project / "tests/missing.py"
+        unknown = self.write("tests/example.rb", "unknown\n")
+        code, body, error = self.command(
+            "--file", str(clean), "--file", str(missing), "--file", str(unknown)
+        )
+        self.assertEqual(code, 4)
+        coverage = body.get("coverage", [])
+        self.assertEqual(
+            {entry["path"] for entry in coverage}, {str(clean), str(missing), str(unknown)}
+        )
+        self.assertIn("next: ", error)
+
+    def test_file_route_reports_decoding_and_directory_read_failures(self) -> None:
+        path = self.write("tests/binary.py", "temporary")
+        path.write_bytes(b"\xff\xfe")
+        directory = self.project / "tests"
+        code, body, _ = self.command("--file", str(path), "--file", str(directory))
+        self.assertEqual(code, 4)
+        self.assertEqual(len(body.get("coverage", [])), 2)
+
+    def test_base_route_inventories_untracked_names_with_tabs_newlines_and_quotes(self) -> None:
+        self.initial_commit()
+        names = [
+            "tests/space name.rb",
+            "tests/tab\tname.rb",
+            "tests/line\nname.rb",
+            'tests/quote"name.rb',
+        ]
+        for name in names:
+            self.write(name, "unknown\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["path"] for entry in body.get("coverage", [])}, set(names))
+
+    def test_base_route_reports_a_binary_test_without_hunks(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/binary.py", "initial\n")
+        self.git("add", "tests/binary.py")
+        self.git("commit", "-qm", "Existing test")
+        path.write_bytes(b"\x00\xff\xfe")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 4)
+        self.assertEqual([entry["path"] for entry in body.get("coverage", [])], ["tests/binary.py"])
+
+    def test_base_route_reports_a_mode_only_unsupported_test(self) -> None:
+        self.initial_commit()
+        path = self.write("tests/example.rb", "unknown\n")
+        self.git("add", "tests/example.rb")
+        self.git("commit", "-qm", "Existing test")
+        self.git("config", "core.filemode", "true")
+        path.chmod(0o755)
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [entry["path"] for entry in body.get("coverage", [])], ["tests/example.rb"]
+        )
+
+    def test_tracked_odd_paths_preserve_hunk_identity_and_old_line_scope(self) -> None:
+        self.initial_commit()
+        names = [
+            "tests/space name.py",
+            "tests/tab\tname.py",
+            "tests/line\nname.py",
+            'tests/quote"name.py',
+        ]
+        for name in names:
+            self.write(
+                name, "import time\ndef test_old():\n    time.sleep(1)\n    assert result() == 2\n"
+            )
+        self.git("add", "tests")
+        self.git("commit", "-qm", "Existing tests")
+        for name in names:
+            path = self.project / name
+            path.write_text(path.read_text() + "\ndef test_new():\n    assert True\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertEqual({entry["path"] for entry in body["coverage"]}, set(names))
+        self.assertEqual({entry["file"] for entry in body["refusals"]}, set(names))
+        self.assertEqual({entry["rule"] for entry in body["refusals"]}, {"assert_true"})
+
+    def test_source_snapshot_and_deletion_have_explicit_non_test_accounting(self) -> None:
+        self.initial_commit()
+        deleted = self.write("tests/deleted.rb", "unsupported\n")
+        self.git("add", "tests/deleted.rb")
+        self.git("commit", "-qm", "Existing test")
+        deleted.unlink()
+        self.write("src/example.rb", "ordinary source\n")
+        self.write("tests/__snapshots__/new.snap", "snapshot\n")
+        code, body, _ = self.command("--base", "HEAD")
+        self.assertEqual(code, 0)
+        kinds = {entry["path"]: entry["kind"] for entry in body["coverage"]}
+        self.assertEqual(
+            kinds,
+            {
+                "tests/deleted.rb": "deletion",
+                "src/example.rb": "source",
+                "tests/__snapshots__/new.snap": "snapshot",
+            },
+        )
+        self.assertEqual(body["refusals"], [])
+
+    def test_read_error_precedes_smells_but_keeps_both_findings(self) -> None:
+        missing = self.project / "tests/missing.py"
+        smelly = self.write("tests/smelly.py", "def test_result():\n    assert True\n")
+        code, body, _ = self.command("--file", str(missing), "--file", str(smelly))
+        self.assertEqual(code, 4)
+        self.assertEqual(
+            {entry["rule"] for entry in body["refusals"]}, {"assert_true", "unchecked"}
+        )
+        self.assertEqual(len(body["coverage"]), 2)
+
+    def test_library_reports_limited_language_and_omitted_module_checks(self) -> None:
+        python = nl.assess_text(
+            "tests/example.py", "def test_result():\n    assert result() == 2\n"
+        )
+        typescript = nl.assess_text(
+            "tests/example.ts", "it('result', () => { expect(result()).toBe(2); });"
+        )
+        self.assertEqual(python.coverage["outcome"], "partial")
+        self.assertIn("module", " ".join(python.coverage["checks_omitted"]))
+        self.assertEqual(typescript.coverage["outcome"], "partial")
+        self.assertIn("syntax validation", " ".join(typescript.coverage["checks_omitted"]))
+
+    def test_supported_directory_named_test_still_runs_smell_rules(self) -> None:
+        path = self.write("tests/example.py", "def test_result():\n    assert True\n")
+        code, body, _ = self.command("--file", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("assert_true", {entry["rule"] for entry in body.get("refusals", [])})
 
 
 if __name__ == "__main__":
