@@ -93,6 +93,14 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
                 next_command="merge-settings.py --help",
                 code=cli.ExitCode.USAGE,
             )
+        if name == "KIT_DIR":
+            if not Path(value).is_absolute():
+                raise cli.Failure(
+                    "KIT_DIR must be an absolute installed kit path",
+                    next_command="give --set KIT_DIR=/absolute/path/to/kit",
+                    code=cli.ExitCode.USAGE,
+                )
+            value = str(Path(value).resolve())
         values[name] = value
     template_path, target = Path(args.template), Path(args.target)
     try:

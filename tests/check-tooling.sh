@@ -412,18 +412,22 @@ eyes_line "It does not stop founding" \
   && pass "each missing renderer says it does not stop founding" \
   || fail "the missing renderers do not say founding goes on"
 
-# npx here, but Playwright not: npx --no-install fails, as it does in a project
-# without Playwright.
-stub npx 1
+# A package executor is not an installed renderer. It must not be called to
+# discover availability, even when it would report success.
+printf '#!/bin/sh\necho called >> "%s"\nexit 0\n' "$WORK/npx.log" > "$WORK/bin/npx"
+chmod +x "$WORK/bin/npx"
 out=$(run_check) && code=0 || code=$?
 eyes_line "Playwright is missing" \
-  && pass "npx that cannot find Playwright counts as Playwright missing" \
+  && pass "npx alone does not count as installed Playwright" \
   || fail "npx without Playwright was taken for Playwright"
+[ ! -e "$WORK/npx.log" ] \
+  && pass "the report never invokes the package executor" \
+  || fail "availability discovery invoked npx"
 
 stub pdftoppm 0
 stub soffice 0
 stub magick 0
-stub npx 0
+stub playwright 0
 out=$(run_check) && code=0 || code=$?
 [ "$code" -eq 0 ] \
   && pass "with every renderer ready, the report still returns cleanly" \
@@ -457,7 +461,7 @@ out=$(run_check) && code=0 || code=$?
   && pass "renderers being ready do not excuse a missing founding tool" \
   || fail "ready renderers hid the missing openssl"
 ln -s "$(command -v openssl)" "$WORK/bin/openssl"
-rm -f "$WORK/bin/pdftoppm" "$WORK/bin/libreoffice" "$WORK/bin/convert" "$WORK/bin/npx"
+rm -f "$WORK/bin/pdftoppm" "$WORK/bin/libreoffice" "$WORK/bin/convert" "$WORK/bin/npx" "$WORK/bin/playwright"
 write_gh
 
 echo
