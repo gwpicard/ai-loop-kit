@@ -117,7 +117,10 @@ TMPDIR="$TP_BASE/tmp"
 export AI_LOOP_KIT_DATA PATH TMPDIR
 : > "$FAKE_GH_LOG"
 
-(cd "$TP_ROOT" && python3 "$KIT/scripts/setup.py" --json found --test-command "sh -c 'exit 0'" \
+q4_release=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
+Q4_KIT_REF=$(printf '%s' "$q4_release" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
+
+(cd "$TP_ROOT" && python3 "$KIT/scripts/setup.py" --json found --kit-ref "$Q4_KIT_REF" --test-command "sh -c 'exit 0'" \
   --billing-mode subscription --repo-visibility private --plan paid --language node) \
   > "$TP_BASE/found.out" 2> "$TP_BASE/found.err" || { cat "$TP_BASE/found.err" >&2; rs_fail "setup.py found failed"; }
 # The policy gets a test command, so the check can show main green.

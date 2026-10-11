@@ -35,16 +35,10 @@ json_get() {
   printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))' "$2" 2>/dev/null
 }
 
-# seal_kit: write the plugin's version record for the kit folder in $KIT.
+# seal_kit: acquire and publish the separate local release baseline.
 seal_kit() {
-  python3 - "$CHECK" "$KIT" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("pre_run_check", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-sys.modules["pre_run_check"] = module
-spec.loader.exec_module(module)
-module.write_record(__import__("pathlib").Path(sys.argv[2]))
-PY
+  Q4_RELEASE=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
+  Q4_RECORD=$(printf '%s' "$Q4_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["record"])')
 }
 
 # edit_json <file> <python statements over d>
@@ -180,12 +174,10 @@ python3 "$CHECK" --help 2>&1 | grep -q "exit codes" \
 echo "== The guard hook =="
 build founded
 edit_json "$KIT/hooks/hooks.json" 'd["hooks"].pop("PreToolUse")'
-seal_kit
 expect_refusal "the guard hook taken out of the hook list" guard-hook first "PreToolUse"
 
 build founded
 mv "$KIT/hooks/guard.py" "$KIT/hooks/guard.py.gone"
-seal_kit
 expect_refusal "the guard script missing" guard-hook first "guard.py"
 
 echo "== The deny rules =="
@@ -221,7 +213,6 @@ expect_refusal "the local settings switch the sandbox off" sandbox first "sandbo
 
 build founded
 edit_json "$KIT/templates/builder-settings.json" 'd["sandbox"]["network"]["strictAllowlist"] = False'
-seal_kit
 expect_refusal "the builder network allowlist not strict" sandbox first "strictAllowlist"
 
 echo "== Another guard value a person's setting beats =="
@@ -249,15 +240,15 @@ expect_refusal "the raw hook template in a founded project" pre-push-hook first 
 echo "== The installed kit folder =="
 build founded
 printf '\n# changed\n' >> "$KIT/scripts/secret-scan.py"
-expect_refusal "a changed file in the installed kit folder" kit-folder first "scripts/secret-scan.py"
+expect_refusal "a changed file in the installed kit folder" kit-folder first "differs from the verified release"
 
 build founded
 printf 'x\n' > "$KIT/scripts/extra.py"
-expect_refusal "an added file in the installed kit folder" kit-folder first "scripts/extra.py"
+expect_refusal "an added file in the installed kit folder" kit-folder first "differs from the verified release"
 
 build founded
-rm "$KIT/version.json"
-expect_refusal "no version record in the installed kit folder" kit-folder first "version.json"
+rm "$Q4_RECORD"
+expect_refusal "no stable release record for the installed kit" kit-folder first "stable release record is missing"
 
 build repo
 expect_pass "in the kit's repository a clean kit/ folder passes"

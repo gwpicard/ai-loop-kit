@@ -30,6 +30,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -39,7 +40,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from loop import bootstrap, cli, github, policy, states
+from loop import bootstrap, cli, github, policy, states, versions
 from loop.paths import PathError, Paths, find_project_root
 
 PROG = "setup.py"
@@ -181,15 +182,9 @@ def project_has_runner(root: Path) -> bool:
         return False
 
 
-def kit_ref(kit: Path, given: str) -> str | None:
-    if given:
-        return given
-    try:
-        manifest = json.loads((kit / ".claude-plugin" / "plugin.json").read_text("utf-8"))
-        version = manifest.get("version")
-        return str(version) if version else None
-    except (OSError, ValueError):
-        return None
+def kit_ref(kit: Path, given: str) -> str:
+    """Select a release tag or an already verified full SHA, never a branch."""
+    return versions.request(kit, given)
 
 
 # --- writing, never overwriting ---------------------------------------------------
@@ -244,25 +239,66 @@ def extend_ignore(plan: Plan, template: str) -> None:
         target.write_text(old + gap + block + "\n".join(missing) + "\n", encoding="utf-8")
 
 
-def place_settings(plan: Plan, kit: Path) -> None:
-    merge = load_module("merge_settings", HERE / "merge-settings.py")
-    result = merge.handler(
-        argparse.Namespace(
-            template=str(kit / "templates" / "claude-settings.json"),
-            target=str(plan.root / ".claude" / "settings.json"),
-            set=[f"KIT_DIR={kit}"],
-            dry_run=plan.dry_run,
-        )
-    )
+def prepare_settings(root: Path, kit: Path, merge: Any) -> dict[str, Any]:
+    """Render and merge settings without creating files or directories."""
+    target = root / ".claude/settings.json"
+    template = json.loads(merge.render(
+        (kit / "templates/claude-settings.json").read_text("utf-8"),
+        {"KIT_DIR": str(kit)},
+    ))
+    existed = target.exists()
+    if existed:
+        try:
+            mine = json.loads(target.read_text("utf-8"))
+        except ValueError as error:
+            raise cli.Failure(
+                f"{target} is not valid JSON ({error}), so it was left as it is",
+                next_command=f"fix {target}, then run merge-settings.py again",
+                code=cli.ExitCode.REFUSED,
+            ) from error
+        if not isinstance(mine, dict):
+            raise cli.Failure(
+                f"{target} is not a JSON object, so it was left as it is",
+                next_command=f"fix {target}, then run merge-settings.py again",
+                code=cli.ExitCode.REFUSED,
+            )
+    else:
+        mine = {}
+    added: list[str] = []
+    overridden: list[str] = []
+    merged = merge.merge(mine, template, added, overridden=overridden)
+    return {"text": json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+            "added": added, "overridden": overridden, "existed": existed,
+            "mode": target.stat().st_mode & 0o777 if existed else 0o644}
+
+
+def place_settings(plan: Plan, prepared: dict[str, Any]) -> None:
     relative = ".claude/settings.json"
-    if result["added"]:
-        if (plan.root / relative).exists():
+    target = plan.root / relative
+    if prepared["added"]:
+        if not plan.dry_run:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=target.parent,
+                prefix=".merge-settings.", delete=False,
+            ) as pending:
+                pending.write(prepared["text"])
+                temporary = Path(pending.name)
+            try:
+                temporary.chmod(prepared["mode"])
+                os.replace(temporary, target)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+        if prepared["existed"]:
             plan.extended.append(relative)
         else:
             plan.created.append(relative)
     else:
         plan.kept.append(relative)
-    for line in result["overridden"]:
+    for line in prepared["overridden"]:
+        print(f"merge-settings.py: your value beats the kit's guard value at {line}",
+              file=sys.stderr)
         plan.warnings.append(f"your own setting beats a kit guard at {line}")
 
 
@@ -281,13 +317,13 @@ def build_policy(kit: Path, args: argparse.Namespace, mode: str, has_runner: boo
     return json.dumps(data, indent=2) + "\n"
 
 
-def place_allowlist(plan: Plan, kit: Path, language: str | None) -> None:
+def render_allowlist(kit: Path, language: str | None) -> str:
     hosts: list[str] = []
     if language:
         text = (kit / "templates" / "network-allowlist" / f"{language}.txt").read_text("utf-8")
         hosts = [x.strip() for x in text.splitlines() if x.strip() and not x.startswith("#")]
     body = {"language": language, "allowedDomains": hosts}
-    plan.place(".agents/loop/network-allowlist.json", json.dumps(body, indent=2) + "\n")
+    return json.dumps(body, indent=2) + "\n"
 
 
 def write_open_questions(plan: Plan) -> None:
@@ -311,7 +347,8 @@ def label_step(root: Path) -> dict[str, Any]:
     }
 
 
-def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
+def render_hook(kit: Path, merge: Any) -> str:
+    """Validate and render the hook before publication or project writes."""
     raw = (kit / "templates" / "githooks" / "pre-push").read_text("utf-8")
     if any(char in str(kit) for char in '"$`\\\n'):
         raise cli.Failure(
@@ -319,7 +356,10 @@ def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
             next_command="move the kit to a folder with a plain name, then run /setup again",
             code=cli.ExitCode.ENVIRONMENT,
         )
-    template = str(merge.render(raw, {"KIT_DIR": str(kit)}))
+    return str(merge.render(raw, {"KIT_DIR": str(kit)}))
+
+
+def install_hooks(plan: Plan, kit: Path, template: str) -> None:
     hook = plan.root / ".githooks" / "pre-push"
     existed = hook.exists()
     plan.place(".githooks/pre-push", template, executable=True)
@@ -345,19 +385,11 @@ def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
         )
 
 
-def write_kit_record(kit: Path, root: Path, dry_run: bool) -> str:
-    """The plugin's version record, which the pre-run check reads. See write_record()."""
-    if kit.resolve() == (root / "kit").resolve():
-        return "not needed: the kit is this project's own kit/ folder"
-    if (kit / "version.json").exists():
-        return "kept"
-    if dry_run:
-        return "would write"
-    try:
-        load_module("pre_run_check", HERE / "pre-run-check.py").write_record(kit)
-    except OSError as error:
-        return f"could not write ({error}). Run the installer's record step for {kit}"
-    return "written"
+def write_kit_record(kit: Path, root: Path, dry_run: bool,
+                     prepared: versions.Prepared | None = None) -> str:
+    """Publish the verified release baseline in the stable machine-local home."""
+    release = prepared or versions.prepare(kit, root, dry_run=dry_run)
+    return versions.publish(release)
 
 
 # --- the steps --------------------------------------------------------------------
@@ -369,14 +401,13 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     check_origin(root, check_tooling(root))
     plan = Plan(root, bool(getattr(args, "dry_run", False)))
     templates = kit / "templates"
-    ref = kit_ref(kit, args.kit_ref)
-    if ref is None:
-        ref = "main"
-        plan.open_questions.append(
-            "Which kit version should checks.yml fetch? It uses main until the kit names one."
-        )
+    try:
+        release = versions.prepare(kit, root, kit_ref(kit, args.kit_ref), dry_run=plan.dry_run)
+    except versions.VersionError as error:
+        raise cli.Failure(str(error), next_command=error.next_command,
+                          code=cli.ExitCode.REFUSED) from error
     merge = load_module("merge_settings", HERE / "merge-settings.py")
-    values = {"KIT_DIR": str(kit), "KIT_REF": ref}
+    values = {"KIT_DIR": str(kit), "KIT_REF": release.commit}
 
     def rendered(name: str) -> str:
         return str(merge.render((templates / name).read_text("utf-8"), values))
@@ -398,7 +429,7 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
             "known, and the first piece sets up the test runner."
         )
 
-    for source, target in (
+    foundation = (
         ("AGENTS.md", "AGENTS.md"),
         ("CLAUDE.md", "CLAUDE.md"),
         ("overview.md", "docs/overview.md"),
@@ -407,14 +438,38 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         ("CHANGELOG.md", "CHANGELOG.md"),
         ("checks.yml", ".github/workflows/checks.yml"),
         ("blocked-commands.md", ".agents/guard/blocked-commands.md"),
-    ):
-        plan.place(target, rendered(source))
-    extend_ignore(plan, (templates / "gitignore").read_text("utf-8"))
-    place_settings(plan, kit)
-    install_hooks(plan, kit, merge)
-    has_runner = project_has_runner(root)
-    plan.place(".agents/loop/policy.json", build_policy(kit, args, mode, has_runner))
-    place_allowlist(plan, kit, language)
+    )
+    # Read and render every foundation input before publishing or changing the project.
+    rendered_hook = render_hook(kit, merge)
+    rendered_files = [(target, rendered(source)) for source, target in foundation]
+    workflow = next(text for target, text in rendered_files
+                    if target == ".github/workflows/checks.yml")
+    if re.search(r"\{\{(?:KIT_[A-Z_]+|SCAFFOLD_TEST_COMMAND)\}\}", workflow):
+        raise cli.Failure("the generated check has unresolved distribution placeholders",
+                          next_command="reinstall the tagged kit release, then run setup.py found",
+                          code=cli.ExitCode.REFUSED)
+    prepared_settings = prepare_settings(root, kit, merge)
+    rendered_policy = build_policy(kit, args, mode, project_has_runner(root))
+    rendered_allowlist = render_allowlist(kit, language)
+    ignore_template = (templates / "gitignore").read_text("utf-8")
+    ignore_target = root / ".gitignore"
+    if ignore_target.exists():
+        ignore_target.read_text("utf-8")
+    existing_hook = root / ".githooks/pre-push"
+    if existing_hook.exists():
+        existing_hook.read_text("utf-8")
+    try:
+        record = write_kit_record(kit, root, plan.dry_run, release)
+    except versions.VersionError as error:
+        raise cli.Failure(str(error), next_command=error.next_command,
+                          code=cli.ExitCode.REFUSED) from error
+    for target, text in rendered_files:
+        plan.place(target, text)
+    extend_ignore(plan, ignore_template)
+    place_settings(plan, prepared_settings)
+    install_hooks(plan, kit, rendered_hook)
+    plan.place(".agents/loop/policy.json", rendered_policy)
+    plan.place(".agents/loop/network-allowlist.json", rendered_allowlist)
 
     if mode == "api_key":
         for key, given in (
@@ -432,7 +487,6 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
 
     write_open_questions(plan)
     labels = label_step(root)
-    record = write_kit_record(kit, root, plan.dry_run)
     return {
         "project": str(root),
         "kit_dir": str(kit),
@@ -446,6 +500,8 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         "open_questions": plan.open_questions,
         "labels": labels,
         "kit_record": record,
+        "kit_revision": release.commit,
+        "kit_version": release.body["version"],
         "closing": CLOSING,
     }
 

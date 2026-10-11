@@ -74,6 +74,9 @@ new_project() {
   TMPDIR="$TP_BASE/tmp"
   export PATH TMPDIR
   : > "$FAKE_GH_LOG"
+  Q4_RELEASE=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
+  Q4_KIT_REF=$(printf '%s' "$Q4_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
+  Q4_RECORD=$(printf '%s' "$Q4_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["record"])')
 }
 
 # run_setup <arguments>: run the script from the plugin folder, in the project.
@@ -82,7 +85,12 @@ run_setup() {
   OUT="$TP_BASE/out.json"
   ERR="$TP_BASE/err.txt"
   set +e
-  (cd "$TP_ROOT" && python3 "$KIT/scripts/setup.py" --json "$@") > "$OUT" 2> "$ERR"
+  (cd "$TP_ROOT"
+    if [ "$1" = found ]; then
+      python3 "$KIT/scripts/setup.py" --json "$@" --kit-ref "$Q4_KIT_REF"
+    else
+      python3 "$KIT/scripts/setup.py" --json "$@"
+    fi) > "$OUT" 2> "$ERR"
   CODE=$?
   set -e
 }
@@ -187,7 +195,7 @@ if grep -rlE '\{\{[A-Z_]+\}\}' "$TP_ROOT" --exclude-dir=.git >/dev/null 2>&1; th
 fi
 grep -q "$KIT/scripts/records-check.py" "$TP_ROOT/AGENTS.md" || fail "AGENTS.md has no absolute kit path"
 [ ! -e "$TP_ROOT/kit" ] || fail "a copy of the kit was placed inside the project"
-grep -q 'ref: "' "$TP_ROOT/.github/workflows/checks.yml" || fail "checks.yml has no ref"
+grep -q 'KIT_REVISION: "' "$TP_ROOT/.github/workflows/checks.yml" || fail "checks.yml has no ref"
 ok "no placeholder is left, the kit paths are absolute and the kit is not copied in"
 python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'PYTEST' || fail "F2-RENDER the scaffold command was not rendered"
 import json, sys
@@ -224,9 +232,10 @@ grep -q '{{' "$TP_ROOT/.githooks/pre-push" && fail "the pre-push hook keeps a pl
 [ "$(git -C "$TP_ROOT" config --get core.hooksPath)" = ".githooks" ] || fail "core.hooksPath is not .githooks"
 ok "the pre-push hook is installed and switched on"
 
-# The version record for a plugin install (P13).
-[ -f "$KIT/version.json" ] || fail "setup did not write the plugin's version record"
-ok "the plugin's version record is written"
+# Founding consumes the verified stable release record, outside the plugin cache.
+[ -f "$Q4_RECORD" ] || fail "the stable verified release record is missing"
+[ ! -e "$KIT/version.json" ] || fail "setup wrote a cache-local version record"
+ok "the stable release record is kept outside the plugin cache"
 
 # The ignore file covers what it must.
 for p in .agents/runs/a/run.json .agents/pieces/1/evidence.jsonl debug.log .agents/worktrees/p1/x \

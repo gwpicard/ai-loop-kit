@@ -1,0 +1,14 @@
+{
+  "name": "ai-loop-kit",
+  "owner": {
+    "name": "Guillaume Picard"
+  },
+  "description": "Attended software-building runs on your own computer.",
+  "plugins": [
+    {
+      "name": "ai-loop-kit",
+      "source": "./kit",
+      "description": "Shape software pieces, build them in runs and check the results."
+    }
+  ]
+}
