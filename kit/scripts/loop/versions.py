@@ -120,12 +120,12 @@ def check_foundation_selection(project: Path, commit: str, *, development: bool)
     selected = development_selection(project)
     if development and path.exists() and selected != commit:
         raise _development_error(
-                "prepare the existing workflow's development marker and matching SHA"
-            )
+            "prepare the existing workflow's development marker and matching SHA"
+        )
     if not development and selected is not None:
         raise _development_error(
-                "the existing workflow selects development; keep its explicit mode"
-            )
+            "the existing workflow selects development; keep its explicit mode"
+        )
 
 
 def request(kit: Path, given: str) -> str:
