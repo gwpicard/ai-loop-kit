@@ -212,4 +212,9 @@ run_lint both --file x.py --base HEAD --json
 [ "$code" = 2 ] || fail "--file with --base should exit 2, got $code"
 rs_ok "bad use exits 2 or 4 with a next: line"
 
+# Mandatory coverage checks are separate from switchable smell fixture loops.
+python3 -m unittest discover -s "$ROOT/tests/unit" -p test_newtest_lint.py \
+  -k CheckerCoverageRequired -v || fail "required-test coverage regressions failed"
+rs_ok "library and both CLI routes account for required unchecked tests"
+
 rs_done
