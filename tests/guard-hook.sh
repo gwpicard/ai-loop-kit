@@ -154,6 +154,37 @@ for n, line in enumerate(open(sys.argv[1]), 1):
 print(n)
 ' "$LOG" >/dev/null && ok "every line of the log parses" || fail "a log line is not JSON"
 
+# Inspect synthetic inherited settings without using the terminal's real values.
+run_guard_config() {
+  mode=$1
+  shift
+  CODE=0
+  json_for "$@" | python3 -c '
+import os, sys
+env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_CONFIG")}
+env.update(GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="credential.interactive",
+           GIT_CONFIG_VALUE_0="false", GIT_CONFIG_KEY_1="credential.guiPrompt",
+           GIT_CONFIG_VALUE_1="false")
+if sys.argv[2] == "risky":
+    env.update(GIT_CONFIG_KEY_1="credential.helper", GIT_CONFIG_VALUE_1="synthetic-helper")
+os.execve(sys.executable, [sys.executable, sys.argv[1]], env)
+' "$GUARD" "$mode" >"$OUT" 2>"$ERR" || CODE=$?
+}
+
+echo "Synthetic prompt-policy configuration"
+run_guard_config benign Bash command "git remote -v" "$TP_ROOT"
+[ "$CODE" -eq 0 ] && [ ! -s "$OUT" ] && [ ! -s "$ERR" ] \
+  && ok "benign inherited prompt policy passes" || fail "benign prompt policy did not pass"
+run_guard_config risky Bash command "git status" "$TP_ROOT"
+[ "$CODE" -eq 0 ] && ok "risky inherited helper returns the ask protocol" || fail "risky helper exit $CODE"
+python3 -c '
+import json, sys
+assert json.load(open(sys.argv[1]))["hookSpecificOutput"]["permissionDecision"] == "ask"
+' "$OUT" && ok "risky helper still asks" || fail "risky helper did not ask"
+run_guard_config benign Bash command "git push origin main" "$TP_ROOT"
+[ "$CODE" -eq 2 ] && [ ! -s "$OUT" ] \
+  && ok "benign prompt policy cannot bypass a main push refusal" || fail "main push was not refused"
+
 if [ "$failures" -gt 0 ]; then
   echo "FAIL: $failures check(s) failed. Run one case by hand: python3 kit/hooks/guard.py < input.json" >&2
   exit 1

@@ -1462,5 +1462,188 @@ class ResumedOpaqueCommands(Cases):
             with self.subTest(command=command):
                 self.expect(command, kind)
 
+
+class FieldRuntimeGitConfig(Cases):
+    """Synthetic numbered configuration, never the terminal's real values."""
+
+    def config_env(self, pairs: list[tuple[str, str]]) -> dict[str, str]:
+        result = {**P.env, "GIT_CONFIG_COUNT": str(len(pairs))}
+        for index, (key, value) in enumerate(pairs):
+            result[f"GIT_CONFIG_KEY_{index}"] = key
+            result[f"GIT_CONFIG_VALUE_{index}"] = value
+        return result
+
+    def test_benign_inherited_config_does_not_ask(self) -> None:
+        env = self.config_env([("color.ui", "false"), ("core.quotepath", "true")])
+        for command in ("git status", "git tag", "git remote -v", "git log -1"):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command, env=env).kind, ALLOW)
+
+    def test_zero_and_empty_count_does_not_ask(self) -> None:
+        for count in ("0", ""):
+            with self.subTest(count=count):
+                self.assertEqual(
+                    bash("git status", env={**P.env, "GIT_CONFIG_COUNT": count}).kind, ALLOW,
+                )
+
+    def test_literal_benign_config_does_not_ask(self) -> None:
+        assignments = "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=color.ui GIT_CONFIG_VALUE_0=false"
+        for command in (
+            f"{assignments} git status",
+            f"env {assignments} git remote -v",
+            f"{assignments} sh -c 'git tag'",
+            f"sh -c '{assignments} git status'",
+            f"env -S '{assignments} git log -1'",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command).kind, ALLOW)
+
+    def test_risky_or_unknown_keys_still_ask(self) -> None:
+        for key, value in (
+            ("core.hooksPath", "/synthetic/hooks"), ("CoRe.SsHcOmMaNd", "false"),
+            ("alias.st", "status"), ("credential.helper", ""),
+            ("include.path", "/synthetic/config"), ("core.fsmonitor", "true"),
+            ("core.pager", "cat"), ("url.fake.insteadOf", "https://example.invalid"),
+            ("safe.directory", "*"), ("unknown.option", "false"),
+        ):
+            with self.subTest(key=key):
+                env = self.config_env([("color.ui", "false"), (key, value)])
+                self.assertEqual(bash("git status", env=env).kind, ASK)
+
+    def test_malformed_numbered_config_still_asks(self) -> None:
+        for overrides in (
+            {"GIT_CONFIG_COUNT": "-1"}, {"GIT_CONFIG_COUNT": "65"},
+            {"GIT_CONFIG_COUNT": "one"}, {"GIT_CONFIG_COUNT": "1"},
+            {"GIT_CONFIG_COUNT": "0", "GIT_CONFIG_KEY_0": "color.ui",
+             "GIT_CONFIG_VALUE_0": "false"},
+            {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_00": "color.ui",
+             "GIT_CONFIG_VALUE_00": "false"},
+            {"GIT_CONFIG_PARAMETERS": "color.ui=false"},
+        ):
+            with self.subTest(overrides=overrides):
+                self.assertEqual(bash("git status", env={**P.env, **overrides}).kind, ASK)
+        duplicate = self.config_env([("color.ui", "false"), ("CoLoR.Ui", "true")])
+        self.assertEqual(bash("git status", env=duplicate).kind, ASK)
+
+    def test_known_refusals_win_with_benign_or_risky_config(self) -> None:
+        for pairs in ([('color.ui', 'false')], [('core.hooksPath', '/synthetic/hooks')]):
+            env = self.config_env(pairs)
+            for command in (
+                "git push origin main", "git push --force origin my-feature",
+                "git commit --no-verify -m x", "git reset --hard",
+                "git -c core.hooksPath=/synthetic/hooks commit -m x",
+            ):
+                with self.subTest(pairs=pairs, command=command):
+                    self.assertEqual(bash(command, env=env).kind, DENY)
+
+    def test_exact_prompt_policy_pair_allows_read_and_normal_git(self) -> None:
+        env = self.config_env([
+            ("credential.interactive", "false"), ("credential.guiPrompt", "false"),
+        ])
+        for command in (
+            "git status", "git tag", "git remote -v", "git log -1",
+            "git fetch origin main", "git add README.md", "git commit -m example",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command, cwd=P.feature, env=env).kind, ALLOW)
+
+    def test_exact_prompt_policy_pair_in_literal_wrapper_commands(self) -> None:
+        assignments = (
+            "GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.interactive "
+            "GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=credential.guiPrompt "
+            "GIT_CONFIG_VALUE_1=false"
+        )
+        for command in (
+            f"{assignments} git status", f"env {assignments} git remote -v",
+            f"{assignments} sh -c 'git tag'", f"sh -c '{assignments} git status'",
+            f"env -S '{assignments} git log -1'",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command).kind, ALLOW)
+
+    def test_supported_prompt_policy_values(self) -> None:
+        for value in ("auto", "never", "always", "force", "true", "false", "0", "1"):
+            with self.subTest(key="interactive", value=value):
+                env = self.config_env([("CrEdEnTiAl.InTeRaCtIvE", value)])
+                self.assertEqual(bash("git status", env=env).kind, ALLOW)
+        for value in ("true", "false", "0", "1"):
+            with self.subTest(key="guiPrompt", value=value):
+                env = self.config_env([("credential.guiPrompt", value)])
+                self.assertEqual(bash("git status", env=env).kind, ALLOW)
+
+    def test_prompt_policy_invalid_and_mixed_helper_cases_ask(self) -> None:
+        for key, value in (
+            ("credential.interactive", ""), ("credential.interactive", "2"),
+            ("credential.interactive", "false;helper"),
+            ("credential.guiPrompt", "auto"), ("credential.guiPrompt", "never"),
+            ("credential.guiPrompt", ""), ("credential.guiPrompt", "2"),
+            ("credential.example.invalid.interactive", "false"),
+            ("credential.helper", ""), ("credential.traceSecrets", "false"),
+            ("credential.allowUnsafeRemotes", "false"),
+            ("credential.provider", "auto"), ("credential.unknown", "false"),
+        ):
+            with self.subTest(key=key, value=value):
+                other = ("credential.guiPrompt" if key == "credential.interactive"
+                         else "credential.interactive")
+                env = self.config_env([(other, "false"), (key, value)])
+                self.assertEqual(bash("git status", env=env).kind, ASK)
+
+    def test_prompt_policy_does_not_override_known_denial(self) -> None:
+        env = self.config_env([
+            ("credential.interactive", "false"), ("credential.guiPrompt", "false"),
+        ])
+        for command in (
+            "git push origin main", "git push --force origin my-feature",
+            "git commit --no-verify -m x", "git reset --hard",
+            "git -c core.hooksPath=/synthetic/hooks commit -m x",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command, env=env).kind, DENY)
+
+
+    def test_export_and_sequential_prompt_policy_assignments(self) -> None:
+        assignments = (
+            "GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.interactive "
+            "GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=credential.guiPrompt "
+            "GIT_CONFIG_VALUE_1=false"
+        )
+        for command in (
+            f"export {assignments}; git status",
+            assignments.replace(" ", "; ") + "; git remote -v",
+            f"{assignments}; sh -c 'git tag'",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command).kind, ALLOW)
+
+    def test_opaque_duplicate_and_unset_config_remains_ask(self) -> None:
+        benign = self.config_env([("credential.interactive", "false")])
+        for command in (
+            'GIT_CONFIG_COUNT="$COUNT" git status',
+            'GIT_CONFIG_VALUE_0="$POLICY" git status',
+            'export GIT_CONFIG_VALUE_0="$POLICY"; git status',
+            'GIT_CONFIG_VALUE_0=$(printf false) git status',
+            'GIT_CONFIG_COUNT=1 GIT_CONFIG_COUNT=0 git status',
+            'export GIT_CONFIG_COUNT=1 GIT_CONFIG_COUNT=0; git status',
+            'unset GIT_CONFIG_VALUE_0; git status',
+            'env -u GIT_CONFIG_VALUE_0 git status',
+            'env --unset=GIT_CONFIG_VALUE_0 git status',
+            'env -i git status',
+            'env - git status',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command, env=benign).kind, ASK)
+
+    def test_literal_configuration_override_respects_command_scope(self) -> None:
+        env = self.config_env([("core.hooksPath", "/synthetic/hooks")])
+        self.assertEqual(bash(
+            "GIT_CONFIG_KEY_0=credential.interactive GIT_CONFIG_VALUE_0=false git status",
+            env=env,
+        ).kind, ALLOW)
+        self.assertEqual(bash(
+            "GIT_CONFIG_KEY_0=credential.interactive GIT_CONFIG_VALUE_0=false git status; git tag",
+            env=env,
+        ).kind, ASK)
+        self.assertEqual(bash("printf hello", env=env).kind, ALLOW)
+
 if __name__ == "__main__":
     unittest.main()

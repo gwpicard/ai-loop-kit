@@ -630,6 +630,7 @@ def _split_string_option(
 def unwrap(
     words: Sequence[str], assignments: set[str] | None = None,
     uncertain: list[Decision] | None = None,
+    config_values: dict[str, str] | None = None,
 ) -> list[str]:
     rest = list(words)
     while rest:
@@ -642,6 +643,8 @@ def unwrap(
         if ASSIGNMENT.match(rest[0]):
             if assignments is not None:
                 assignments.add(rest[0].split("=", 1)[0])
+            if config_values is not None:
+                _collect_git_assignment(rest[0], config_values)
             rest.pop(0)
             continue
         name = program_name(rest[0])
@@ -651,6 +654,18 @@ def unwrap(
         rest.pop(0)
         while rest and rest[0].startswith("-") and rest[0] != "-":
             option = rest.pop(0)
+            if name == "env" and config_values is not None:
+                removed = option.split("=", 1)[1] if "=" in option else (
+                    rest[0] if rest else ""
+                )
+                if option == "--ignore-environment" or (
+                    option.startswith("-") and not option.startswith("--")
+                    and "i" in option[1:]
+                ) or option.startswith("-uGIT_CONFIG") or (
+                    option.split("=", 1)[0] in {"-u", "--unset"}
+                    and removed.startswith("GIT_CONFIG")
+                ):
+                    config_values["GIT_CONFIG_OPAQUE"] = ""
             if name == "env":
                 inner = _split_string_option(option, rest, uncertain)
                 if inner is not None:
@@ -668,6 +683,10 @@ def unwrap(
                     "a wrapper option cannot be parsed with certainty.",
                     "use the full supported option name or run without a wrapper.",
                 ))
+        if name == "env" and rest[:1] == ["-"]:
+            rest.pop(0)
+            if config_values is not None:
+                config_values["GIT_CONFIG_OPAQUE"] = ""
         for _ in range(skip):
             if rest and not rest[0].startswith("-"):
                 rest.pop(0)
@@ -766,6 +785,74 @@ def _work_folder(cwd: Path) -> Path | None:
         return _real(loop_paths.find_project_root(cwd))
     except loop_paths.PathError:
         return None
+
+
+GIT_BOOLEAN_VALUES = {"true", "false", "yes", "no", "on", "off", "1", "0"}
+GIT_FALSE_VALUES = {"false", "no", "off", "0"}
+GIT_BENIGN_BOOLEAN_KEYS = {
+    "core.quotepath", "core.filemode", "core.ignorecase",
+    "advice.detachedhead", "advice.addignoredfile",
+}
+GIT_PROMPT_POLICIES = {"auto", "never", "always", "force", "true", "false", "0", "1"}
+
+
+def _collect_git_assignment(word: str, values: dict[str, str]) -> None:
+    name, value = word.split("=", 1)
+    if name.startswith("GIT_CONFIG"):
+        # A duplicate or expanding declaration is not a known literal value.
+        values[name] = ShellWord(value, _shell_expands(word) or name in values)
+
+
+def _git_environment_config(ctx: Context) -> Decision | None:
+    config = {name: value for name, value in {**ctx.env, **ctx.vars}.items()
+              if name.startswith("GIT_CONFIG")}
+    if not config:
+        return None
+    reason = ask(
+        "Git environment configuration is risky, incomplete or cannot be inspected.",
+        "use complete literal benign settings or ask the person to inspect the configuration.",
+    )
+    count_text = config.get("GIT_CONFIG_COUNT")
+    if count_text is None or _shell_expands(count_text):
+        return reason
+    if count_text == "":
+        count = 0
+    elif re.fullmatch(r"0|[1-9][0-9]?", count_text):
+        count = int(count_text)
+    else:
+        return reason
+    if count > 64:
+        return reason
+    expected = {"GIT_CONFIG_COUNT"}
+    for index in range(count):
+        expected.update({f"GIT_CONFIG_KEY_{index}", f"GIT_CONFIG_VALUE_{index}"})
+    if set(config) != expected:
+        return reason
+    seen: set[str] = set()
+    for index in range(count):
+        key, value = config[f"GIT_CONFIG_KEY_{index}"], config[f"GIT_CONFIG_VALUE_{index}"]
+        if _shell_expands(key) or _shell_expands(value) or len(key) > 256 or len(value) > 1024:
+            return reason
+        name, setting = key.lower(), value.lower()
+        if name in seen:
+            return reason
+        seen.add(name)
+        if name in GIT_BENIGN_BOOLEAN_KEYS and setting in GIT_BOOLEAN_VALUES:
+            continue
+        if name == "color.ui" and setting in GIT_BOOLEAN_VALUES | {"auto", "always", "never"}:
+            continue
+        if name == "core.autocrlf" and setting in GIT_BOOLEAN_VALUES | {"input"}:
+            continue
+        if name == "core.eol" and setting in {"lf", "crlf", "native"}:
+            continue
+        if name == "core.fsmonitor" and setting in GIT_FALSE_VALUES:
+            continue
+        if name == "credential.interactive" and setting in GIT_PROMPT_POLICIES:
+            continue
+        if name == "credential.guiprompt" and setting in {"true", "false", "0", "1"}:
+            continue
+        return reason
+    return None
 
 
 def check_git(args: Sequence[str], cwd: Path) -> Decision | None:
@@ -1359,13 +1446,12 @@ def check_words(
             found.append(check_command(inner, ctx, cwd, depth + 1))
     assignments: set[str] = set()
     uncertain: list[Decision] = []
-    rest = unwrap(words, assignments, uncertain)
+    config_values: dict[str, str] = {}
+    rest = unwrap(words, assignments, uncertain, config_values)
     found.extend(uncertain)
-    # Preserve override names when descending into shells, eval or find -exec.
-    # Their values need not be read: external Git configuration always asks.
-    config_assignments = {name: "" for name in assignments if name.startswith("GIT_CONFIG")}
-    if config_assignments:
-        ctx = replace(ctx, vars={**ctx.vars, **config_assignments})
+    # Carry literal values and expansion provenance into nested commands.
+    if config_values:
+        ctx = replace(ctx, vars={**ctx.vars, **config_values})
     if rest and any(ch in rest[0] for ch in "$`*?["):
         found.append(ask(
             "the executable is held in a variable, substitution or pattern.",
@@ -1391,15 +1477,7 @@ def check_words(
                                  "write the command literally without eval."))
             found.append(check_command(" ".join(args), ctx, cwd, depth + 1))
         elif prog == "git":
-            # Git also accepts configuration through inherited environment variables,
-            # assignments and env wrappers. Its normal config stays a sandbox boundary.
-            config_names = set(ctx.env) | set(ctx.vars)
-            config_names.update(assignments)
-            if any(name.startswith("GIT_CONFIG") for name in config_names):
-                found.append(ask(
-                    "Git configuration is supplied through the environment.",
-                    "run Git without GIT_CONFIG overrides so the guard can inspect it.",
-                ))
+            found.append(_git_environment_config(ctx))
             found.append(check_git(args, cwd))
         elif prog == "gh":
             found.append(check_gh(args))
@@ -1443,12 +1521,24 @@ def _after(
     if not rest:
         assigned = {w.split("=", 1)[0]: expand(w.split("=", 1)[1], ctx) for w in words
                     if ASSIGNMENT.match(w)}
+        config_values: dict[str, str] = {}
+        for word in words:
+            if ASSIGNMENT.match(word):
+                _collect_git_assignment(word, config_values)
+        assigned.update(config_values)
         return here, replace(ctx, vars={**ctx.vars, **assigned})
     prog, args = program_name(rest[0]), rest[1:]
     if prog in {"export", "declare", "typeset", "local", "readonly"}:
         assigned = {a.split("=", 1)[0]: expand(a.split("=", 1)[1], ctx) for a in args
                     if ASSIGNMENT.match(a)}
+        config_values = {}
+        for arg in args:
+            if ASSIGNMENT.match(arg):
+                _collect_git_assignment(arg, config_values)
+        assigned.update(config_values)
         return here, replace(ctx, vars={**ctx.vars, **assigned})
+    if prog == "unset" and any(arg.startswith("GIT_CONFIG") for arg in args):
+        return here, replace(ctx, vars={**ctx.vars, "GIT_CONFIG_OPAQUE": ""})
     if prog == "popd":
         return (stack.pop() if stack else here), ctx
     if prog in {"cd", "pushd"}:
