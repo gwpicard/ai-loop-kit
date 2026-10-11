@@ -1601,6 +1601,22 @@ class FieldRuntimeGitConfig(Cases):
                 self.assertEqual(bash(command, env=env).kind, DENY)
 
 
+    def test_protected_path_write_denial_wins_with_benign_and_risky_config(self) -> None:
+        for pairs in (
+            [("credential.interactive", "false"), ("credential.guiPrompt", "false")],
+            [("credential.interactive", "false"), ("credential.helper", "synthetic-helper")],
+        ):
+            env = self.config_env(pairs)
+            for command in (
+                "git status > .claude/settings.json",
+                "git remote -v >> .claude/settings.local.json",
+                "git tag > .githooks/commit-msg",
+            ):
+                with self.subTest(pairs=pairs, command=command):
+                    result = bash(command, env=env)
+                    self.assertEqual(result.kind, DENY)
+                    self.assertIn("is one of the guards. Agents never write it.", result.reason)
+
     def test_export_and_sequential_prompt_policy_assignments(self) -> None:
         assignments = (
             "GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.interactive "

@@ -185,6 +185,17 @@ run_guard_config benign Bash command "git push origin main" "$TP_ROOT"
 [ "$CODE" -eq 2 ] && [ ! -s "$OUT" ] \
   && ok "benign prompt policy cannot bypass a main push refusal" || fail "main push was not refused"
 
+echo "Protected-path denial with synthetic runtime configuration"
+for config_mode in benign risky; do
+  run_guard_config "$config_mode" Bash command "git status > .claude/settings.json" "$TP_ROOT"
+  [ "$CODE" -eq 2 ] && [ ! -s "$OUT" ] \
+    && ok "$config_mode configuration cannot bypass a protected-path write refusal" \
+    || fail "$config_mode configuration allowed or asked for a protected-path write"
+  grep -Fq ".claude/settings.json is one of the guards" "$ERR" \
+    && ok "$config_mode refusal names the protected path" \
+    || fail "$config_mode refusal does not name the protected path"
+done
+
 if [ "$failures" -gt 0 ]; then
   echo "FAIL: $failures check(s) failed. Run one case by hand: python3 kit/hooks/guard.py < input.json" >&2
   exit 1
