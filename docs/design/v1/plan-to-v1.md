@@ -46,8 +46,8 @@ App, walk-away runs or deployment. The v1.0 design remains the target.
 
 | Track | Pieces in the maintainer's order | Release boundary |
 | --- | --- | --- |
-| Preview 0.1 | CI0; CR-02, CR-03, CR-21, CR-17, CR-22; CR-05, CR-07, CR-08, CR-06, CR-09, CR-13, CR-18; Q4; H1; V1; REL0.1 | Attended runs on the person's own computer, installed as a public plugin from a pinned tagged release. |
-| 0.2 | CR-01, CR-04, CR-10, CR-11, CR-12, CR-14, CR-15, CR-16, CR-19, CR-20, Q2 | The deferred core repairs, after the maintainer says to continue. |
+| Preview 0.1 | CI0; CR-02, CR-03, CR-21, CR-17, CR-22; CR-05, CR-07, CR-08, CR-06, CR-13, CR-18; Q4; H1; V1; REL0.1 | Attended runs on the person's own computer, installed as a public plugin from a pinned tagged release. |
+| 0.2 | CR-01, CR-04, CR-09, CR-10, CR-11, CR-12, CR-14, CR-15, CR-16, CR-19, CR-20, Q2 | The deferred core repairs, after the maintainer says to continue. |
 | v1.0 | L1 to L10, Q1, Q3, Q5, Q6, Q7, V2, REL1.0 | The later capabilities and real validation, in dependency order. |
 
 1. Verify F2's after-checks on merged main, then complete CI0. CI0 enables
@@ -58,7 +58,10 @@ App, walk-away runs or deployment. The v1.0 design remains the target.
 2. Build the preview pieces above. Dependencies win over their listed order:
    CR-06 precedes complete CR-07 attempt integration. The named CR-07
    checker stage below may start earlier in disjoint files. CR-09 precedes
-   CR-13. Each pull request after CI0
+   general fingerprint conformance and accepted CR-13 recovery. The named
+   CR-13 fetched-main stage below may proceed under its approved bounded
+   amendment and released file ownership. It does not complete recovery.
+   Each pull request after CI0
    needs the hosted check and local suite green, with skips reported separately.
 3. Apply H1 to the skills shipped in the preview and V1 to the preview's
    attended scope. Neither depends on unfinished 0.2 or v1.0 capabilities.
@@ -78,8 +81,9 @@ App, walk-away runs or deployment. The v1.0 design remains the target.
 
 The preview dependency changes separate independent repairs from later shared
 module work. CR-22's output permission follows CR-02; reviewer spend stays in
-CR-16. CR-13's fetched-baseline and recovery checks follow CR-09; list agreement
-and examples stay in CR-12. CR-18 follows CR-08 and tests integration execution;
+CR-16. Whole CR-13 recovery follows CR-09. Its approved fetched-main stage
+may proceed without accepting recovery or changing frozen authority. List
+agreement and examples stay in CR-12. CR-18 follows CR-08 and tests integration execution;
 hidden-case admission at ready stays in CR-11 and records semantics in CR-14.
 The deferred findings remain open and must be disclosed in the preview,
 including later Q3 judge-assembly and Q5 hosted-dependency-read limits. Attended
@@ -95,7 +99,7 @@ are conservative starting groups, not permission to edit a shared module:
 | A | CR-03, CR-05, CR-09, CR-17, CR-21 | CR-05 and CR-17 may share run rehearsals, so run them serially unless shaped files prove disjoint. The other pieces have distinct hook, fingerprint or scanner files. |
 | B | CR-01, CR-02, CR-06, CR-07, CR-08 | CR-06, complete CR-07 attempt integration and CR-08 share attempt code or tests, so run them serially in that order. The CR-07 checker stage below may start in its named disjoint files before CR-06 merges. CR-02 needs a settings permission route. |
 | C | CR-10, CR-14, CR-16, CR-20 | CR-10 and CR-20 both touch ready; finish CR-10 first. CR-14 and CR-16 use separate records and spend code. |
-| D | CR-04, CR-11, CR-12, CR-13, CR-15, CR-18, CR-19, CR-22 | Serialise ready repairs whose shaped files overlap; CR-13 ships independently in the preview. CR-19 follows CR-15 and CR-18 and shares their engine/integration tests. Run CR-04 last because its inventory spans command doors. CR-22 follows CR-02 in the preview; CR-16 remains on the 0.2 track. |
+| D | CR-04, CR-11, CR-12, CR-13, CR-15, CR-18, CR-19, CR-22 | Serialise ready repairs whose shaped files overlap; only the named CR-13 fetched-main stage may proceed independently in the preview while recovery stays held. CR-19 follows CR-15 and CR-18 and shares their engine/integration tests. Run CR-04 last because its inventory spans command doors. CR-22 follows CR-02 in the preview; CR-16 remains on the 0.2 track. |
 | E | L7, L4, Q1 | L7 and L4 can start together after their CR dependencies. Finish L7 before Q1, whose test edits must avoid L4's rehearsals. |
 | F | L1, L10, Q2 | L1 needs security repairs; L10 follows CR-07 and CR-19. Q2 aligns the format, parser and briefs, with separate files from L1/L10. |
 | G | L2, L9, L6 | L2 follows L1. L9 and L6 can run together only if their needs/spec and lesson edits remain separate. |
@@ -132,6 +136,7 @@ Paths beginning `loop/` below are under `kit/scripts/`; unit tests are under
 | CR-11. Validate executable hidden cases at ready. | Descriptive text, unsafe paths and missing command substitution refuse before ready. Executable hidden files run through the real gate and stay unreadable to builders. | Change `loop/heldout.py`, `loop/gates/ready.py`, `loop/gates/attempt.py`, `tests/ready-gate.sh` and hidden fixtures. | CR-08; after CR-10. | M |
 | CR-12. Show list disagreements as needs and require concrete examples. | Differing spec-ID lists appear in computed needs and clear after agreement. The word no alone cannot stand in for example data; use a corrected empty-state example. | Change `loop/needs.py`, `loop/lint.py`, `loop/gates/ready.py`, spec fixtures and the design example through a reviewed docs change. | CR-10, CR-11. | M |
 | CR-13. Establish current main and safe judge recovery. | Advance origin while local main is stale: ready/claim use a recorded fetched baseline. A content-preserving rewritten judge is diagnosed without accepting changed authority or requiring force-push. Recovery is gate-owned, recorded and legitimately re-fingerprinted; repeat kickbacks do not trap it. | Change ready/claim gates, fingerprint/evidence helpers, `kit/spec-format.md`, ready/claim tests. | CR-09 for preview; CR-12 remains a 0.2 repair. | L |
+| CR-13 fetched-main stage. Pin ready and claim to current main without accepting recovery. | Preflight fixed origin/main before queued writes; carry one immutable project/move-bound snapshot through all baseline checks. Direct checks without valid context refuse. Dry-run changes no project Git metadata, and unsupported dry-run list generation refuses. Record baseline and source/overlay identities. | Exact ten-path scope in the section below. | Approved bounded amendment and disjoint ownership; whole CR-13 recovery, CR-09 and complete CR-08 consumer holds remain. | M |
 | CR-14. Enforce the decided records model. | Mutations in sensitivity flags, optional area-rule paths and copied enforcement prose fail. Changed/Removed behaviour replaces or refuses ambiguous current text; decisions retain reasons and real piece links. New-area map changes have a person-owned route. | Change `loop/records.py`, `loop/run/docs_commit.py`, area/overview templates, records/document rehearsals. | CR-10; before L5. CR-18 ships independently in the preview. | L |
 | CR-15. Put parked questions and decisions on the piece. | A park keeps its state but writes the question and needs-you; clear/resume removes the need. Before App, person sync delivers queued writes. Decisions made alone survive as marked spec decisions. | Change gate-owned park/decision doors, `loop/run/engine.py`, inbox/answer handling, run/watch rehearsals. New tests for visible piece records. | CR-10, CR-12, CR-17. | M |
 | CR-16. Account for reviewer spend and reserve shared budgets. | Unreadable reviewer cost uses a conservative bound. Concurrent workers cannot reserve the same remaining cap. A caller mutation dropping the budget argument fails. Waiting for the person is visible. | Change `loop/run/engine.py`, `loop/run/review.py`, shared budget records and engine/review tests. | CR-17; before L8. CR-22 ships independently in the preview. | L |
@@ -169,6 +174,75 @@ dependencies. Complete attempt integration still requires merged CR-06 and
 serial ownership of the shared attempt files. Run the stage's focused checks,
 full local suite and hosted check, with fresh independent review and disclosed
 skips.
+
+### CR-13 fetched-main stage (maintainer, 11 October)
+
+Build only the fetched-main stage in these ten paths:
+
+- `kit/scripts/loop/gates/ready.py`
+- `kit/scripts/loop/gates/claim.py`
+- new `kit/scripts/loop/gates/baseline.py`
+- `tests/unit/test_ready.py`
+- `tests/unit/test_claim.py`
+- new `tests/unit/test_baseline.py`
+- `kit/spec-format.md`
+- `kit/scripts/loop/moves.py`, only baseline preflight and trusted context
+- `kit/scripts/loop/gates/__init__.py`, only trusted context
+- `tests/unit/test_moves.py`
+
+Before any queued body, label or other update can be published, the actual
+ready/claim move preflights fixed remote `origin`, ref `refs/heads/main`, and
+binds one full immutable commit ID to the project and move. Pass that snapshot
+through every baseline-dependent check, including first-commit diagnosis,
+research, relied-on files, scaffold handling, fresh-list roots, judge work,
+overlays and must-stay checks. Local main and the piece branch never move.
+A later remote change cannot mix baselines. Real fetch declares its Git
+object/ref/FETCH_HEAD preparation effects.
+
+Default direct ready/claim checks refuse missing or mismatched gate-created
+snapshot context. Options, environment, mutable globals, stale local main or
+caller-invented trusted fields cannot provide fallback authority. Checks first
+prove those refusals and a failed preflight with a pending queue and available
+stand-in App: queue, record, body, fingerprint and state stay unchanged, with
+no hub write or check invocation.
+
+Dry-run reads the advertised remote SHA and verifies an already present local
+commit object. An absent object refuses with a normal fetch-and-repeat route;
+dry-run never fetches or writes project objects, refs, FETCH_HEAD, worktree
+metadata or piece state. Required claim overlays and applicable judge/must-stay
+commands use an independent disposable repository with copied required objects.
+No project-linked worktree or writable shared object store is allowed.
+Assert unchanged project Git metadata on every outcome and keep normal cleanup.
+Exercise an advanced baseline that actually requires a claim overlay.
+
+Non-scaffold ready dry-run refuses before fresh list or session generation,
+starts no model and reports incomplete evaluation. Normal ready retains all
+checks and two fresh independent lists rooted at the pinned baseline through
+the existing opener callback. No-runner scaffold ready records the pinned
+baseline as its source judge identity without executing a judge. Claim without
+judge files also skips judge execution. Report those paths accurately and
+prove no judge call or fabricated execution evidence.
+
+Record fixed remote/ref, full baseline SHA and source judge SHA; claim also
+records its overlay SHA or an explicit no-overlay identity. Replace unsafe
+published-rebase advice with refusal and reshaping guidance, never force push,
+reset or automatic rebase. A changed judge identity still refuses.
+
+This stage accepts no judge recovery and changes no fingerprint, shared spec
+writer, evidence, judge, engine, shared fixture, settings or workflow file.
+If the real route needs an excluded path, stop for scope reconciliation.
+Whole CR-13's row and recovery completion condition remain in force. CR-09's
+semantic fingerprint and shared-writer repair moves to 0.2 and remains open.
+Whole CR-08 consumer enforcement, CR-12 list agreement and downstream
+dependencies remain held. CR-06 and CR-08 source work is not authorised here.
+
+Run the stage's checks-first regressions, focused checks, exact-head local
+full suite, hosted check and fresh implementation review under the current
+resource and cleanup gates. The prior three readiness rounds are consumed;
+this amendment grants no fourth readiness round or real Claude/smoke execution.
+H1, V1 and REL0.1 must disclose incomplete recovery, deferred CR-09 and CR-12,
+and incomplete CR-08 consumers. Stage success clears no whole-piece dependency
+and never counts as full core conformance.
 
 ## Later capabilities for v1.0
 
