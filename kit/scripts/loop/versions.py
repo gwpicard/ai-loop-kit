@@ -322,7 +322,7 @@ def load(kit: Path, project: Path, *, env: Mapping[str, str] | None = None) -> d
         _development_manifest(kit)
         body = _read_development(_development_path(kit, project, selected, environment), selected)
         if body is None:
-            raise VersionError(
+            raise _development_error(
                 "the development record is missing; verify it through explicit setup"
             )
         return body

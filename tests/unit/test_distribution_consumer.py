@@ -149,7 +149,16 @@ class DevelopmentConsumerTest(unittest.TestCase):
         versions.publish(prepared)
         original = prepared.path.read_bytes()
         prepared.path.unlink()
-        self.assertTrue(self.check_read_only(self.fixture.kit)[0])
+        with self.assertRaises(versions.VersionError) as missing:
+            versions.load(self.fixture.kit, self.fixture.project)
+        self.assertIn(
+            "setup.py found --development --kit-ref <full lowercase commit SHA>",
+            missing.exception.next_command,
+        )
+        self.assertNotIn("release tag", missing.exception.next_command)
+        refusals, _ = self.check_read_only(self.fixture.kit)
+        self.assertEqual([refusal.guard for refusal in refusals], ["kit-folder"])
+        self.assertIn(missing.exception.next_command, refusals[0].fix)
         prepared.path.write_bytes(original)
         prepared.path.write_text("broken JSON")
         self.assertTrue(self.check_read_only(self.fixture.kit)[0])
