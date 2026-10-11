@@ -6,5 +6,6 @@
   },
   "homepage": "https://github.com/gwpicard/ai-loop-kit",
   "repository": "https://github.com/gwpicard/ai-loop-kit",
-  "license": "MIT"
+  "license": "MIT",
+  "version": "0.1.0"
 }

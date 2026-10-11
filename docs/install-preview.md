@@ -1,9 +1,9 @@
 # Installing the attended preview
 
-This is the proposed distribution route for the attended preview. It is not an
-invitation to install today's development tree. The maintainer must first finish
-the preview gates and publish the public `v0.1.0` release. Real Claude installation
-has not been rehearsed by the automated checks.
+This is the distribution route for the early attended preview. It is not an
+invitation to install today's development tree. The maintainer must first merge
+the release package and publish the public `v0.1.0` release. Real Claude
+installation has not been rehearsed by the automated checks.
 
 After publication, add the tagged GitHub catalogue in Claude Code:
 
@@ -56,4 +56,6 @@ is accepted only when an existing verified release record already binds it.
 
 The offline distribution checks use local Git stand-ins. They do not establish
 that the release exists publicly, that Claude accepts the installation, or that a
-real model session completes the attended workflow. Those remain preview gates.
+real model session completes the attended workflow. Field testing will check
+actual installation and use; those live checks are not gates for this light
+preview.
