@@ -54,6 +54,11 @@ class Rehearsal:
                     str(Path(self.env["TP_BIN"]) / "claude"), "E2E-ISOLATION Claude stand-in")
             checked(shutil.which("gh", path=self.env["PATH"]) ==
                     str(Path(self.env["TP_BIN"]) / "gh"), "E2E-ISOLATION GitHub stand-in")
+            acquired = subprocess.run(
+                [sys.executable, str(ROOT / "tests/lib/version-fixture.py"),
+                 str(self.kit), str(self.project)], cwd=self.project, env=self.env,
+                capture_output=True, text=True, check=True)
+            self.kit_ref = str(json.loads(acquired.stdout)["commit"])
         else:
             self.project = real.resolve()
             self.base = self.project / ".agents/tmp/smoke"
@@ -152,11 +157,12 @@ class Rehearsal:
             local = self.project / ".agents/loop/local.json"
             checked(local.is_file() and json.loads(local.read_text()).get("github_app"),
                     "E2E-REAL configure the installed test App first")
+        kit_arguments = () if self.real else ("--kit-ref", self.kit_ref)
         result = self.data("python3", str(self.kit / "scripts/setup.py"), "found",
                            "--language", "python", "--test-command", "python3 -m pytest -q",
                            "--billing-mode", "subscription",
-                           "--repo-visibility", "private", "--plan", "free", "--kit-ref", "main",
-                           "--json")
+                           "--repo-visibility", "private", "--plan", "free",
+                           *kit_arguments, "--json")
         if not self.real:
             checked("gate.py sync" in result["labels"]["next"], "E2E-SETUP label next command")
         policy = self.project / ".agents/loop/policy.json"

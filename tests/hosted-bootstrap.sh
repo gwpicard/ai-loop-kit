@@ -15,7 +15,9 @@ PATH="$ROOT/tests/stand-ins/fake-computer:$PATH"
 CLAUDE_PLUGIN_ROOT="$KIT"
 export PATH CLAUDE_PLUGIN_ROOT
 cd "$TP_ROOT"
-python3 "$KIT/scripts/setup.py" found --language python --json > "$TP_BASE/found.json"
+q4_release=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
+Q4_KIT_REF=$(printf '%s' "$q4_release" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
+python3 "$KIT/scripts/setup.py" found --kit-ref "$Q4_KIT_REF" --language python --json > "$TP_BASE/found.json"
 
 # These commands act as the person, solely against tp_new's local origin and GitHub stand-in.
 prepare() {
@@ -138,7 +140,9 @@ tp_new prepared-capture
 CLAUDE_PLUGIN_ROOT="$KIT"
 export CLAUDE_PLUGIN_ROOT
 cd "$TP_ROOT"
-python3 "$KIT/scripts/setup.py" found --language python --test-command "$COMMAND" --json \
+q4_release=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
+Q4_KIT_REF=$(printf '%s' "$q4_release" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
+python3 "$KIT/scripts/setup.py" found --kit-ref "$Q4_KIT_REF" --language python --test-command "$COMMAND" --json \
   > "$TP_BASE/found.json"
 first
 [ "$code" = 3 ] || fail 'F2-FOUND an uncommitted foundation must be prepared first'
