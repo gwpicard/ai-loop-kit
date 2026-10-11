@@ -601,3 +601,40 @@ class FoundingHookPreflightTest(unittest.TestCase):
         before = self.snapshot()
         self.assertEqual(self.found(release)["kit_record"], "kept")
         self.assertEqual(self.snapshot(), before)
+
+
+class FoundingSettingsPreflightTest(FoundingHookPreflightTest):
+    def test_invalid_settings_refusal_preserves_all_state(self) -> None:
+        from loop import cli
+
+        release = self.installed_release("plain-plugin")
+        target = self.project / ".claude/settings.json"
+        target.parent.mkdir()
+        for contents in ("broken JSON", "[]", "null", "42"):
+            with self.subTest(contents=contents):
+                target.write_text(contents)
+                target.chmod(0o600)
+                before = self.snapshot()
+                with self.assertRaisesRegex(cli.Failure, "not valid JSON|not a JSON object"):
+                    self.found(release)
+                self.assertEqual(self.snapshot(), before)
+                self.assertFalse(release.path.exists())
+
+    def test_valid_person_settings_are_merged_and_kept_on_repeat(self) -> None:
+        release = self.installed_release("plain-plugin")
+        target = self.project / ".claude/settings.json"
+        target.parent.mkdir()
+        mine = {"sandbox": {"enabled": False}, "permissions": {"allow": ["Read"]},
+                "person_note": "keep this"}
+        target.write_text(json.dumps(mine))
+        target.chmod(0o600)
+        self.assertEqual(self.found(release)["kit_record"], "written")
+        merged = json.loads(target.read_text())
+        self.assertFalse(merged["sandbox"]["enabled"])
+        self.assertIn("Read", merged["permissions"]["allow"])
+        self.assertEqual(merged["person_note"], "keep this")
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(release.path.exists())
+        before = self.snapshot()
+        self.assertEqual(self.found(release)["kit_record"], "kept")
+        self.assertEqual(self.snapshot(), before)

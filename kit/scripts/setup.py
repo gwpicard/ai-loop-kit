@@ -239,25 +239,66 @@ def extend_ignore(plan: Plan, template: str) -> None:
         target.write_text(old + gap + block + "\n".join(missing) + "\n", encoding="utf-8")
 
 
-def place_settings(plan: Plan, kit: Path) -> None:
-    merge = load_module("merge_settings", HERE / "merge-settings.py")
-    result = merge.handler(
-        argparse.Namespace(
-            template=str(kit / "templates" / "claude-settings.json"),
-            target=str(plan.root / ".claude" / "settings.json"),
-            set=[f"KIT_DIR={kit}"],
-            dry_run=plan.dry_run,
-        )
-    )
+def prepare_settings(root: Path, kit: Path, merge: Any) -> dict[str, Any]:
+    """Render and merge settings without creating files or directories."""
+    target = root / ".claude/settings.json"
+    template = json.loads(merge.render(
+        (kit / "templates/claude-settings.json").read_text("utf-8"),
+        {"KIT_DIR": str(kit)},
+    ))
+    existed = target.exists()
+    if existed:
+        try:
+            mine = json.loads(target.read_text("utf-8"))
+        except ValueError as error:
+            raise cli.Failure(
+                f"{target} is not valid JSON ({error}), so it was left as it is",
+                next_command=f"fix {target}, then run merge-settings.py again",
+                code=cli.ExitCode.REFUSED,
+            ) from error
+        if not isinstance(mine, dict):
+            raise cli.Failure(
+                f"{target} is not a JSON object, so it was left as it is",
+                next_command=f"fix {target}, then run merge-settings.py again",
+                code=cli.ExitCode.REFUSED,
+            )
+    else:
+        mine = {}
+    added: list[str] = []
+    overridden: list[str] = []
+    merged = merge.merge(mine, template, added, overridden=overridden)
+    return {"text": json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+            "added": added, "overridden": overridden, "existed": existed,
+            "mode": target.stat().st_mode & 0o777 if existed else 0o644}
+
+
+def place_settings(plan: Plan, prepared: dict[str, Any]) -> None:
     relative = ".claude/settings.json"
-    if result["added"]:
-        if (plan.root / relative).exists():
+    target = plan.root / relative
+    if prepared["added"]:
+        if not plan.dry_run:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=target.parent,
+                prefix=".merge-settings.", delete=False,
+            ) as pending:
+                pending.write(prepared["text"])
+                temporary = Path(pending.name)
+            try:
+                temporary.chmod(prepared["mode"])
+                os.replace(temporary, target)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+        if prepared["existed"]:
             plan.extended.append(relative)
         else:
             plan.created.append(relative)
     else:
         plan.kept.append(relative)
-    for line in result["overridden"]:
+    for line in prepared["overridden"]:
+        print(f"merge-settings.py: your value beats the kit's guard value at {line}",
+              file=sys.stderr)
         plan.warnings.append(f"your own setting beats a kit guard at {line}")
 
 
@@ -276,13 +317,13 @@ def build_policy(kit: Path, args: argparse.Namespace, mode: str, has_runner: boo
     return json.dumps(data, indent=2) + "\n"
 
 
-def place_allowlist(plan: Plan, kit: Path, language: str | None) -> None:
+def render_allowlist(kit: Path, language: str | None) -> str:
     hosts: list[str] = []
     if language:
         text = (kit / "templates" / "network-allowlist" / f"{language}.txt").read_text("utf-8")
         hosts = [x.strip() for x in text.splitlines() if x.strip() and not x.startswith("#")]
     body = {"language": language, "allowedDomains": hosts}
-    plan.place(".agents/loop/network-allowlist.json", json.dumps(body, indent=2) + "\n")
+    return json.dumps(body, indent=2) + "\n"
 
 
 def write_open_questions(plan: Plan) -> None:
@@ -407,6 +448,16 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         raise cli.Failure("the generated check has unresolved distribution placeholders",
                           next_command="reinstall the tagged kit release, then run setup.py found",
                           code=cli.ExitCode.REFUSED)
+    prepared_settings = prepare_settings(root, kit, merge)
+    rendered_policy = build_policy(kit, args, mode, project_has_runner(root))
+    rendered_allowlist = render_allowlist(kit, language)
+    ignore_template = (templates / "gitignore").read_text("utf-8")
+    ignore_target = root / ".gitignore"
+    if ignore_target.exists():
+        ignore_target.read_text("utf-8")
+    existing_hook = root / ".githooks/pre-push"
+    if existing_hook.exists():
+        existing_hook.read_text("utf-8")
     try:
         record = write_kit_record(kit, root, plan.dry_run, release)
     except versions.VersionError as error:
@@ -414,12 +465,11 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
                           code=cli.ExitCode.REFUSED) from error
     for target, text in rendered_files:
         plan.place(target, text)
-    extend_ignore(plan, (templates / "gitignore").read_text("utf-8"))
-    place_settings(plan, kit)
+    extend_ignore(plan, ignore_template)
+    place_settings(plan, prepared_settings)
     install_hooks(plan, kit, rendered_hook)
-    has_runner = project_has_runner(root)
-    plan.place(".agents/loop/policy.json", build_policy(kit, args, mode, has_runner))
-    place_allowlist(plan, kit, language)
+    plan.place(".agents/loop/policy.json", rendered_policy)
+    plan.place(".agents/loop/network-allowlist.json", rendered_allowlist)
 
     if mode == "api_key":
         for key, given in (
