@@ -522,3 +522,82 @@ class FoundingDistributionTest(VersionRegistryTest):
         publication.assert_not_called()
         self.assertEqual(list(self.project.iterdir()), [])
         self.assertFalse((self.folder / "data").exists())
+
+
+class FoundingHookPreflightTest(unittest.TestCase):
+    def setUp(self) -> None:
+        import argparse
+
+        temporary = tempfile.TemporaryDirectory(prefix="founding-hook-preflight-")
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
+        self.project = self.folder / "project"
+        self.project.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True,
+                       capture_output=True)
+        (self.project / "README.md").write_text("Person-owned project.\n")
+        self.setup = setup_module()
+        self.parser = argparse.ArgumentParser()
+        self.setup.setup(self.parser)
+        environment = patch.dict(os.environ, {"AI_LOOP_KIT_DATA": str(self.folder / "data")})
+        environment.start()
+        self.addCleanup(environment.stop)
+        spec = importlib.util.spec_from_file_location(
+            "hook_preflight_release_fixture", ROOT / "tests/lib/version-fixture.py")
+        assert spec is not None and spec.loader is not None
+        self.fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.fixture)
+
+    def installed_release(self, name: str) -> versions.Prepared:
+        kit = self.folder / name
+        shutil.copytree(ROOT / "kit", kit,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "version.json"))
+        release: versions.Prepared = self.fixture.release(kit, self.project, publish=False)
+        self.assertFalse(release.path.exists())
+        versions.verify(kit, release.body)
+        return release
+
+    def found(self, release: versions.Prepared) -> dict[str, Any]:
+        args = self.parser.parse_args([
+            "found", "--project", str(self.project), "--kit-dir", str(release.kit),
+            "--language", "python", "--test-command", "true",
+        ])
+        # Acquisition already ran against a separately committed annotated local release.
+        # Reuse that verified prepared input; publishing and project writes remain real.
+        with (
+            patch.object(self.setup, "project_root", return_value=self.project),
+            patch.object(self.setup, "check_tooling", return_value=False),
+            patch.object(self.setup, "check_origin"),
+            patch.object(versions, "prepare", return_value=release),
+        ):
+            result: dict[str, Any] = self.setup.step_found(args)
+        return result
+
+    def snapshot(self) -> dict[str, tuple[bytes | None, int]]:
+        return {str(path.relative_to(self.folder)):
+                (path.read_bytes() if path.is_file() else None, path.stat().st_mode)
+                for path in self.folder.rglob("*")}
+
+    def test_unsafe_hook_path_refusal_preserves_project_kit_and_registry(self) -> None:
+        from loop import cli
+
+        release = self.installed_release("plugin$unsafe")
+        before = self.snapshot()
+        with self.assertRaisesRegex(cli.Failure, "pre-push hook"):
+            self.found(release)
+        self.assertEqual(self.snapshot(), before,
+                         "hook-path refusal changed project, kit or stable registry")
+
+    def test_plain_hook_path_founds_and_keeps_existing_verified_state(self) -> None:
+        release = self.installed_release("plain-plugin")
+        result = self.found(release)
+        self.assertEqual(result["kit_record"], "written")
+        self.assertEqual(result["kit_revision"], release.commit)
+        self.assertTrue(release.path.is_file())
+        hook = self.project / ".githooks/pre-push"
+        self.assertIn(str(release.kit), hook.read_text())
+        self.assertTrue(hook.stat().st_mode & 0o111)
+        self.assertEqual((self.project / "README.md").read_text(), "Person-owned project.\n")
+        before = self.snapshot()
+        self.assertEqual(self.found(release)["kit_record"], "kept")
+        self.assertEqual(self.snapshot(), before)

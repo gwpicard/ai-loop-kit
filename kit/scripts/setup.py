@@ -306,7 +306,8 @@ def label_step(root: Path) -> dict[str, Any]:
     }
 
 
-def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
+def render_hook(kit: Path, merge: Any) -> str:
+    """Validate and render the hook before publication or project writes."""
     raw = (kit / "templates" / "githooks" / "pre-push").read_text("utf-8")
     if any(char in str(kit) for char in '"$`\\\n'):
         raise cli.Failure(
@@ -314,7 +315,10 @@ def install_hooks(plan: Plan, kit: Path, merge: Any) -> None:
             next_command="move the kit to a folder with a plain name, then run /setup again",
             code=cli.ExitCode.ENVIRONMENT,
         )
-    template = str(merge.render(raw, {"KIT_DIR": str(kit)}))
+    return str(merge.render(raw, {"KIT_DIR": str(kit)}))
+
+
+def install_hooks(plan: Plan, kit: Path, template: str) -> None:
     hook = plan.root / ".githooks" / "pre-push"
     existed = hook.exists()
     plan.place(".githooks/pre-push", template, executable=True)
@@ -395,6 +399,7 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         ("blocked-commands.md", ".agents/guard/blocked-commands.md"),
     )
     # Read and render every foundation input before publishing or changing the project.
+    rendered_hook = render_hook(kit, merge)
     rendered_files = [(target, rendered(source)) for source, target in foundation]
     workflow = next(text for target, text in rendered_files
                     if target == ".github/workflows/checks.yml")
@@ -411,7 +416,7 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         plan.place(target, text)
     extend_ignore(plan, (templates / "gitignore").read_text("utf-8"))
     place_settings(plan, kit)
-    install_hooks(plan, kit, merge)
+    install_hooks(plan, kit, rendered_hook)
     has_runner = project_has_runner(root)
     plan.place(".agents/loop/policy.json", build_policy(kit, args, mode, has_runner))
     place_allowlist(plan, kit, language)
