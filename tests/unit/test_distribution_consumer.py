@@ -92,3 +92,68 @@ class StableConsumerTest(unittest.TestCase):
         body["commit"] = "main"
         self.release.path.write_text(json.dumps(body))
         self.assertTrue(self.check_read_only(self.kit))
+
+
+class DevelopmentConsumerTest(unittest.TestCase):
+    """Consume a genuine offline public commit without reacquisition or publication."""
+
+    def setUp(self) -> None:
+        from test_versions import DevelopmentDistributionTest
+
+        fixture = DevelopmentDistributionTest("test_explicit_full_commit_acquires_content_without_release_identity")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.fixture = fixture
+        self.check = module("field1_development_consumer", ROOT / "kit/scripts/pre-run-check.py")
+
+    def snapshot(self) -> dict[str, tuple[bytes, int]]:
+        return {str(p.relative_to(self.fixture.folder)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                for p in self.fixture.folder.rglob("*") if p.is_file()}
+
+    def check_read_only(self, kit: Path) -> tuple[list[Any], list[str]]:
+        before = self.snapshot()
+        notices: list[str] = []
+        with (
+            patch.object(versions, "_acquire", side_effect=AssertionError("pre-run release fetch")),
+            patch.object(versions, "_acquire_development", create=True,
+                         side_effect=AssertionError("pre-run development fetch")),
+            patch.object(versions, "publish", side_effect=AssertionError("pre-run publication")),
+        ):
+            result = self.check.check_kit_folder(self.fixture.project, kit, notices=notices)
+        self.assertEqual(self.snapshot(), before)
+        return result, notices
+
+    def test_existing_verified_development_record_passes_and_notice_is_honest(self) -> None:
+        self.fixture.workflow()
+        prepared = self.fixture.development()
+        versions.publish(prepared)
+        refused, notices = self.check_read_only(self.fixture.kit)
+        self.assertEqual(refused, [])
+        self.assertTrue(any("development" in text.lower() for text in notices))
+        moved = self.fixture.folder / "relocated"
+        shutil.copytree(self.fixture.kit, moved)
+        self.assertEqual(self.check_read_only(moved)[0], [])
+
+    def test_unmarked_versionless_copy_cannot_infer_development_from_a_record(self) -> None:
+        path = self.fixture.workflow()
+        versions.publish(self.fixture.development())
+        path.write_text(path.read_text().replace("# ai-loop-kit: development\n", ""))
+        self.assertEqual([r.guard for r in self.check_read_only(self.fixture.kit)[0]], ["kit-folder"])
+
+    def test_missing_corrupt_mismatched_records_and_content_are_read_only_refusals(self) -> None:
+        path = self.fixture.workflow()
+        prepared = self.fixture.development()
+        versions.publish(prepared)
+        original = prepared.path.read_bytes()
+        prepared.path.unlink()
+        self.assertTrue(self.check_read_only(self.fixture.kit)[0])
+        prepared.path.write_bytes(original)
+        prepared.path.write_text("broken JSON")
+        self.assertTrue(self.check_read_only(self.fixture.kit)[0])
+        self.assertEqual(prepared.path.read_text(), "broken JSON")
+        prepared.path.write_bytes(original)
+        path.write_text(path.read_text().replace(self.fixture.commit, "b" * 40))
+        self.assertTrue(self.check_read_only(self.fixture.kit)[0])
+        self.fixture.workflow()
+        (self.fixture.kit / "tool.sh").write_text("changed")
+        self.assertTrue(self.check_read_only(self.fixture.kit)[0])

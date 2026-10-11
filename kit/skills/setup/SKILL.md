@@ -10,6 +10,8 @@ This skill takes a project from nothing to "shape and run locally". It runs the 
 Every command below uses `"${CLAUDE_PLUGIN_ROOT}"`, the folder of the installed kit, in double quotes so a folder with a space works. A founded project has no `kit/` folder.
 
 ## Stops
+- Default founding requires a verified tagged release. Only when the person explicitly chooses development mode, pass `--development --kit-ref <full lowercase commit SHA>` to both founding commands. The person supplies that immutable public kit commit; never guess a branch, shorten the SHA or read the kit's source to find one. Held by: `versions.py` validates the mode/ref, acquires the fixed public commit and verifies installed content and modes; `setup.py` reports development, never a release.
+- On a development version or selector refusal, show the error and its `next:` line, then stop. Do not debug the kit from the project session or change its record. Held by: setup refuses before publication/writes, and pre-run verifies the explicit workflow selector and existing development record without acquisition or publication.
 - Stop when the tooling check names a missing tool. Show the install line, write nothing else, and wait for the person to install it. Held by: `kit/scripts/setup.py` runs `kit/scripts/check-tooling.sh` before it writes a file, and stops with exit code 4.
 - Stop when `origin` is the kit's own repository, or when there is no `origin`. Give the `next:` line. Open no issue and change no setting. Held by: `kit/scripts/setup.py` checks `origin` before it writes a file, and stops with exit code 3.
 - `found` keeps existing files. `first-piece` may update only the generated scaffold command entry; it preserves the rest of the workflow. Never remove a settings rule. Held by: `kit/scripts/setup.py` limits the update, and `kit/scripts/merge-settings.py` adds rules and takes nothing out.
@@ -26,7 +28,7 @@ Every command below uses `"${CLAUDE_PLUGIN_ROOT}"`, the folder of the installed 
    Done when: you can say in one sentence whether the project is empty or has code.
 3. Ask one batch of questions, each with a recommended answer. Read `references/founding.md` for the list.
    Done when: each answer is in hand, or each skipped answer is a nice-to-have that the script will write as an open question.
-4. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" found --dry-run` with the answers as flags. Pass a chosen `--test-command` to both `found` and `first-piece`, even before a runner exists. Show the person the files it lists.
+4. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" found --dry-run` with the answers as flags. Pass a chosen `--test-command` to both `found` and `first-piece`, even before a runner exists. Show the person the files it lists. An explicit development dry-run acquires and verifies only in temporary scratch, cleaned normally; it writes no project files or stable records. Ordinary release dry-run does not acquire.
    Done when: the person has seen what will be written and what will be kept.
 5. Run the same command without `--dry-run`.
    Done when: it exits 0, and its reply lists `created`, `kept` and `extended`.

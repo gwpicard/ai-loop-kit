@@ -638,3 +638,297 @@ class FoundingSettingsPreflightTest(FoundingHookPreflightTest):
         before = self.snapshot()
         self.assertEqual(self.found(release)["kit_record"], "kept")
         self.assertEqual(self.snapshot(), before)
+
+
+class DevelopmentDistributionTest(ExistingDistributionTest):
+    """Development identity is explicit, public and independent of release tags."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.manifest.write_text(json.dumps({"name": "ai-loop-kit"}))
+        (self.kit / "tool.sh").write_text("#!/bin/sh\nexit 0\n")
+        (self.kit / "tool.sh").chmod(0o755)
+        self.repository = self.folder / "public-development"
+        shutil.copytree(self.kit, self.repository / "kit")
+        subprocess.run(["git", "init", "-q", str(self.repository)], check=True)
+        self.commit_fixture()
+        self.calls: list[list[str]] = []
+        original = versions._git
+
+        def public_fixture(arguments: Any, folder: Path) -> str:
+            arguments = list(arguments)
+            self.calls.append(arguments.copy())
+            if arguments[:3] == ["remote", "add", "origin"]:
+                self.assertEqual(arguments[3], versions.REPOSITORY)
+                arguments[3] = str(self.repository)
+            return original(arguments, folder)
+
+        acquisition = patch.object(versions, "_git", side_effect=public_fixture)
+        acquisition.start()
+        self.addCleanup(acquisition.stop)
+
+    def commit_fixture(self) -> None:
+        subprocess.run(["git", "-C", str(self.repository), "add", "kit"], check=True)
+        subprocess.run([
+            "git", "-C", str(self.repository), "-c", "user.name=Fixture",
+            "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign",
+            "-qm", "Development fixture",
+        ], check=True)
+        self.commit = subprocess.check_output(
+            ["git", "-C", str(self.repository), "rev-parse", "HEAD"], text=True
+        ).strip()
+
+    def workflow(self, text: str | None = None) -> Path:
+        path = self.project / ".github/workflows/checks.yml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text if text is not None else (
+            "# ai-loop-kit: development\n"
+            f'          KIT_REVISION: "{self.commit}"\n'
+        ))
+        return path
+
+    def development(self, *, dry_run: bool = False) -> versions.Prepared:
+        return versions.prepare(
+            self.kit, self.project, self.commit, development=True, dry_run=dry_run
+        )
+
+    def test_explicit_full_commit_acquires_content_without_release_identity(self) -> None:
+        prepared = self.development()
+        self.assertEqual(prepared.commit, self.commit)
+        self.assertEqual(prepared.body["mode"], "development")
+        self.assertEqual(prepared.body["schema"], 2)
+        self.assertNotIn("version", prepared.body)
+        self.assertNotIn("tag", prepared.body)
+        self.assertEqual(prepared.body["files"], versions.inventory(self.kit))
+        self.assertIn(["fetch", "--depth=1", "--no-tags", "origin", self.commit], self.calls)
+        self.assertFalse(any("refs/tags/" in part for call in self.calls for part in call))
+        self.assertFalse(prepared.path.exists())
+        self.assertEqual(prepared.path.parent.name, "development")
+        self.assertEqual(prepared.path.name, self.commit + ".json")
+        self.workflow()
+        self.assertEqual(versions.publish(prepared), "written")
+        self.assertEqual(versions.load(self.kit, self.project), prepared.body)
+        versions.verify(self.kit, prepared.body)
+        self.assertEqual(versions.publish(self.development()), "kept")
+
+    def test_default_missing_version_still_refuses_and_invalid_development_refs_do_not_fetch(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(versions.VersionError, "release version"):
+            versions.prepare(self.kit, self.project, self.commit)
+        for given in ("", "main", "v0.1.0", self.commit[:12], "A" * 40, "g" * 40):
+            with self.subTest(given=given), self.assertRaises(versions.VersionError):
+                versions.prepare(self.kit, self.project, given, development=True)
+        self.assertEqual(self.calls, [])
+        self.assertFalse((self.folder / "data").exists())
+
+    def test_versioned_installed_copy_can_be_explicit_development(self) -> None:
+        for kit in (self.kit, self.repository / "kit"):
+            (kit / ".claude-plugin/plugin.json").write_text(
+                json.dumps({"name": "ai-loop-kit", "version": "0.1.0"})
+            )
+        self.commit_fixture()
+        prepared = self.development()
+        self.assertEqual(prepared.body["mode"], "development")
+        self.assertNotIn("version", prepared.body)
+        self.workflow()
+        versions.publish(prepared)
+        self.assertEqual(versions.load(self.kit, self.project)["mode"], "development")
+
+    def test_development_dry_run_fetches_only_scratch_and_publishes_nothing(self) -> None:
+        prepared = self.development(dry_run=True)
+        self.assertTrue(self.calls, "development dry-run must verify its full public commit")
+        self.assertEqual(versions.publish(prepared), "would write")
+        self.assertEqual(list(self.project.iterdir()), [])
+        self.assertFalse((self.folder / "data").exists())
+        self.assertFalse((self.kit / "version.json").exists())
+
+    def test_changed_installed_bytes_or_mode_cannot_self_seal(self) -> None:
+        tool = self.kit / "tool.sh"
+        original = tool.read_bytes()
+        tool.write_text("changed")
+        with self.assertRaises(versions.VersionError):
+            self.development()
+        tool.write_bytes(original)
+        tool.chmod(0o644)
+        with self.assertRaises(versions.VersionError):
+            self.development()
+        self.assertFalse((self.folder / "data").exists())
+
+    def test_selector_near_misses_duplicates_and_wrong_pin_refuse_read_only(self) -> None:
+        self.workflow()
+        prepared = self.development()
+        versions.publish(prepared)
+        path = self.workflow()
+        good = path.read_text()
+        records = prepared.path.read_bytes()
+        variants = [
+            good.replace("# ai-loop-kit: development", "# ai-loop-kit: development "),
+            "# comment\n" + good,
+            good + "# ai-loop-kit: development\n",
+            good + f'          KIT_REVISION: "{self.commit}"\n',
+            good.replace(self.commit, "main"),
+            good.replace(self.commit, "b" * 40),
+            good.replace("          KIT_REVISION:", "         KIT_REVISION:"),
+        ]
+        for text in variants:
+            path.write_text(text)
+            before = path.read_bytes()
+            with self.subTest(text=text), self.assertRaises(versions.VersionError):
+                versions.load(self.kit, self.project)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(prepared.path.read_bytes(), records)
+
+    def test_moved_copy_uses_record_and_corruption_is_kept(self) -> None:
+        self.workflow()
+        prepared = self.development()
+        versions.publish(prepared)
+        moved = self.folder / "moved-kit"
+        shutil.copytree(self.kit, moved)
+        self.assertEqual(versions.load(moved, self.project), prepared.body)
+        versions.verify(moved, prepared.body)
+        prepared.path.write_text("broken JSON")
+        with self.assertRaises(versions.VersionError):
+            versions.load(moved, self.project)
+        self.assertEqual(prepared.path.read_text(), "broken JSON")
+
+
+    def founding_fixture(self) -> None:
+        for kit in (self.kit, self.repository / "kit"):
+            shutil.copytree(ROOT / "kit/templates", kit / "templates")
+        self.commit_fixture()
+
+    def found(self, *, development: bool = True, project: Path | None = None) -> dict[str, Any]:
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        self.setup.setup(parser)
+        target = self.project if project is None else project
+        words = ["found", "--project", str(target), "--kit-dir", str(self.kit),
+                 "--kit-ref", self.commit, "--language", "python", "--test-command", "true"]
+        if development:
+            words.append("--development")
+        try:
+            args = parser.parse_args(words)
+        except SystemExit as error:
+            self.fail(f"FIELD1: explicit development founding is refused by the CLI: {error}")
+        with (
+            patch.object(self.setup, "project_root", return_value=target),
+            patch.object(self.setup, "check_tooling", return_value=False),
+            patch.object(self.setup, "check_origin"),
+            patch.object(self.setup, "project_has_runner", return_value=False),
+            patch.object(self.setup, "git_out", return_value=".githooks"),
+        ):
+            result: dict[str, Any] = self.setup.step_found(args)
+        return result
+
+    def test_existing_full_sha_missing_version_refusal_is_preserved_separately(self) -> None:
+        from loop import cli
+
+        self.founding_fixture()
+        with (
+            patch.object(versions, "publish") as publication,
+            self.assertRaisesRegex(cli.Failure, "no valid release version") as refused,
+        ):
+            self.found(development=False)
+        self.assertTrue(refused.exception.next_command)
+        publication.assert_not_called()
+        self.assertEqual(list(self.project.iterdir()), [])
+        self.assertFalse((self.folder / "data").exists())
+
+    def test_explicit_development_cli_founds_and_reports_truthful_identity(self) -> None:
+        self.founding_fixture()
+        result = self.found()
+        self.assertEqual(result["kit_revision"], self.commit)
+        self.assertEqual(result["kit_mode"], "development")
+        self.assertIsNone(result["kit_version"])
+        self.assertTrue(any("development" in warning.lower() for warning in result["warnings"]))
+        workflow = self.project / ".github/workflows/checks.yml"
+        text = workflow.read_text()
+        self.assertTrue(text.startswith("# ai-loop-kit: development\n"))
+        self.assertEqual(text.count("KIT_REVISION:"), 1)
+        self.assertIn(f'          KIT_REVISION: "{self.commit}"', text)
+        first = {str(p.relative_to(self.project)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                 for p in self.project.rglob("*") if p.is_file()}
+        self.found()
+        second = {str(p.relative_to(self.project)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                  for p in self.project.rglob("*") if p.is_file()}
+        self.assertEqual(first, second)
+
+    def test_conflicting_workflow_refuses_before_any_foundation_or_record_write(self) -> None:
+        from loop import cli
+
+        self.founding_fixture()
+        good = "# ai-loop-kit: development\n" + f'          KIT_REVISION: "{self.commit}"\n'
+        variants = [
+            good.replace("# ai-loop-kit: development\n", ""),
+            good.replace(self.commit, "b" * 40),
+            good + f'          KIT_REVISION: "{self.commit}"\n',
+            good + "# ai-loop-kit: development\n",
+            good.replace("KIT_REVISION:", "KIT_REVISION :"),
+        ]
+        for text in variants:
+            with self.subTest(text=text), tempfile.TemporaryDirectory(prefix="field1-conflict-") as tmp:
+                base = Path(tmp)
+                project = base / "project"
+                path = project / ".github/workflows/checks.yml"
+                path.parent.mkdir(parents=True)
+                path.write_text(text)
+                before = {str(p.relative_to(base)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                          for p in base.rglob("*") if p.is_file()}
+                with (
+                    patch.dict(os.environ, {"AI_LOOP_KIT_DATA": str(base / "data")}),
+                    patch.object(versions, "publish") as publication,
+                    self.assertRaises(cli.Failure),
+                ):
+                    self.found(project=project)
+                publication.assert_not_called()
+                after = {str(p.relative_to(base)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                         for p in base.rglob("*") if p.is_file()}
+                self.assertEqual(before, after)
+
+    def test_wrong_fetched_head_refuses_without_publishing(self) -> None:
+        current = versions._git
+
+        def wrong_head(arguments: Any, folder: Path) -> str:
+            value = current(arguments, folder)
+            return "b" * 40 if list(arguments) == ["rev-parse", "HEAD"] else value
+
+        with patch.object(versions, "_git", side_effect=wrong_head):
+            with self.assertRaises(versions.VersionError):
+                self.development()
+        self.assertFalse((self.folder / "data").exists())
+
+    def test_unsafe_workflow_file_and_ancestor_refuse_before_publication(self) -> None:
+        from loop import cli
+
+        self.founding_fixture()
+        good = "# ai-loop-kit: development\n" + f'          KIT_REVISION: "{self.commit}"\n'
+        for ancestor in (False, True):
+            with self.subTest(ancestor=ancestor), tempfile.TemporaryDirectory(prefix="field1-path-") as tmp:
+                base = Path(tmp)
+                project = base / "project"
+                project.mkdir()
+                outside = base / "outside"
+                outside.mkdir()
+                if ancestor:
+                    (outside / "workflows").mkdir()
+                    (outside / "workflows/checks.yml").write_text(good)
+                    (project / ".github").symlink_to(outside, target_is_directory=True)
+                else:
+                    target = outside / "checks.yml"
+                    target.write_text(good)
+                    (project / ".github/workflows").mkdir(parents=True)
+                    (project / ".github/workflows/checks.yml").symlink_to(target)
+                before = {str(p.relative_to(base)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                          for p in base.rglob("*") if p.is_file()}
+                with (
+                    patch.dict(os.environ, {"AI_LOOP_KIT_DATA": str(base / "data")}),
+                    patch.object(versions, "publish") as publication,
+                    self.assertRaises(cli.Failure),
+                ):
+                    self.found(project=project)
+                publication.assert_not_called()
+                after = {str(p.relative_to(base)): (p.read_bytes(), p.stat().st_mode & 0o777)
+                         for p in base.rglob("*") if p.is_file()}
+                self.assertEqual(before, after)
