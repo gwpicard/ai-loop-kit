@@ -33,6 +33,12 @@ done
 
 . "$ROOT/tests/lib/throwaway-project.sh"
 tp_new founded
+Q4_RELEASE_KIT="$TP_BASE/release-plugin"
+cp -R "$ROOT/kit" "$Q4_RELEASE_KIT"
+q4_release=$(python3 "$ROOT/tests/lib/version-fixture.py" "$Q4_RELEASE_KIT" "$TP_ROOT" \
+  --checkout "$TP_ROOT/.kit")
+Q4_KIT_REF=$(printf '%s' "$q4_release" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
+printf '\n.kit/\n' >> "$TP_ROOT/.git/info/exclude"
 
 save() {
   # save <folder> <message>: commit everything in a clone or in the project.
@@ -53,7 +59,7 @@ cp "$TEMPLATES/CHANGELOG.md" "$TP_ROOT/CHANGELOG.md"
 cp "$TEMPLATES/overview.md" "$TP_ROOT/docs/overview.md"
 cp "$TEMPLATES/docs-README.md" "$TP_ROOT/docs/README.md"
 cp "$TEMPLATES/area-map" "$TP_ROOT/docs/area-map"
-sed 's/{{KIT_REF}}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' "$TEMPLATES/checks.yml" > "$TP_ROOT/.github/workflows/checks.yml"
+sed "s/{{KIT_REF}}/$Q4_KIT_REF/" "$TEMPLATES/checks.yml" > "$TP_ROOT/.github/workflows/checks.yml"
 cp "$TEMPLATES/policy.json" "$TP_ROOT/.agents/loop/policy.json"
 save "$TP_ROOT" "Found the project from the templates"
 
@@ -172,9 +178,29 @@ ok "checks.yml names no old product"
 
 # The acquisition step is rehearsed in distribution.sh. These consumer steps
 # must use .kit/kit even when a decoy plugin root is present.
+verify_checkout() {
+  project=$1
+  checkout=$(CDPATH= cd -- "$project/.kit" && pwd -P)
+  [ "$(git -C "$checkout" rev-parse --show-toplevel 2>/dev/null)" = "$checkout" ] || \
+    fail "Q4-PROVENANCE the consumer kit is not its own acquired Git checkout"
+  [ "$(git -C "$checkout" rev-parse HEAD)" = "$Q4_KIT_REF" ] || \
+    fail "Q4-PROVENANCE consumer checkout differs from the workflow's resolved revision"
+}
+workflow_ref=$(python3 - "$TP_ROOT/.github/workflows/checks.yml" <<'Q4_REF'
+from pathlib import Path
+import re,sys
+match=re.search(r'KIT_REVISION: "([0-9a-f]{40})"',Path(sys.argv[1]).read_text())
+assert match is not None, "workflow has no resolved release revision"
+print(match.group(1))
+Q4_REF
+)
+[ "$workflow_ref" = "$Q4_KIT_REF" ] || fail "Q4-PROVENANCE workflow differs from acquired release"
 for project in "$TP_ROOT" "$clone"; do
-  mkdir -p "$project/.kit"
-  cp -R "$ROOT/kit" "$project/.kit/kit"
+  if [ ! -d "$project/.kit/.git" ]; then
+    git clone -q "$TP_ROOT/.kit" "$project/.kit"
+    git -C "$project/.kit" checkout -q --detach "$Q4_KIT_REF"
+  fi
+  verify_checkout "$project"
   printf '\n.kit/\n' >> "$project/.git/info/exclude"
 done
 records_step=$(step_run "Check the records")
@@ -205,10 +231,11 @@ test_step=$(step_run "Install and test")
 base=$(git -C "$TP_ROOT" rev-parse HEAD)
 run_hosted() {
   if [ ! -d "$1/.kit/kit" ]; then
-    mkdir -p "$1/.kit"
-    cp -R "$ROOT/kit" "$1/.kit/kit"
+    git clone -q "$TP_ROOT/.kit" "$1/.kit"
+    git -C "$1/.kit" checkout -q --detach "$Q4_KIT_REF"
     printf '\n.kit/\n' >> "$1/.git/info/exclude"
   fi
+  verify_checkout "$1"
   code=0
   said=$(cd "$1" && CLAUDE_PLUGIN_ROOT="$ROOT/kit" PR_BASE_SHA="$base" \
     SCAFFOLD_TEST_COMMAND="${2:-}" sh -c "$test_step" 2>&1) || code=$?
