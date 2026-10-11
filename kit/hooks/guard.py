@@ -665,7 +665,7 @@ def unwrap(
                     option.split("=", 1)[0] in {"-u", "--unset"}
                     and removed.startswith("GIT_CONFIG")
                 ):
-                    config_values["GIT_CONFIG_OPAQUE"] = ""
+                    config_values[""] = ""
             if name == "env":
                 inner = _split_string_option(option, rest, uncertain)
                 if inner is not None:
@@ -686,7 +686,7 @@ def unwrap(
         if name == "env" and rest[:1] == ["-"]:
             rest.pop(0)
             if config_values is not None:
-                config_values["GIT_CONFIG_OPAQUE"] = ""
+                config_values[""] = ""
         for _ in range(skip):
             if rest and not rest[0].startswith("-"):
                 rest.pop(0)
@@ -1449,6 +1449,13 @@ def check_words(
     config_values: dict[str, str] = {}
     rest = unwrap(words, assignments, uncertain, config_values)
     found.extend(uncertain)
+    # A reset with no configuration preserves the ordinary no-config route.
+    opaque_environment = "" in config_values
+    config_values.pop("", None)
+    if opaque_environment and any(
+        name.startswith("GIT_CONFIG") for name in {**ctx.env, **ctx.vars, **config_values}
+    ):
+        config_values["GIT_CONFIG_OPAQUE"] = ""
     # Carry literal values and expansion provenance into nested commands.
     if config_values:
         ctx = replace(ctx, vars={**ctx.vars, **config_values})
@@ -1537,7 +1544,9 @@ def _after(
                 _collect_git_assignment(arg, config_values)
         assigned.update(config_values)
         return here, replace(ctx, vars={**ctx.vars, **assigned})
-    if prog == "unset" and any(arg.startswith("GIT_CONFIG") for arg in args):
+    if prog == "unset" and any(arg.startswith("GIT_CONFIG") for arg in args) and any(
+        name.startswith("GIT_CONFIG") for name in {**ctx.env, **ctx.vars}
+    ):
         return here, replace(ctx, vars={**ctx.vars, "GIT_CONFIG_OPAQUE": ""})
     if prog == "popd":
         return (stack.pop() if stack else here), ctx

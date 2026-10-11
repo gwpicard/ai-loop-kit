@@ -1616,6 +1616,17 @@ class FieldRuntimeGitConfig(Cases):
                 self.assertEqual(bash(command).kind, ALLOW)
 
     def test_opaque_duplicate_and_unset_config_remains_ask(self) -> None:
+        for command in (
+            "env -iS 'git status'", "env -i git status", "env - git status",
+            "env -u GIT_CONFIG_VALUE_0 git status", "unset GIT_CONFIG_VALUE_0; git status",
+        ):
+            with self.subTest(no_configuration_command=command):
+                self.assertEqual(bash(command).kind, ALLOW)
+        for command in (
+            "GIT_CONFIG_OPAQUE= git status", 'GIT_CONFIG_OPAQUE="$UNKNOWN" git status',
+        ):
+            with self.subTest(unknown_configuration_command=command):
+                self.assertEqual(bash(command).kind, ASK)
         benign = self.config_env([("credential.interactive", "false")])
         for command in (
             'GIT_CONFIG_COUNT="$COUNT" git status',
