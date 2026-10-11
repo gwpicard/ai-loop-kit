@@ -868,7 +868,10 @@ class DevelopmentDistributionTest(ExistingDistributionTest):
             good.replace("KIT_REVISION:", "KIT_REVISION :"),
         ]
         for text in variants:
-            with self.subTest(text=text), tempfile.TemporaryDirectory(prefix="field1-conflict-") as tmp:
+            with (
+                self.subTest(text=text),
+                tempfile.TemporaryDirectory(prefix="field1-conflict-") as tmp,
+            ):
                 base = Path(tmp)
                 project = base / "project"
                 path = project / ".github/workflows/checks.yml"
@@ -894,9 +897,11 @@ class DevelopmentDistributionTest(ExistingDistributionTest):
             value = current(arguments, folder)
             return "b" * 40 if list(arguments) == ["rev-parse", "HEAD"] else value
 
-        with patch.object(versions, "_git", side_effect=wrong_head):
-            with self.assertRaises(versions.VersionError):
-                self.development()
+        with (
+            patch.object(versions, "_git", side_effect=wrong_head),
+            self.assertRaises(versions.VersionError),
+        ):
+            self.development()
         self.assertFalse((self.folder / "data").exists())
 
     def test_unsafe_workflow_file_and_ancestor_refuse_before_publication(self) -> None:
@@ -905,7 +910,10 @@ class DevelopmentDistributionTest(ExistingDistributionTest):
         self.founding_fixture()
         good = "# ai-loop-kit: development\n" + f'          KIT_REVISION: "{self.commit}"\n'
         for ancestor in (False, True):
-            with self.subTest(ancestor=ancestor), tempfile.TemporaryDirectory(prefix="field1-path-") as tmp:
+            with (
+                self.subTest(ancestor=ancestor),
+                tempfile.TemporaryDirectory(prefix="field1-path-") as tmp,
+            ):
                 base = Path(tmp)
                 project = base / "project"
                 project.mkdir()

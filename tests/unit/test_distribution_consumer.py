@@ -98,9 +98,10 @@ class DevelopmentConsumerTest(unittest.TestCase):
     """Consume a genuine offline public commit without reacquisition or publication."""
 
     def setUp(self) -> None:
-        from test_versions import DevelopmentDistributionTest
-
-        fixture = DevelopmentDistributionTest("test_explicit_full_commit_acquires_content_without_release_identity")
+        source = module("development_versions_fixture", ROOT / "tests/unit/test_versions.py")
+        fixture = source.DevelopmentDistributionTest(
+            "test_explicit_full_commit_acquires_content_without_release_identity"
+        )
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         self.fixture = fixture
@@ -138,7 +139,9 @@ class DevelopmentConsumerTest(unittest.TestCase):
         path = self.fixture.workflow()
         versions.publish(self.fixture.development())
         path.write_text(path.read_text().replace("# ai-loop-kit: development\n", ""))
-        self.assertEqual([r.guard for r in self.check_read_only(self.fixture.kit)[0]], ["kit-folder"])
+        self.assertEqual(
+            [r.guard for r in self.check_read_only(self.fixture.kit)[0]], ["kit-folder"]
+        )
 
     def test_missing_corrupt_mismatched_records_and_content_are_read_only_refusals(self) -> None:
         path = self.fixture.workflow()

@@ -119,9 +119,13 @@ def check_foundation_selection(project: Path, commit: str, *, development: bool)
     path = project / ".github/workflows/checks.yml"
     selected = development_selection(project)
     if development and path.exists() and selected != commit:
-        raise _development_error("prepare the existing workflow's development marker and matching SHA")
+        raise _development_error(
+                "prepare the existing workflow's development marker and matching SHA"
+            )
     if not development and selected is not None:
-        raise _development_error("the existing workflow selects development; keep its explicit mode")
+        raise _development_error(
+                "the existing workflow selects development; keep its explicit mode"
+            )
 
 
 def request(kit: Path, given: str) -> str:
@@ -318,7 +322,9 @@ def load(kit: Path, project: Path, *, env: Mapping[str, str] | None = None) -> d
         _development_manifest(kit)
         body = _read_development(_development_path(kit, project, selected, environment), selected)
         if body is None:
-            raise VersionError("the development record is missing; verify it through explicit setup")
+            raise VersionError(
+                "the development record is missing; verify it through explicit setup"
+            )
         return body
     body = _read(_path(kit, project, environment), manifest_version(kit))
     if body is None:
@@ -334,7 +340,9 @@ def verify(kit: Path, body: Mapping[str, Any]) -> None:
         expected = _validated(dict(body), manifest_version(kit))
     if inventory(kit) != expected["files"]:
         if body.get("mode") == "development":
-            raise _development_error("the installed kit differs from the verified development content")
+            raise _development_error(
+                "the installed kit differs from the verified development content"
+            )
         raise VersionError("the installed kit differs from the verified release content")
     legacy = _legacy(kit)
     hashes = {name: item["sha256"] for name, item in expected["files"].items()}
@@ -416,7 +424,9 @@ def _acquire_development(commit: str) -> dict[str, Any]:
         _git(["checkout", "-q", "--detach", "FETCH_HEAD^{commit}"], folder)
         fetched = _git(["rev-parse", "HEAD"], folder)
         if fetched != commit:
-            raise _development_error("the fetched development commit differs from the requested full SHA")
+            raise _development_error(
+                "the fetched development commit differs from the requested full SHA"
+            )
         kit = folder / "kit"
         _development_manifest(kit)
         return _validated_development(
