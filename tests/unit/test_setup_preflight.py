@@ -340,13 +340,22 @@ raise SystemExit(result.returncode)
         self.publish_fixture_main()
         self.transport("normal")
         self.git(self.project, "remote", "set-url", "--", "origin", "-field3-origin")
-        with patch.dict(os.environ, {"FIELD3_ADDRESS": "-field3-origin"}):
+        before = self.snapshot()
+        with patch.object(self.setup, "origin_git", wraps=self.setup.origin_git) as verify, \
+                self.assertRaises(cli.Failure):
+            self.setup.check_origin(self.project, False)
+        verify.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.log.exists(), "unsupported origin reached the verifier")
+        address = str(self.remote.resolve())
+        self.git(self.project, "remote", "set-url", "origin", address)
+        with patch.dict(os.environ, {"FIELD3_ADDRESS": address}):
             self.setup.check_origin(self.project, False)
         calls = [json.loads(line)["args"] for line in self.log.read_text().splitlines()]
         fetches = [args for args in calls if "fetch" in args]
         self.assertEqual(len(fetches), 1)
         self.assertIn("--", fetches[0])
-        self.assertLess(fetches[0].index("--"), fetches[0].index("-field3-origin"))
+        self.assertLess(fetches[0].index("--"), fetches[0].index(address))
 
     def test_preflight_cli_checks_before_acquisition(self) -> None:
         commit = self.publish_fixture_main()
