@@ -118,7 +118,7 @@ def check_tooling(root: Path) -> bool:
     exact-name rule of check-tooling.sh, which exits 3 under --for-run.
     """
     done = subprocess.run(
-        ["sh", str(HERE / "check-tooling.sh"), "--for-run"],
+        ["sh", str(HERE / "check-tooling.sh"), "--for-run", "--required-only"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -163,12 +163,17 @@ def origin_git(root: Path, arguments: list[str], timeout: int, *,
     for name in (
         "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
         "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+        "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_EXEC_PATH",
     ):
         environment.pop(name, None)
     for name in list(environment):
         if name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             environment.pop(name)
+    # A project URL cannot select another remote helper, even after a trusted
+    # global URL rewrite. Local upload-pack cannot lazily fetch project remotes.
+    environment["GIT_ALLOW_PROTOCOL"] = "https:ssh:file"
+    environment["GIT_PROTOCOL_FROM_USER"] = "0"
+    environment["GIT_NO_LAZY_FETCH"] = "1"
     try:
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, env=environment,
@@ -217,6 +222,22 @@ def origin_read_failure(root: Path, message: str, diagnostic: str | None) -> cli
                        code=cli.ExitCode.REFUSED)
 
 
+def permitted_origin(origin: str, root: Path) -> str | None:
+    """Keep helper selectors out of the literal project origin."""
+    if not origin or any(ord(char) < 32 for char in origin):
+        return None
+    if re.fullmatch(r"(?:https|ssh)://[A-Za-z0-9][^\s/]*?/[^\s]*", origin):
+        return origin
+    if re.fullmatch(r"(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9][A-Za-z0-9_.-]*:[^\s:]+", origin):
+        return origin
+    if origin.startswith("file:///") or origin.startswith("file://localhost/"):
+        return origin
+    if ":" not in origin and not origin.startswith("-"):
+        local = Path(origin)
+        return str((local if local.is_absolute() else root / local).resolve())
+    return None
+
+
 def check_origin(root: Path, is_kit: bool) -> str:
     origin = git_out(root, "remote", "get-url", "origin")
     project = shlex.quote(str(root))
@@ -240,6 +261,13 @@ def check_origin(root: Path, is_kit: bool) -> str:
             code=cli.ExitCode.REFUSED,
         )
     retry = preflight_next(root)
+    safe_origin = permitted_origin(origin, root)
+    if safe_origin is None:
+        raise cli.Failure(
+            "origin uses an unsupported transport; use HTTPS, SSH or a local repository",
+            next_command=retry, code=cli.ExitCode.REFUSED,
+        )
+    origin = safe_origin
     try:
         with tempfile.TemporaryDirectory(prefix="setup-origin-main-") as temporary:
             scratch = Path(temporary)

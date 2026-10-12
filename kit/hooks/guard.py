@@ -1622,8 +1622,19 @@ def check_installed_door(command: str, ctx: Context, depth: int) -> Decision | N
     if any(re.fullmatch(r"[();&|<>]+", word) for word in words):
         return bad
     if any(ctx.env.get(name) or ctx.vars.get(name) for name in
-           ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "BASH_ENV", "ENV")):
+           ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "BASH_ENV", "ENV",
+            "ZDOTDIR")):
         return bad
+    # Bash imports exported functions before PATH lookup, including helpers a
+    # shell child may call. Do not print their bodies or inherited values.
+    for environment in (ctx.env, ctx.vars):
+        if any(name.startswith("BASH_FUNC_") or re.match(r"^\(\)\s*\{", value)
+               for name, value in environment.items()):
+            return bad
+    if any(ctx.env.get(name) or ctx.vars.get(name) for name in
+           ("GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND")):
+        return ask("inherited Git execution configuration needs the person's check.",
+                   "run the installed command from a clean trusted environment.")
     lookup = ctx.env.get("PATH", os.environ.get("PATH", os.defpath))
     try:
         for directory in lookup.split(os.pathsep):
