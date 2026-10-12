@@ -1,5 +1,6 @@
 """Protected person-read generations: authority, completeness and identity."""
 
+import argparse
 import importlib.util
 import json
 import os
@@ -61,6 +62,34 @@ class ReadRecordCase(unittest.TestCase):
         self.assertEqual(json.loads(self.paths.local_settings.read_text())["github_app"],
                          {"app_id": 1, "installation_id": 2, "slug": "fixture"})
 
+    def test_snapshot_catalogue_overrides_stale_local_duplicate_text(self) -> None:
+        self.fixture.gate.capture(title="Export invoices as CSV", body="Export invoices as CSV")
+        self.fixture.sync()
+        self.person.writes.issues[1].update({"title": "Rotate deployment logs",
+                                           "body": "Rotate deployment logs"})
+        self.person.writes.issues[77] = {
+            "number": 77, "title": "Export invoices as CSV", "body": "Export invoices as CSV",
+            "labels": ["state:shaping"], "state": "open", "comments": [],
+        }
+        read_record.publish(self.paths, self.generation())
+        self.fixture.gate.capture(title="Export invoices as CSV", body="Export invoices as CSV")
+        local = moves.read_piece(self.paths, 2)
+        assert local is not None
+        self.assertIsNone(local.issue, "an uncaptured local piece must remain searchable")
+        duplicates = fixtures().duplicates
+        with (
+            patch.object(duplicates, "_paths", return_value=self.paths),
+            patch.object(duplicates.github, "GitHub", return_value=self.fixture.no_app),
+        ):
+            result = duplicates.search(argparse.Namespace(text="Export invoices as CSV",
+                                                          threshold=0.6))
+        matches = {(entry["number"], entry["source"]) for entry in result["matches"]}
+        self.assertIn((77, "person-synced snapshot"), matches)
+        self.assertIn((2, "record"), matches)
+        self.assertEqual(self.fixture.spawned, [], "cached search must not contact GitHub")
+        self.assertNotIn((1, "record"), matches,
+                         "fresh catalogue text must supersede a captured piece's stale text")
+
     def test_missing_stale_future_and_changed_origin_refuse(self) -> None:
         with self.assertRaises(github.GitHubError):
             read_record.load(self.paths)
@@ -87,6 +116,13 @@ class ReadRecordCase(unittest.TestCase):
             read_record.protection(self.paths)
         self.settings(lambda value: value.update({"model": "person-value"}), local=True)
         read_record.protection(self.paths)
+        for writes, denies in (([], []), (["/synthetic/additional-write-block"],
+                                        ["Edit(//**/additional-protected.txt)"])):
+            self.settings(lambda value, writes=writes, denies=denies: value.update({
+                "sandbox": {"filesystem": {"denyWrite": writes}},
+                "permissions": {"deny": denies},
+            }), local=True)
+            read_record.protection(self.paths)
 
         project = self.paths.root / ".claude/settings.json"
         before = json.loads(project.read_text())

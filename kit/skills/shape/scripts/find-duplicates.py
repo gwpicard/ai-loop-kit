@@ -225,11 +225,11 @@ def search(args: argparse.Namespace) -> dict[str, Any]:
         out["snapshot"] = {"source": "person-synced snapshot",
                            "age_seconds": snapshot.age_seconds}
         for number in snapshot.catalogue:
+            seen.add(number)
             info = snapshot.read_issue(number)
             found = _match(idea, info["title"], info["body"], args.threshold)
             if found is None:
                 continue
-            seen.add(number)
             matches.append({"number": number, "source": "person-synced snapshot",
                             "title": info["title"], "state": info["state"],
                             "labels": info["labels"], "dropped": "state:dropped" in info["labels"],
