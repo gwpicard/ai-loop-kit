@@ -402,7 +402,11 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     plan = Plan(root, bool(getattr(args, "dry_run", False)))
     templates = kit / "templates"
     try:
-        release = versions.prepare(kit, root, kit_ref(kit, args.kit_ref), dry_run=plan.dry_run)
+        development = bool(getattr(args, "development", False))
+        selected = args.kit_ref if development else kit_ref(kit, args.kit_ref)
+        release = versions.prepare(kit, root, selected, dry_run=plan.dry_run,
+                                   development=development)
+        versions.check_foundation_selection(root, release.commit, development=development)
     except versions.VersionError as error:
         raise cli.Failure(str(error), next_command=error.next_command,
                           code=cli.ExitCode.REFUSED) from error
@@ -442,6 +446,16 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     # Read and render every foundation input before publishing or changing the project.
     rendered_hook = render_hook(kit, merge)
     rendered_files = [(target, rendered(source)) for source, target in foundation]
+    if development:
+        development_files = []
+        for target, text in rendered_files:
+            if target == ".github/workflows/checks.yml":
+                text = versions.DEVELOPMENT_MARKER + "\n" + text
+            development_files.append((target, text))
+        rendered_files = development_files
+        plan.warnings.append(
+            f"This is a development kit at {release.commit}, not a tagged release."
+        )
     workflow = next(text for target, text in rendered_files
                     if target == ".github/workflows/checks.yml")
     if re.search(r"\{\{(?:KIT_[A-Z_]+|SCAFFOLD_TEST_COMMAND)\}\}", workflow):
@@ -501,7 +515,8 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
         "labels": labels,
         "kit_record": record,
         "kit_revision": release.commit,
-        "kit_version": release.body["version"],
+        "kit_mode": "development" if development else "release",
+        "kit_version": release.body.get("version"),
         "closing": CLOSING,
     }
 
@@ -692,6 +707,8 @@ def setup(parser: argparse.ArgumentParser) -> None:
     found.add_argument("--repo-visibility", choices=("private", "public"), default="")
     found.add_argument("--plan", choices=("free", "paid"), default="")
     found.add_argument("--kit-ref", default="", help="the kit version checks.yml fetches")
+    found.add_argument("--development", action="store_true",
+                       help="verify a development kit against an explicit full public commit SHA")
     first = commands.add_parser("first-piece", help="capture the first piece locally")
     _common(first)
     first.add_argument("--test-command", default="", help="the command that runs every test")

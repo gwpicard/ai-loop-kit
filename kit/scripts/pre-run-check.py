@@ -447,7 +447,9 @@ def check_pre_push(root: Path, kit: Path) -> list[Refusal]:
     return refusals
 
 
-def check_kit_folder(root: Path, kit: Path) -> list[Refusal]:
+def check_kit_folder(
+    root: Path, kit: Path, *, notices: list[str] | None = None
+) -> list[Refusal]:
     if kit.resolve() == (root / "kit").resolve():
         out = read_command(["git", "-C", str(root), "status", "--porcelain", "--", "kit"])
         if out is None:
@@ -468,6 +470,10 @@ def check_kit_folder(root: Path, kit: Path) -> list[Refusal]:
     try:
         baseline = versions.load(kit, root)
         versions.verify(kit, baseline)
+        if baseline.get("mode") == "development" and notices is not None:
+            notices.append(
+                f"Development kit verified at {baseline['commit']}; this is not a tagged release."
+            )
     except versions.VersionError as error:
         refusal = first_half("kit-folder", str(error))
         refusal.fix += "; " + error.next_command
@@ -892,7 +898,7 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
     refusals += check_hook(kit)
     refusals += check_settings(root, kit)
     refusals += check_pre_push(root, kit)
-    refusals += check_kit_folder(root, kit)
+    refusals += check_kit_folder(root, kit, notices=notices)
     policy_refusals, merged, raw = check_policy(paths, root)
     refusals += policy_refusals
     refusals += check_spend(raw, merged)
