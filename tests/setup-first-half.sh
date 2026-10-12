@@ -26,6 +26,8 @@ PRC="$ROOT/kit/scripts/pre-run-check.py"
 FAKE_COMPUTER="$ROOT/tests/stand-ins/fake-computer"
 PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE ROOT
+FIELD3_REAL_GIT=$(command -v git)
+export FIELD3_REAL_GIT
 
 FAIL=0
 fail() {
@@ -69,6 +71,39 @@ new_project() {
   mkdir -p "$TP_DATA2"
   AI_LOOP_KIT_DATA="$TP_DATA2"
   export AI_LOOP_KIT_DATA
+  # Keep the visible demo-name origin for the exact-name guard, but route only
+  # Git transport to a concrete local origin. The same wrapper handles scratch
+  # retrieval, so neither the project nor the disposable clone contacts GitHub.
+  FIELD3_ORIGIN="$TP_BASE/origin.git"
+  FIELD3_TRANSPORT_LOG="$TP_BASE/origin-transport.jsonl"
+  export FIELD3_ORIGIN FIELD3_TRANSPORT_LOG
+  cat > "$TP_BIN/git" <<'PYGIT'
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if "ls-remote" in args or "fetch" in args:
+    with Path(os.environ["FIELD3_TRANSPORT_LOG"]).open("a") as stream:
+        stream.write(json.dumps(args) + "\n")
+    demo = "https://github.com/gwpicard/ai-loop-kit-demo.git"
+    kit = "https://github.com/gwpicard/ai-loop-kit.git"
+    if "origin" in args:
+        folder = args[args.index("-C") + 1] if "-C" in args else os.getcwd()
+        origin = subprocess.run([os.environ["FIELD3_REAL_GIT"], "-C", folder,
+                                 "remote", "get-url", "origin"],
+                                capture_output=True, text=True, check=False).stdout.strip()
+        if origin == kit:
+            raise SystemExit("FIELD3: own-kit transport must never run")
+        if origin == demo:
+            args = [os.environ["FIELD3_ORIGIN"] if arg == "origin" else arg for arg in args]
+    args = [os.environ["FIELD3_ORIGIN"] if arg == demo else arg for arg in args]
+raise SystemExit(subprocess.run([os.environ["FIELD3_REAL_GIT"], *args], check=False).returncode)
+PYGIT
+  chmod +x "$TP_BIN/git"
   PATH="$FAKE_COMPUTER:$PATH"
   mkdir -p "$TP_BASE/tmp"
   TMPDIR="$TP_BASE/tmp"
@@ -110,7 +145,42 @@ prepare_foundation() {
   )
 }
 
+# FIELD3: the opening skill stop precedes every founding question.
+python3 - "$SKILL" <<'PYORDER' || fail "setup does not preflight before its questions"
+import re
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+assert "## Steps\n" in text, "FIELD3: setup steps section is missing"
+steps = text.split("## Steps\n", 1)[1].split("\n## ", 1)[0]
+actions = list(re.finditer(r'(?m)^(\d+)\.\s+', steps))
+assert len(actions) >= 2 and actions[0].group(1) == "1", "FIELD3: first action is missing"
+first = steps[actions[0].end():actions[1].start()]
+preflight = re.search(r'setup\.py[^\n]*preflight', first)
+question = re.search(r'(?im)^\d+\.\s+Ask', steps)
+assert preflight is not None, "FIELD3: FIRST setup action must invoke preflight"
+assert question is not None, "FIELD3: founding question batch is missing"
+assert actions[0].end() + preflight.start() < question.start(), "FIELD3: questions precede stop"
+PYORDER
+
 echo "First half of /setup:"
+
+# A reachable empty origin cannot be founded, even when calling found directly.
+new_project empty-origin
+FIELD3_EMPTY="$TP_BASE/empty-origin.git"
+"$FIELD3_REAL_GIT" init -q --bare -b main "$FIELD3_EMPTY"
+git -C "$TP_ROOT" remote set-url origin "$FIELD3_EMPTY"
+FIELD3_ORIGIN="$FIELD3_EMPTY"
+export FIELD3_ORIGIN
+BEFORE_EMPTY=$(snap "$TP_ROOT")
+run_setup found --dry-run
+[ "$CODE" -eq 3 ] || fail "FIELD3: absent main passed direct found (got $CODE)"
+[ "$(snap "$TP_ROOT")" = "$BEFORE_EMPTY" ] || fail "FIELD3: absent-main refusal wrote files"
+grep -q '^next:.*HEAD:refs/heads/main' "$ERR" || fail "FIELD3: absent main has no person bootstrap command"
+[ ! -s "$FAKE_GH_LOG" ] || fail "FIELD3: absent main contacted GitHub"
+run_setup preflight
+[ "$CODE" -eq 3 ] || fail "FIELD3: opening preflight did not refuse absent main (got $CODE)"
+[ "$(snap "$TP_ROOT")" = "$BEFORE_EMPTY" ] || fail "FIELD3: preflight refusal wrote files"
 
 # --- the script follows the contract ----------------------------------------------
 
@@ -162,7 +232,7 @@ git -C "$TP_ROOT" remote set-url origin "https://github.com/gwpicard/ai-loop-kit
 git -C "$TP_ROOT" remote remove origin
 run_setup found
 [ "$CODE" -eq 3 ] || fail "no origin was not refused with exit 3 (got $CODE)"
-grep -q '^next:.*remote add origin' "$ERR" || fail "the no-origin stop does not name the command"
+grep -q '^next:.*remote add -- origin' "$ERR" || fail "the no-origin stop does not name the command"
 [ "$(snap "$TP_ROOT")" = "$BEFORE" ] || fail "the no-origin stop wrote files"
 ok "no origin stops with a next: line"
 git -C "$TP_ROOT" remote add origin "$TP_BASE/origin.git"
