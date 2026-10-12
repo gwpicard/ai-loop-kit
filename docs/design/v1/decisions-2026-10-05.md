@@ -110,3 +110,18 @@ Decided by the maintainer:
 - Write the v1 build plan and start building the bootstrap core without waiting for the maintainer's review of the plan.
 - Merge the bootstrap pieces' pull requests when the piece's own tests, the local checks and a fresh review are green; otherwise they wait for the maintainer.
 - The maintainer's condition: reviews and gates at every step, so the plan stays accurate and every step works from the latest context (the design document, this file, the removal plan and main as it is now).
+
+## Attended setup sandbox boundary, confirmed during field testing
+
+The maintainer chose finite exclusions for exact installed non-executing setup
+and gate commands. Calls use isolated Python, a literal absolute installed path
+and checked arguments. The gate's move-record alias permits only shaping,
+dropped and approval. Ordinary moves and judges remain sandboxed. The guard
+checks the actual installation and project rather than a caller-selected kit.
+
+Origin verification reads the project's origin address, then queries and retrieves
+its exact main commit in clean scratch. Project-local Git configuration and caller
+repository routing cannot select the verifier's helpers or repository. Trusted
+person global and system Git configuration remains available. Diagnostic retries
+name the installed isolated command and the real project, never deleted scratch.
+A person-run retry belongs in a separate terminal, not a session sandbox bypass.

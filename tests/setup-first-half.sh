@@ -163,6 +163,20 @@ assert question is not None, "FIELD3: founding question batch is missing"
 assert actions[0].end() + preflight.start() < question.start(), "FIELD3: questions precede stop"
 PYORDER
 
+# FIELD8: only installed isolated non-executing doors receive exclusions.
+python3 - "$SKILL" <<'PYDOORS' || fail "setup omits narrow installed-script guidance"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+assert 'python3 -I "<installed-kit>/scripts/setup.py" preflight' in text
+assert 'python3 -I "<installed-kit>/scripts/setup.py" found --dry-run' in text
+assert 'python3 -I "<installed-kit>/scripts/setup.py" first-piece' in text
+assert "exact installed" in text and "non-executing" in text
+assert "judges" in text and "sandbox" in text
+assert "separate terminal" in text and "not with !" in text
+assert "--development --kit-ref" in text
+PYDOORS
+
 echo "First half of /setup:"
 
 # A reachable empty origin cannot be founded, even when calling found directly.

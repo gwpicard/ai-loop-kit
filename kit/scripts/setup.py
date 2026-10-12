@@ -118,7 +118,7 @@ def check_tooling(root: Path) -> bool:
     exact-name rule of check-tooling.sh, which exits 3 under --for-run.
     """
     done = subprocess.run(
-        ["sh", str(HERE / "check-tooling.sh"), "--for-run"],
+        ["sh", str(HERE / "check-tooling.sh"), "--for-run", "--required-only"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -150,20 +150,36 @@ def check_tooling(root: Path) -> bool:
 
 
 def preflight_next(root: Path) -> str:
-    return (f"python3 {shlex.quote(str(HERE / 'setup.py'))} preflight "
+    return (f'python3 -I "{HERE / "setup.py"}" preflight '
             f"--project {shlex.quote(str(root))}")
 
 
-def origin_git(root: Path, arguments: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+def origin_git(root: Path, arguments: list[str], timeout: int, *,
+               retry_root: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Read Git with bounded non-interactive execution and private diagnostics."""
     command = ["git", "-C", str(root), *arguments]
     environment = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    # The verifier owns its clean repository, not the caller's Git routing.
+    for name in (
+        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_EXEC_PATH",
+    ):
+        environment.pop(name, None)
+    for name in list(environment):
+        if name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+            environment.pop(name)
+    # A project URL cannot select another remote helper, even after a trusted
+    # global URL rewrite. Local upload-pack cannot lazily fetch project remotes.
+    environment["GIT_ALLOW_PROTOCOL"] = "https:ssh:file"
+    environment["GIT_PROTOCOL_FROM_USER"] = "0"
+    environment["GIT_NO_LAZY_FETCH"] = "1"
     try:
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, env=environment,
                                    start_new_session=True)
         try:
-            output, _ = process.communicate(timeout=timeout)
+            output, diagnostic = process.communicate(timeout=timeout)
         except BaseException:
             # This session contains only the Git operation we started and its helpers.
             with contextlib.suppress(ProcessLookupError):
@@ -180,13 +196,49 @@ def origin_git(root: Path, arguments: list[str], timeout: int) -> subprocess.Com
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as error:
         raise cli.Failure(
             "origin main could not be verified; the Git operation failed or timed out",
-            next_command=preflight_next(root), code=cli.ExitCode.ENVIRONMENT,
+            next_command=preflight_next(retry_root or root), code=cli.ExitCode.ENVIRONMENT,
         ) from error
     assert process.returncode is not None
-    return subprocess.CompletedProcess(command, process.returncode, output)
+    return subprocess.CompletedProcess(command, process.returncode, output, diagnostic)
 
 
-def check_origin(root: Path, is_kit: bool) -> None:
+def origin_network_denial(diagnostic: str | None) -> bool:
+    # Recognise a diagnostic prefix, never a substring in a URL or filename.
+    # The finite window bounds classification, not subprocess capture itself.
+    text = (diagnostic or "")[:65536]
+    return re.search(
+        r"^[ \t]*(?:blocked-by-sandbox-runtime: network request denied|"
+        r"Sandbox: deny network-outbound)(?:[ \t]|$)", text, re.MULTILINE,
+    ) is not None
+
+
+def origin_read_failure(root: Path, message: str, diagnostic: str | None) -> cli.Failure:
+    if origin_network_denial(diagnostic):
+        explanation = message + "; the diagnostic reports a sandbox network denial"
+    else:
+        explanation = (message + "; the cause is unknown. A sandbox network restriction "
+                       "may be involved, but this failure does not establish that")
+    return cli.Failure(explanation, next_command=preflight_next(root),
+                       code=cli.ExitCode.REFUSED)
+
+
+def permitted_origin(origin: str, root: Path) -> str | None:
+    """Keep helper selectors out of the literal project origin."""
+    if not origin or any(ord(char) < 32 for char in origin):
+        return None
+    if re.fullmatch(r"(?:https|ssh)://[A-Za-z0-9][^\s/]*?/[^\s]*", origin):
+        return origin
+    if re.fullmatch(r"(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9][A-Za-z0-9_.-]*:[^\s:]+", origin):
+        return origin
+    if origin.startswith("file:///") or origin.startswith("file://localhost/"):
+        return origin
+    if ":" not in origin and not origin.startswith("-"):
+        local = Path(origin)
+        return str((local if local.is_absolute() else root / local).resolve())
+    return None
+
+
+def check_origin(root: Path, is_kit: bool) -> str:
     origin = git_out(root, "remote", "get-url", "origin")
     project = shlex.quote(str(root))
     if not origin:
@@ -209,55 +261,87 @@ def check_origin(root: Path, is_kit: bool) -> None:
             code=cli.ExitCode.REFUSED,
         )
     retry = preflight_next(root)
-    advertised = origin_git(root, ["ls-remote", "--exit-code", "--heads", "origin",
-                                   "refs/heads/main"], 20)
-    if advertised.returncode == 2 and not advertised.stdout:
-        push = f"git -C {project} push origin HEAD:refs/heads/main"
-        if git_out(root, "rev-parse", "--verify", "HEAD"):
-            command = push
-            message = "origin has no main commit; the person must publish current local history"
-        else:
-            command = (f"git -C {project} commit --allow-empty --only "
-                       f"-m 'Initial repository commit' && {push}")
-            message = ("origin has no main commit; the person must create and push "
-                       "an empty first commit")
-        raise cli.Failure(message, next_command=command, code=cli.ExitCode.REFUSED)
-    lines = advertised.stdout.splitlines()
-    if advertised.returncode != 0 or len(lines) != 1:
-        raise cli.Failure("origin main could not be verified", next_command=retry,
-                          code=cli.ExitCode.REFUSED)
-    match = re.fullmatch(r"([0-9a-f]{40})\trefs/heads/main", lines[0])
-    if match is None:
+    safe_origin = permitted_origin(origin, root)
+    if safe_origin is None:
         raise cli.Failure(
-            "origin main advertisement is malformed or uses an unsupported object ID",
+            "origin uses an unsupported transport; use HTTPS, SSH or a local repository",
             next_command=retry, code=cli.ExitCode.REFUSED,
         )
-    commit = match.group(1)
+    origin = safe_origin
     try:
         with tempfile.TemporaryDirectory(prefix="setup-origin-main-") as temporary:
             scratch = Path(temporary)
-            initialised = origin_git(scratch, ["init", "--quiet", "--object-format=sha1"], 5)
+            initialised = origin_git(scratch, ["init", "--quiet", "--object-format=sha1"],
+                                     5, retry_root=root)
             if initialised.returncode != 0:
                 raise cli.Failure("temporary main verification could not start",
                                   next_command=retry, code=cli.ExitCode.ENVIRONMENT)
+            # Project Git configuration is not inherited by either network operation.
+            advertised = origin_git(
+                scratch, ["ls-remote", "--exit-code", "--heads", "--", origin,
+                          "refs/heads/main"], 20, retry_root=root,
+            )
+            if (advertised.returncode == 2 and not advertised.stdout
+                    and not (advertised.stderr or "").strip()):
+                push = f"git -C {project} push origin HEAD:refs/heads/main"
+                if git_out(root, "rev-parse", "--verify", "HEAD"):
+                    command = push
+                    message = ("origin has no main commit; the person must publish "
+                               "current local history")
+                else:
+                    command = (f"git -C {project} commit --allow-empty --only "
+                               f"-m 'Initial repository commit' && {push}")
+                    message = ("origin has no main commit; the person must create and push "
+                               "an empty first commit")
+                raise cli.Failure(message, next_command=command, code=cli.ExitCode.REFUSED)
+            if advertised.returncode != 0 or origin_network_denial(advertised.stderr):
+                raise origin_read_failure(root, "origin main could not be verified",
+                                          advertised.stderr)
+            lines = advertised.stdout.splitlines()
+            if len(lines) != 1:
+                raise cli.Failure("origin main could not be verified", next_command=retry,
+                                  code=cli.ExitCode.REFUSED)
+            match = re.fullmatch(r"([0-9a-f]{40})\trefs/heads/main", lines[0])
+            if match is None:
+                raise cli.Failure(
+                    "origin main advertisement is malformed or uses an unsupported object ID",
+                    next_command=retry, code=cli.ExitCode.REFUSED,
+                )
+            commit = match.group(1)
             fetched = origin_git(scratch, ["fetch", "--no-tags", "--no-write-fetch-head",
-                                           "--depth=1", "--", origin, commit], 30)
-            if fetched.returncode != 0:
-                raise cli.Failure("origin main commit could not be retrieved",
-                                  next_command=retry, code=cli.ExitCode.REFUSED)
-            inspected = origin_git(scratch, ["cat-file", "-t", commit], 5)
+                                           "--depth=1", "--", origin, commit], 30,
+                                 retry_root=root)
+            if fetched.returncode != 0 or origin_network_denial(fetched.stderr):
+                raise origin_read_failure(root, "origin main commit could not be retrieved",
+                                          fetched.stderr)
+            inspected = origin_git(scratch, ["cat-file", "-t", commit], 5, retry_root=root)
             if inspected.returncode != 0 or inspected.stdout.strip() != "commit":
                 raise cli.Failure("origin main does not have a verified commit object",
                                   next_command=retry, code=cli.ExitCode.REFUSED)
     except OSError as error:
         raise cli.Failure("temporary main verification could not complete",
                           next_command=retry, code=cli.ExitCode.ENVIRONMENT) from error
+    return commit
+
+
+def selected_kit(args: argparse.Namespace) -> Path:
+    value = str(getattr(args, "kit_dir", "") or "")
+    kit = Path(value).resolve() if value else HERE.parent
+    if sys.flags.isolated and value and (value != str(HERE.parent) or kit != HERE.parent):
+        raise cli.Failure(
+            "isolated setup uses only its own installed kit",
+            next_command=f'python3 -I "{HERE / "setup.py"}" preflight',
+            code=cli.ExitCode.REFUSED,
+        )
+    return kit
 
 
 def step_preflight(args: argparse.Namespace) -> dict[str, Any]:
+    selected_kit(args)
     root = project_root(args.project)
-    check_origin(root, check_tooling(root))
-    return {"origin_main": "verified commit", "read_only": True}
+    commit = check_origin(root, check_tooling(root))
+    return {"project": str(root.resolve()), "main_commit": commit,
+            "origin_main": "verified commit", "read_only": True}
 
 
 def detect_language(root: Path) -> str | None:
@@ -336,6 +420,7 @@ def extend_ignore(plan: Plan, template: str) -> None:
 
 def prepare_settings(root: Path, kit: Path, merge: Any) -> dict[str, Any]:
     """Render and merge settings without creating files or directories."""
+    merge.literal_kit_root(str(kit))
     target = root / ".claude/settings.json"
     template = json.loads(merge.render(
         (kit / "templates/claude-settings.json").read_text("utf-8"),
@@ -492,8 +577,10 @@ def write_kit_record(kit: Path, root: Path, dry_run: bool,
 
 def step_found(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
-    kit = Path(args.kit_dir).resolve() if args.kit_dir else HERE.parent
-    check_origin(root, check_tooling(root))
+    kit = selected_kit(args)
+    merge = load_module("merge_settings", HERE / "merge-settings.py")
+    merge.literal_kit_root(str(args.kit_dir or kit))
+    main_commit = check_origin(root, check_tooling(root))
     plan = Plan(root, bool(getattr(args, "dry_run", False)))
     templates = kit / "templates"
     try:
@@ -505,7 +592,6 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     except versions.VersionError as error:
         raise cli.Failure(str(error), next_command=error.next_command,
                           code=cli.ExitCode.REFUSED) from error
-    merge = load_module("merge_settings", HERE / "merge-settings.py")
     values = {"KIT_DIR": str(kit), "KIT_REF": release.commit}
 
     def rendered(name: str) -> str:
@@ -598,6 +684,9 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     labels = label_step(root)
     return {
         "project": str(root),
+        "main_commit": main_commit,
+        "origin_main": "verified commit",
+        "read_only": bool(plan.dry_run),
         "kit_dir": str(kit),
         "language": language,
         "billing_mode": mode,
@@ -618,10 +707,13 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
 
 def run_gate(root: Path, kit: Path, *argv: str) -> dict[str, Any]:
     """Start the gate. This is the only road to GitHub: setup.py never starts gh."""
+    if sys.flags.isolated and kit != HERE.parent:
+        raise cli.Failure("isolated setup cannot delegate to a different kit",
+                          code=cli.ExitCode.REFUSED, next_command=preflight_next(root))
     env = dict(os.environ)
     env["CLAUDE_PLUGIN_ROOT"] = str(kit)
     done = subprocess.run(
-        [sys.executable, str(kit / "scripts" / "gate.py"), *argv, "--json"],
+        [sys.executable, "-I", str(kit / "scripts" / "gate.py"), *argv, "--json"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -648,7 +740,7 @@ def run_gate(root: Path, kit: Path, *argv: str) -> dict[str, Any]:
 
 def step_github(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
-    kit = Path(args.kit_dir).resolve() if args.kit_dir else HERE.parent
+    kit = selected_kit(args)
     if args.what == "labels":
         reply = run_gate(root, kit, "labels", "--create", *(["--dry-run"] if args.dry_run else []))
         return {"gate": reply}
@@ -725,7 +817,26 @@ def sync_scaffold_command(root: Path, command: str, *, dry_run: bool) -> None:
 
 def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
-    kit = Path(args.kit_dir).resolve() if args.kit_dir else HERE.parent
+    kit = selected_kit(args)
+    selected = str(getattr(args, "kit_ref", "") or "")
+    development = bool(getattr(args, "development", False))
+    if selected or development:
+        try:
+            baseline = versions.load(kit, root)
+            versions.verify(kit, baseline)
+            if development:
+                matches = (re.fullmatch(r"[0-9a-f]{40}", selected) is not None
+                           and baseline.get("mode") == "development"
+                           and baseline.get("commit") == selected)
+            else:
+                matches = (baseline.get("mode") != "development"
+                           and selected in {baseline.get("commit"), baseline.get("tag"),
+                                            baseline.get("version")})
+            if not matches:
+                raise versions.VersionError("the first-piece selector differs from the founded kit")
+        except versions.VersionError as error:
+            raise cli.Failure(str(error), next_command=preflight_next(root),
+                              code=cli.ExitCode.REFUSED) from error
     paths = Paths.for_project(root, kit_folder=kit)
     existing = sorted(
         int(p.name) for p in paths.pieces_dir.glob("*") if p.is_dir() and p.name.isdigit()
@@ -753,7 +864,7 @@ def step_first_piece(args: argparse.Namespace) -> dict[str, Any]:
         add_open_question(root, note, dry_run=args.dry_run)
         raise cli.Failure(
             "no test command is known, so the first piece has no judge command",
-            next_command="python3 " + shlex.quote(str(HERE / "setup.py"))
+            next_command=f'python3 -I "{HERE / "setup.py"}"'
             + ' first-piece --test-command "<the command that runs every test>"',
             code=cli.ExitCode.REFUSED,
         )
@@ -809,6 +920,9 @@ def setup(parser: argparse.ArgumentParser) -> None:
     first = commands.add_parser("first-piece", help="capture the first piece locally")
     _common(first)
     first.add_argument("--test-command", default="", help="the command that runs every test")
+    first.add_argument("--kit-ref", default="", help="confirm the already founded kit selection")
+    first.add_argument("--development", action="store_true",
+                       help="confirm an existing verified development kit; never acquire one")
     gh = commands.add_parser("github", help="a GitHub step, through the gate")
     gh_what = gh.add_subparsers(dest="what", required=True, metavar="step")
     labels = gh_what.add_parser("labels", help="create the gate's labels")

@@ -51,6 +51,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from loop import bootstrap, evidence, github, judge, moves, policy, spec, states
 from loop.cli import ExitCode, Failure, run
 from loop.gates import merge as merge_gate
@@ -100,6 +102,13 @@ def setup(parser: argparse.ArgumentParser) -> None:
     move.add_argument("--option", action="append", default=[], metavar="KEY=VALUE",
                       help="a value for the move's checks (repeat for more)")
     _common(move)
+
+    record_move = commands.add_parser("move-record", help="move without executing a project judge")
+    record_move.add_argument("number", type=_number)
+    record_move.add_argument("target", choices=("shaping", "dropped", "approval"))
+    record_move.add_argument("--reason")
+    record_move.add_argument("--option", action="append", default=[], metavar="KEY=VALUE")
+    _common(record_move)
 
     drop = commands.add_parser("drop", help="move 14: drop a piece, with a reason")
     drop.add_argument("number", type=_number)
@@ -273,7 +282,10 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
                               next_command=f'{PROG} capture --title "<t>" --body-file <file>')
             return gate.capture(title=args.title, body=body, issue_type=args.type,
                                 number=args.number, dry_run=dry)
-        if command == "move":
+        if command == "move-record" and args.target not in {"shaping", "dropped", "approval"}:
+            raise Failure("move-record admits only non-executing targets", code=ExitCode.REFUSED,
+                          next_command=f"{PROG} move-record --help")
+        if command in {"move", "move-record"}:
             return gate.move(args.number, args.target, reason=args.reason,
                              options=_options(args.option), dry_run=dry)
         if command == "drop":

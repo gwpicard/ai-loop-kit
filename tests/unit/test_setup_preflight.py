@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import importlib.util
 import io
 import json
@@ -14,7 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,7 +127,8 @@ if fetch and mode == 'fetch-error':
 if fetch and mode == 'wrong-fetch':
     raise SystemExit(0)
 if query:
-    args = [os.environ['FIELD3_REMOTE'] if item == 'origin' else item for item in args]
+    args = [os.environ['FIELD3_REMOTE']
+            if item in ('origin', os.environ['FIELD3_ADDRESS']) else item for item in args]
 if fetch:
     args = [os.environ['FIELD3_REMOTE'] if item == os.environ['FIELD3_ADDRESS'] else item
             for item in args]
@@ -338,29 +340,125 @@ raise SystemExit(result.returncode)
         self.publish_fixture_main()
         self.transport("normal")
         self.git(self.project, "remote", "set-url", "--", "origin", "-field3-origin")
-        with patch.dict(os.environ, {"FIELD3_ADDRESS": "-field3-origin"}):
+        before = self.snapshot()
+        with patch.object(self.setup, "origin_git", wraps=self.setup.origin_git) as verify, \
+                self.assertRaises(cli.Failure):
+            self.setup.check_origin(self.project, False)
+        verify.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.log.exists(), "unsupported origin reached the verifier")
+        address = str(self.remote.resolve())
+        self.git(self.project, "remote", "set-url", "origin", address)
+        with patch.dict(os.environ, {"FIELD3_ADDRESS": address}):
             self.setup.check_origin(self.project, False)
         calls = [json.loads(line)["args"] for line in self.log.read_text().splitlines()]
         fetches = [args for args in calls if "fetch" in args]
         self.assertEqual(len(fetches), 1)
         self.assertIn("--", fetches[0])
-        self.assertLess(fetches[0].index("--"), fetches[0].index("-field3-origin"))
+        self.assertLess(fetches[0].index("--"), fetches[0].index(address))
 
     def test_preflight_cli_checks_before_acquisition(self) -> None:
-        self.publish_fixture_main()
+        commit = self.publish_fixture_main()
         before = self.snapshot()
+        output = io.StringIO()
         with patch.object(self.setup, "check_tooling", return_value=False), \
                 patch.object(self.setup.versions, "prepare") as prepare, \
-                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stdout(output), \
                 contextlib.redirect_stderr(io.StringIO()):
             try:
                 code = self.setup.main(["--json", "preflight", "--project", str(self.project)])
             except SystemExit as error:
                 code = error.code
         self.assertEqual(code, 0, "FIELD3: opening preflight command must accept committed main")
+        body = json.loads(output.getvalue())
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["read_only"])
+        self.assertEqual(body["origin_main"], "verified commit")
+        self.assertEqual(body["project"], str(self.project.resolve()))
+        self.assertEqual(body["main_commit"], commit)
         prepare.assert_not_called()
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(list(self.scratch.iterdir()), [])
+
+        alias = self.base / "project alias"
+        alias.symlink_to(self.project, target_is_directory=True)
+        output = io.StringIO()
+        with patch.object(self.setup, "check_tooling", return_value=False), \
+                patch.object(self.setup.versions, "prepare") as prepare, \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            code = self.setup.main(["--json", "preflight", "--project", str(alias)])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue())["project"], str(self.project.resolve()))
+        self.assertEqual(json.loads(output.getvalue())["main_commit"], commit)
+        prepare.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_direct_found_rechecks_origin_after_successful_preflight(self) -> None:
+        self.publish_fixture_main()
+        self.seed_work()
+        with patch.object(self.setup, "check_tooling", return_value=False):
+            result = self.setup.step_preflight(argparse.Namespace(project=str(self.project)))
+        self.assertEqual(result["origin_main"], "verified commit")
+        empty = self.base / "different empty origin.git"
+        self.git(self.base, "init", "--bare", "-b", "main", str(empty))
+        self.git(self.project, "remote", "set-url", "origin", str(empty))
+        # Pasted or stored output is data, never a way to skip the fresh check.
+        (self.project / "preflight-result.json").write_text(json.dumps(result))
+        before = self.snapshot()
+        parser = argparse.ArgumentParser()
+        self.setup.setup(parser)
+        args = parser.parse_args(["found", "--project", str(self.project), "--dry-run",
+                                  "--development", "--kit-ref", "a" * 40])
+        with patch.object(self.setup, "check_tooling", return_value=False), \
+                patch.object(self.setup.versions, "prepare") as prepare, \
+                self.assertRaises(cli.Failure) as raised:
+            self.setup.step_found(args)
+        self.assertIn("origin has no main", str(raised.exception))
+        prepare.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_found_metadata_identifies_fresh_main_and_actual_write_mode(self) -> None:
+        commit = self.publish_fixture_main()
+        self.seed_work()
+        kit = self.base / "installed-plugin"
+        shutil.copytree(ROOT / "kit", kit,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "version.json"))
+        spec = importlib.util.spec_from_file_location(
+            "found_metadata_release_fixture", ROOT / "tests/lib/version-fixture.py")
+        assert spec is not None and spec.loader is not None
+        fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture)
+        parser = argparse.ArgumentParser()
+        self.setup.setup(parser)
+        with patch.dict(os.environ, {"AI_LOOP_KIT_DATA": str(self.base / "data")}):
+            release = fixture.release(kit, self.project, publish=False)
+            self.assertNotEqual(commit, release.commit,
+                                "project main metadata must not use the kit release SHA")
+            for dry_run in (True, False):
+                arguments = ["found", "--project", str(self.project), "--kit-dir", str(kit),
+                             "--language", "python", "--test-command", "true"]
+                if dry_run:
+                    arguments.append("--dry-run")
+                args = parser.parse_args(arguments)
+                before = self.snapshot()
+                prepared = dataclasses.replace(release, dry_run=dry_run)
+                with self.subTest(dry_run=dry_run), \
+                        patch.object(self.setup, "check_tooling", return_value=False), \
+                        patch.object(self.setup.versions, "prepare", return_value=prepared):
+                    result = self.setup.step_found(args)
+                    self.assertEqual(result["project"], str(self.project.resolve()))
+                    self.assertEqual(result["main_commit"], commit)
+                    self.assertEqual(result["origin_main"], "verified commit")
+                    self.assertIs(result["read_only"], dry_run)
+                    self.assertEqual(result["kit_revision"], release.commit)
+                    if dry_run:
+                        self.assertEqual(self.snapshot(), before)
+                        self.assertFalse(release.path.exists())
+                    else:
+                        self.assertTrue((self.project / "AGENTS.md").exists())
+                        self.assertTrue(release.path.exists())
+                self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_own_origin_stops_before_remote_contact(self) -> None:
         with patch.object(self.setup, "git_out", return_value="https://example.test/kit.git"), \
@@ -371,6 +469,135 @@ raise SystemExit(result.returncode)
         run.assert_not_called()
         popen.assert_not_called()
 
+
+    def test_verifier_discards_caller_git_routing_and_local_configuration(self) -> None:
+        injected = {
+            "GIT_DIR": "/synthetic/project/.git",
+            "GIT_WORK_TREE": "/synthetic/project",
+            "GIT_COMMON_DIR": "/synthetic/common",
+            "GIT_INDEX_FILE": "/synthetic/index",
+            "GIT_OBJECT_DIRECTORY": "/synthetic/objects",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/synthetic/alternates",
+            "GIT_CONFIG": "/synthetic/local-config",
+            "GIT_CONFIG_PARAMETERS": "'credential.helper=synthetic-helper'",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.sshCommand",
+            "GIT_CONFIG_VALUE_0": "synthetic-ssh",
+            "GIT_CONFIG_KEY_9": "credential.helper",
+            "GIT_CONFIG_VALUE_9": "synthetic-helper",
+            "GIT_CONFIG_GLOBAL": "/synthetic/person-global",
+            "GIT_CONFIG_SYSTEM": "/synthetic/trusted-system",
+        }
+        with patch.dict(os.environ, injected), \
+                patch.object(self.setup.subprocess, "Popen") as start:
+            start.return_value.communicate.return_value = ("", "")
+            start.return_value.returncode = 0
+            self.setup.origin_git(self.scratch, ["init", "--quiet"], 5)
+        environment = start.call_args.kwargs["env"]
+        for name in injected:
+            if name in {"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}:
+                self.assertEqual(environment[name], injected[name])
+            else:
+                self.assertFalse(name in environment,
+                                 "caller Git state reached clean verifier: " + name)
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+
+    def test_origin_query_does_not_use_project_credential_helper(self) -> None:
+        self.publish_fixture_main()
+        marker = self.base / "credential-helper-ran"
+        helper = self.base / "credential-helper.py"
+        helper.write_text("from pathlib import Path\nPath(" + repr(str(marker)) +
+                          ").write_text('unexpected credential access')\n")
+        configured = "!" + str(sys.executable) + " " + str(helper)
+        self.git(self.project, "config", "credential.helper", configured)
+        original = self.setup.origin_git
+        query_folders: list[Path] = []
+
+        def checked_origin(folder: Path, arguments: list[str], limit: int,
+                           **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if "ls-remote" in arguments:
+                query_folders.append(folder.resolve())
+                # A deterministic stand-in makes consulting project-local credentials visible.
+                local_helper = (self.git(folder, "config", "--local", "--get-all",
+                                         "credential.helper")
+                                if folder.resolve() == self.project.resolve() else "")
+                if local_helper:
+                    subprocess.run([str(sys.executable), str(helper)],
+                                   stdin=subprocess.DEVNULL, check=True, timeout=5)
+            return cast(subprocess.CompletedProcess[str],
+                        original(folder, arguments, limit, **kwargs))
+
+        with patch.object(self.setup, "origin_git", side_effect=checked_origin):
+            self.setup.check_origin(self.project, False)
+        self.assertEqual(len(query_folders), 1)
+        self.assertNotEqual(query_folders[0], self.project.resolve())
+        self.assertFalse(marker.exists(), "project credential helper was consulted")
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+
+    def test_external_origin_helper_is_refused_before_its_sentinel(self) -> None:
+        marker = self.base / "ext-helper-ran"
+        helper = self.base / "remote-helper.sh"
+        helper.write_text("#!/bin/sh\nprintf hit > '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o755)
+        self.git(self.base, "config", "--global", "protocol.ext.allow", "always")
+        self.git(self.project, "remote", "set-url", "origin", "ext::" + str(helper))
+        before = self.snapshot()
+        with self.assertRaises(cli.Failure):
+            self.setup.check_origin(self.project, False)
+        self.assertFalse(marker.exists(), "origin launched its external helper")
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_custom_helper_and_trusted_url_rewrite_cannot_escape_finite_protocols(self) -> None:
+        marker = self.base / "custom-helper-ran"
+        executables = self.base / "git-exec"
+        executables.mkdir()
+        helper = executables / "git-remote-synthetic"
+        helper.write_text("#!/bin/sh\nprintf hit > '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o755)
+        self.git(self.base, "config", "--global", "protocol.synthetic.allow", "always")
+        for rewritten in (False, True):
+            with self.subTest(rewritten=rewritten):
+                marker.unlink(missing_ok=True)
+                address = "https://synthetic.invalid/project" if rewritten else "synthetic::project"
+                self.git(self.project, "remote", "set-url", "origin", address)
+                if rewritten:
+                    self.git(self.base, "config", "--global", "url.synthetic::.insteadOf",
+                             "https://synthetic.invalid/")
+                with patch.dict(os.environ, {"GIT_EXEC_PATH": str(executables),
+                                             "GIT_ALLOW_PROTOCOL": "synthetic"}), \
+                        self.assertRaises(cli.Failure):
+                    self.setup.check_origin(self.project, False)
+                self.assertFalse(marker.exists(), "rewritten/custom origin launched helper")
+                self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_local_source_uploadpack_configuration_does_not_execute_hook(self) -> None:
+        commit = self.publish_fixture_main()
+        marker = self.base / "uploadpack-hook-ran"
+        helper = self.base / "pack-hook.sh"
+        helper.write_text("#!/bin/sh\nprintf hit > '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o755)
+        self.git(self.remote, "config", "uploadpack.packObjectsHook", str(helper))
+        with patch.dict(os.environ, {"GIT_NO_LAZY_FETCH": "0"}):
+            self.assertEqual(self.setup.check_origin(self.project, False), commit)
+        self.assertFalse(marker.exists(), "local source upload-pack executed its hook")
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_verifier_pins_protocols_exec_path_and_no_lazy_fetch(self) -> None:
+        with patch.dict(os.environ, {"GIT_EXEC_PATH": "/synthetic/exec",
+                                     "GIT_ALLOW_PROTOCOL": "ext:synthetic",
+                                     "GIT_NO_LAZY_FETCH": "0"}), \
+                patch.object(self.setup.subprocess, "Popen") as start:
+            start.return_value.communicate.return_value = ("", "")
+            start.return_value.returncode = 0
+            self.setup.origin_git(self.scratch, ["init", "--quiet"], 5)
+        environment = start.call_args.kwargs["env"]
+        self.assertFalse("GIT_EXEC_PATH" in environment, "exec-path injection reached verifier")
+        self.assertEqual(environment["GIT_ALLOW_PROTOCOL"], "https:ssh:file")
+        self.assertEqual(environment["GIT_PROTOCOL_FROM_USER"], "0")
+        self.assertEqual(environment["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(environment["GIT_CONFIG_GLOBAL"], str(self.config))
 
 if __name__ == "__main__":
     unittest.main()

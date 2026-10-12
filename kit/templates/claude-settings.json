@@ -114,6 +114,21 @@
       "denyWrite": [
         "{{KIT_DIR}}"
       ]
-    }
+    },
+    "excludedCommands": [
+      "python3 -I \"{{KIT_DIR}}/scripts/setup.py\" preflight *",
+      "python3 -I \"{{KIT_DIR}}/scripts/setup.py\" found *",
+      "python3 -I \"{{KIT_DIR}}/scripts/setup.py\" first-piece *",
+      "python3 -I \"{{KIT_DIR}}/scripts/setup.py\" github labels *",
+      "python3 -I \"{{KIT_DIR}}/scripts/setup.py\" github issue *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" capture *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" report *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" spec *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" answer *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" comment *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" drop *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" labels *",
+      "python3 -I \"{{KIT_DIR}}/scripts/gate.py\" move-record *"
+    ]
   }
 }

@@ -27,16 +27,24 @@
 # stop founding. Nor do the tools the walk-through looks with, which it always
 # reports, with the install command for each one missing.
 
+# --required-only reports founding prerequisites and origin identity without
+# recipe or optional walk-through executable probes. Setup uses this mode.
+
 set -eu
 
 recipe=""
 for_run=no
+required_only=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --recipe)
       recipe=${2:-}
-      [ -n "$recipe" ] || { echo "usage: check-tooling.sh [--for-run] [--recipe <recipe file>]" >&2; exit 2; }
+      [ -n "$recipe" ] || { echo "usage: check-tooling.sh [--for-run] [--required-only] [--recipe <recipe file>]" >&2; exit 2; }
       shift 2
+      ;;
+    --required-only)
+      required_only=yes
+      shift
       ;;
     --for-run)
       for_run=yes
@@ -48,7 +56,7 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "usage: check-tooling.sh [--for-run] [--recipe <recipe file>]" >&2
+      echo "usage: check-tooling.sh [--for-run] [--required-only] [--recipe <recipe file>]" >&2
       exit 2
       ;;
   esac
@@ -188,6 +196,21 @@ fi
 
 if [ "$kit_origin" = yes ]; then
   echo "This project still points at the kit's own repository, $KIT_REPOSITORY: no piece is opened there and nothing is pushed there. Ask for the person's own repository, or carry on with none."
+fi
+
+# An excluded setup call reports only required tools and the origin guard.
+# Recipe and walk-through discovery can execute project-installed programs.
+if [ "$required_only" = yes ]; then
+  if [ "$blocked" -ne 0 ]; then
+    echo "A tool the kit needs to found your pieces is not ready." >&2
+    exit 1
+  fi
+  if [ "$for_run" = yes ] && [ "$kit_origin" = yes ]; then
+    echo "A run would push to the kit's own repository, $KIT_REPOSITORY, so it will not start." >&2
+    exit 3
+  fi
+  echo "Every tool the kit needs to found your pieces is ready."
+  exit 0
 fi
 
 # 4. The tools a recipe's checks run, only when a recipe is named. A recipe
