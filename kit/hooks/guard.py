@@ -54,12 +54,14 @@ writes in a worktree. `worktree.sh` writes the same string.
 
 from __future__ import annotations
 
+import contextlib
 import glob
 import importlib.util
 import json
 import os
 import re
 import shlex
+import shutil
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -351,18 +353,19 @@ def write_block(path: Path, ctx: Context) -> Decision | None:
                 f"{'/'.join(parts)} is one of the guards. Agents never write it.",
                 "tell the person which file needs a change and why.",
             )
-    try:
-        kit = _real(loop_paths.kit_dir(ctx.main_root or ctx.cwd, ctx.env))
-    except loop_paths.PathError:
-        return None
-    inside = any(
-        _is_under(kit, a) for a in (ctx.main_root, ctx.work_root) if a is not None
-    )
-    if not inside and _is_under(path, kit):
-        return refuse(
-            "the installed kit folder holds the hooks and the gate. Agents never write it.",
-            "tell the person which kit file needs a change and why.",
+    kits = [HERE.parent]
+    with contextlib.suppress(loop_paths.PathError):
+        kits.append(_real(loop_paths.kit_dir(ctx.main_root or ctx.cwd, ctx.env)))
+    for kit in kits:
+        inside = any(
+            _is_under(kit, anchor) for anchor in (ctx.main_root, ctx.work_root)
+            if anchor is not None
         )
+        if not inside and _is_under(path, kit):
+            return refuse(
+                "the installed kit folder holds the hooks and the gate. Agents never write it.",
+                "tell the person which kit file needs a change and why.",
+            )
     return None
 
 
@@ -1500,6 +1503,157 @@ def check_words(
     return _first_decision(found)
 
 
+_DOOR_SETUP = {
+    "preflight": set(),
+    "found": {"--language", "--test-command", "--billing-mode", "--spend-cap-piece",
+              "--spend-cap-run", "--repo-visibility", "--plan", "--kit-ref"},
+    "first-piece": {"--test-command", "--kit-ref"},
+    "github labels": set(),
+    "github issue": {"--title", "--body-file"},
+}
+_DOOR_GATE = {
+    "capture": {"--title", "--body-file", "--type"},
+    "report": set(), "spec": {"--body-file"},
+    "answer": {"--question", "--answer", "--by"},
+    "comment": {"--text", "--body-file"}, "drop": {"--reason"},
+    "labels": set(), "move-record": {"--reason", "--option"},
+}
+
+
+def _door_arguments(script: str, arguments: Sequence[str], kit: Path, ctx: Context) -> bool:
+    if not arguments:
+        return False
+    verb, tail = arguments[0], list(arguments[1:])
+    if script == "setup.py" and verb == "github":
+        if not tail:
+            return False
+        verb += " " + tail.pop(0)
+    table = _DOOR_SETUP if script == "setup.py" else _DOOR_GATE
+    if verb not in table:
+        return False
+    value_flags = table[verb] | ({"--project", "--kit-dir"} if script == "setup.py" else set())
+    switches = {"--json"}
+    if verb != "report":
+        switches.add("--dry-run")
+    if script == "setup.py" and verb in {"found", "first-piece"}:
+        switches.add("--development")
+    if script == "gate.py" and verb == "report":
+        switches.add("--brief")
+    if script == "gate.py" and verb == "answer":
+        switches.add("--parked")
+    if script == "gate.py" and verb == "labels":
+        switches.add("--create")
+    seen: dict[str, str] = {}
+    positional: list[str] = []
+    while tail:
+        token = tail.pop(0)
+        if token.startswith("--"):
+            flag, separator, value = token.partition("=")
+            if flag in seen and flag != "--option":
+                return False
+            if flag in switches and not separator:
+                seen[flag] = ""
+            elif flag in value_flags:
+                if not separator:
+                    if not tail or tail[0].startswith("-"):
+                        return False
+                    value = tail.pop(0)
+                if not value:
+                    return False
+                seen[flag] = value
+                if flag == "--option" and ("=" not in value or not value.partition("=")[0]):
+                    return False
+            else:
+                return False
+        elif token.startswith("-"):
+            return False
+        else:
+            positional.append(token)
+    if "--kit-dir" in seen and seen["--kit-dir"] != str(kit):
+        return False
+    if script == "setup.py":
+        if "--project" in seen:
+            target = Path(seen["--project"])
+            target = target if target.is_absolute() else ctx.cwd / target
+            if ctx.work_root is None or target.resolve() != ctx.work_root:
+                return False
+        if positional:
+            return False
+        return verb != "github issue" or {"--title", "--body-file"} <= seen.keys()
+    count = {"capture": (0, 1), "report": (0, 1), "spec": (1, 1), "answer": (1, 1),
+             "comment": (1, 1), "drop": (1, 1), "labels": (0, 0), "move-record": (2, 2)}[verb]
+    if not count[0] <= len(positional) <= count[1]:
+        return False
+    if positional and (not positional[0].lstrip("#").isdigit()
+                       or int(positional[0].lstrip("#")) < 1):
+        return False
+    if verb == "move-record" and positional[1] not in {"shaping", "dropped", "approval"}:
+        return False
+    required = {"spec": {"--body-file"}, "answer": {"--question", "--answer", "--by"},
+                "drop": {"--reason"}, "labels": {"--create"}}.get(verb, set())
+    if not required <= seen.keys():
+        return False
+    if verb == "capture" and not positional and "--body-file" not in seen:
+        return False
+    if verb == "capture" and seen.get("--type", "feature") not in {"feature", "bug", "chore"}:
+        return False
+    return verb != "comment" or (("--text" in seen) != ("--body-file" in seen))
+
+
+def check_installed_door(command: str, ctx: Context, depth: int) -> Decision | None:
+    """Only isolated, literal installed calls can use a sandbox exclusion."""
+    try:
+        words = _lex_shell(command)
+    except ValueError:
+        return None  # The ordinary parser reports malformed syntax.
+    scripts = [i for i, word in enumerate(words) if program_name(word) in {"setup.py", "gate.py"}]
+    if not any("-I" in words[:index] for index in scripts):
+        return None  # Ordinary non-isolated commands remain sandboxed.
+    bad = refuse(
+        "this isolated setup or gate call is outside the finite installed command boundary.",
+        "use the literal installed python3 -I setup or non-executing gate command on its own.",
+    )
+    if any(ord(char) < 32 for char in command):
+        return bad
+    if depth or len(words) < 4 or words[:2] != ["python3", "-I"]:
+        return bad
+    if any(_shell_expands(word) for word in words):
+        return bad
+    if any(re.fullmatch(r"[();&|<>]+", word) for word in words):
+        return bad
+    if any(ctx.env.get(name) or ctx.vars.get(name) for name in
+           ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "BASH_ENV", "ENV")):
+        return bad
+    lookup = ctx.env.get("PATH", os.environ.get("PATH", os.defpath))
+    try:
+        for directory in lookup.split(os.pathsep):
+            folder = Path(directory)
+            if not directory or not folder.is_absolute():
+                return bad
+            if any(_is_under(folder.resolve(), anchor) for anchor in
+                   (ctx.main_root, ctx.work_root) if anchor is not None):
+                return bad
+        python = shutil.which("python3", path=lookup)
+        if python is None or Path(python).resolve() != Path(sys.executable).resolve():
+            return bad
+    except (OSError, RuntimeError, ValueError):
+        return bad
+    configuration = _git_environment_config(ctx)
+    if configuration is not None:
+        return configuration
+    kit = HERE.parent
+    script = program_name(words[2])
+    expected = kit / "scripts" / script
+    try:
+        if script not in {"setup.py", "gate.py"} or words[2] != str(expected):
+            return bad
+        if expected.is_symlink() or expected.resolve(strict=True) != expected:
+            return bad
+    except (OSError, RuntimeError):
+        return bad
+    return None if _door_arguments(script, words[3:], kit, ctx) else bad
+
+
 def check_command(
     command: str, ctx: Context, cwd: Path | None = None, depth: int = 0
 ) -> Decision | None:
@@ -1511,7 +1665,7 @@ def check_command(
             "the command cannot be read, for example because a quote is not closed.",
             "write the command in a simpler form.",
         )
-    found: list[Decision | None] = []
+    found: list[Decision | None] = [check_installed_door(command, ctx, depth)]
     stack: list[Path] = []
     previous: list[Path] = []
     for simple in simples:

@@ -1672,5 +1672,96 @@ class FieldRuntimeGitConfig(Cases):
         ).kind, ASK)
         self.assertEqual(bash("printf hello", env=env).kind, ALLOW)
 
+
+class InstalledNonExecutingDoors(Cases):
+    def setUp(self) -> None:
+        from unittest.mock import patch
+
+        environment = patch.dict(P.env, {"PATH": str(Path(sys.executable).parent)})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def command(self, script: str, arguments: str, *, isolated: bool = True) -> str:
+        trusted = guard.HERE.parent / "scripts" / script
+        return "python3 " + ("-I " if isolated else "") + '"' + str(trusted) + '" ' + arguments
+
+    def test_exact_nonexecuting_doors_ignore_mutable_plugin_root(self) -> None:
+        environment = dict(P.env, CLAUDE_PLUGIN_ROOT="/tmp/impostor-kit",
+                           PATH=str(Path(sys.executable).parent))
+        for script, arguments in (
+            ("setup.py", "preflight"), ("setup.py", "found --dry-run"),
+            ("setup.py", "first-piece"), ("setup.py", "github labels"),
+            ("setup.py", "github issue --title fixture --body-file fixture.md"),
+            ("gate.py", "capture --title fixture --body-file fixture.md"),
+            ("gate.py", "report --brief"), ("gate.py", "spec 3 --body-file fixture.md"),
+            ("gate.py", "answer 3 --question fixture --answer fixture --by person"),
+            ("gate.py", "comment 3 --text fixture"), ("gate.py", "drop 3 --reason fixture"),
+            ("gate.py", "labels --create"), ("gate.py", "move-record 3 shaping --reason fixture"),
+            ("gate.py", "move-record 3 dropped --reason fixture"),
+            ("gate.py", "move-record 3 approval"),
+        ):
+            with self.subTest(script=script, arguments=arguments):
+                got = bash(self.command(script, arguments), env=environment)
+                self.assertEqual(got.kind, ALLOW, got.reason)
+
+    def test_privileged_impostors_compounds_and_startup_injection_refuse(self) -> None:
+        setup = self.command("setup.py", "preflight")
+        gate = self.command("gate.py", "report")
+        for command in (
+            "python3 -I /tmp/setup.py preflight", "python3 -I /tmp/gate.py report",
+            setup + " && printf unsafe", setup + "; " + gate,
+            gate + " > output.json", "PYTHONPATH=/tmp " + setup,
+            "PYTHONSTARTUP=/tmp/startup.py " + gate,
+            "env CLAUDE_PLUGIN_ROOT=/tmp " + gate,
+            gate.replace("python3 -I", "python3 -I -c 'print(1)'"),
+            gate.replace("python3 -I", "python3 -I -m runpy"),
+            self.command("setup.py", "found --kit-dir /tmp/impostor-kit"),
+            self.command("setup.py", "first-piece --kit-dir /tmp/impostor-kit"),
+            self.command("gate.py", "move-record 3 ready --reason shaping"),
+            self.command("gate.py", "report --option 'run=payload'"),
+        ):
+            with self.subTest(command=command):
+                got = bash(command, env=P.env)
+                self.assertEqual(got.kind, DENY, got.reason)
+
+    def test_privileged_judge_routes_refuse_but_ordinary_routes_stay_sandboxed(self) -> None:
+        for arguments in ("check-main", "branch 3", "move 3 ready", "move 3 building",
+                          "move 3 review"):
+            with self.subTest(arguments=arguments):
+                privileged = bash(self.command("gate.py", arguments))
+                self.assertEqual(privileged.kind, DENY, privileged.reason)
+                ordinary = bash(self.command("gate.py", arguments, isolated=False))
+                self.assertEqual(ordinary.kind, ALLOW, ordinary.reason)
+
+    def test_sync_and_person_merge_guards_survive_isolated_doors(self) -> None:
+        for arguments in ("sync --confirm synthetic-digest", "sync --dry-run",
+                          "--json sync --confirm synthetic-digest", "move 3 done"):
+            with self.subTest(arguments=arguments):
+                got = bash(self.command("gate.py", arguments))
+                self.assertEqual(got.kind, DENY, got.reason)
+
+    def test_privileged_python_path_shadow_refuses(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="shadow-python-") as temporary:
+            executable = Path(temporary) / "python3"
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o755)
+            environment = dict(P.env, PATH=temporary)
+            got = bash(self.command("setup.py", "preflight"), env=environment)
+            self.assertEqual(got.kind, DENY, got.reason)
+
+    def test_privileged_project_override_refuses(self) -> None:
+        for option in ("--project /tmp/other-project", "--project=/tmp/other-project"):
+            with self.subTest(option=option):
+                got = bash(self.command("setup.py", "preflight " + option), env=P.env)
+                self.assertEqual(got.kind, DENY, got.reason)
+
+    def test_actual_installed_root_stays_protected_when_plugin_env_changes(self) -> None:
+        import shlex
+
+        environment = dict(P.env, CLAUDE_PLUGIN_ROOT="/tmp/impostor-kit")
+        installed = guard.HERE.parent / "templates/first-piece.md"
+        got = bash("touch " + shlex.quote(str(installed)), env=environment)
+        self.assertEqual(got.kind, DENY, got.reason)
+
 if __name__ == "__main__":
     unittest.main()

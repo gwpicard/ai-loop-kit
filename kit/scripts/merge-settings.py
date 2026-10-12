@@ -70,8 +70,29 @@ def merge(
     return mine
 
 
+def literal_kit_root(value: str) -> str:
+    """Keep installed command patterns literal before rendering or writing."""
+    if not Path(value).is_absolute():
+        raise cli.Failure(
+            "KIT_DIR must be an absolute installed kit path",
+            next_command="give --set KIT_DIR=/absolute/path/to/kit", code=cli.ExitCode.USAGE,
+        )
+    canonical = str(Path(value).resolve())
+    forbidden = set("*?[]{}\"\\$`;|&()<>")
+    if any(char in forbidden or ord(char) < 32 or ord(char) == 127
+           for char in value + canonical):
+        raise cli.Failure(
+            "KIT_DIR cannot contain shell pattern, quote or control characters",
+            next_command="use an installed kit path with literal characters",
+            code=cli.ExitCode.REFUSED,
+        )
+    return canonical
+
+
 def render(text: str, values: dict[str, str]) -> str:
     for name, value in values.items():
+        if name == "KIT_DIR":
+            value = literal_kit_root(value)
         text = text.replace("{{" + name + "}}", value)
     return text
 
@@ -94,13 +115,7 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
                 code=cli.ExitCode.USAGE,
             )
         if name == "KIT_DIR":
-            if not Path(value).is_absolute():
-                raise cli.Failure(
-                    "KIT_DIR must be an absolute installed kit path",
-                    next_command="give --set KIT_DIR=/absolute/path/to/kit",
-                    code=cli.ExitCode.USAGE,
-                )
-            value = str(Path(value).resolve())
+            value = literal_kit_root(value)
         values[name] = value
     template_path, target = Path(args.template), Path(args.target)
     try:

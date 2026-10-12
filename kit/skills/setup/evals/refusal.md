@@ -41,3 +41,11 @@ retrieval through a stand-in. The person types:
 - the agent runs a recovery command or pushes main;
 - a ref advertisement is accepted without retrieving its exact commit;
 - verification scratch is retained, or a query failure is called an empty remote.
+
+9. Script calls use `python3 -I` with the literal absolute installed path in double
+   quotes. The skill does not issue an environment-variable, wrapper or copied-kit
+   call to escape the sandbox. Judges and ordinary moves stay sandboxed.
+10. A sandbox refusal shows the installed retry for the person in a separate
+    terminal. The skill does not run it with `!` in the session. Origin queries and
+    retrievals use clean scratch with caller Git routing and local configuration
+    injection removed; the project credential helper is never called.

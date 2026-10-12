@@ -163,34 +163,19 @@ assert question is not None, "FIELD3: founding question batch is missing"
 assert actions[0].end() + preflight.start() < question.start(), "FIELD3: questions precede stop"
 PYORDER
 
-# The person route is conversational guidance, never cached founding authority.
-python3 - "$SKILL" <<'PYPERSON' || fail "setup omits safe person-run continuation"
-import re
+# FIELD8: only installed isolated non-executing doors receive exclusions.
+python3 - "$SKILL" <<'PYDOORS' || fail "setup omits narrow installed-script guidance"
 import sys
 from pathlib import Path
 text = Path(sys.argv[1]).read_text()
-assert "## Person-run continuation\n" in text, "the attended branch is missing"
-person = text.split("## Person-run continuation\n", 1)[1].split("\n## ", 1)[0]
-assert re.search(r'!python3[^\n]*setup\.py[^\n]*preflight[^\n]*--project[^\n]*--json', person), \
-    "show the exact person preflight command with project and JSON output"
-for field in ("ok", "project", "main_commit", "origin_main", "read_only"):
-    assert field in person, "person output must identify its verified project and commit"
-for condition in ("missing", "failed", "stale", "different-project", "person-confirmed"):
-    assert condition in person, "the result must be current and confirmed for this project"
-assert "before questions" in person.lower(), "person failure must stop before questions"
-assert re.search(r'!python3[^\n]*setup\.py[^\n]*found[^\n]*--dry-run', person), \
-    "person mode must also run dry founding outside the agent"
-commands = re.findall(r'!python3[^\n]*setup\.py[^\n]*found[^\n]*', person)
-assert any("--dry-run" not in command for command in commands), \
-    "person mode must also show the actual founding command"
-assert "same answers" in person and "same version selection" in person, \
-    "both founding commands must retain answers and immutable selection"
-assert "fresh origin check" in person and "never execute" in person, \
-    "the agent must not execute the person commands or skip verification"
-assert "own terminal" in person and "stricter" in person, "strict policies need a safe fallback"
-assert "no cache" in person.lower() and "no bypass" in person.lower(), \
-    "recorded conversation output is not machine authority"
-PYPERSON
+assert 'python3 -I "<installed-kit>/scripts/setup.py" preflight' in text
+assert 'python3 -I "<installed-kit>/scripts/setup.py" found --dry-run' in text
+assert 'python3 -I "<installed-kit>/scripts/setup.py" first-piece' in text
+assert "exact installed" in text and "non-executing" in text
+assert "judges" in text and "sandbox" in text
+assert "separate terminal" in text and "not with !" in text
+assert "--development --kit-ref" in text
+PYDOORS
 
 echo "First half of /setup:"
 

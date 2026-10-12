@@ -15,7 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,7 +127,8 @@ if fetch and mode == 'fetch-error':
 if fetch and mode == 'wrong-fetch':
     raise SystemExit(0)
 if query:
-    args = [os.environ['FIELD3_REMOTE'] if item == 'origin' else item for item in args]
+    args = [os.environ['FIELD3_REMOTE']
+            if item in ('origin', os.environ['FIELD3_ADDRESS']) else item for item in args]
 if fetch:
     args = [os.environ['FIELD3_REMOTE'] if item == os.environ['FIELD3_ADDRESS'] else item
             for item in args]
@@ -459,6 +460,70 @@ raise SystemExit(result.returncode)
         run.assert_not_called()
         popen.assert_not_called()
 
+
+    def test_verifier_discards_caller_git_routing_and_local_configuration(self) -> None:
+        injected = {
+            "GIT_DIR": "/synthetic/project/.git",
+            "GIT_WORK_TREE": "/synthetic/project",
+            "GIT_COMMON_DIR": "/synthetic/common",
+            "GIT_INDEX_FILE": "/synthetic/index",
+            "GIT_OBJECT_DIRECTORY": "/synthetic/objects",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/synthetic/alternates",
+            "GIT_CONFIG": "/synthetic/local-config",
+            "GIT_CONFIG_PARAMETERS": "'credential.helper=synthetic-helper'",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.sshCommand",
+            "GIT_CONFIG_VALUE_0": "synthetic-ssh",
+            "GIT_CONFIG_KEY_9": "credential.helper",
+            "GIT_CONFIG_VALUE_9": "synthetic-helper",
+            "GIT_CONFIG_GLOBAL": "/synthetic/person-global",
+            "GIT_CONFIG_SYSTEM": "/synthetic/trusted-system",
+        }
+        with patch.dict(os.environ, injected), \
+                patch.object(self.setup.subprocess, "Popen") as start:
+            start.return_value.communicate.return_value = ("", "")
+            start.return_value.returncode = 0
+            self.setup.origin_git(self.scratch, ["init", "--quiet"], 5)
+        environment = start.call_args.kwargs["env"]
+        for name in injected:
+            if name in {"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}:
+                self.assertEqual(environment[name], injected[name])
+            else:
+                self.assertFalse(name in environment,
+                                 "caller Git state reached clean verifier: " + name)
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+
+    def test_origin_query_does_not_use_project_credential_helper(self) -> None:
+        self.publish_fixture_main()
+        marker = self.base / "credential-helper-ran"
+        helper = self.base / "credential-helper.py"
+        helper.write_text("from pathlib import Path\nPath(" + repr(str(marker)) +
+                          ").write_text('unexpected credential access')\n")
+        configured = "!" + str(sys.executable) + " " + str(helper)
+        self.git(self.project, "config", "credential.helper", configured)
+        original = self.setup.origin_git
+        query_folders: list[Path] = []
+
+        def checked_origin(folder: Path, arguments: list[str], limit: int,
+                           **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if "ls-remote" in arguments:
+                query_folders.append(folder.resolve())
+                # A deterministic stand-in makes consulting project-local credentials visible.
+                local_helper = (self.git(folder, "config", "--local", "--get-all",
+                                         "credential.helper")
+                                if folder.resolve() == self.project.resolve() else "")
+                if local_helper:
+                    subprocess.run([str(sys.executable), str(helper)],
+                                   stdin=subprocess.DEVNULL, check=True, timeout=5)
+            return cast(subprocess.CompletedProcess[str],
+                        original(folder, arguments, limit, **kwargs))
+
+        with patch.object(self.setup, "origin_git", side_effect=checked_origin):
+            self.setup.check_origin(self.project, False)
+        self.assertEqual(len(query_folders), 1)
+        self.assertNotEqual(query_folders[0], self.project.resolve())
+        self.assertFalse(marker.exists(), "project credential helper was consulted")
+        self.assertEqual(list(self.scratch.iterdir()), [])
 
 if __name__ == "__main__":
     unittest.main()
