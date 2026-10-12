@@ -76,7 +76,10 @@ def _development_manifest(kit: Path) -> None:
     if not isinstance(manifest, dict) or manifest.get("name") != PLUGIN:
         raise _development_error("the installed plugin is not ai-loop-kit")
     if "version" in manifest:
-        manifest_version(kit)
+        try:
+            manifest_version(kit)
+        except VersionError as error:
+            raise _development_error(str(error)) from error
 
 
 def _development_request(kit: Path, given: str) -> str:
@@ -319,13 +322,19 @@ def load(kit: Path, project: Path, *, env: Mapping[str, str] | None = None) -> d
     environment = os.environ if env is None else env
     selected = development_selection(project)
     if selected is not None:
-        _development_manifest(kit)
-        body = _read_development(_development_path(kit, project, selected, environment), selected)
-        if body is None:
-            raise _development_error(
-                "the development record is missing; verify it through explicit setup"
+        try:
+            _development_manifest(kit)
+            body = _read_development(
+                _development_path(kit, project, selected, environment), selected
             )
-        return body
+            if body is None:
+                raise _development_error(
+                    "the development record is missing; verify it through explicit setup"
+                )
+            return body
+        except VersionError as error:
+            error.next_command = _DEVELOPMENT_NEXT
+            raise
     body = _read(_path(kit, project, environment), manifest_version(kit))
     if body is None:
         raise VersionError("the stable release record is missing; verify it through setup")
@@ -333,21 +342,30 @@ def load(kit: Path, project: Path, *, env: Mapping[str, str] | None = None) -> d
 
 
 def verify(kit: Path, body: Mapping[str, Any]) -> None:
-    if body.get("mode") == "development":
-        _development_manifest(kit)
-        expected = _validated_development(dict(body), str(body.get("commit", "")))
-    else:
-        expected = _validated(dict(body), manifest_version(kit))
-    if inventory(kit) != expected["files"]:
+    development = body.get("mode") == "development"
+    try:
         if body.get("mode") == "development":
-            raise _development_error(
-                "the installed kit differs from the verified development content"
-            )
-        raise VersionError("the installed kit differs from the verified release content")
-    legacy = _legacy(kit)
-    hashes = {name: item["sha256"] for name, item in expected["files"].items()}
-    if legacy is not None and legacy != hashes:
-        raise VersionError("the legacy version record disagrees with the verified release")
+            _development_manifest(kit)
+            expected = _validated_development(dict(body), str(body.get("commit", "")))
+        else:
+            expected = _validated(dict(body), manifest_version(kit))
+        if inventory(kit) != expected["files"]:
+            if body.get("mode") == "development":
+                raise _development_error(
+                    "the installed kit differs from the verified development content"
+                )
+            raise VersionError("the installed kit differs from the verified release content")
+        legacy = _legacy(kit)
+        hashes = {name: item["sha256"] for name, item in expected["files"].items()}
+        if legacy is not None and legacy != hashes:
+            label = "release"
+            if development:
+                label = "development"
+            raise VersionError(f"the legacy version record disagrees with the verified {label}")
+    except VersionError as error:
+        if development:
+            error.next_command = _DEVELOPMENT_NEXT
+        raise
 
 
 def _git(arguments: Sequence[str], folder: Path) -> str:
@@ -495,6 +513,11 @@ def publish(prepared: Prepared) -> str:
     """Publish one completed baseline once; cooperating writers cannot replace it."""
     verify(prepared.kit, prepared.body)
 
+    def refusal(message: str) -> VersionError:
+        if prepared.body.get("mode") == "development":
+            return _development_error(message)
+        return VersionError(message)
+
     def existing_record() -> dict[str, Any] | None:
         if prepared.body.get("mode") == "development":
             return _read_development(prepared.path, prepared.commit)
@@ -503,7 +526,7 @@ def publish(prepared: Prepared) -> str:
     existing = existing_record()
     if existing is not None:
         if existing != prepared.body:
-            raise VersionError("the stable version baseline conflicts; it was not replaced")
+            raise refusal("the stable version baseline conflicts; it was not replaced")
         return "kept"
     if prepared.dry_run:
         return "would write"
@@ -511,7 +534,7 @@ def publish(prepared: Prepared) -> str:
         prepared.path.parent.mkdir(parents=True, exist_ok=True)
         for parent in (prepared.path.parent, *prepared.path.parent.parents):
             if parent.is_symlink():
-                raise VersionError("the version registry must not contain symlinks")
+                raise refusal("the version registry must not contain symlinks")
         descriptor = os.open(
             str(prepared.path) + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
         )
@@ -520,7 +543,7 @@ def publish(prepared: Prepared) -> str:
             existing = existing_record()
             if existing is not None:
                 if existing != prepared.body:
-                    raise VersionError("the stable version baseline conflicts; it was not replaced")
+                    raise refusal("the stable version baseline conflicts; it was not replaced")
                 return "kept"
             with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", dir=prepared.path.parent
@@ -533,10 +556,10 @@ def publish(prepared: Prepared) -> str:
                     os.link(pending.name, prepared.path)
                 except FileExistsError as error:
                     if existing_record() != prepared.body:
-                        raise VersionError("another writer published conflicting state") from error
+                        raise refusal("another writer published conflicting state") from error
                     return "kept"
             return "written"
         finally:
             os.close(descriptor)
     except OSError as error:
-        raise VersionError("the stable baseline could not be written; founding refused") from error
+        raise refusal("the stable baseline could not be written; founding refused") from error

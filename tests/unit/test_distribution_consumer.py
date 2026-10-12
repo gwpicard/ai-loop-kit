@@ -169,3 +169,218 @@ class DevelopmentConsumerTest(unittest.TestCase):
         self.fixture.workflow()
         (self.fixture.kit / "tool.sh").write_text("changed")
         self.assertTrue(self.check_read_only(self.fixture.kit)[0])
+
+    def test_invalid_development_manifest_version_keeps_development_recovery(self) -> None:
+        self.fixture.workflow()
+        versions.publish(self.fixture.development())
+        manifest = self.fixture.kit / ".claude-plugin/plugin.json"
+        manifest.write_text(json.dumps({"name": "ai-loop-kit", "version": "latest"}))
+        before = self.snapshot()
+        with (
+            patch.object(versions, "_acquire", side_effect=AssertionError("release acquisition")),
+            patch.object(versions, "_acquire_development",
+                         side_effect=AssertionError("development acquisition")),
+            patch.object(versions, "publish", side_effect=AssertionError("publication")),
+            self.assertRaises(versions.VersionError) as invalid,
+        ):
+            versions.load(self.fixture.kit, self.fixture.project)
+        self.assertEqual(self.snapshot(), before)
+        refusals, notices = self.check_read_only(self.fixture.kit)
+        self.assertEqual([refusal.guard for refusal in refusals], ["kit-folder"])
+        self.assertEqual(notices, [])
+        with self.assertRaises(versions.VersionError) as release:
+            versions.manifest_version(self.fixture.kit)
+        self.assertIn("release tag", release.exception.next_command)
+        self.assertIn(
+            "setup.py found --development --kit-ref <full lowercase commit SHA>",
+            invalid.exception.next_command,
+        )
+        self.assertNotIn("release tag", invalid.exception.next_command)
+        self.assertIn(invalid.exception.next_command, refusals[0].fix)
+
+    def test_development_data_home_refusals_keep_development_recovery(self) -> None:
+        self.fixture.workflow()
+        versions.publish(self.fixture.development())
+        for data in ("relative-data", str(self.fixture.project / "inside-data")):
+            with self.subTest(data=data), patch.dict(os.environ, {"AI_LOOP_KIT_DATA": data}):
+                before = self.snapshot()
+                with (
+                    patch.object(versions, "_acquire", side_effect=AssertionError("release fetch")),
+                    patch.object(versions, "_acquire_development",
+                                 side_effect=AssertionError("development fetch")),
+                    patch.object(versions, "publish", side_effect=AssertionError("publication")),
+                    self.assertRaises(versions.VersionError) as invalid,
+                ):
+                    versions.load(self.fixture.kit, self.fixture.project)
+                self.assertEqual(self.snapshot(), before)
+                self.assertIn("version data home", str(invalid.exception))
+                refusals, notices = self.check_read_only(self.fixture.kit)
+                self.assertEqual([refusal.guard for refusal in refusals], ["kit-folder"])
+                self.assertEqual(notices, [])
+                self.assertIn(
+                    "setup.py found --development --kit-ref <full lowercase commit SHA>",
+                    invalid.exception.next_command,
+                )
+                self.assertNotIn("release tag", invalid.exception.next_command)
+                self.assertIn(invalid.exception.next_command, refusals[0].fix)
+
+    def test_development_shared_file_validators_keep_development_recovery(self) -> None:
+        self.fixture.workflow()
+        prepared = self.fixture.development()
+        versions.publish(prepared)
+        original_record = prepared.path.read_bytes()
+        tool = self.fixture.kit / "tool.sh"
+        original_tool = tool.read_bytes()
+        original_mode = tool.stat().st_mode & 0o777
+        legacy = self.fixture.kit / "version.json"
+        for case in (
+            "non-regular-inventory", "unreadable-legacy", "invalid-record-inventory",
+            "disagreeing-legacy",
+        ):
+            with self.subTest(case=case):
+                body = dict(prepared.body)
+                if case == "non-regular-inventory":
+                    tool.unlink()
+                    tool.symlink_to(self.fixture.kit / ".claude-plugin/plugin.json")
+                elif case == "unreadable-legacy":
+                    legacy.write_text("broken JSON")
+                elif case == "invalid-record-inventory":
+                    body["files"] = {}
+                    prepared.path.write_text(json.dumps(body))
+                else:
+                    hashes = {name: item["sha256"] for name, item in prepared.body["files"].items()}
+                    hashes["tool.sh"] = "b" * 64
+                    legacy.write_text(json.dumps({"record": 1, "files": hashes}))
+                try:
+                    before = self.snapshot()
+                    with (
+                        patch.object(versions, "_acquire",
+                                     side_effect=AssertionError("release fetch")),
+                        patch.object(versions, "_acquire_development",
+                                     side_effect=AssertionError("development fetch")),
+                        patch.object(versions, "publish",
+                                     side_effect=AssertionError("publication")),
+                        self.assertRaises(versions.VersionError) as invalid,
+                    ):
+                        versions.verify(self.fixture.kit, body)
+                    self.assertEqual(self.snapshot(), before)
+                    expected = {
+                        "non-regular-inventory": "non-regular file",
+                        "unreadable-legacy": "legacy version record is unreadable",
+                        "invalid-record-inventory": "record has no file inventory",
+                        "disagreeing-legacy": "legacy version record disagrees with the "
+                                              "verified development",
+                    }
+                    self.assertIn(expected[case], str(invalid.exception))
+                    refusals, notices = self.check_read_only(self.fixture.kit)
+                    self.assertEqual([refusal.guard for refusal in refusals], ["kit-folder"])
+                    self.assertEqual(notices, [])
+                    if case == "disagreeing-legacy":
+                        self.assertIn("verified development", refusals[0].reason)
+                    self.assertIn(
+                        "setup.py found --development --kit-ref <full lowercase commit SHA>",
+                        invalid.exception.next_command,
+                    )
+                    self.assertNotIn("release tag", invalid.exception.next_command)
+                    self.assertIn("--development --kit-ref", refusals[0].fix)
+                finally:
+                    if case == "non-regular-inventory":
+                        tool.unlink()
+                        tool.write_bytes(original_tool)
+                        tool.chmod(original_mode)
+                    if legacy.exists():
+                        legacy.unlink()
+                    prepared.path.write_bytes(original_record)
+
+        manifest = self.fixture.kit / ".claude-plugin/plugin.json"
+        original_manifest = manifest.read_bytes()
+        manifest.write_text(json.dumps({"name": "ai-loop-kit", "version": "0.1.0"}))
+        try:
+            files = versions.inventory(self.fixture.kit)
+            hashes = {name: item["sha256"] for name, item in files.items()}
+            hashes["tool.sh"] = "b" * 64
+            legacy.write_text(json.dumps({"record": 1, "files": hashes}))
+            release_body = {
+                "schema": 1, "repository": versions.REPOSITORY, "plugin": "ai-loop-kit",
+                "version": "0.1.0", "tag": "v0.1.0", "commit": self.fixture.commit,
+                "files": files,
+            }
+            before = self.snapshot()
+            with (
+                patch.object(versions, "_acquire", side_effect=AssertionError("release fetch")),
+                patch.object(versions, "_acquire_development",
+                             side_effect=AssertionError("development fetch")),
+                patch.object(versions, "publish", side_effect=AssertionError("publication")),
+                self.assertRaises(versions.VersionError) as disagreement,
+            ):
+                versions.verify(self.fixture.kit, release_body)
+            self.assertEqual(self.snapshot(), before)
+            self.assertIn("verified release", str(disagreement.exception))
+            self.assertIn("release tag", disagreement.exception.next_command)
+        finally:
+            legacy.unlink()
+            manifest.write_bytes(original_manifest)
+
+    def test_publication_refusals_keep_selected_mode_recovery_and_state(self) -> None:
+        self.fixture.workflow()
+        prepared = self.fixture.development()
+        manifest = self.fixture.kit / ".claude-plugin/plugin.json"
+        original_manifest = manifest.read_bytes()
+        try:
+            for development in (True, False):
+                if development:
+                    candidate = prepared
+                else:
+                    manifest.write_text(json.dumps({"name": "ai-loop-kit", "version": "0.1.0"}))
+                    body = {
+                        "schema": 1, "repository": versions.REPOSITORY, "plugin": "ai-loop-kit",
+                        "version": "0.1.0", "tag": "v0.1.0", "commit": self.fixture.commit,
+                        "files": versions.inventory(self.fixture.kit),
+                    }
+                    candidate = versions.Prepared(
+                        self.fixture.kit, self.fixture.project,
+                        prepared.path.parent.parent / "releases/v0.1.0.json", body, False,
+                    )
+                versions.publish(candidate)
+                conflict = json.loads(json.dumps(candidate.body))
+                conflict["files"]["tool.sh"]["sha256"] = "b" * 64
+                candidate.path.write_text(json.dumps(conflict))
+                with self.subTest(development=development, refusal="immutable-conflict"):
+                    before = self.snapshot()
+                    with (
+                        patch.object(versions, "_acquire", side_effect=AssertionError("fetch")),
+                        patch.object(versions, "_acquire_development",
+                                     side_effect=AssertionError("development fetch")),
+                        self.assertRaises(versions.VersionError) as error,
+                    ):
+                        versions.publish(candidate)
+                    self.assertEqual(self.snapshot(), before)
+                    self.assertIn("baseline conflicts; it was not replaced", str(error.exception))
+                    if development:
+                        self.assertIn("--development --kit-ref", error.exception.next_command)
+                        self.assertNotIn("release tag", error.exception.next_command)
+                    else:
+                        self.assertIn("release tag", error.exception.next_command)
+                candidate.path.unlink()
+                with self.subTest(development=development, refusal="write-error"):
+                    before = self.snapshot()
+                    with (
+                        patch.object(versions, "_acquire", side_effect=AssertionError("fetch")),
+                        patch.object(versions, "_acquire_development",
+                                     side_effect=AssertionError("development fetch")),
+                        patch.object(os, "link",
+                                     side_effect=OSError("fixture link refusal")),
+                        self.assertRaises(versions.VersionError) as error,
+                    ):
+                        versions.publish(candidate)
+                    self.assertEqual(self.snapshot(), before)
+                    self.assertFalse(candidate.path.exists())
+                    self.assertIsInstance(error.exception.__cause__, OSError)
+                    self.assertIn("stable baseline could not be written", str(error.exception))
+                    if development:
+                        self.assertIn("--development --kit-ref", error.exception.next_command)
+                        self.assertNotIn("release tag", error.exception.next_command)
+                    else:
+                        self.assertIn("release tag", error.exception.next_command)
+        finally:
+            manifest.write_bytes(original_manifest)
