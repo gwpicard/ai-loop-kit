@@ -42,6 +42,24 @@ class Rehearsal:
             self.env.update(json.loads(made.stdout))
             self.project = Path(self.env["TP_ROOT"])
             self.base = Path(self.env["TP_BASE"])
+            # Person read snapshots bind a literal GitHub identity. Keep every
+            # Git transport routed to this fixture's existing local bare origin.
+            local_origin = subprocess.check_output(
+                ["git", "remote", "get-url", "origin"], cwd=self.project,
+                env=self.env, text=True).strip()
+            literal_origin = "https://github.com/rehearsal/project.git"
+            subprocess.run(["git", "config", "url." + local_origin + ".insteadOf",
+                            literal_origin], cwd=self.project, env=self.env, check=True)
+            subprocess.run(["git", "remote", "set-url", "origin", literal_origin],
+                           cwd=self.project, env=self.env, check=True)
+            literal = subprocess.check_output(
+                ["git", "config", "--local", "--get", "remote.origin.url"],
+                cwd=self.project, env=self.env, text=True).strip()
+            effective = subprocess.check_output(
+                ["git", "remote", "get-url", "origin"], cwd=self.project,
+                env=self.env, text=True).strip()
+            checked(literal == literal_origin, "E2E-IDENTITY literal canonical origin")
+            checked(effective == local_origin, "E2E-ISOLATION local Git transport")
             if not app:
                 unused_key = Path(self.env["TP_APP_KEY"])
                 unused_key.rename(unused_key.with_suffix(".unused"))

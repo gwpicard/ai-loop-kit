@@ -147,14 +147,15 @@ class FakeHub:
         self.calls.append(("label", name))
 
 
-def new_paths() -> Paths:
+def new_paths(*, person_origin: bool = False) -> Paths:
     base = Path(tempfile.mkdtemp())
     root = base / "project"
     root.mkdir()
-    for args in (("init", "-q"),
-                 ("remote", "add", "origin", "https://github.com/example/project.git")):
-        subprocess.run(["git", "-C", str(root), *args], check=True,
-                       stdin=subprocess.DEVNULL, capture_output=True)
+    if person_origin:
+        for args in (("init", "-q"),
+                     ("remote", "add", "origin", "https://github.com/example/project.git")):
+            subprocess.run(["git", "-C", str(root), *args], check=True,
+                           stdin=subprocess.DEVNULL, capture_output=True)
     settings = json.loads((ROOT / "kit/templates/claude-settings.json").read_text()
                           .replace("{{KIT_DIR}}", str(ROOT / "kit"))
                           .replace("{{PROJECT_ROOT}}", str(root.resolve())))
@@ -191,9 +192,10 @@ def send(gate: moves.Gate, person: Any) -> dict[str, Any]:
 
 class Base(unittest.TestCase):
     app = True
+    person_origin = False
 
     def setUp(self) -> None:
-        self.paths = new_paths()
+        self.paths = new_paths(person_origin=self.person_origin)
         self.loader = Loader()
         self.spawned: list[list[str]] = []
         self.hub: Any = FakeHub() if self.app else no_app_hub(self.paths, self.spawned)
@@ -825,6 +827,7 @@ class Labels(Base):
 
 class WithoutTheApp(Base):
     app = False
+    person_origin = True
 
     def test_every_move_works_in_the_record_and_the_queue_fills(self) -> None:
         result = self.gate.capture(title="Rename a report", body=BODY, issue_type="feature")
@@ -918,6 +921,7 @@ class WithoutTheApp(Base):
 
 class WhatSyncShows(Base):
     app = False
+    person_origin = True
 
     def test_the_dry_run_lists_every_queued_write_in_full(self) -> None:
         piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
@@ -981,6 +985,7 @@ class WhatSyncShows(Base):
 
 class EitherNumber(Base):
     app = False
+    person_origin = True
 
     def test_move_takes_the_local_number_or_the_synced_issue_number(self) -> None:
         piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
