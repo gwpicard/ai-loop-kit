@@ -82,7 +82,8 @@ def literal_kit_root(value: str) -> str:
     if any(char in forbidden or ord(char) < 32 or ord(char) == 127
            for char in value + canonical):
         raise cli.Failure(
-            "KIT_DIR cannot contain shell pattern, quote or control characters",
+            "KIT_DIR is unsafe for sandbox exclusions and the pre-push hook: "
+            "shell pattern, quote or control characters are not allowed",
             next_command="use an installed kit path with literal characters",
             code=cli.ExitCode.REFUSED,
         )
