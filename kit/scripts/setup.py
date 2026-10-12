@@ -163,7 +163,7 @@ def origin_git(root: Path, arguments: list[str], timeout: int) -> subprocess.Com
                                    stderr=subprocess.PIPE, text=True, env=environment,
                                    start_new_session=True)
         try:
-            output, _ = process.communicate(timeout=timeout)
+            output, diagnostic = process.communicate(timeout=timeout)
         except BaseException:
             # This session contains only the Git operation we started and its helpers.
             with contextlib.suppress(ProcessLookupError):
@@ -183,10 +183,30 @@ def origin_git(root: Path, arguments: list[str], timeout: int) -> subprocess.Com
             next_command=preflight_next(root), code=cli.ExitCode.ENVIRONMENT,
         ) from error
     assert process.returncode is not None
-    return subprocess.CompletedProcess(command, process.returncode, output)
+    return subprocess.CompletedProcess(command, process.returncode, output, diagnostic)
 
 
-def check_origin(root: Path, is_kit: bool) -> None:
+def origin_network_denial(diagnostic: str | None) -> bool:
+    # Recognise a diagnostic prefix, never a substring in a URL or filename.
+    # The finite window bounds classification, not subprocess capture itself.
+    text = (diagnostic or "")[:65536]
+    return re.search(
+        r"^[ \t]*(?:blocked-by-sandbox-runtime: network request denied|"
+        r"Sandbox: deny network-outbound)(?:[ \t]|$)", text, re.MULTILINE,
+    ) is not None
+
+
+def origin_read_failure(root: Path, message: str, diagnostic: str | None) -> cli.Failure:
+    if origin_network_denial(diagnostic):
+        explanation = message + "; the diagnostic reports a sandbox network denial"
+    else:
+        explanation = (message + "; the cause is unknown. A sandbox network restriction "
+                       "may be involved, but this failure does not establish that")
+    return cli.Failure(explanation, next_command=preflight_next(root),
+                       code=cli.ExitCode.REFUSED)
+
+
+def check_origin(root: Path, is_kit: bool) -> str:
     origin = git_out(root, "remote", "get-url", "origin")
     project = shlex.quote(str(root))
     if not origin:
@@ -211,7 +231,8 @@ def check_origin(root: Path, is_kit: bool) -> None:
     retry = preflight_next(root)
     advertised = origin_git(root, ["ls-remote", "--exit-code", "--heads", "origin",
                                    "refs/heads/main"], 20)
-    if advertised.returncode == 2 and not advertised.stdout:
+    if (advertised.returncode == 2 and not advertised.stdout
+            and not (advertised.stderr or "").strip()):
         push = f"git -C {project} push origin HEAD:refs/heads/main"
         if git_out(root, "rev-parse", "--verify", "HEAD"):
             command = push
@@ -222,8 +243,10 @@ def check_origin(root: Path, is_kit: bool) -> None:
             message = ("origin has no main commit; the person must create and push "
                        "an empty first commit")
         raise cli.Failure(message, next_command=command, code=cli.ExitCode.REFUSED)
+    if advertised.returncode != 0 or origin_network_denial(advertised.stderr):
+        raise origin_read_failure(root, "origin main could not be verified", advertised.stderr)
     lines = advertised.stdout.splitlines()
-    if advertised.returncode != 0 or len(lines) != 1:
+    if len(lines) != 1:
         raise cli.Failure("origin main could not be verified", next_command=retry,
                           code=cli.ExitCode.REFUSED)
     match = re.fullmatch(r"([0-9a-f]{40})\trefs/heads/main", lines[0])
@@ -242,9 +265,9 @@ def check_origin(root: Path, is_kit: bool) -> None:
                                   next_command=retry, code=cli.ExitCode.ENVIRONMENT)
             fetched = origin_git(scratch, ["fetch", "--no-tags", "--no-write-fetch-head",
                                            "--depth=1", "--", origin, commit], 30)
-            if fetched.returncode != 0:
-                raise cli.Failure("origin main commit could not be retrieved",
-                                  next_command=retry, code=cli.ExitCode.REFUSED)
+            if fetched.returncode != 0 or origin_network_denial(fetched.stderr):
+                raise origin_read_failure(root, "origin main commit could not be retrieved",
+                                          fetched.stderr)
             inspected = origin_git(scratch, ["cat-file", "-t", commit], 5)
             if inspected.returncode != 0 or inspected.stdout.strip() != "commit":
                 raise cli.Failure("origin main does not have a verified commit object",
@@ -252,12 +275,14 @@ def check_origin(root: Path, is_kit: bool) -> None:
     except OSError as error:
         raise cli.Failure("temporary main verification could not complete",
                           next_command=retry, code=cli.ExitCode.ENVIRONMENT) from error
+    return commit
 
 
 def step_preflight(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
-    check_origin(root, check_tooling(root))
-    return {"origin_main": "verified commit", "read_only": True}
+    commit = check_origin(root, check_tooling(root))
+    return {"project": str(root.resolve()), "main_commit": commit,
+            "origin_main": "verified commit", "read_only": True}
 
 
 def detect_language(root: Path) -> str | None:
@@ -493,7 +518,7 @@ def write_kit_record(kit: Path, root: Path, dry_run: bool,
 def step_found(args: argparse.Namespace) -> dict[str, Any]:
     root = project_root(args.project)
     kit = Path(args.kit_dir).resolve() if args.kit_dir else HERE.parent
-    check_origin(root, check_tooling(root))
+    main_commit = check_origin(root, check_tooling(root))
     plan = Plan(root, bool(getattr(args, "dry_run", False)))
     templates = kit / "templates"
     try:
@@ -598,6 +623,9 @@ def step_found(args: argparse.Namespace) -> dict[str, Any]:
     labels = label_step(root)
     return {
         "project": str(root),
+        "main_commit": main_commit,
+        "origin_main": "verified commit",
+        "read_only": bool(plan.dry_run),
         "kit_dir": str(kit),
         "language": language,
         "billing_mode": mode,
