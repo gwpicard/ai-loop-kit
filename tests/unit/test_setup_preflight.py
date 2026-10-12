@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import importlib.util
 import io
 import json
@@ -347,20 +348,107 @@ raise SystemExit(result.returncode)
         self.assertLess(fetches[0].index("--"), fetches[0].index("-field3-origin"))
 
     def test_preflight_cli_checks_before_acquisition(self) -> None:
-        self.publish_fixture_main()
+        commit = self.publish_fixture_main()
         before = self.snapshot()
+        output = io.StringIO()
         with patch.object(self.setup, "check_tooling", return_value=False), \
                 patch.object(self.setup.versions, "prepare") as prepare, \
-                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stdout(output), \
                 contextlib.redirect_stderr(io.StringIO()):
             try:
                 code = self.setup.main(["--json", "preflight", "--project", str(self.project)])
             except SystemExit as error:
                 code = error.code
         self.assertEqual(code, 0, "FIELD3: opening preflight command must accept committed main")
+        body = json.loads(output.getvalue())
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["read_only"])
+        self.assertEqual(body["origin_main"], "verified commit")
+        self.assertEqual(body["project"], str(self.project.resolve()))
+        self.assertEqual(body["main_commit"], commit)
         prepare.assert_not_called()
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(list(self.scratch.iterdir()), [])
+
+        alias = self.base / "project alias"
+        alias.symlink_to(self.project, target_is_directory=True)
+        output = io.StringIO()
+        with patch.object(self.setup, "check_tooling", return_value=False), \
+                patch.object(self.setup.versions, "prepare") as prepare, \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            code = self.setup.main(["--json", "preflight", "--project", str(alias)])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue())["project"], str(self.project.resolve()))
+        self.assertEqual(json.loads(output.getvalue())["main_commit"], commit)
+        prepare.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_direct_found_rechecks_origin_after_successful_preflight(self) -> None:
+        self.publish_fixture_main()
+        self.seed_work()
+        with patch.object(self.setup, "check_tooling", return_value=False):
+            result = self.setup.step_preflight(argparse.Namespace(project=str(self.project)))
+        self.assertEqual(result["origin_main"], "verified commit")
+        empty = self.base / "different empty origin.git"
+        self.git(self.base, "init", "--bare", "-b", "main", str(empty))
+        self.git(self.project, "remote", "set-url", "origin", str(empty))
+        # Pasted or stored output is data, never a way to skip the fresh check.
+        (self.project / "preflight-result.json").write_text(json.dumps(result))
+        before = self.snapshot()
+        parser = argparse.ArgumentParser()
+        self.setup.setup(parser)
+        args = parser.parse_args(["found", "--project", str(self.project), "--dry-run",
+                                  "--development", "--kit-ref", "a" * 40])
+        with patch.object(self.setup, "check_tooling", return_value=False), \
+                patch.object(self.setup.versions, "prepare") as prepare, \
+                self.assertRaises(cli.Failure) as raised:
+            self.setup.step_found(args)
+        self.assertIn("origin has no main", str(raised.exception))
+        prepare.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_found_metadata_identifies_fresh_main_and_actual_write_mode(self) -> None:
+        commit = self.publish_fixture_main()
+        self.seed_work()
+        kit = self.base / "installed-plugin"
+        shutil.copytree(ROOT / "kit", kit,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "version.json"))
+        spec = importlib.util.spec_from_file_location(
+            "found_metadata_release_fixture", ROOT / "tests/lib/version-fixture.py")
+        assert spec is not None and spec.loader is not None
+        fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture)
+        parser = argparse.ArgumentParser()
+        self.setup.setup(parser)
+        with patch.dict(os.environ, {"AI_LOOP_KIT_DATA": str(self.base / "data")}):
+            release = fixture.release(kit, self.project, publish=False)
+            self.assertNotEqual(commit, release.commit,
+                                "project main metadata must not use the kit release SHA")
+            for dry_run in (True, False):
+                arguments = ["found", "--project", str(self.project), "--kit-dir", str(kit),
+                             "--language", "python", "--test-command", "true"]
+                if dry_run:
+                    arguments.append("--dry-run")
+                args = parser.parse_args(arguments)
+                before = self.snapshot()
+                prepared = dataclasses.replace(release, dry_run=dry_run)
+                with self.subTest(dry_run=dry_run), \
+                        patch.object(self.setup, "check_tooling", return_value=False), \
+                        patch.object(self.setup.versions, "prepare", return_value=prepared):
+                    result = self.setup.step_found(args)
+                    self.assertEqual(result["project"], str(self.project.resolve()))
+                    self.assertEqual(result["main_commit"], commit)
+                    self.assertEqual(result["origin_main"], "verified commit")
+                    self.assertIs(result["read_only"], dry_run)
+                    self.assertEqual(result["kit_revision"], release.commit)
+                    if dry_run:
+                        self.assertEqual(self.snapshot(), before)
+                        self.assertFalse(release.path.exists())
+                    else:
+                        self.assertTrue((self.project / "AGENTS.md").exists())
+                        self.assertTrue(release.path.exists())
+                self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_own_origin_stops_before_remote_contact(self) -> None:
         with patch.object(self.setup, "git_out", return_value="https://example.test/kit.git"), \
