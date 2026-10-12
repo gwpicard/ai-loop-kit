@@ -525,5 +525,70 @@ raise SystemExit(result.returncode)
         self.assertFalse(marker.exists(), "project credential helper was consulted")
         self.assertEqual(list(self.scratch.iterdir()), [])
 
+
+    def test_external_origin_helper_is_refused_before_its_sentinel(self) -> None:
+        marker = self.base / "ext-helper-ran"
+        helper = self.base / "remote-helper.sh"
+        helper.write_text("#!/bin/sh\nprintf hit > '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o755)
+        self.git(self.base, "config", "--global", "protocol.ext.allow", "always")
+        self.git(self.project, "remote", "set-url", "origin", "ext::" + str(helper))
+        before = self.snapshot()
+        with self.assertRaises(cli.Failure):
+            self.setup.check_origin(self.project, False)
+        self.assertFalse(marker.exists(), "origin launched its external helper")
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_custom_helper_and_trusted_url_rewrite_cannot_escape_finite_protocols(self) -> None:
+        marker = self.base / "custom-helper-ran"
+        executables = self.base / "git-exec"
+        executables.mkdir()
+        helper = executables / "git-remote-synthetic"
+        helper.write_text("#!/bin/sh\nprintf hit > '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o755)
+        self.git(self.base, "config", "--global", "protocol.synthetic.allow", "always")
+        for rewritten in (False, True):
+            with self.subTest(rewritten=rewritten):
+                marker.unlink(missing_ok=True)
+                address = "https://synthetic.invalid/project" if rewritten else "synthetic::project"
+                self.git(self.project, "remote", "set-url", "origin", address)
+                if rewritten:
+                    self.git(self.base, "config", "--global", "url.synthetic::.insteadOf",
+                             "https://synthetic.invalid/")
+                with patch.dict(os.environ, {"GIT_EXEC_PATH": str(executables),
+                                             "GIT_ALLOW_PROTOCOL": "synthetic"}), \
+                        self.assertRaises(cli.Failure):
+                    self.setup.check_origin(self.project, False)
+                self.assertFalse(marker.exists(), "rewritten/custom origin launched helper")
+                self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_local_source_uploadpack_configuration_does_not_execute_hook(self) -> None:
+        commit = self.publish_fixture_main()
+        marker = self.base / "uploadpack-hook-ran"
+        helper = self.base / "pack-hook.sh"
+        helper.write_text("#!/bin/sh\nprintf hit > '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o755)
+        self.git(self.remote, "config", "uploadpack.packObjectsHook", str(helper))
+        with patch.dict(os.environ, {"GIT_NO_LAZY_FETCH": "0"}):
+            self.assertEqual(self.setup.check_origin(self.project, False), commit)
+        self.assertFalse(marker.exists(), "local source upload-pack executed its hook")
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_verifier_pins_protocols_exec_path_and_no_lazy_fetch(self) -> None:
+        with patch.dict(os.environ, {"GIT_EXEC_PATH": "/synthetic/exec",
+                                     "GIT_ALLOW_PROTOCOL": "ext:synthetic",
+                                     "GIT_NO_LAZY_FETCH": "0"}), \
+                patch.object(self.setup.subprocess, "Popen") as start:
+            start.return_value.communicate.return_value = ("", "")
+            start.return_value.returncode = 0
+            self.setup.origin_git(self.scratch, ["init", "--quiet"], 5)
+        environment = start.call_args.kwargs["env"]
+        self.assertFalse("GIT_EXEC_PATH" in environment, "exec-path injection reached verifier")
+        self.assertEqual(environment["GIT_ALLOW_PROTOCOL"], "https:ssh:file")
+        self.assertEqual(environment["GIT_PROTOCOL_FROM_USER"], "0")
+        self.assertEqual(environment["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(environment["GIT_CONFIG_GLOBAL"], str(self.config))
+
 if __name__ == "__main__":
     unittest.main()

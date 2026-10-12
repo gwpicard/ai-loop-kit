@@ -1763,5 +1763,48 @@ class InstalledNonExecutingDoors(Cases):
         got = bash("touch " + shlex.quote(str(installed)), env=environment)
         self.assertEqual(got.kind, DENY, got.reason)
 
+
+    def test_exported_shell_function_cannot_shadow_installed_python(self) -> None:
+        import shlex
+        import subprocess
+
+        with tempfile.TemporaryDirectory(prefix="exported-function-") as temporary:
+            marker = Path(temporary) / "function-ran"
+            function = "() { printf hit > " + shlex.quote(str(marker)) + "; }"
+            # Bash generations use different export names. The fixture first
+            # proves actual function execution using a harmless Python command.
+            observed = False
+            for key in ("BASH_FUNC_python3%%", "BASH_FUNC_python3()", "python3"):
+                environment = dict(P.env, **{key: function})
+                subprocess.run(["/bin/bash", "--noprofile", "--norc", "-c", "python3 -c pass"],
+                               env=environment, capture_output=True, check=False, timeout=5)
+                observed = observed or marker.exists()
+            self.assertTrue(observed, "synthetic Bash function did not execute its sentinel")
+            for key in ("BASH_FUNC_python3%%", "BASH_FUNC_python3()", "python3"):
+                environment = dict(P.env, **{key: function})
+                got = bash(self.command("setup.py", "preflight"), env=environment)
+                self.assertEqual(got.kind, DENY, "exported function marker admitted: " + key)
+
+    def test_all_exported_helper_functions_and_startup_markers_refuse(self) -> None:
+        for key, value in (("BASH_FUNC_git%%", "() { :; }"),
+                           ("BASH_FUNC_sh()", "() { :; }"), ("git", "() { :; }"),
+                           ("ZDOTDIR", "/synthetic/startup")):
+            with self.subTest(key=key):
+                got = bash(self.command("gate.py", "report"), env=dict(P.env, **{key: value}))
+                self.assertEqual(got.kind, DENY, "startup/function marker admitted: " + key)
+
+    def test_benign_inherited_shell_options_keep_installed_report_allowed(self) -> None:
+        environment = dict(P.env, SHELLOPTS="braceexpand:hashall:interactive-comments",
+                           BASHOPTS="checkwinsize:cmdhist:complete_fullquote:extquote:hostcomplete")
+        got = bash(self.command("gate.py", "report"), env=environment)
+        self.assertEqual(got.kind, ALLOW, got.reason)
+
+    def test_inherited_git_execution_selectors_cannot_grant_exclusion(self) -> None:
+        for key in ("GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND"):
+            with self.subTest(key=key):
+                got = bash(self.command("setup.py", "preflight"),
+                           env=dict(P.env, **{key: "/synthetic/helper"}))
+                self.assertNotEqual(got.kind, ALLOW, "execution selector admitted: " + key)
+
 if __name__ == "__main__":
     unittest.main()

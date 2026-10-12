@@ -347,5 +347,19 @@ class SetupSandboxTest(unittest.TestCase):
         self.assertIn(str(plain.resolve()), result["text"])
 
 
+
+    def test_setup_skips_project_playwright_but_normal_report_keeps_probe(self) -> None:
+        marker = self.base / "playwright-ran"
+        local = self.project / "node_modules/.bin/playwright"
+        local.parent.mkdir(parents=True)
+        local.write_text("#!/bin/sh\nprintf hit > " + shlex.quote(str(marker)) + "\n")
+        local.chmod(0o755)
+        self.assertFalse(self.setup.check_tooling(self.project))
+        self.assertFalse(marker.exists(), "excluded setup executed project Playwright")
+        done = subprocess.run(["sh", str(self.setup.HERE / "check-tooling.sh"), "--for-run"],
+                              cwd=self.project, capture_output=True, check=False, timeout=15)
+        self.assertEqual(done.returncode, 0)
+        self.assertTrue(marker.exists(), "normal sandboxed report lost optional tool discovery")
+
 if __name__ == "__main__":
     unittest.main()
