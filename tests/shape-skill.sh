@@ -263,8 +263,8 @@ need() {
   grep -qiE "$2" "$3" || return 1
 }
 check_skill() {
-  need "capture" 'gate\.py capture' "$1" &&
-    need "ready move" 'gate\.py move .*ready' "$1" &&
+  need "capture" 'gate\.py"? capture' "$1" &&
+    need "ready move" 'gate\.py"? move .*ready' "$1" &&
     need "lint before ready" 'spec\.py lint' "$1" &&
     need "held-out store" 'loop\.heldout store' "$1" &&
     need "question cap" 'question_cap' "$1" &&
@@ -277,7 +277,7 @@ check_skill "$SKILL" || fail "SKILL.md lost a command or rule that holds the ski
 ok "SKILL.md names each command that holds its rules"
 
 MUT=$(mktemp -d)
-for pattern in 'gate\.py capture' 'spec\.py lint' 'loop\.heldout store' 'question_cap' \
+for pattern in 'gate\.py"? capture' 'spec\.py lint' 'loop\.heldout store' 'question_cap' \
   'find-duplicates\.py' 'co-change\.sh' 'Accepted:' 'silence'; do
   sed -E "s@$pattern@@Ig" "$SKILL" > "$MUT/SKILL.md"
   if check_skill "$MUT/SKILL.md"; then fail "removing '$pattern' from a copy of SKILL.md was not caught"; fi
