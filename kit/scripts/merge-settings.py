@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -98,6 +99,36 @@ def render(text: str, values: dict[str, str]) -> str:
     return text
 
 
+def render_settings(text: str, values: dict[str, str]) -> str:
+    """Substitute literal roots inside parsed JSON, never through raw JSON text."""
+    roots = dict(values)
+    for name in ("KIT_DIR", "PROJECT_ROOT"):
+        if name in roots:
+            try:
+                roots[name] = literal_kit_root(roots[name])
+            except cli.Failure as error:
+                raise cli.Failure(error.message.replace("KIT_DIR", name),
+                                  next_command=f"give --set {name}=/absolute/literal/path",
+                                  code=error.code) from error
+
+    def replace(value: Any) -> Any:
+        if isinstance(value, str):
+            for name, root in roots.items():
+                value = value.replace("{{" + name + "}}", root)
+            if re.search(r"\{\{[^{}]+\}\}", value):
+                raise cli.Failure("settings have an unresolved root placeholder",
+                                  next_command="supply every required --set root value",
+                                  code=cli.ExitCode.REFUSED)
+            return value
+        if isinstance(value, list):
+            return [replace(item) for item in value]
+        if isinstance(value, dict):
+            return {replace(key): replace(item) for key, item in value.items()}
+        return value
+
+    return json.dumps(replace(json.loads(text)), indent=2, ensure_ascii=False) + "\n"
+
+
 def setup(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("template", help="the settings template to merge in")
     parser.add_argument("target", help="the project's settings file")
@@ -120,7 +151,7 @@ def handler(args: argparse.Namespace) -> dict[str, Any]:
         values[name] = value
     template_path, target = Path(args.template), Path(args.target)
     try:
-        template = json.loads(render(template_path.read_text(), values))
+        template = json.loads(render_settings(template_path.read_text(), values))
     except OSError as error:
         raise cli.Failure(f"cannot read the template: {error}",
                           next_command="merge-settings.py --help",

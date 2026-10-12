@@ -68,6 +68,29 @@ class FakeHub:
         self.on_read: Callable[[int, int], None] | None = None
         self.reads = 0
 
+    def api_json(self, endpoint: str, **_kwargs: Any) -> Any:
+        route, _, query = endpoint.partition("?")
+        prefix = "repos/example/project"
+        if route == prefix:
+            return {"id": 9001, "full_name": "example/project"}
+        if route == prefix + "/issues":
+            page = int(dict(part.split("=", 1) for part in query.split("&") if part)["page"])
+            values = [{**value, "id": 10000 + number, "updated_at": TODAY + "T12:00:00Z"}
+                      for number, value in sorted(self.issues.items())]
+            return values[(page - 1) * 100:page * 100]
+        if route.startswith(prefix + "/issues/"):
+            parts = route.removeprefix(prefix + "/issues/").split("/")
+            number = int(parts[0])
+            if parts[1:] == ["dependencies", "blocked_by"]:
+                return []
+            if parts[1:] == ["comments"]:
+                return [{"id": 20000 + index, "body": body}
+                        for index, body in enumerate(self.issues[number]["comments"])]
+            if len(parts) == 1:
+                return {**self.read_issue(number), "id": 10000 + number,
+                        "updated_at": TODAY + "T12:00:00Z"}
+        raise AssertionError("unexpected synthetic read endpoint: " + endpoint)
+
     def read_issue(self, number: int) -> dict[str, Any]:
         self.reads += 1
         if self.on_read:
@@ -128,7 +151,16 @@ def new_paths() -> Paths:
     base = Path(tempfile.mkdtemp())
     root = base / "project"
     root.mkdir()
-    return Paths.for_project(root, data_base=base / "data", kit_folder=ROOT / "kit")
+    for args in (("init", "-q"),
+                 ("remote", "add", "origin", "https://github.com/example/project.git")):
+        subprocess.run(["git", "-C", str(root), *args], check=True,
+                       stdin=subprocess.DEVNULL, capture_output=True)
+    settings = json.loads((ROOT / "kit/templates/claude-settings.json").read_text()
+                          .replace("{{KIT_DIR}}", str(ROOT / "kit"))
+                          .replace("{{PROJECT_ROOT}}", str(root.resolve())))
+    (root / ".claude").mkdir()
+    (root / ".claude/settings.json").write_text(json.dumps(settings), "utf-8")
+    return Paths.for_project(root.resolve(), data_base=base / "data", kit_folder=ROOT / "kit")
 
 
 def no_app_hub(paths: Paths, spawned: list[list[str]]) -> github.GitHub:

@@ -11,7 +11,7 @@
 # - a duplicate gets the new words as a kit comment through the gate, signed by
 #   the App, and no new issue opens. With no App, the comment waits for the
 #   person and a next: line says how;
-# - with no App the search reads nothing on GitHub and says so with a next: line;
+# - without App or a protected snapshot, the search refuses with person-sync guidance;
 # - held-out cases land in the gate-only store, and never in git, the issue or
 #   the command's own output;
 # - the skill text names the commands that hold its rules, and the check fails
@@ -234,20 +234,16 @@ python3 "$GATE" move 1 dropped --reason "The accountant wants a PDF." --json > /
   || fail "drop with no App failed"
 : > "$FAKE_GH_LOG"
 
+set +e
 python3 "$FIND" search --text "Export my invoices as a CSV file" --json \
-  > "$TP_BASE/noapp.json" 2> "$TP_BASE/noapp.err" || fail "search with no App failed"
-[ "$(js "$TP_BASE/noapp.json" 'J["github_read"]')" = "false" ] \
-  || fail "search with no App says it read GitHub"
-grep -q '^next: ' "$TP_BASE/noapp.err" || fail "search with no App has no next: line"
-js "$TP_BASE/noapp.json" 'J["next"]' | grep -qi 'app' || fail "the next: line does not name the App"
-if grep -q '^CALL' "$FAKE_GH_LOG"; then fail "search with no App started gh: $(cat "$FAKE_GH_LOG")"; fi
-ok "with no App, the search reads no GitHub, starts no gh and says so with a next: line"
-
-[ "$(js "$TP_BASE/noapp.json" 'J["matches"][0]["dropped"]')" = "true" ] \
-  || fail "the gate's own record did not give the dropped piece"
-js "$TP_BASE/noapp.json" '" ".join(J["warnings"])' | grep -qi 'dropped' \
-  || fail "no dropped warning from the record"
-ok "the gate's own record still warns about a dropped piece"
+  > "$TP_BASE/noapp.json" 2> "$TP_BASE/noapp.err"
+code=$?
+set -e
+[ "$code" -eq 3 ] || fail "search without App or protected snapshot exited $code, not 3"
+grep -q '^next: ' "$TP_BASE/noapp.err" || fail "snapshot refusal has no next: line"
+grep -q 'sync' "$TP_BASE/noapp.err" || fail "snapshot refusal does not name person sync"
+if grep -q '^CALL' "$FAKE_GH_LOG"; then fail "search with no App started gh"; fi
+ok "without App or protected snapshot search refuses completeness and starts no gh"
 
 python3 "$FIND" comment 1 --text "Asked again." --json > "$TP_BASE/noapp-comment.json" \
   || fail "comment with no App failed: $(cat "$TP_BASE/noapp-comment.json")"

@@ -112,7 +112,8 @@
         "~/Library/Keychains"
       ],
       "denyWrite": [
-        "{{KIT_DIR}}"
+        "{{KIT_DIR}}",
+        "{{PROJECT_ROOT}}/.agents/loop"
       ]
     },
     "excludedCommands": [

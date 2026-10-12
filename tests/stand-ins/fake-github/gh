@@ -79,6 +79,8 @@ def issue_public(state, issue):
                      if find(state, b) and find(state, b)["state"] == "open"]
     return {
         "number": issue["number"],
+        "id": 10000 + issue["number"],
+        "updated_at": issue.get("updated_at", "2026-10-12T12:00:00Z"),
         "title": issue["title"],
         "body": issue.get("body", ""),
         "state": issue["state"],
@@ -868,7 +870,34 @@ def main():
             if not arg.startswith("-") and "/" in arg and not re.match(r"^[\w\[\]]+=", arg):
                 path = arg
                 break
+        query = {}
+        if "?" in path:
+            path, parameters = path.split("?", 1)
+            for pair in parameters.split("&"):
+                key, separator, value = pair.partition("=")
+                if not separator or key in query:
+                    unsupported(argv, "malformed pagination")
+                query[key] = value
         posting = bool(re.search(r"(?:-X|--method)[= ]POST\b", " ".join(argv)))
+
+        def page(values):
+            if not query or set(query) <= {"state"}:
+                return values
+            if set(query) - {"state", "per_page", "page"}:
+                unsupported(argv, "unmodelled query field")
+            if query.get("per_page") != "100" or not query.get("page", "").isdigit():
+                unsupported(argv, "unmodelled pagination")
+            number = int(query["page"])
+            if number < 1:
+                unsupported(argv, "invalid page")
+            return values[(number - 1) * 100:number * 100]
+
+        if (re.fullmatch(r"/?repos/[^/]+/[^/]+", path)
+                and (flag(argv, "--method") or flag(argv, "-X") or "GET") == "GET"):
+            if path.lstrip("/") != "repos/" + state["repo"] or query:
+                unsupported(argv, "not this repository")
+            print(json.dumps({"id": 9001, "full_name": state["repo"]}))
+            return
         # The App's JWT traded for an installation token.
         minted = re.fullmatch(r"/?app/installations/(\d+)/access_tokens", path)
         if minted and posting:
@@ -892,8 +921,8 @@ def main():
                 save(state)
                 print(json.dumps(rest_comment(state, issue, len(issue["comments"]) - 1, made)))
                 return
-            print(json.dumps([rest_comment(state, issue, n, c)
-                              for n, c in enumerate(issue.get("comments", []))]))
+            print(json.dumps(page([rest_comment(state, issue, n, c)
+                                   for n, c in enumerate(issue.get("comments", []))])))
             return
         # The label events on one piece, each with the account that made it.
         events = re.fullmatch(r"/?repos/[^/]+/[^/]+/issues/(\d+)/events", path)
@@ -945,9 +974,10 @@ def main():
         if blocked:
             issue = find(state, blocked.group(1))
             if issue is None:
-                unsupported(argv, "no such issue")
-            print(json.dumps([issue_public(state, find(state, b))
-                              for b in issue.get("blocked_by", []) if find(state, b)]))
+                sys.stderr.write("gh: Not Found (HTTP 404)\n")
+                sys.exit(1)
+            print(json.dumps(page([issue_public(state, find(state, b))
+                                   for b in issue.get("blocked_by", []) if find(state, b)])))
             return
         subs = re.search(r"issues/(\d+)/sub_issues", path)
         if subs and posting:
@@ -1020,9 +1050,9 @@ def main():
             print(json.dumps(issue_public(state, issue)))
             return
         if re.search(r"repos/[^/]+/[^/]+/issues($|\?)", path):
-            want = "open" if "state=open" in path else None
-            print(json.dumps([issue_public(state, i) for i in state["issues"]
-                              if want is None or i["state"] == want]))
+            want = "open" if query.get("state") == "open" else None
+            print(json.dumps(page([issue_public(state, i) for i in state["issues"]
+                                   if want is None or i["state"] == want])))
             return
         unsupported(argv, "unmodelled api path")
 

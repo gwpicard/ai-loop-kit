@@ -422,9 +422,9 @@ def prepare_settings(root: Path, kit: Path, merge: Any) -> dict[str, Any]:
     """Render and merge settings without creating files or directories."""
     merge.literal_kit_root(str(kit))
     target = root / ".claude/settings.json"
-    template = json.loads(merge.render(
+    template = json.loads(merge.render_settings(
         (kit / "templates/claude-settings.json").read_text("utf-8"),
-        {"KIT_DIR": str(kit)},
+        {"KIT_DIR": str(kit), "PROJECT_ROOT": str(root.resolve())},
     ))
     existed = target.exists()
     if existed:

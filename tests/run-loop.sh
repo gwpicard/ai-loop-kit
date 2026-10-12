@@ -68,7 +68,7 @@ RUN="$KIT/scripts/run.py"
 Q4_RELEASE=$(python3 "$ROOT/tests/lib/version-fixture.py" "$KIT" "$TP_ROOT")
 Q4_KIT_REF=$(printf '%s' "$Q4_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])')
 python3 "$KIT/scripts/merge-settings.py" "$KIT/templates/claude-settings.json" \
-  "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$KIT" >/dev/null 2>&1 \
+  "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$KIT" --set "PROJECT_ROOT=$TP_ROOT" >/dev/null 2>&1 \
   || fail "the settings could not be merged"
 mkdir -p "$TP_ROOT/.githooks" "$TP_ROOT/.agents/loop"
 sed "s#{{KIT_DIR}}#$KIT#g" "$KIT/templates/githooks/pre-push" > "$TP_ROOT/.githooks/pre-push"

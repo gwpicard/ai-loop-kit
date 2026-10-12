@@ -85,9 +85,10 @@ build() {
     export CLAUDE_PLUGIN_ROOT
     seal_kit
   fi
+  CHECK="$KIT/scripts/pre-run-check.py"
   # Settings: the kit's template, merged as /setup merges it.
   python3 "$ROOT/kit/scripts/merge-settings.py" "$KIT/templates/claude-settings.json" \
-    "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$KIT" >/dev/null 2>&1
+    "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$KIT" --set "PROJECT_ROOT=$TP_ROOT" >/dev/null 2>&1
   # The pre-push hook, and the setting that turns it on.
   mkdir -p "$TP_ROOT/.githooks"
   if [ "$1" = repo ]; then
