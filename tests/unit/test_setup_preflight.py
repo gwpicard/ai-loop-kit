@@ -1,0 +1,376 @@
+"""Setup requires a real remote main commit before questions or founding."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "kit/scripts"))
+
+from loop import cli  # noqa: E402
+
+
+def setup_module() -> Any:
+    spec = importlib.util.spec_from_file_location("preflight_setup", ROOT / "kit/scripts/setup.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class SetupPreflightTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="setup-preflight-")
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.project = self.base / "person's project"
+        self.remote = self.base / "origin.git"
+        self.scratch = self.base / "verification"
+        self.scratch.mkdir()
+        self.config = self.base / "gitconfig"
+        self.config.write_text("")
+        self.real_git = shutil.which("git")
+        assert self.real_git is not None
+        environment = patch.dict(os.environ, {
+            "GIT_CONFIG_GLOBAL": str(self.config), "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_AUTHOR_NAME": "Test Person", "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "Test Person", "GIT_COMMITTER_EMAIL": "test@example.com",
+            "GIT_TERMINAL_PROMPT": "0", "TMPDIR": str(self.scratch),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+        temporary_root = patch("tempfile.tempdir", str(self.scratch))
+        temporary_root.start()
+        self.addCleanup(temporary_root.stop)
+        self.git(self.base, "init", "--bare", "-b", "main", str(self.remote))
+        self.git(self.base, "init", "-b", "work", str(self.project))
+        self.git(self.project, "remote", "add", "origin", str(self.remote))
+        self.setup = setup_module()
+        self.log = self.base / "transport.jsonl"
+
+    def git(self, folder: Path, *args: str) -> str:
+        done = subprocess.run([str(self.real_git), "-C", str(folder), *args],
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=10, check=True)
+        return done.stdout.strip()
+
+    def snapshot(self) -> dict[str, tuple[bytes, int]]:
+        return {str(item.relative_to(self.project)): (item.read_bytes(), item.stat().st_mode)
+                for item in self.project.rglob("*") if item.is_file()}
+
+    def seed_work(self) -> None:
+        staged = self.project / "staged.txt"
+        staged.write_text("staged version\n")
+        self.git(self.project, "add", "staged.txt")
+        staged.write_text("dirty version\n")
+        untracked = self.project / "untracked.sh"
+        untracked.write_text("#!/bin/sh\nprintf '%s' untouched\n")
+        untracked.chmod(0o755)
+
+    def publish_fixture_main(self) -> str:
+        # This is the person's action against a local bare fixture, never a real remote.
+        self.git(self.project, "commit", "--allow-empty", "--only", "-m", "Initial fixture")
+        self.git(self.project, "push", "origin", "HEAD:refs/heads/main")
+        return self.git(self.project, "rev-parse", "HEAD")
+
+    def transport(self, mode: str) -> None:
+        """Keep origin identity visible; rewrite only local test transport calls."""
+        folder = self.base / "bin"
+        folder.mkdir()
+        wrapper = folder / "git"
+        wrapper.write_text("#!" + sys.executable + "\n" + '''import json, os, subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+mode = os.environ['FIELD3_MODE']
+query = 'ls-remote' in args
+fetch = 'fetch' in args
+if query or fetch or 'cat-file' in args or 'init' in args:
+    with Path(os.environ['FIELD3_LOG']).open('a') as stream:
+        stream.write(json.dumps({'args': args, 'pid': os.getpid()}) + '\\n')
+if query:
+    oid = os.environ['FIELD3_OID']
+    if mode == 'query-error':
+        print('private-url-must-not-leak', file=sys.stderr)
+        raise SystemExit(128)
+    if mode == 'malformed':
+        print('not-an-object\\trefs/heads/main')
+        raise SystemExit(0)
+    if mode == 'duplicate':
+        print((oid + '\\trefs/heads/main\\n') * 2, end='')
+        raise SystemExit(0)
+    if mode == 'wrong-ref':
+        print(oid + '\\trefs/heads/other')
+        raise SystemExit(0)
+    if mode == 'extra-field':
+        print(oid + '\\trefs/heads/main\\textra')
+        raise SystemExit(0)
+    if mode == 'noncommit':
+        print(oid + '\\trefs/heads/main')
+        raise SystemExit(0)
+if fetch and mode == 'fetch-error':
+    print('private-url-must-not-leak', file=sys.stderr)
+    raise SystemExit(128)
+if fetch and mode == 'wrong-fetch':
+    raise SystemExit(0)
+if query:
+    args = [os.environ['FIELD3_REMOTE'] if item == 'origin' else item for item in args]
+if fetch:
+    args = [os.environ['FIELD3_REMOTE'] if item == os.environ['FIELD3_ADDRESS'] else item
+            for item in args]
+result = subprocess.run([os.environ['FIELD3_REAL_GIT'], *args], check=False)
+raise SystemExit(result.returncode)
+''')
+        wrapper.chmod(0o755)
+        variables = {"PATH": str(folder) + os.pathsep + os.environ["PATH"],
+                     "FIELD3_MODE": mode, "FIELD3_LOG": str(self.log),
+                     "FIELD3_REAL_GIT": str(self.real_git), "FIELD3_REMOTE": str(self.remote),
+                     "FIELD3_ADDRESS": str(self.remote),
+                     "FIELD3_OID": self.git(self.project, "rev-parse", "HEAD")}
+        environment = patch.dict(os.environ, variables)
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def refusal(self) -> cli.Failure:
+        before = self.snapshot()
+        with self.assertRaises(cli.Failure) as caught:
+            self.setup.check_origin(self.project, False)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [], "verification scratch must be cleaned")
+        self.assertIn(caught.exception.code, (cli.ExitCode.REFUSED, cli.ExitCode.ENVIRONMENT))
+        self.assertNotIn("private-url-must-not-leak", str(caught.exception))
+        return caught.exception
+
+    def test_found_empty_remote_stops_before_version_preparation(self) -> None:
+        self.seed_work()
+        before = self.snapshot()
+        parser = argparse.ArgumentParser()
+        self.setup.setup(parser)
+        args = parser.parse_args(["found", "--project", str(self.project), "--dry-run",
+                                  "--development", "--kit-ref", "a" * 40])
+        with patch.object(self.setup, "check_tooling", return_value=False), \
+                patch.object(self.setup.versions, "prepare",
+                             side_effect=RuntimeError("version preparation reached")) as prepare:
+            observed: Exception | None = None
+            try:
+                self.setup.step_found(args)
+            except (cli.Failure, RuntimeError) as error:
+                observed = error
+        self.assertFalse(prepare.called, "FIELD3: absent main must stop before version preparation")
+        self.assertIsInstance(observed, cli.Failure)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_empty_remote_refuses_without_touching_person_work(self) -> None:
+        self.seed_work()
+        failure = self.refusal()
+        self.assertIn("--allow-empty --only", failure.next_command)
+        self.assertIn("HEAD:refs/heads/main", failure.next_command)
+        self.assertIn("&&", failure.next_command)
+
+    def test_missing_origin_has_runnable_person_prompt(self) -> None:
+        self.git(self.project, "remote", "remove", "origin")
+        failure = self.refusal()
+        self.assertIn("IFS= read -r field_origin_address", failure.next_command)
+        self.assertIn('test -n "$field_origin_address"', failure.next_command)
+        self.assertIn('remote add -- origin "$field_origin_address"', failure.next_command)
+        self.assertNotIn("<", failure.next_command)
+        done = subprocess.run(["sh", "-c", failure.next_command], input="\n",
+                              capture_output=True, text=True, timeout=5, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(self.git(self.project, "remote"), "")
+        done = subprocess.run(["sh", "-c", failure.next_command],
+                              input=str(self.remote) + "\n", capture_output=True,
+                              text=True, timeout=5, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.git(self.project, "remote", "get-url", "origin"), str(self.remote))
+
+    def test_person_empty_commit_command_preserves_index_dirty_and_modes(self) -> None:
+        self.seed_work()
+        cached = self.git(self.project, "diff", "--cached", "--binary")
+        work = {p.name: (p.read_bytes(), p.stat().st_mode)
+                for p in self.project.iterdir() if p.is_file()}
+        failure = self.refusal()
+        done = subprocess.run(["sh", "-c", failure.next_command], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.git(self.project, "ls-tree", "HEAD"), "")
+        self.assertEqual(self.git(self.project, "diff", "--cached", "--binary"), cached)
+        self.assertEqual({p.name: (p.read_bytes(), p.stat().st_mode)
+                          for p in self.project.iterdir() if p.is_file()}, work)
+        self.assertEqual(self.git(self.remote, "rev-parse", "main"),
+                         self.git(self.project, "rev-parse", "HEAD"))
+
+    def test_person_refusing_hook_prevents_push(self) -> None:
+        hook = self.project / ".git/hooks/pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        failure = self.refusal()
+        done = subprocess.run(["sh", "-c", failure.next_command], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=10, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(self.git(self.remote, "for-each-ref", "refs/heads"), "")
+
+    def test_person_failed_push_is_not_successful_initialisation(self) -> None:
+        hook = self.remote / "hooks/pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        failure = self.refusal()
+        done = subprocess.run(["sh", "-c", failure.next_command], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=10, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(self.git(self.remote, "for-each-ref", "refs/heads"), "")
+
+    def test_existing_history_has_truthful_person_push_command(self) -> None:
+        self.git(self.project, "commit", "--allow-empty", "--only", "-m", "Existing history")
+        self.git(self.project, "push", "origin", "HEAD:refs/heads/other")
+        other = self.git(self.remote, "rev-parse", "other")
+        failure = self.refusal()
+        self.assertIn("HEAD:refs/heads/main", failure.next_command)
+        self.assertNotIn("--allow-empty", failure.next_command)
+        self.assertEqual(self.git(self.remote, "rev-parse", "other"), other)
+
+    def test_remote_commit_verified_without_project_writes(self) -> None:
+        oid = self.publish_fixture_main()
+        self.seed_work()
+        before = self.snapshot()
+        self.transport("normal")
+        self.setup.check_origin(self.project, False)
+        calls = [json.loads(line)["args"] for line in self.log.read_text().splitlines()]
+        fetch = [args for args in calls if "fetch" in args]
+        self.assertEqual(len(fetch), 1, "FIELD3: advertisement alone is not commit verification")
+        self.assertIn(oid, fetch[0], "retrieve exact advertised object, not moving main")
+        self.assertTrue(any("cat-file" in args and oid in args for args in calls))
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_unknown_or_invalid_remote_never_suggests_main_push(self) -> None:
+        self.publish_fixture_main()
+        for mode in ("query-error", "malformed", "duplicate", "wrong-ref", "extra-field",
+                     "fetch-error", "wrong-fetch"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(dir=self.base) as folder:
+                # A distinct wrapper per case; keep the existing fixture commit and refs.
+                previous = self.base
+                self.base = Path(folder)
+                try:
+                    self.transport(mode)
+                    failure = self.refusal()
+                    self.assertIn("preflight", failure.next_command)
+                    self.assertNotIn("push", failure.next_command)
+                    self.assertNotIn("commit --", failure.next_command)
+                finally:
+                    self.base = previous
+
+    def test_blob_advertisement_is_not_a_commit(self) -> None:
+        self.publish_fixture_main()
+        blob_file = self.base / "blob"
+        blob_file.write_text("not a commit\n")
+        blob = self.git(self.remote, "hash-object", "-w", str(blob_file))
+        self.git(self.remote, "update-ref", "refs/tags/blob", blob)
+        self.transport("noncommit")
+        with patch.dict(os.environ, {"FIELD3_OID": blob}):
+            failure = self.refusal()
+        self.assertNotIn("push", failure.next_command)
+        self.assertIn("preflight", failure.next_command)
+
+    def test_query_and_fetch_timeouts_reap_owned_process_and_clean_scratch(self) -> None:
+        self.publish_fixture_main()
+        original = subprocess.Popen.communicate
+        for command, required_timeout in (("ls-remote", 20), ("fetch", 30)):
+            children: list[subprocess.Popen[Any]] = []
+            def interrupted(child: subprocess.Popen[Any], *args: Any,
+                            command: str = command, required_timeout: int = required_timeout,
+                            children: list[subprocess.Popen[Any]] = children,
+                            **kwargs: Any) -> Any:
+                assert isinstance(child.args, (list, tuple))
+                if command in child.args and child not in children:
+                    children.append(child)
+                    self.assertEqual(kwargs.get("timeout"), required_timeout)
+                    raise subprocess.TimeoutExpired(child.args, required_timeout)
+                return original(child, *args, **kwargs)
+            with self.subTest(command=command), patch.object(subprocess.Popen, "communicate",
+                                                             new=interrupted):
+                failure = self.refusal()
+            self.assertTrue(children, "FIELD3: required remote operation did not run")
+            self.assertTrue(all(child.poll() is not None for child in children))
+            self.assertIn("preflight", failure.next_command)
+            self.assertNotIn("push", failure.next_command)
+
+    def test_verification_uses_closed_stdin_and_bounded_inspection(self) -> None:
+        self.publish_fixture_main()
+        initialise = subprocess.Popen.__init__
+        communicate = subprocess.Popen.communicate
+        stages: list[str] = []
+        inspected: list[str] = []
+        def started(child: subprocess.Popen[Any], args: Any, *rest: Any,
+                    **kwargs: Any) -> None:
+            for name in ("ls-remote", "fetch", "init", "cat-file"):
+                if name in args:
+                    self.assertEqual(kwargs.get("stdin"), subprocess.DEVNULL)
+                    stages.append(name)
+            initialise(child, args, *rest, **kwargs)
+        def waited(child: subprocess.Popen[Any], *args: Any, **kwargs: Any) -> Any:
+            assert isinstance(child.args, (list, tuple))
+            for name in ("init", "cat-file"):
+                if name in child.args:
+                    self.assertEqual(kwargs.get("timeout"), 5)
+                    inspected.append(name)
+            return communicate(child, *args, **kwargs)
+        with patch.object(subprocess.Popen, "__init__", new=started), \
+                patch.object(subprocess.Popen, "communicate", new=waited):
+            self.setup.check_origin(self.project, False)
+        self.assertEqual(set(stages), {"ls-remote", "fetch", "init", "cat-file"})
+        self.assertEqual(set(inspected), {"init", "cat-file"})
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_fetch_url_cannot_become_an_option(self) -> None:
+        self.publish_fixture_main()
+        self.transport("normal")
+        self.git(self.project, "remote", "set-url", "--", "origin", "-field3-origin")
+        with patch.dict(os.environ, {"FIELD3_ADDRESS": "-field3-origin"}):
+            self.setup.check_origin(self.project, False)
+        calls = [json.loads(line)["args"] for line in self.log.read_text().splitlines()]
+        fetches = [args for args in calls if "fetch" in args]
+        self.assertEqual(len(fetches), 1)
+        self.assertIn("--", fetches[0])
+        self.assertLess(fetches[0].index("--"), fetches[0].index("-field3-origin"))
+
+    def test_preflight_cli_checks_before_acquisition(self) -> None:
+        self.publish_fixture_main()
+        before = self.snapshot()
+        with patch.object(self.setup, "check_tooling", return_value=False), \
+                patch.object(self.setup.versions, "prepare") as prepare, \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            try:
+                code = self.setup.main(["--json", "preflight", "--project", str(self.project)])
+            except SystemExit as error:
+                code = error.code
+        self.assertEqual(code, 0, "FIELD3: opening preflight command must accept committed main")
+        prepare.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_own_origin_stops_before_remote_contact(self) -> None:
+        with patch.object(self.setup, "git_out", return_value="https://example.test/kit.git"), \
+                patch.object(self.setup.subprocess, "run") as run, \
+                patch.object(self.setup.subprocess, "Popen") as popen, \
+                self.assertRaises(cli.Failure):
+            self.setup.check_origin(self.project, True)
+        run.assert_not_called()
+        popen.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

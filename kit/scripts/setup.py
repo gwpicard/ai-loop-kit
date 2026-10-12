@@ -3,6 +3,7 @@
 # contract: changes-state
 """setup.py: the steps behind the first half of /setup, decided by what is on disk.
 
+    setup.py preflight
     setup.py found [--language L] [--test-command CMD] [--billing-mode M] ...
     setup.py first-piece
     setup.py github labels
@@ -27,11 +28,13 @@ question in `docs/open-questions.md`. It never stops founding.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -146,23 +149,115 @@ def check_tooling(root: Path) -> bool:
     )
 
 
+def preflight_next(root: Path) -> str:
+    return (f"python3 {shlex.quote(str(HERE / 'setup.py'))} preflight "
+            f"--project {shlex.quote(str(root))}")
+
+
+def origin_git(root: Path, arguments: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    """Read Git with bounded non-interactive execution and private diagnostics."""
+    command = ["git", "-C", str(root), *arguments]
+    environment = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    try:
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, env=environment,
+                                   start_new_session=True)
+        try:
+            output, _ = process.communicate(timeout=timeout)
+        except BaseException:
+            # This session contains only the Git operation we started and its helpers.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            try:
+                process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+                process.wait(timeout=5)
+            raise
+    except (OSError, UnicodeError, subprocess.TimeoutExpired) as error:
+        raise cli.Failure(
+            "origin main could not be verified; the Git operation failed or timed out",
+            next_command=preflight_next(root), code=cli.ExitCode.ENVIRONMENT,
+        ) from error
+    assert process.returncode is not None
+    return subprocess.CompletedProcess(command, process.returncode, output)
+
+
 def check_origin(root: Path, is_kit: bool) -> None:
     origin = git_out(root, "remote", "get-url", "origin")
+    project = shlex.quote(str(root))
     if not origin:
         raise cli.Failure(
-            "this project has no origin, so there is no repository to shape and run against",
-            next_command=f"git -C {shlex.quote(str(root))} remote add origin <the address of "
-            "your own repository>, then run /setup again",
+            "this project has no origin; supply your repository address, then run /setup again",
+            next_command=("printf '%s' 'Your repository address: ' && "
+                          "IFS= read -r field_origin_address && "
+                          'test -n "$field_origin_address" && '
+                          f'git -C {project} remote add -- origin "$field_origin_address"'),
             code=cli.ExitCode.REFUSED,
         )
     if is_kit:
         raise cli.Failure(
             "origin is the kit's own repository, so a run would push there. Nothing was "
             "changed",
-            next_command=f"git -C {shlex.quote(str(root))} remote set-url origin <the address of "
-            "your own repository>, then run /setup again",
+            next_command=("printf '%s' 'Your repository address: ' && "
+                          "IFS= read -r field_origin_address && "
+                          'test -n "$field_origin_address" && '
+                          f'git -C {project} remote set-url -- origin "$field_origin_address"'),
             code=cli.ExitCode.REFUSED,
         )
+    retry = preflight_next(root)
+    advertised = origin_git(root, ["ls-remote", "--exit-code", "--heads", "origin",
+                                   "refs/heads/main"], 20)
+    if advertised.returncode == 2 and not advertised.stdout:
+        push = f"git -C {project} push origin HEAD:refs/heads/main"
+        if git_out(root, "rev-parse", "--verify", "HEAD"):
+            command = push
+            message = "origin has no main commit; the person must publish current local history"
+        else:
+            command = (f"git -C {project} commit --allow-empty --only "
+                       f"-m 'Initial repository commit' && {push}")
+            message = ("origin has no main commit; the person must create and push "
+                       "an empty first commit")
+        raise cli.Failure(message, next_command=command, code=cli.ExitCode.REFUSED)
+    lines = advertised.stdout.splitlines()
+    if advertised.returncode != 0 or len(lines) != 1:
+        raise cli.Failure("origin main could not be verified", next_command=retry,
+                          code=cli.ExitCode.REFUSED)
+    match = re.fullmatch(r"([0-9a-f]{40})\trefs/heads/main", lines[0])
+    if match is None:
+        raise cli.Failure(
+            "origin main advertisement is malformed or uses an unsupported object ID",
+            next_command=retry, code=cli.ExitCode.REFUSED,
+        )
+    commit = match.group(1)
+    try:
+        with tempfile.TemporaryDirectory(prefix="setup-origin-main-") as temporary:
+            scratch = Path(temporary)
+            initialised = origin_git(scratch, ["init", "--quiet", "--object-format=sha1"], 5)
+            if initialised.returncode != 0:
+                raise cli.Failure("temporary main verification could not start",
+                                  next_command=retry, code=cli.ExitCode.ENVIRONMENT)
+            fetched = origin_git(scratch, ["fetch", "--no-tags", "--no-write-fetch-head",
+                                           "--depth=1", "--", origin, commit], 30)
+            if fetched.returncode != 0:
+                raise cli.Failure("origin main commit could not be retrieved",
+                                  next_command=retry, code=cli.ExitCode.REFUSED)
+            inspected = origin_git(scratch, ["cat-file", "-t", commit], 5)
+            if inspected.returncode != 0 or inspected.stdout.strip() != "commit":
+                raise cli.Failure("origin main does not have a verified commit object",
+                                  next_command=retry, code=cli.ExitCode.REFUSED)
+    except OSError as error:
+        raise cli.Failure("temporary main verification could not complete",
+                          next_command=retry, code=cli.ExitCode.ENVIRONMENT) from error
+
+
+def step_preflight(args: argparse.Namespace) -> dict[str, Any]:
+    root = project_root(args.project)
+    check_origin(root, check_tooling(root))
+    return {"origin_main": "verified commit", "read_only": True}
 
 
 def detect_language(root: Path) -> str | None:
@@ -697,6 +792,8 @@ def _common(command: argparse.ArgumentParser) -> None:
 
 def setup(parser: argparse.ArgumentParser) -> None:
     commands = parser.add_subparsers(dest="command", required=True, metavar="command")
+    preflight = commands.add_parser("preflight", help="check tooling, origin and remote main")
+    _common(preflight)
     found = commands.add_parser("found", help="write the foundation, never overwriting")
     _common(found)
     found.add_argument("--language", choices=LANGUAGES, default="")
@@ -724,6 +821,8 @@ def setup(parser: argparse.ArgumentParser) -> None:
 
 def handler(args: argparse.Namespace) -> dict[str, Any]:
     args.dry_run = bool(getattr(args, "dry_run", False))
+    if args.command == "preflight":
+        return step_preflight(args)
     if args.command == "found":
         return step_found(args)
     if args.command == "first-piece":
