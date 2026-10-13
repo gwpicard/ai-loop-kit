@@ -16,7 +16,7 @@ Use the KIT path above in every command below. Write it out in full.
    Done when: it prints `ok`.
 3. Find the test command. Read the project's files first (package.json, pyproject.toml, Makefile). If the project is empty, recommend one that fits the language the person wants, and ask them to confirm.
    Done when: the person has confirmed the command.
-4. Add a short section to the project's `AGENTS.md` (make the file if it is missing), and commit it on a branch with the `.gitignore` change. Open a pull request for the person.
+4. Add a short section to the project's `AGENTS.md` (make the file if it is missing), and commit it on a branch. Open a pull request for the person.
    ```
    ## The loop
    This project uses AI Loop Kit. Pieces are GitHub issues with one `state:` label.

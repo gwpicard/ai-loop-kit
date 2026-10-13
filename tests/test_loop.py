@@ -156,6 +156,13 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(gate.sync(self.p.gh, self.p.root)), 1)
         self.assertEqual(self.p.gh.issue(n)["state"], "CLOSED")
 
+    def test_the_loop_folder_stays_ignored_whatever_gitignore_says(self):
+        (self.p.root / ".gitignore").write_text("__pycache__/\n")
+        gate.ignore_loop_folder(self.p.root)
+        (self.p.root / ".loop").mkdir()
+        (self.p.root / ".loop" / "x.log").write_text("log")
+        self.assertNotIn(".loop", git(self.p.root, "status", "--porcelain"))
+
     def test_a_piece_with_two_states_is_refused(self):
         n = self.p.piece()
         self.p.gh.issues[n]["labels"].append("state:ready")

@@ -219,10 +219,18 @@ def init(gh: GitHub, root: Path) -> None:
     for s in STATES:
         gh.ensure_label(STATE_PREFIX + s, LABEL_COLOURS[s], f"Loop state: {s}. Only the gate sets it.")
     gh.ensure_label(NEEDS_YOU, "d93f0b", "The piece waits for the person.")
-    ignore = root / ".gitignore"
-    text = ignore.read_text() if ignore.exists() else ""
-    if ".loop/" not in text.splitlines():
-        ignore.write_text(text + ("" if text.endswith("\n") or not text else "\n") + ".loop/\n")
+    ignore_loop_folder(root)
+
+
+def ignore_loop_folder(root: Path) -> None:
+    """Ignore .loop/ through git's local exclude file. A builder never edits
+    that file, so a rewritten .gitignore cannot expose the kit's folder."""
+    common = Path(sh(["git", "rev-parse", "--git-common-dir"], root).stdout.strip())
+    exclude = (common if common.is_absolute() else root / common) / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    text = exclude.read_text() if exclude.exists() else ""
+    if "/.loop/" not in text.splitlines():
+        exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n") + "/.loop/\n")
 
 
 def status(gh: GitHub) -> str:
@@ -257,7 +265,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         if args.cmd == "init":
             init(gh, root)
-            print("ok: labels made, .loop/ ignored")
+            print("ok: labels made, .loop/ ignored locally")
         elif args.cmd == "capture":
             n = capture(gh, args.title, Path(args.body_file).read_text())
             print(f"ok: captured piece {n} in shaping")

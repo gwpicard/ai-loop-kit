@@ -154,6 +154,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     root = repo_root(Path.cwd())
     gh = GitHub(root)
 
+    gate.ignore_loop_folder(root)
     gate.sync(gh, root)
     pieces = args.pieces or sorted(i["number"] for i in gh.issues_with_label(STATE_PREFIX + "ready"))
     if not pieces:

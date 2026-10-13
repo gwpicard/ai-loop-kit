@@ -18,6 +18,15 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 13 Oct 2026 | loop-test-thin, scaffold piece | The ready note said "the judge fails on main" for a scaffold piece, where the gate skips that check. The kit claimed a check it did not run. | Gate notes state only what the gate checked (fixed, with a test) |
 | 13 Oct 2026 | loop-test-thin, first run | Claude Code warned that `Write(path)` and `MultiEdit(path)` deny rules match nothing; only `Edit(path)` rules count, and they cover every file tool. | Builder judge-file block uses `Edit(path)` only (fixed) |
 | 13 Oct 2026 | loop-test-thin, shaping | The person's local `main` was not pulled after the setup merge, so the piece branch started from stale `main`. | Shape pulls `main` first and branches from `origin/main` (skill text) |
+| 13 Oct 2026 | loop-test-thin, piece 2 | The builder rewrote `.gitignore` and dropped the kit's `.loop/` line. The judge could not see it, and the person missed it in the diff. | `.loop/` is ignored through `.git/info/exclude`, which builders never touch (fixed, with a test) |
+
+## Evidence collected, not yet enough to earn a feature
+
+| Date | Seen in | What happened | Ledger entry it points to |
+| --- | --- | --- | --- |
+| 13 Oct 2026 | loop-test-thin, piece 2 | A builder changed a file outside the piece (`.gitignore`) and only the person could have noticed. | The fresh reviewer; a "nothing outside the piece changed" check |
+| 13 Oct 2026 | loop-test-thin, piece 4 | Shaping recommended `~/.habits.json`, against the `./habits.json` decided while shaping the piece before. The person had to correct it. | One home per fact: a project decisions record that shaping reads |
+| 13 Oct 2026 | loop-test-thin, piece 4 | The gate ran only this piece's judge. The person ran the whole project's tests by hand before merging (all passed). | Must-stay-the-same check: run the project test command at submit |
 
 ## What is in the thin kit today
 
