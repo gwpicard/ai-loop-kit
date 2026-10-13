@@ -206,10 +206,11 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         remove.append(NEEDS_YOU)
     gh.comment(n, record_text(record, note))
     gh.set_labels(n, add, remove)
-    if to == "done":
-        gh.close(n, "completed")
-    elif to == "dropped":
-        gh.close(n, "not planned")
+    if issue.get("state", "OPEN") == "OPEN":
+        if to == "done":
+            gh.close(n, "completed")
+        elif to == "dropped":
+            gh.close(n, "not planned")
     return note
 
 
@@ -222,7 +223,9 @@ def capture(gh: GitHub, title: str, body: str) -> int:
 
 def sync(gh: GitHub, root: Path) -> list[str]:
     notes = []
-    for item in gh.issues_with_label(STATE_PREFIX + "approval"):
+    # The pull request's closing words close the issue when it merges, so a
+    # merged piece may already be closed. Look at closed issues too.
+    for item in gh.issues_with_label(STATE_PREFIX + "approval", closed_too=True):
         found = gh.pr_for_branch(branch_name(item["number"]))
         if found and found["state"] == "MERGED":
             notes.append(f"{item['number']}: " + move(gh, root, item["number"], "done"))

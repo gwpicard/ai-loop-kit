@@ -24,9 +24,9 @@ class FakeGitHub:
         i = self.issues[n]
         return {**i, "labels": list(i["labels"])}
 
-    def issues_with_label(self, label: str) -> list[dict]:
+    def issues_with_label(self, label: str, closed_too: bool = False) -> list[dict]:
         return [self.issue(n) for n, i in sorted(self.issues.items())
-                if label in i["labels"] and i["state"] == "OPEN"]
+                if label in i["labels"] and (closed_too or i["state"] == "OPEN")]
 
     def create_issue(self, title: str, body: str, labels: list[str]) -> int:
         n = len(self.issues) + 1
@@ -46,6 +46,8 @@ class FakeGitHub:
         return list(self.notes[n])
 
     def close(self, n: int, reason: str) -> None:
+        if self.issues[n]["state"] == "CLOSED":
+            raise RuntimeError("already closed")  # be stricter than gh
         self.issues[n]["state"] = "CLOSED"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:

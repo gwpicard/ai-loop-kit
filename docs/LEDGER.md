@@ -20,6 +20,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 13 Oct 2026 | loop-test-thin, shaping | The person's local `main` was not pulled after the setup merge, so the piece branch started from stale `main`. | Shape pulls `main` first and branches from `origin/main` (skill text) |
 | 13 Oct 2026 | loop-test-thin, piece 2 | The builder rewrote `.gitignore` and dropped the kit's `.loop/` line. The judge could not see it, and the person missed it in the diff. | `.loop/` is ignored through `.git/info/exclude`, which builders never touch (fixed, with a test) |
 | 13 Oct 2026 | loop-test-thin, pieces 4 and 5 | The gate ran only the piece's own judge. The person ran the whole project's tests by hand before merging, and shaping wrote "the existing tests must still pass" under Notes, which the gate never reads. | Must stay the same: an optional `Keep:` command that passes on main at ready and again after each attempt (in the kit, with a test) |
+| 13 Oct 2026 | loop-test-thin, piece 8 | The pull request's "Closes" words closed the issue on merge, and `sync` only read open issues. The piece stayed in approval for good: the kit showed a false state. | `sync` reads closed issues too, and the gate never closes an issue twice (fixed, with a test) |
 
 ## Evidence collected, not yet enough to earn a feature
 
@@ -27,6 +28,9 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | --- | --- | --- | --- |
 | 13 Oct 2026 | loop-test-thin, piece 2 | A builder changed a file outside the piece (`.gitignore`) and only the person could have noticed. | The fresh reviewer; a "nothing outside the piece changed" check |
 | 13 Oct 2026 | loop-test-thin, piece 4 | Shaping recommended `~/.habits.json`, against the `./habits.json` decided while shaping the piece before. The person had to correct it. | One home per fact: a project decisions record that shaping reads |
+| 13 Oct 2026 | loop-test-thin, piece 8 | Showing streaks in `list` would break three older tests, so the keep check would make the piece impossible. Shaping worked round it with a `--streaks` flag. There is no route for a deliberate change to old behaviour. | A piece may update older judges, with the person's acceptance |
+| 13 Oct 2026 | loop-test-thin, pieces 8 and 9 | Shaping dropped a Done when item after the person approved the spec, without asking again. Its reason was sound. | The person approves the final spec text |
+| 13 Oct 2026 | loop-test-thin, pieces 8 and 9 | Two pieces built in one run both changed `habits/cli.py`. They merged cleanly one after the other, and all tests passed on the combined main. No conflict yet. | Combined-branch integration (not earned) |
 
 ## What is in the thin kit today
 

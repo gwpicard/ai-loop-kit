@@ -153,8 +153,9 @@ class GateTest(unittest.TestCase):
         with self.assertRaises(Refused):
             gate.move(self.p.gh, self.p.root, n, "done")
         self.p.gh.prs[f"piece/{n}"]["state"] = "MERGED"
+        self.p.gh.issues[n]["state"] = "CLOSED"  # GitHub's closing words got there first
         self.assertEqual(len(gate.sync(self.p.gh, self.p.root)), 1)
-        self.assertEqual(self.p.gh.issue(n)["state"], "CLOSED")
+        self.assertIn("state:done", self.p.gh.issue(n)["labels"])
 
     def test_keep_must_pass_on_main_and_still_pass_after_the_build(self):
         keep_spec = SPEC.replace("Files:", "Keep: `python3 keep_check.py`\nFiles:")
