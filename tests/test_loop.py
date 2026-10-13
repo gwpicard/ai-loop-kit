@@ -59,6 +59,13 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(rec["bar"]), 64)
         self.assertEqual(rec["command"], "python3 judge_add.py")
 
+    def test_the_ready_note_never_claims_a_check_it_skipped(self):
+        n = self.p.piece(spec=SPEC.replace("Command:", "Kind: scaffold\nCommand:"))
+        self.ready(n)
+        note = self.p.gh.comments(n)[-1]
+        self.assertIn("does not apply", note)
+        self.assertNotIn("fails on main as it should", note)
+
     def test_ready_refuses_a_judge_that_passes_on_main(self):
         n = self.p.piece(judge="print('test_D1 test_D2 ok')\n")
         with self.assertRaises(Refused) as r:

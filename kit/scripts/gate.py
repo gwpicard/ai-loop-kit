@@ -158,7 +158,11 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     comments = gh.comments(n)
     if name == "ready":
         record = {**check_ready(root, issue), "from": frm, "to": to}
-        note += f" The judge fails on main as it should. Bar `{record['bar'][:12]}` is fixed."
+        if record["kind"] == "scaffold":
+            note += " Scaffold piece: the fails-on-main check does not apply."
+        else:
+            note += " The judge fails on main as it should, naming every spec ID."
+        note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
     elif name == "claim":
         check_frozen(issue, comments)
     elif name == "submit":

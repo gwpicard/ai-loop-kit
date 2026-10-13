@@ -15,6 +15,9 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | Date | Seen in | What went wrong | Entry it earned |
 | --- | --- | --- | --- |
 | 13 Oct 2026 | the thin kit's own tests | A spec ID inside a test name (`test_D1_adds`) was not found, because `\b` treats `_` as a letter. | Ready gate: judge names a spec ID (fixed in the core) |
+| 13 Oct 2026 | loop-test-thin, scaffold piece | The ready note said "the judge fails on main" for a scaffold piece, where the gate skips that check. The kit claimed a check it did not run. | Gate notes state only what the gate checked (fixed, with a test) |
+| 13 Oct 2026 | loop-test-thin, first run | Claude Code warned that `Write(path)` and `MultiEdit(path)` deny rules match nothing; only `Edit(path)` rules count, and they cover every file tool. | Builder judge-file block uses `Edit(path)` only (fixed) |
+| 13 Oct 2026 | loop-test-thin, shaping | The person's local `main` was not pulled after the setup merge, so the piece branch started from stale `main`. | Shape pulls `main` first and branches from `origin/main` (skill text) |
 
 ## What is in the thin kit today
 

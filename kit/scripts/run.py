@@ -53,9 +53,8 @@ def builder_settings() -> str:
 
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path) -> None:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
-    denied = []
-    for f in files:
-        denied += [f"Edit({f})", f"Write({f})", f"MultiEdit({f})"]
+    # Claude Code applies Edit(path) deny rules to every file-editing tool.
+    denied = [f"Edit({f})" for f in files]
     args = [claude, "-p", prompt, "--permission-mode", "acceptEdits",
             "--allowedTools", "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
             "--settings", builder_settings()]
