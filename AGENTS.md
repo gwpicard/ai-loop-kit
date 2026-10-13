@@ -4,32 +4,34 @@ Standing instructions for agents working in this repository.
 
 ## What this repository is
 
-AI Loop Kit v1. It is a state machine for building software with agents. It is
-being built. It runs on Claude Code only. Nothing here is ready to install.
-
-The design is in `docs/design/v1/`. The first screen of `design.md` tells you
-what v1 is. `build-plan.md` tells you what to build next.
+AI Loop Kit: a thin, checked loop for building software with Claude Code.
+Read `docs/ANGLE.md` first. It says what the kit is for and how it grows.
 
 ## Where things live
 
-- `kit/`: the scripts, templates and recipes that v1 ships. Borrowed code is
-  listed in `BORROWED.md`, with its source commit and what it must shed.
+- `kit/`: the plugin. `kit/scripts/gate.py` moves pieces, `kit/scripts/run.py`
+  builds them, `kit/hooks/guard.py` refuses the hard rules, and
+  `kit/skills/` holds setup, shape and run.
 - `tests/`: the checks for `kit/` and for the house rules.
-- `docs/design/v1/`: the design, the decisions, the build plan, the inventory
-  and the research drafts. `decisions-2026-10-05.md` wins where files disagree.
-- `docs/SOURCES.md`: credits for ideas v1 borrowed.
-- `.agents/maintainer-skills/`: three skills for the maintainer. They are
-  `humanizer`, `review-issues` and `stack-research`. Load `review-issues` from
-  `.agents/maintainer-skills/review-issues/SKILL.md` and `stack-research` from
-  `.agents/maintainer-skills/stack-research/SKILL.md`.
+- `docs/LEDGER.md`: every idea from the first design, with the failure that
+  would earn it a place. `docs/LESSONS.md`: what the first build taught us.
+- `legacy/` and `docs/archive/`: the first kit and its design. Read them for
+  reasons and for code to copy. Do not build on them.
+- `.agents/maintainer-skills/`: `humanizer`, `review-issues` and
+  `stack-research`, for the maintainer.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
 - `.githooks/commit-msg`: strips model attribution from commit messages.
 
+## How the kit grows
+
+A feature enters `kit/` only when a real run shows it is needed. Write the
+failure in `docs/LEDGER.md` first, add a test that reproduces it, then add
+the feature. Keep the kit small enough to read in one sitting.
+
 ## Commands
 
-- `tests/run-all.sh`: run every check. Pass a name to run one.
+- `tests/run-all.sh`: run every check. It takes seconds.
 - `tests/house-rules.sh`: check the house rules over every tracked file.
-- `tests/lint.sh`: run ruff and mypy over the Python files.
 
 Run `git config core.hooksPath .githooks` once in a fresh clone.
 
@@ -69,11 +71,9 @@ files is only a guard if the agent cannot change it.
 
 ## What makes a piece ready
 
-A piece is a GitHub issue. It is ready when its body has a `## Done when`
-section that states a condition somebody can check. The spec format in
-`docs/design/v1/build-plan.md` gives the full shape. The `ready` label says a
-person judged the piece shaped.
+A piece is a GitHub issue. `kit/spec-format.md` gives its shape. The gate
+decides when it is ready; a label written by hand means nothing.
 
 ## Where to read next
 
-Read `docs/design/v1/design.md`, then `docs/design/v1/build-plan.md`.
+Read `docs/ANGLE.md`, then `kit/spec-format.md`, then `docs/LEDGER.md`.
