@@ -220,6 +220,8 @@ def _gh_env(
 ) -> dict[str, str]:
     out = dict(env)
     if as_person:
+        for name in ("GH_TOKEN", *OTHER_TOKENS):
+            out.pop(name, None)
         owner, repo = origin_identity(paths)
         selectors = {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
                      "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG",

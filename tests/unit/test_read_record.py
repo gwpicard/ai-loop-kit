@@ -295,8 +295,53 @@ class ReadRecordCase(unittest.TestCase):
         for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0",
                      "GIT_CONFIG_VALUE_0", "GH_DEBUG"):
             self.assertNotIn(name, actual)
-        for name in ("GH_CONFIG_DIR", "GH_TOKEN", "SSH_AUTH_SOCK"):
+        self.assertNotIn("GH_TOKEN", actual)
+        for name in ("GH_CONFIG_DIR", "SSH_AUTH_SOCK"):
             self.assertEqual(actual[name], routing[name])
+
+    def test_person_subprocess_uses_stored_sign_in_without_environment_tokens(self) -> None:
+        tokens = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+        for token_name in tokens:
+            with self.subTest(token_name=token_name):
+                supplied = {
+                    token_name: "synthetic-token-for-" + token_name,
+                    "GH_CONFIG_DIR": str(self.paths.root.parent / "person-gh-config"),
+                    "SSH_AUTH_SOCK": "/synthetic/person-agent",
+                    "CUSTOM_PERSON_VALUE": "kept",
+                    "GH_HOST": "foreign.example", "GH_REPO": "foreign/project",
+                }
+                original = dict(supplied)
+                calls: list[dict[str, str]] = []
+
+                def runner(command: list[str], *, captured: list[dict[str, str]] = calls,
+                           **kwargs: Any) -> Any:
+                    captured.append(dict(kwargs["env"]))
+                    return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+
+                person = github.GitHub(self.paths, as_person=True, runner=runner, env=supplied)
+                self.assertEqual(person.person_read("repos/example/project", timeout=5), {})
+                person.edit_labels(1, add=["state:ready"], remove=[])
+                github._run_gh(self.paths, ["api", "repos/example/project"],
+                               "synthetic-app-token", runner=runner, env=supplied)
+                github._run_gh(self.paths, ["api", "repos/example/project"],
+                               None, runner=runner, env=supplied)
+                self.assertEqual(supplied, original, "caller environment must not be mutated")
+                self.assertEqual(len(calls), 4, "reads and writes must reach the real runner door")
+                for actual in calls[:2]:
+                    self.assertEqual(actual["GH_HOST"], "github.com")
+                    self.assertEqual(actual["GH_REPO"], "github.com/example/project")
+                    for key in ("GH_CONFIG_DIR", "SSH_AUTH_SOCK", "CUSTOM_PERSON_VALUE"):
+                        self.assertEqual(actual[key], supplied[key])
+                self.assertEqual(calls[2]["GH_TOKEN"], "synthetic-app-token")
+                self.assertEqual(calls[2]["GH_CONFIG_DIR"],
+                                 str(self.paths.data_dir / "gh-app-config"))
+                for other in tokens[1:]:
+                    self.assertNotIn(other, calls[2])
+                self.assertEqual(calls[3], supplied,
+                                 "token-none non-person setup route must remain unchanged")
+                for actual in calls[:2]:
+                    self.assertNotIn(token_name, actual,
+                                     "person read/write must use stored sign-in, not env tokens")
 
     def test_byte_and_time_bounds_refuse_without_publication(self) -> None:
         with (
