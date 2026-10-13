@@ -69,6 +69,13 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path) -> No
             out.write(f"\nThe attempt ran past {ATTEMPT_TIMEOUT // 60} minutes and was stopped.\n")
 
 
+def builder_words(logfile: Path) -> str:
+    """The end of what the builder said. It often names why the judge cannot pass."""
+    text = logfile.read_text(errors="replace").strip() if logfile.exists() else ""
+    lines = [line for line in text.splitlines() if not line.startswith("Permission deny rule")]
+    return "\n".join(lines).strip()[-1500:] or "(nothing)"
+
+
 def commit_leftovers(folder: Path, n: int, k: int) -> None:
     if sh(["git", "status", "--porcelain"], folder).stdout.strip():
         sh(["git", "add", "-A"], folder)
@@ -127,7 +134,10 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
         else:
             last_failure = f"Attempt {k} failed. The judge said:\n{output.strip()[-3000:]}"
         log(f"piece {n}: attempt {k} failed")
-        gh.comment(n, f"**Run:** attempt {k} of {attempts} failed.\n\n```\n{output.strip()[-1500:]}\n```")
+        said = builder_words(logfile)
+        gh.comment(n, f"**Run:** attempt {k} of {attempts} failed.\n\n"
+                      f"The builder said:\n\n<<<\n{said}\n>>>\n\n"
+                      f"The judge said:\n\n```\n{output.strip()[-1500:]}\n```")
     reason = f"the judge still fails after {attempts} attempts; see the comments above"
     gate.move(gh, root, n, "shaping", reason=reason)
     return f"piece {n}: back to shaping, needs you"

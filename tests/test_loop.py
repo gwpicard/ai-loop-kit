@@ -277,7 +277,10 @@ class RunTest(unittest.TestCase):
         labels = self.p.gh.issue(n)["labels"]
         self.assertIn("state:shaping", labels)
         self.assertIn("needs-you", labels)
-        self.assertEqual(sum("attempt" in c and "failed" in c for c in self.p.gh.comments(n)), 2)
+        failed = [c for c in self.p.gh.comments(n) if "attempt" in c and "failed" in c]
+        self.assertEqual(len(failed), 2)
+        self.assertIn("The builder said:", failed[0])
+        self.assertIn("built", failed[0])  # the stand-in's own words reach the issue
 
     def test_a_builder_that_changes_the_judge_does_not_pass(self):
         n, result = self.build("cheat")
