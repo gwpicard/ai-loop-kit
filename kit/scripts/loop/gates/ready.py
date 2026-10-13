@@ -488,11 +488,19 @@ def dependency_problems(start: int, fetch: Fetch) -> list[str]:
     return problems
 
 
-def _github_blockers(ctx: CheckContext, hub: Any = None) -> list[str]:
-    """The blocked-by problems, read as the App.
+class DependencyRead(list[str]):
+    """Existing graph problems together with the reader's truthful provenance."""
 
-    A piece with no issue yet has no link to read. A piece with an issue and no App is
-    refused: the gate never passes a check it did not run.
+    def __init__(self, problems: list[str], provenance: str) -> None:
+        super().__init__(problems)
+        self.provenance = provenance
+
+
+def _github_blockers(ctx: CheckContext, hub: Any = None) -> list[str]:
+    """Read blocked-by links live as the App, or from an admitted person snapshot.
+
+    A piece without an issue has no remote link. Without the App, an issue-backed
+    piece needs a complete protected snapshot; unavailable reads never become empty links.
     """
     if hub is None:
         hub = github.GitHub(ctx.paths)
@@ -500,11 +508,12 @@ def _github_blockers(ctx: CheckContext, hub: Any = None) -> list[str]:
     if issue is None:
         return []
     if not hub.available:
-        raise github.GitHubError(
-            "the blocked-by links cannot be read without the gate's App, so the piece waits",
-            next_command=f"{github.SETUP_NEXT}. The person's command: "
-            + github.sync_command(ctx.paths.root),
-            code=ExitCode.REFUSED,
+        from loop import read_record
+
+        snapshot = read_record.load(ctx.paths)
+        return DependencyRead(
+            dependency_problems(issue, lambda number: snapshot.issues.get(str(number))),
+            f"dependency links from a person-synced snapshot, age {snapshot.age_seconds} seconds",
         )
 
     def fetch(number: int) -> dict[str, Any] | None:
@@ -531,7 +540,8 @@ def _github_blockers(ctx: CheckContext, hub: Any = None) -> list[str]:
         numbers = [int(item["number"]) for item in linked if isinstance(item, dict)]
         return {"labels": info["labels"], "blocked_by": numbers}
 
-    return dependency_problems(issue, fetch)
+    return DependencyRead(dependency_problems(issue, fetch),
+                          "dependency links read live as the App")
 
 
 def default_deps(paths: Paths) -> Deps:
@@ -597,6 +607,8 @@ def run(ctx: CheckContext, deps: Deps) -> CheckResult:
         files = _judge_files(root, number, command, out)
     try:
         problems = deps.blockers(ctx)
+        if isinstance(problems, DependencyRead):
+            notes.append(problems.provenance)
     except github.GitHubError as error:
         out.add(f"the blocked-by links cannot be read: {error.message}", error.next_command)
         problems = []

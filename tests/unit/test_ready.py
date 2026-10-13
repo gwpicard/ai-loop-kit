@@ -518,7 +518,7 @@ class TheRealBlockedByReader(Case):
     def test_no_app_and_an_issue_refuses(self) -> None:
         with self.assertRaises(github.GitHubError) as caught:
             self.blockers(FakeHub(available=False))
-        self.assertIn("second half of /setup", caught.exception.next_command)
+        self.assertIn("person", caught.exception.next_command)
         self.assertIn("sync", caught.exception.next_command)
 
     def test_the_gate_turns_that_into_a_refusal(self) -> None:
@@ -532,7 +532,8 @@ class TheRealBlockedByReader(Case):
         result = ready.run(self.context(), deps)
         self.assertFalse(result.ok)
         self.assertIn("blocked-by links cannot be read", " ".join(result.failures))
-        self.assertIn("second half of /setup", result.next_command)
+        self.assertIn("person", result.next_command)
+        self.assertIn("sync", result.next_command)
 
     def test_no_app_and_no_issue_ever_made_passes(self) -> None:
         self.assertEqual(self.blockers(FakeHub(available=False), issue=None), [])

@@ -326,9 +326,12 @@ def check_settings(root: Path, kit: Path) -> list[Refusal]:
     kit = kit.resolve()
     template_path = kit / "templates" / "claude-settings.json"
     try:
-        text = template_path.read_text(encoding="utf-8").replace("{{KIT_DIR}}", str(kit))
+        text = load_merge_settings().render_settings(
+            template_path.read_text(encoding="utf-8"),
+            {"KIT_DIR": str(kit), "PROJECT_ROOT": str(root.resolve())},
+        )
         template = json.loads(text)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, cli.Failure) as error:
         return [first_half("deny-rule", f"cannot read the kit's settings template ({error})")]
     refusals: list[Refusal] = []
     settings_path = root / ".claude" / "settings.json"
@@ -336,6 +339,12 @@ def check_settings(root: Path, kit: Path) -> list[Refusal]:
     if settings_error or not isinstance(mine, dict):
         reason = f"{settings_error or 'it is not a JSON object'}, so no guard setting is in place"
         return [first_half("deny-rule", reason), first_half("sandbox", reason)]
+    from loop import github, read_record
+
+    try:
+        read_record.protection(Paths.for_project(root.resolve(), kit_folder=kit))
+    except github.GitHubError as error:
+        refusals.append(first_half("sandbox", error.message))
     merge_settings = load_merge_settings()
     added: list[str] = []
     overridden: list[str] = []

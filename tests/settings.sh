@@ -319,10 +319,12 @@ for label, want in [("the held-out folder and App key", str(paths.data_dir)),
         ok("read-blocked in the sandbox: " + label)
     else:
         fail("the sandbox does not read-block %s (%s)" % (label, want))
-for rule in templates["claude-settings"]["permissions"]["deny"]:
+for rule in [rule.replace("{{KIT_DIR}}", kit)
+                                   for rule in templates["claude-settings"]["permissions"]["deny"]]:
     if attended_only(rule):
         continue
-    if rule not in templates["builder-settings"]["permissions"]["deny"]:
+    if rule not in [item.replace("{{KIT_DIR}}", kit)
+                    for item in templates["builder-settings"]["permissions"]["deny"]]:
         fail("builder settings lack the project deny rule %s" % rule)
         break
 else:
@@ -406,7 +408,8 @@ kit_link = Path(base, "installed-kit")
 kit_link.symlink_to(kit, target_is_directory=True)
 canonical_target = Path(base, "canonical-settings.json")
 canonical_args = [sys.executable, str(merge), str(T / "claude-settings.json"),
-                  str(canonical_target), "--set", "KIT_DIR=" + str(kit_link)]
+                  str(canonical_target), "--set", "KIT_DIR=" + str(kit_link),
+                  "--set", "PROJECT_ROOT=" + str(Path(base).resolve())]
 canonical_merge = subprocess.run(canonical_args, capture_output=True, text=True,
                                  env=guard_env, check=False)
 if canonical_merge.returncode:
@@ -438,7 +441,8 @@ mine.write_text(json.dumps({
     "model": "opus",
     "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]},
 }, indent=2) + "\n")
-args = [sys.executable, str(merge), str(T / "claude-settings.json"), str(mine)]
+root_flags = ["--set", "KIT_DIR=" + kit, "--set", "PROJECT_ROOT=" + str(Path(base).resolve())]
+args = [sys.executable, str(merge), str(T / "claude-settings.json"), str(mine), *root_flags]
 r1 = subprocess.run(args, capture_output=True, text=True, env=guard_env, check=False)
 if r1.returncode != 0:
     fail("merge-settings.py failed (%d): %s%s" % (r1.returncode, r1.stdout[-200:], r1.stderr[-200:]))
@@ -450,7 +454,8 @@ else:
         ok("merging keeps the person's own rules and values")
     else:
         fail("merging lost something the person had: %r" % m)
-    if all(rule in p.get("deny", []) for rule in templates["claude-settings"]["permissions"]["deny"]):
+    if all(rule in p.get("deny", []) for rule in [rule.replace("{{KIT_DIR}}", kit)
+                                   for rule in templates["claude-settings"]["permissions"]["deny"]]):
         ok("merging adds every deny rule of the template")
     else:
         fail("merging dropped a deny rule of the template")
@@ -467,7 +472,7 @@ else:
 # A scalar of the person's that overrides a kit guard value is reported on stderr.
 override = Path(base, "override.json")
 override.write_text(json.dumps({"sandbox": {"enabled": False}}) + "\n")
-r4 = subprocess.run([sys.executable, str(merge), str(T / "claude-settings.json"), str(override)],
+r4 = subprocess.run([sys.executable, str(merge), str(T / "claude-settings.json"), str(override), *root_flags],
                     capture_output=True, text=True, env=guard_env, check=False)
 if r4.returncode == 0 and "sandbox.enabled" in r4.stderr and "kit" in r4.stderr \
         and json.loads(override.read_text())["sandbox"]["enabled"] is False \
@@ -483,12 +488,40 @@ else:
     fail("a merge with no override reported one: %r" % quiet.stderr)
 bad = Path(base, "bad.json")
 bad.write_text("{not json")
-r3 = subprocess.run([sys.executable, str(merge), str(T / "claude-settings.json"), str(bad)],
+r3 = subprocess.run([sys.executable, str(merge), str(T / "claude-settings.json"), str(bad), *root_flags],
                     capture_output=True, text=True, env=guard_env, check=False)
 if r3.returncode != 0 and bad.read_text() == "{not json" and "next:" in r3.stderr:
     ok("a target that is not JSON is left untouched, and the error names the next step")
 else:
     fail("a target that is not JSON was not refused cleanly")
+
+# PROJECT_ROOT is explicit and literal on the direct public settings door.
+for value in (None, "relative-project", str(Path(base) / "project*")):
+    target = Path(base, "root-refusal", "settings.json")
+    command = [sys.executable, str(merge), str(T / "claude-settings.json"), str(target),
+               "--set", "KIT_DIR=" + kit]
+    if value is not None:
+        command += ["--set", "PROJECT_ROOT=" + value]
+    result = subprocess.run(command, capture_output=True, text=True, env=guard_env, check=False)
+    if result.returncode == 0 or target.parent.exists():
+        fail("missing or unsafe PROJECT_ROOT wrote settings or its parent")
+    existing = Path(base, "root-preserved.json")
+    existing.write_text('{"person":"kept"}\n')
+    command[3] = str(existing)
+    result = subprocess.run(command, capture_output=True, text=True, env=guard_env, check=False)
+    if result.returncode == 0 or existing.read_text() != '{"person":"kept"}\n':
+        fail("PROJECT_ROOT refusal failed to preserve the person's existing settings")
+valid_project = Path(base, "person's project").resolve()
+valid_target = Path(base, "safe-root-settings.json")
+result = subprocess.run(
+    [sys.executable, str(merge), str(T / "claude-settings.json"), str(valid_target),
+     "--set", "KIT_DIR=" + kit, "--set", "PROJECT_ROOT=" + str(valid_project)],
+    capture_output=True, text=True, env=guard_env, check=False)
+if result.returncode or str(valid_project / ".agents/loop") not in json.loads(
+    valid_target.read_text())["sandbox"]["filesystem"]["denyWrite"]:
+    fail("safe spaces and apostrophe PROJECT_ROOT did not render its exact sandbox block")
+else:
+    ok("PROJECT_ROOT is explicit, safe, project-bound and refuses before writes")
 
 print("")
 if problems:

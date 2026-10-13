@@ -68,15 +68,12 @@ class InstalledSettingsTest(unittest.TestCase):
         base = Path(tempfile.mkdtemp()).resolve()
         root = base / "project"
         (root / ".claude").mkdir(parents=True)
-        kit = base / "home/.claude/plugins/cache/marketplace/ai-loop-kit/0.1.0"
-        (kit / "templates").mkdir(parents=True)
-        template = (ROOT / "kit/templates/claude-settings.json").read_text()
-        (kit / "templates/claude-settings.json").write_text(template)
-        (kit / "templates/builder-settings.json").write_text(
-            (ROOT / "kit/templates/builder-settings.json").read_text())
+        kit = (ROOT / "kit").resolve()
+        template = (kit / "templates/claude-settings.json").read_text()
         link = base / "installed-kit"
         link.symlink_to(kit, target_is_directory=True)
-        settings = json.loads(template.replace("{{KIT_DIR}}", str(kit)))
+        settings = json.loads(check.load_merge_settings().render_settings(
+            template, {"KIT_DIR": str(kit), "PROJECT_ROOT": str(root.resolve())}))
         target = root / ".claude/settings.json"
         target.write_text(json.dumps(settings))
         self.assertEqual(check.check_settings(root, link), [], "CR-02 canonical pre-run root")
@@ -87,6 +84,15 @@ class InstalledSettingsTest(unittest.TestCase):
         settings["sandbox"]["filesystem"]["denyWrite"].remove(str(kit))
         target.write_text(json.dumps(settings))
         self.assertIn("sandbox", [r.guard for r in check.check_settings(root, link)], "CR-02")
+        settings["sandbox"]["filesystem"]["denyWrite"].append(str(kit))
+        target.write_text(json.dumps(settings))
+        overlay = root / ".claude/settings.local.json"
+        overlay.write_text(json.dumps({"sandbox": {"filesystem": {"disabled": True}}}))
+        self.assertIn("sandbox", [r.guard for r in check.check_settings(root, link)])
+        overlay.write_text(json.dumps({"sandbox": {"excludedCommands": ["python3 *"]}}))
+        self.assertIn("sandbox", [r.guard for r in check.check_settings(root, link)])
+        overlay.write_text(json.dumps({"model": "person-choice"}))
+        self.assertEqual(check.check_settings(root, link), [])
 
 
 class BareTest(unittest.TestCase):

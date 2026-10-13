@@ -215,12 +215,26 @@ def search(args: argparse.Namespace) -> dict[str, Any]:
                 error.message, next_command=error.next_command, code=error.code
             ) from error
     else:
-        out["next"] = github.SETUP_NEXT
-        sys.stderr.write(
-            "note: the gate's GitHub App is not set up, so GitHub was not read. "
-            "Only the gate's own record was searched.\n"
-            f"next: {github.SETUP_NEXT}\n"
-        )
+        from loop import read_record
+
+        try:
+            snapshot = read_record.load(paths)
+        except github.GitHubError as error:
+            raise Failure(error.message, next_command=error.next_command,
+                          code=error.code) from error
+        out["snapshot"] = {"source": "person-synced snapshot",
+                           "age_seconds": snapshot.age_seconds}
+        for number in snapshot.catalogue:
+            seen.add(number)
+            info = snapshot.read_issue(number)
+            found = _match(idea, info["title"], info["body"], args.threshold)
+            if found is None:
+                continue
+            matches.append({"number": number, "source": "person-synced snapshot",
+                            "title": info["title"], "state": info["state"],
+                            "labels": info["labels"], "dropped": "state:dropped" in info["labels"],
+                            "reason": info["reason"], "score": round(found[0], 2),
+                            "shared": found[1]})
     matches += _search_record(paths, idea, args.threshold, seen)
     matches.sort(key=lambda m: (-float(m["score"]), int(m["number"])))
     warnings = [

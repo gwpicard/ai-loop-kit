@@ -68,6 +68,29 @@ class FakeHub:
         self.on_read: Callable[[int, int], None] | None = None
         self.reads = 0
 
+    def api_json(self, endpoint: str, **_kwargs: Any) -> Any:
+        route, _, query = endpoint.partition("?")
+        prefix = "repos/example/project"
+        if route == prefix:
+            return {"id": 9001, "full_name": "example/project"}
+        if route == prefix + "/issues":
+            page = int(dict(part.split("=", 1) for part in query.split("&") if part)["page"])
+            values = [{**value, "id": 10000 + number, "updated_at": TODAY + "T12:00:00Z"}
+                      for number, value in sorted(self.issues.items())]
+            return values[(page - 1) * 100:page * 100]
+        if route.startswith(prefix + "/issues/"):
+            parts = route.removeprefix(prefix + "/issues/").split("/")
+            number = int(parts[0])
+            if parts[1:] == ["dependencies", "blocked_by"]:
+                return []
+            if parts[1:] == ["comments"]:
+                return [{"id": 20000 + index, "body": body}
+                        for index, body in enumerate(self.issues[number]["comments"])]
+            if len(parts) == 1:
+                return {**self.read_issue(number), "id": 10000 + number,
+                        "updated_at": TODAY + "T12:00:00Z"}
+        raise AssertionError("unexpected synthetic read endpoint: " + endpoint)
+
     def read_issue(self, number: int) -> dict[str, Any]:
         self.reads += 1
         if self.on_read:
@@ -124,11 +147,21 @@ class FakeHub:
         self.calls.append(("label", name))
 
 
-def new_paths() -> Paths:
+def new_paths(*, person_origin: bool = False) -> Paths:
     base = Path(tempfile.mkdtemp())
     root = base / "project"
     root.mkdir()
-    return Paths.for_project(root, data_base=base / "data", kit_folder=ROOT / "kit")
+    if person_origin:
+        for args in (("init", "-q"),
+                     ("remote", "add", "origin", "https://github.com/example/project.git")):
+            subprocess.run(["git", "-C", str(root), *args], check=True,
+                           stdin=subprocess.DEVNULL, capture_output=True)
+    settings = json.loads((ROOT / "kit/templates/claude-settings.json").read_text()
+                          .replace("{{KIT_DIR}}", str(ROOT / "kit"))
+                          .replace("{{PROJECT_ROOT}}", str(root.resolve())))
+    (root / ".claude").mkdir()
+    (root / ".claude/settings.json").write_text(json.dumps(settings), "utf-8")
+    return Paths.for_project(root.resolve(), data_base=base / "data", kit_folder=ROOT / "kit")
 
 
 def no_app_hub(paths: Paths, spawned: list[list[str]]) -> github.GitHub:
@@ -159,9 +192,10 @@ def send(gate: moves.Gate, person: Any) -> dict[str, Any]:
 
 class Base(unittest.TestCase):
     app = True
+    person_origin = False
 
     def setUp(self) -> None:
-        self.paths = new_paths()
+        self.paths = new_paths(person_origin=self.person_origin)
         self.loader = Loader()
         self.spawned: list[list[str]] = []
         self.hub: Any = FakeHub() if self.app else no_app_hub(self.paths, self.spawned)
@@ -793,6 +827,7 @@ class Labels(Base):
 
 class WithoutTheApp(Base):
     app = False
+    person_origin = True
 
     def test_every_move_works_in_the_record_and_the_queue_fills(self) -> None:
         result = self.gate.capture(title="Rename a report", body=BODY, issue_type="feature")
@@ -886,6 +921,7 @@ class WithoutTheApp(Base):
 
 class WhatSyncShows(Base):
     app = False
+    person_origin = True
 
     def test_the_dry_run_lists_every_queued_write_in_full(self) -> None:
         piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])
@@ -949,6 +985,7 @@ class WhatSyncShows(Base):
 
 class EitherNumber(Base):
     app = False
+    person_origin = True
 
     def test_move_takes_the_local_number_or_the_synced_issue_number(self) -> None:
         piece = int(self.gate.capture(title="t", body=BODY, issue_type="feature")["piece"])

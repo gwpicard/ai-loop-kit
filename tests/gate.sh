@@ -191,6 +191,12 @@ fi
 # --- with no App ------------------------------------------------------------------
 
 tp_new gate-no-app
+# Person-read fixtures use the actual installed module and a synthetic GitHub identity.
+# These commands only alter local test config; every GitHub request goes to fake gh.
+git -C "$TP_ROOT" remote set-url origin https://github.com/rehearsal/project.git
+python3 "$ROOT/kit/scripts/merge-settings.py" "$ROOT/kit/templates/claude-settings.json" \
+  "$TP_ROOT/.claude/settings.json" --set "KIT_DIR=$ROOT/kit" \
+  --set "PROJECT_ROOT=$TP_ROOT" >/dev/null || fail "person-sync protection could not be prepared"
 unset FAKE_APP_KEY
 cd "$TP_ROOT"
 python3 "$GATE" capture --title "Export invoices" --body-file "$BODY" --type feature --json \

@@ -1215,6 +1215,10 @@ class Gate:
                 next_command=github.sync_command(self.paths.root),
             )
         try:
+            from loop import read_record
+
+            identity = read_record.binding(self.paths)
+            read_record.invalidate(self.paths)
             if pending:
                 present = set(person.list_labels())
                 for name, colour, text in states.LABELS:
@@ -1227,10 +1231,16 @@ class Gate:
                 except HandChange as change:
                     refusals.append({"piece": piece.number, "why": str(change)})
                     done.append({"piece": piece.number, "sent": None})
+            generation = read_record.collect(self.paths, person, expected_identity=identity)
+            read_record.publish(self.paths, generation)
         except github.GitHubError as error:
-            raise MoveError(error.message, next_command=error.next_command,
+            sent = sum(row.get("sent") is not None for row in done)
+            message = (error.message + f"; {sent} queued piece(s) fully sent before refusal; "
+                       "approved writes may have partial progress: inspect gate.py report")
+            raise MoveError(message, next_command=error.next_command,
                             code=error.code) from error
-        return {"pieces": done, "refused": refusals}
+        return {"pieces": done, "refused": refusals,
+                "github_reads": {"source": "person-synced snapshot", "age_seconds": 0}}
 
     # --- the report ------------------------------------------------------------------
 

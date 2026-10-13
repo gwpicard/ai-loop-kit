@@ -40,11 +40,14 @@ import base64
 import json
 import os
 import re
+import selectors
 import shlex
+import signal
 import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -212,8 +215,22 @@ def forget_tokens() -> None:
     _TOKENS.clear()
 
 
-def _gh_env(paths: Paths, token: str | None, env: Mapping[str, str]) -> dict[str, str]:
+def _gh_env(
+    paths: Paths, token: str | None, env: Mapping[str, str], *, as_person: bool = False
+) -> dict[str, str]:
     out = dict(env)
+    if as_person:
+        for name in ("GH_TOKEN", *OTHER_TOKENS):
+            out.pop(name, None)
+        owner, repo = origin_identity(paths)
+        selectors = {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+                     "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG",
+                     "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GH_DEBUG"}
+        for key in list(out):
+            if key in selectors or key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+                out.pop(key)
+        out.update({"GH_HOST": "github.com", "GH_REPO": f"github.com/{owner}/{repo}"})
+        return out
     if token is None:
         return out
     for name in OTHER_TOKENS:
@@ -239,6 +256,7 @@ def _run_gh(
     runner: Runner,
     env: Mapping[str, str],
     stdin: str | None = None,
+    as_person: bool = False,
 ) -> Any:
     """The one place that starts gh."""
     try:
@@ -248,7 +266,7 @@ def _run_gh(
             capture_output=True,
             text=True,
             check=False,
-            env=_gh_env(paths, token, env),
+            env=_gh_env(paths, token, env, as_person=as_person),
             cwd=str(paths.root),
         )
     except OSError as error:
@@ -324,6 +342,77 @@ def credential(
     return Credential("app", token, actor)
 
 
+def literal_origin(paths: Paths) -> str:
+    """Read only the literal URL in this project's config, ignoring routing overrides."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(paths.root.resolve()), "config", "--local", "--get-all",
+             "remote.origin.url"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            timeout=5, check=False, env=env,
+        )
+        urls = done.stdout.splitlines()
+        if done.returncode or len(urls) != 1:
+            raise ValueError("missing or ambiguous origin")
+        return str(urls[0])
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        raise GitHubError("the actual project needs one literal GitHub origin",
+                          next_command=sync_command(paths.root),
+                          code=cli.ExitCode.REFUSED) from error
+
+
+def origin_identity(paths: Paths, *, literal: str | None = None) -> tuple[str, str]:
+    url = literal_origin(paths) if literal is None else literal
+    match = re.fullmatch(
+        r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)"
+        r"([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9_.-]*?)(?:\.git)?", url
+    )
+    if match is None or match[2] in (".", ".."):
+        raise GitHubError("the actual project needs a canonical GitHub origin",
+                          next_command=sync_command(paths.root), code=cli.ExitCode.REFUSED)
+    return match[1].lower(), match[2].lower()
+
+
+def bounded_person_process(command: list[str], *, timeout: float, **kwargs: Any) -> Any:
+    """Reap our own finite GET process before releasing its response buffers."""
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    deadline = time.monotonic() + timeout
+    with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, cwd=kwargs["cwd"], env=kwargs["env"],
+                          start_new_session=True) as child:
+        assert child.stdout is not None and child.stderr is not None
+        try:
+            with selectors.DefaultSelector() as selector:
+                for name, stream in (("stdout", child.stdout), ("stderr", child.stderr)):
+                    os.set_blocking(stream.fileno(), False)
+                    selector.register(stream, selectors.EVENT_READ, name)
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ValueError("person read timed out")
+                    for key, _events in selector.select(min(remaining, 0.1)):
+                        chunk = os.read(key.fd, 65536)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                            continue
+                        buffer = buffers[key.data]
+                        buffer.extend(chunk)
+                        limit = 8 * 1024 * 1024 if key.data == "stdout" else 16384
+                        if len(buffer) > limit:
+                            raise ValueError("person response exceeded its bound")
+            child.wait(timeout=max(0.01, deadline - time.monotonic()))
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            with suppress(ProcessLookupError):
+                os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+            raise GitHubError("person read exceeded its time or response bound",
+                              next_command="run person sync again") from error
+        return subprocess.CompletedProcess(command, child.returncode,
+                                           buffers["stdout"].decode("utf-8", errors="replace"),
+                                           buffers["stderr"].decode("utf-8", errors="replace"))
+
+
 # --- the wrapper ------------------------------------------------------------------------
 
 
@@ -357,7 +446,8 @@ class GitHub:
         if found is None:
             raise NoApp(self.paths.root)
         done = _run_gh(
-            self.paths, args, found.token, runner=self.runner, env=self.env, stdin=stdin
+            self.paths, args, found.token, runner=self.runner, env=self.env, stdin=stdin,
+            as_person=self.as_person
         )
         if done.returncode != 0:
             raise GitHubError(
@@ -378,6 +468,44 @@ class GitHub:
                 "GitHub answered with something that is not JSON",
                 next_command="run the same command again",
             ) from error
+
+    def person_read(self, endpoint: str, *, timeout: float) -> Any:
+        """Finite explicit-repository GETs, only inside confirmed person sync."""
+        if not self.as_person or in_agent_session(self.env):
+            raise GitHubError("person reads require external person sync",
+                              next_command=sync_command(self.paths.root), code=cli.ExitCode.REFUSED)
+        owner, repo = origin_identity(self.paths)
+        prefix = f"repos/{owner}/{repo}"
+        suffix = endpoint.removeprefix(prefix)
+        if endpoint != prefix and not re.fullmatch(
+            r"/issues(?:/[1-9][0-9]*(?:/dependencies/blocked_by|/comments)?)?"
+            r"(?:\?(?:state=all&)?per_page=100&page=[1-9][0-9]*)?", suffix
+        ):
+            raise GitHubError("unsupported person read",
+                              next_command=sync_command(self.paths.root))
+        if not endpoint.startswith(prefix) or not 0 < timeout <= 30:
+            raise GitHubError("invalid person read bound",
+                              next_command=sync_command(self.paths.root))
+        held = self.credential_fn(self.paths, as_person=True, runner=self.runner, env=self.env)
+        if held is None or held.kind != "person":
+            raise NoApp(self.paths.root)
+        def bounded(command: list[str], **kwargs: Any) -> Any:
+            return bounded_person_process(command, timeout=timeout, **kwargs)
+
+        selected_runner = bounded if self.runner is subprocess.run else self.runner
+        done = _run_gh(self.paths, ["api", "--method", "GET", endpoint], None,
+                       runner=selected_runner, env=self.env, as_person=True)
+        if done.returncode:
+            raise GitHubError("person GitHub read failed",
+                              next_command=sync_command(self.paths.root),
+                              not_found="HTTP 404" in done.stderr)
+        try:
+            if len(done.stdout.encode("utf-8")) > 8 * 1024 * 1024:
+                raise ValueError("oversized response")
+            return json.loads(done.stdout)
+        except (ValueError, TypeError) as error:
+            raise GitHubError("person GitHub response is malformed or oversized",
+                              next_command=sync_command(self.paths.root)) from error
 
     def pr_state(self, branch: str) -> str:
         """`open`, `merged <head commit>`, `closed` or `none` for the branch's pull requests."""

@@ -447,7 +447,7 @@ CLAUDE_PLUGIN_ROOT="$KIT"
 export CLAUDE_PLUGIN_ROOT
 prc() {
   set +e
-  python3 "$PRC" --project "$TP_ROOT" --json "$@" > "$TP_BASE/prc.out" 2> "$TP_BASE/prc.err"
+  python3 "$KIT/scripts/pre-run-check.py" --project "$TP_ROOT" --json "$@" > "$TP_BASE/prc.out" 2> "$TP_BASE/prc.err"
   PRC_CODE=$?
   set -e
 }
