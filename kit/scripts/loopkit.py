@@ -37,10 +37,11 @@ class Spec:
     command: str
     files: list[str]
     kind: str  # "test", or "scaffold" for the first piece of an empty project
+    keep: str = ""  # a command that passes on main and must still pass after the build
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*[:.)]\s*(\S.*)$")
-_FIELD = re.compile(r"^\s*(Command|Files|Kind)\s*:\s*(.*)$", re.IGNORECASE)
+_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -73,7 +74,7 @@ def parse_spec(body: str) -> Spec:
         if not done_when:
             gaps.append("'## Done when' has no item like '- D1: ...'")
 
-    command, kind, files = "", "test", []
+    command, kind, keep, files = "", "test", "", []
     judge = _section(body, "Judge")
     if judge is None:
         gaps.append("no '## Judge' section")
@@ -88,6 +89,8 @@ def parse_spec(body: str) -> Spec:
                     command = value.strip("`").strip()
                 elif key == "kind":
                     kind = value.strip("`").strip().lower()
+                elif key == "keep":
+                    keep = value.strip("`").strip()
                 elif value:
                     files += [f.strip().strip("`") for f in value.split(",") if f.strip()]
             elif in_files and re.match(r"^\s*[-*]\s+\S", line):
@@ -104,7 +107,7 @@ def parse_spec(body: str) -> Spec:
     if gaps:
         raise Refused("the spec is incomplete: " + "; ".join(gaps),
                       "fix the issue body to match kit/spec-format.md")
-    return Spec(done_when, command, files, kind)
+    return Spec(done_when, command, files, kind, keep)
 
 
 def spec_hash(body: str) -> str:

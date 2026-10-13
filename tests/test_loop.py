@@ -156,6 +156,30 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(gate.sync(self.p.gh, self.p.root)), 1)
         self.assertEqual(self.p.gh.issue(n)["state"], "CLOSED")
 
+    def test_keep_must_pass_on_main_and_still_pass_after_the_build(self):
+        keep_spec = SPEC.replace("Files:", "Keep: `python3 keep_check.py`\nFiles:")
+        n = self.p.piece(spec=keep_spec)
+        with self.assertRaises(Refused) as r:  # no keep_check.py on main yet
+            self.ready(n)
+        self.assertIn("keep check already fails on main", r.exception.reason)
+        (self.p.root / "keep_check.py").write_text("import pathlib, sys\nsys.exit(0 if pathlib.Path('README.md').exists() else 1)\n")
+        git(self.p.root, "add", "keep_check.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Keep check")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        git(self.p.root, "merge", "--quiet", "--no-edit", "main")
+        git(self.p.root, "switch", "--quiet", "main")
+        self.ready(n)
+        self.assertIn("keep check", self.p.gh.comments(n)[-1])
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "habits.py").write_text(GOOD_CODE)
+        self.assertTrue(gate.judge(self.p.root, ready)[0])
+        (self.p.root / "README.md").unlink()  # the build breaks what worked before
+        passed, why = gate.judge(self.p.root, ready)
+        self.assertFalse(passed)
+        self.assertIn("keep check now fails", why)
+
     def test_the_loop_folder_stays_ignored_whatever_gitignore_says(self):
         (self.p.root / ".gitignore").write_text("__pycache__/\n")
         gate.ignore_loop_folder(self.p.root)

@@ -84,6 +84,12 @@ def check_ready(root: Path, issue: dict) -> dict:
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
+        if spec.keep:
+            # What must stay the same is checked on main as it is today.
+            kcode, koutput = run_judge(folder, spec.keep)
+            if kcode != 0:
+                raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
+                              "fix main first, or correct the Keep: command")
         if spec.files:
             sh(["git", "checkout", head, "--", *spec.files], folder)
         code, output = run_judge(folder, spec.command)
@@ -115,7 +121,7 @@ def check_ready(root: Path, issue: dict) -> dict:
             raise Refused(f"no failing judge test names {', '.join(missing)}",
                           "give every Done when item at least one test")
     return {"move": "ready", "bar": bar, "files": spec.files, "command": spec.command,
-            "kind": spec.kind, "commit": head, "main": main_sha,
+            "kind": spec.kind, "keep": spec.keep, "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
 
 
@@ -136,7 +142,13 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if ready["files"] and bar_hash_in(folder, ready["files"]) != ready["bar"]:
         return False, "the judge files differ from the ones fixed at ready"
     code, output = run_judge(folder, ready["command"])
-    return code == 0, output
+    if code != 0:
+        return False, output
+    if ready.get("keep"):
+        kcode, koutput = run_judge(folder, ready["keep"])
+        if kcode != 0:
+            return False, f"the judge passes, but the keep check now fails:\n{koutput}"
+    return True, output
 
 
 # ---------------------------------------------------------------- moves
@@ -162,6 +174,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             note += " Scaffold piece: the fails-on-main check does not apply."
         else:
             note += " The judge fails on main as it should, naming every spec ID."
+        if record["keep"]:
+            note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
     elif name == "claim":
         check_frozen(issue, comments)
