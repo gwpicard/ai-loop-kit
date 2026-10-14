@@ -52,7 +52,7 @@ person changed the pull request after the gate judged it.
 | existing-python | loop-test-existing | The loop works in an existing Python project with its own tests and a `.venv`. | 14 Oct 2026 |
 | existing-node | loop-test-node | The loop works in an existing Node project, with a Prepare command. | 14 Oct 2026 |
 | wrong-bar | loop-test-thin | A judge that contradicts itself fails every attempt. The piece returns with `needs-you` and the builders' reasons. It is reshaped and built. | 13 Oct 2026 |
-| rejected-pr | any | The person rejects a pull request with a reason. The piece is fixed without hand work on the branch. | not run: a known gap (the run builds only ready pieces) |
+| rejected-pr | loop-test-node | The person rejects a pull request with a reason. The piece is fixed without hand work on the branch. | 14 Oct 2026: failed, five fixes, then passed on the re-run |
 | docker | new | A project that builds and tests only in Docker. Prepare is `docker compose build`. | not run |
 | conflict | loop-test-thin | Two pieces in one run change the same lines. The second pull request conflicts after the first merges. The kit says so plainly and recovers. | not run |
 | hard-piece | any | A piece that a real builder cannot pass on the first attempt. Later attempts use the judge's output and pass. | not run |
@@ -90,10 +90,9 @@ person changed the pull request after the gate judged it.
 
 - Setup: any project with a piece in approval.
 - Steps: reject the pull request with a reason; let the kit fix it.
-- Must hold: no hand edits on the piece branch; the audit shows the piece
-  sent back once and built twice.
-- Today this needs a hand fix. It is in the ledger. Run it again when the
-  run picks up pieces in building.
+- Must hold: no hand edits on the piece branch; no force push; the piece
+  never sticks in building; the next build's brief holds the reason; the
+  audit shows the piece sent back once and built twice.
 
 ### docker
 

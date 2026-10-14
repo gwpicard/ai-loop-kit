@@ -23,7 +23,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name, command_env,  # noqa: E402
-                     last_record, main_ref, prepare, repo_root, sh)
+                     last_record, main_ref, prepare, records, repo_root, sh)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -33,12 +33,27 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def brief(n: int, body: str, ready: dict, last_failure: str) -> str:
+def came_back_reason(comments: list[str]) -> str:
+    """Every reason the piece came back for after a build, oldest first."""
+    built, reasons = False, []
+    for r in records(comments):
+        if r.get("move") == "claim":
+            built = True
+        elif built and r.get("move") in ("reject", "pull-back", "give-back", "rebuild"):
+            reasons.append(f"- {r.get('reason', '')}")
+    return "\n".join(reasons)
+
+
+def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = "") -> str:
     text = (KIT / "briefs" / "builder.md").read_text()
     files = "\n".join(f"- `{f}`" for f in ready["files"]) or "- (none: the command is the judge)"
+    earlier = last_failure or "This is the first attempt."
+    if came_back:
+        earlier = ("This piece was built before and came back for these reasons:\n"
+                   f"{came_back}\nThe branch still holds that earlier build. Change it so the "
+                   f"reasons no longer apply.\n\n{earlier}")
     for key, value in {"PIECE": str(n), "SPEC": body.strip(), "COMMAND": ready["command"],
-                       "FILES": files,
-                       "LAST_FAILURE": last_failure or "This is the first attempt."}.items():
+                       "FILES": files, "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
     return text
 
@@ -99,10 +114,35 @@ def worktree(root: Path, n: int) -> Path:
     return folder
 
 
+def check_pushed_branch(root: Path, n: int) -> None:
+    """A pushed piece branch is never rewritten. Refuse before the claim if
+    GitHub holds commits that the local branch lacks."""
+    branch = branch_name(n)
+    if sh(["git", "fetch", "--quiet", "origin", branch], root, check=False).returncode != 0:
+        return  # not pushed yet
+    remote = sh(["git", "rev-parse", "FETCH_HEAD"], root).stdout.strip()
+    if sh(["git", "merge-base", "--is-ancestor", remote, branch], root, check=False).returncode:
+        raise Refused(f"origin/{branch} holds commits that the local {branch} lacks, and a "
+                      "pushed branch is never rewritten",
+                      f"run `git switch {branch} && git merge origin/{branch}`, keep the new "
+                      "judge files, commit, run gate.py check, then run again")
+
+
 def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
+    check_pushed_branch(root, n)
     gate.move(gh, root, n, "building")
+    try:
+        return build_claimed(gh, root, n, issue, attempts)
+    except Exception as e:  # never leave a piece in building
+        reason = f"the run stopped with an error: {str(e).strip()[:300]}"
+        if gate.state_of(gh.issue(n)) == "building":
+            gate.move(gh, root, n, "shaping", reason=reason)
+        return f"piece {n}: back to shaping, {reason}"
+
+
+def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) -> str:
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
     folder = worktree(root, n)
@@ -125,15 +165,24 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     last_failure = ""
+    came_back = came_back_reason(gh.comments(n))
     for k in range(1, attempts + 1):
         logfile = logs / f"piece-{n}-attempt-{k}.log"
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
-        build_once(folder, brief(n, issue["body"], ready, last_failure), ready["files"], logfile)
+        build_once(folder, brief(n, issue["body"], ready, last_failure, came_back), ready["files"], logfile)
         commit_leftovers(folder, n, k)
         passed, output = gate.judge(folder, ready)
         if passed:
             log(f"piece {n}: the gate ran the judge and it passed")
             return open_pull_request(gh, root, folder, n, issue, k, output)
+        if output.startswith(gate.BAR_WRONG):
+            # No build can fix this, and more attempts invite loosening a check.
+            gh.comment(n, f"**Run:** attempt {k} of {attempts}: the judge passes, but the keep "
+                          "check fails on the judge files themselves. The run stops here.\n\n"
+                          f"```\n{output.strip()[-1500:]}\n```")
+            reason = "the keep check fails on the judge files themselves; fix the judge"
+            gate.move(gh, root, n, "shaping", reason=reason)
+            return f"piece {n}: back to shaping, {reason}"
         if "differ from the ones fixed at ready" in output:
             restore_bar(folder, ready)
             last_failure = ("The last attempt changed the judge files. They were put back. "

@@ -14,7 +14,7 @@ from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 
 import gate
 import run
-from loopkit import Refused, parse_spec
+from loopkit import Refused, parse_spec, run_judge
 
 
 class SpecTest(unittest.TestCase):
@@ -260,6 +260,10 @@ class GateTest(unittest.TestCase):
         self.assertFalse(checks[-1][0])
         self.assertIn("tests pass on a fresh copy", checks[-1][1])
 
+    def test_judge_output_loses_terminal_colour_codes(self):
+        _, output = run_judge(self.p.root, r"printf '\033[31mFAIL\033[39m \033]8;;file:///a\007a.js\033]8;;\007'")
+        self.assertEqual(output, "FAIL a.js")
+
     def test_the_loop_folder_stays_ignored_whatever_gitignore_says(self):
         (self.p.root / ".gitignore").write_text("__pycache__/\n")
         gate.ignore_loop_folder(self.p.root)
@@ -376,6 +380,65 @@ class RunTest(unittest.TestCase):
         n, result = self.build("good", attempts=1)
         self.assertIn("pull request ready", result)
         self.assertTrue((self.p.root / ".loop" / "worktrees" / f"piece-{n}" / "prepared.txt").exists())
+
+    def test_keep_failing_on_the_judge_files_stops_the_piece_at_once(self):
+        # A lint step in the keep check rejects the judge file itself. No build can fix that.
+        (self.p.root / "lint.py").write_text(
+            "import os, sys\n"
+            "if os.path.exists('judge_add.py'):\n"
+            "    print('judge_add.py: assertion inside a loop')\n"
+            "    sys.exit(1)\n")
+        git(self.p.root, "add", "lint.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Lint")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece(spec=SPEC.replace("Files:", "Keep: `python3 lint.py`\nFiles:"))
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        result = run.build_piece(self.p.gh, self.p.root, n, 3)
+        self.assertIn("fails on the judge files themselves", result)
+        self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
+        attempts = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertEqual(len(attempts), 1)
+        self.assertTrue((self.p.root / ".loop" / "worktrees" / f"piece-{n}" / "judge_add.py").exists())
+
+    def test_an_error_after_the_claim_gives_the_piece_back(self):
+        def broken(*args, **kwargs):
+            raise RuntimeError("git push failed: rejected")
+        original = run.open_pull_request
+        run.open_pull_request = broken
+        self.addCleanup(setattr, run, "open_pull_request", original)
+        n, result = self.build("good")
+        self.assertIn("the run stopped with an error", result)
+        labels = self.p.gh.issue(n)["labels"]
+        self.assertIn("state:shaping", labels)
+        self.assertIn("needs-you", labels)
+
+    def test_a_pushed_branch_is_never_rewritten(self):
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece()
+        git(self.p.root, "push", "--quiet", "origin", f"piece/{n}")
+        # Shaping rebuilt the branch from main after a rejection: GitHub keeps the old commits.
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        git(self.p.root, "commit", "--quiet", "--amend", "-m", "Judge, rewritten")
+        git(self.p.root, "switch", "--quiet", "main")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with self.assertRaises(Refused) as r:
+            run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("never rewritten", r.exception.reason)
+        self.assertIn("state:ready", self.p.gh.issue(n)["labels"])
+
+    def test_a_rebuild_tells_the_builder_why_the_piece_came_back(self):
+        n, _ = self.build("good")
+        gate.move(self.p.gh, self.p.root, n, "shaping",
+                  reason="it turned off a lint rule for the whole project")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        gate.move(self.p.gh, self.p.root, n, "building")
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="the push failed")
+        reason = run.came_back_reason(self.p.gh.comments(n))
+        self.assertEqual(reason, "- it turned off a lint rule for the whole project\n- the push failed")
+        ready = {"files": ["judge_add.py"], "command": "python3 judge_add.py"}
+        self.assertIn(reason, run.brief(n, "spec", ready, "", reason))
+        self.assertEqual(run.came_back_reason([]), "")
 
     def test_a_builder_that_changes_the_judge_does_not_pass(self):
         n, result = self.build("cheat")

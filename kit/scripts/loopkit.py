@@ -19,6 +19,8 @@ STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
 JUDGE_TIMEOUT = 900
+# Colour codes and terminal links that tools print. Issue comments show them raw.
+_TERMINAL_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 PREPARE_TIMEOUT = 1800
 
 
@@ -226,7 +228,7 @@ def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple
     try:
         res = subprocess.run(command, shell=True, cwd=folder, capture_output=True,
                              text=True, timeout=timeout, env=command_env(folder))
-        return res.returncode, (res.stdout + res.stderr)
+        return res.returncode, _TERMINAL_CODES.sub("", res.stdout + res.stderr)
     except subprocess.TimeoutExpired:
         return 124, f"the judge ran past {timeout} seconds"
 

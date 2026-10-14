@@ -88,6 +88,15 @@ class AuditTest(unittest.TestCase):
         broken, _ = self.audit(n)
         self.assertTrue(any(b.startswith("merged:") for b in broken), broken)
 
+    def test_a_closed_pull_request_is_not_held_to_a_later_bar(self):
+        n = self.built_and_merged()
+        self.p.gh.prs[f"piece/{n}"]["state"] = "CLOSED"
+        folder = self.build_folder(n)
+        (folder / "judge_add.py").write_text("print('older judge')\n")
+        git(folder, "commit", "--quiet", "-am", "Older judge")
+        broken, _ = self.audit(n)
+        self.assertFalse(any(b.startswith("bar:") for b in broken), broken)
+
     def test_generated_matches_the_gates_list(self):
         for path in ("a/__pycache__/b.pyc", "node_modules/x/y.js", ".loop/logs/a",
                      "pkg.egg-info/PKG-INFO", ".DS_Store"):
