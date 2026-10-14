@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -34,6 +35,69 @@ ATTEMPT_TIMEOUT = 40 * 60
 
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def lock_path(root: Path) -> Path:
+    return root / ".loop" / "run.lock"
+
+
+def process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def acquire_lock(root: Path) -> Path:
+    """Create the run lock, taking over only when its recorded process is dead."""
+    path = lock_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps({"pid": os.getpid(), "started_at": time.time()}) + "\n"
+    for _ in range(2):
+        try:
+            with path.open("x") as f:
+                f.write(data)
+            return path
+        except FileExistsError:
+            try:
+                current = json.loads(path.read_text())
+                pid = int(current["pid"])
+            except (ValueError, KeyError, TypeError, OSError):
+                pid = 0
+            if pid and process_alive(pid):
+                raise Refused(f"another run is live (pid {pid})", "wait for it to finish")
+            path.unlink(missing_ok=True)
+    raise Refused("could not take the run lock", "check .loop/run.lock and try again")
+
+
+def release_lock(path: Path) -> None:
+    path.unlink(missing_ok=True)
+
+
+def recover_building(gh: GitHub, root: Path) -> list[str]:
+    """Return pieces left in building to shaping after a dead run."""
+    recovered = []
+    for issue in gh.issues_with_label(STATE_PREFIX + "building"):
+        note = "the previous run ended while this piece was building"
+        recovered.append(f"piece {issue['number']}: " + gate.move(
+            gh, root, issue["number"], "shaping", reason=note,
+            reason_type="environment"))
+    return recovered
+
+
+def stop_path(root: Path) -> Path:
+    return root / ".loop" / "stop"
+
+
+def stop_requested(root: Path) -> bool:
+    return stop_path(root).is_file()
+
+
+def clear_stop(root: Path) -> None:
+    stop_path(root).unlink(missing_ok=True)
 
 
 def came_back_reason(comments: list[str]) -> str:
@@ -84,10 +148,18 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
         args += ["--disallowedTools", *denied]
     env = {**command_env(folder), "LOOP_BUILDER": "1"}
     with logfile.open("w") as out:
+        proc = None
         try:
-            subprocess.run(args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
-                           env=env, timeout=ATTEMPT_TIMEOUT)
+            proc = subprocess.Popen(args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
+                                    env=env, start_new_session=True)
+            proc.wait(timeout=ATTEMPT_TIMEOUT)
         except subprocess.TimeoutExpired:
+            if proc is not None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
             out.write(f"\nThe attempt ran past {ATTEMPT_TIMEOUT // 60} minutes and was stopped.\n")
 
 
@@ -218,7 +290,12 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
     for k in range(1, attempts + 1):
+        if stop_requested(root):
+            reason = "the person asked the run to stop"
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+            return f"piece {n}: back to shaping, {reason}"
         logfile = logs / f"piece-{n}-attempt-{k}.log"
+        started = time.monotonic()
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         build_once(folder, brief(n, issue["body"], ready, last_failure, came_back),
                    ready["files"], logfile, ready.get("settings", False))
@@ -227,12 +304,16 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             lines = outcome.read_text(errors="replace").splitlines()
             if lines and lines[0].strip() == "bar-wrong" and "\n".join(lines[1:]).strip():
                 reason = "\n".join(lines[1:]).strip()[:500]
+                log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
+                    f"log: {logfile.relative_to(root)}")
                 gh.comment(n, f"**Run:** attempt {k} reports bar-wrong: {reason}")
                 gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
                 return f"piece {n}: back to shaping, {reason}"
         commit_leftovers(folder, n, k)
         passed, output = gate.judge(folder, ready)
         if passed:
+            log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
+                f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
             return open_pull_request(gh, root, folder, n, issue, k, output)
         if output.startswith(gate.BAR_WRONG):
@@ -250,10 +331,16 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         else:
             last_failure = f"Attempt {k} failed. The judge said:\n{output.strip()[-3000:]}"
         log(f"piece {n}: attempt {k} failed")
+        log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
+            f"log: {logfile.relative_to(root)}")
         said = builder_words(logfile)
         gh.comment(n, f"**Run:** attempt {k} of {attempts} failed.\n\n"
                       f"The builder said:\n\n<<<\n{said}\n>>>\n\n"
                       f"The judge said:\n\n```\n{output.strip()[-1500:]}\n```")
+        if stop_requested(root):
+            reason = "the person asked the run to stop"
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+            return f"piece {n}: back to shaping, {reason}"
     reason = f"the judge still fails after {attempts} attempts; see the comments above"
     gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
     return f"piece {n}: back to shaping, needs you"
@@ -283,24 +370,38 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = p.parse_args(argv)
     root = repo_root(Path.cwd())
     gh = GitHub(root)
-
-    gate.ignore_loop_folder(root)
-    gate.sync(gh, root)
-    pieces = args.pieces or sorted(i["number"] for i in gh.issues_with_label(STATE_PREFIX + "ready"))
-    if not pieces:
-        print("Nothing is ready. Shape a piece first.")
-        return 0
+    try:
+        lock = acquire_lock(root)
+    except Refused as r:
+        print(f"refused: {r.reason}", file=sys.stderr)
+        print(f"next: {r.next_step}", file=sys.stderr)
+        return 2
     results = []
-    for n in pieces:
-        try:
-            results.append(build_piece(gh, root, n, args.attempts))
-        except Refused as r:
-            results.append(f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else ""))
-        except Exception as e:  # keep going with the other pieces
-            results.append(f"piece {n}: stopped by an error: {e}")
-    print("\nRun finished.")
-    print("\n".join(results))
-    return 0
+    try:
+        gate.ignore_loop_folder(root)
+        results.extend(recover_building(gh, root))
+        gate.sync(gh, root)
+        pieces = args.pieces or sorted(i["number"] for i in gh.issues_with_label(STATE_PREFIX + "ready"))
+        if not pieces:
+            print("Nothing is ready. Shape a piece first.")
+            return 0
+        for n in pieces:
+            if stop_requested(root):
+                log("stop requested; ending before the next piece")
+                break
+            try:
+                results.append(build_piece(gh, root, n, args.attempts))
+            except Refused as r:
+                results.append(f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else ""))
+            except Exception as e:  # keep going with the other pieces
+                results.append(f"piece {n}: stopped by an error: {e}")
+        print("\nRun finished.")
+        print("\n".join(results))
+        return 0
+    finally:
+        if stop_requested(root):
+            clear_stop(root)
+        release_lock(lock)
 
 
 if __name__ == "__main__":

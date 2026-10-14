@@ -163,6 +163,15 @@ class GateTest(unittest.TestCase):
         self.assertIn("spec-unclear: 1", report)
         self.assertIn(f"{n}: spec-unclear: bad spec", report)
 
+    def test_gate_stop_writes_a_marker_only_for_a_live_lock(self):
+        with self.assertRaises(Refused):
+            gate.request_stop(self.p.root)
+        lock = run.acquire_lock(self.p.root)
+        self.assertIn("after the current attempt", gate.request_stop(self.p.root))
+        self.assertTrue(run.stop_requested(self.p.root))
+        run.clear_stop(self.p.root)
+        run.release_lock(lock)
+
     def test_claim_refuses_a_spec_changed_after_ready(self):
         n = self.p.piece()
         self.ready(n)
@@ -405,6 +414,32 @@ class RunTest(unittest.TestCase):
         gate.move(self.p.gh, self.p.root, n, "ready")
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
+
+    def test_run_lock_refuses_live_runs_and_takes_over_dead_ones(self):
+        lock = run.acquire_lock(self.p.root)
+        with self.assertRaises(Refused) as r:
+            run.acquire_lock(self.p.root)
+        self.assertIn("another run is live", r.exception.reason)
+        run.release_lock(lock)
+        lock.write_text('{"pid": 2147483647, "started_at": 0}\n')
+        taken = run.acquire_lock(self.p.root)
+        self.assertEqual(taken, lock)
+        run.release_lock(taken)
+
+    def test_run_recovers_building_pieces_to_shaping(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        gate.move(self.p.gh, self.p.root, n, "building")
+        recovered = run.recover_building(self.p.gh, self.p.root)
+        self.assertIn(f"piece {n}", recovered[0])
+        record = records(self.p.gh.comments(n))[-1]
+        self.assertEqual(record["type"], "environment")
+        self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
+
+    def test_judge_timeout_returns_a_clear_failure(self):
+        code, output = run_judge(self.p.root, "sleep 2", timeout=0.1)
+        self.assertEqual(code, 124)
+        self.assertIn("past 0.1 seconds", output)
 
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")

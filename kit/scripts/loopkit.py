@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -374,11 +375,20 @@ def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]
 
 def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple[int, str]:
     """Run the judge command. The gate calls this; it never trusts a report."""
+    proc = None
     try:
-        res = subprocess.run(command, shell=True, cwd=folder, capture_output=True,
-                             text=True, timeout=timeout, env=command_env(folder))
-        return res.returncode, _TERMINAL_CODES.sub("", res.stdout + res.stderr)
+        proc = subprocess.Popen(command, shell=True, cwd=folder, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=command_env(folder),
+                                start_new_session=True)
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode, _TERMINAL_CODES.sub("", stdout + stderr)
     except subprocess.TimeoutExpired:
+        if proc is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.communicate()
         return 124, f"the judge ran past {timeout} seconds"
 
 

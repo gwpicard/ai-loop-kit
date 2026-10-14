@@ -435,6 +435,16 @@ def replace_spec(gh: GitHub, n: int, body: str) -> None:
     gh.edit_body(n, body)
 
 
+def request_stop(root: Path) -> str:
+    """Ask a live run to stop at its next boundary."""
+    loop = root / ".loop"
+    if not (loop / "run.lock").is_file():
+        raise Refused("there is no run to stop", "start run.py first")
+    loop.mkdir(parents=True, exist_ok=True)
+    (loop / "stop").write_text("stop after the current attempt\n")
+    return "the run will stop after the current attempt"
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="gate.py", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -456,6 +466,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub.add_parser("status")
     sub.add_parser("doctor")
     sub.add_parser("report")
+    sub.add_parser("stop")
     args = p.parse_args(argv)
 
     root = repo_root(Path.cwd())
@@ -491,6 +502,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 return 2
         elif args.cmd == "report":
             print(report(gh))
+        elif args.cmd == "stop":
+            print("ok: " + request_stop(root))
     except Refused as r:
         print(f"refused: {r.reason}", file=sys.stderr)
         if r.next_step:
