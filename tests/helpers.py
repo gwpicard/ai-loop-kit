@@ -106,7 +106,16 @@ GOOD_CODE = '''def add(items, name):
 SPEC = """## Goal
 Add a habit.
 
-## Done when
+## Intent
+Add a habit to the list.
+
+Out of scope:
+- Editing or deleting habits.
+
+## Approach
+Keep the public add function.
+
+## Contract
 - D1: adding a habit appends it.
 - D2: adding a habit twice keeps one.
 

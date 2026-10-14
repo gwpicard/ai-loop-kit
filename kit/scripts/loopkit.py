@@ -43,7 +43,10 @@ class Spec:
     done_when: dict[str, str]
     command: str
     files: list[str]
-    kind: str  # "test", or "scaffold" for the first piece of an empty project
+    kind: str  # feature, fix, or scaffold
+    intent: str = ""
+    out_of_scope: tuple = ()
+    approach: str = ""
     keep: str = ""  # a command that passes on main and must still pass after the build
     stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
     settings: bool = False  # True when the piece may change the project's check settings
@@ -69,11 +72,37 @@ def _section(body: str, name: str) -> Optional[list[str]]:
 def parse_spec(body: str) -> Spec:
     """Read the spec from an issue body. Refuse with every gap at once."""
     gaps: list[str] = []
+    intent_lines = _section(body, "Intent")
+    intent = ""
+    out_of_scope: list[str] = []
+    if intent_lines is None:
+        gaps.append("no '## Intent' section")
+    else:
+        in_scope = False
+        for line in intent_lines:
+            if re.match(r"^\s*Out of scope\s*:", line, re.IGNORECASE):
+                in_scope = True
+                continue
+            if line.startswith("## "):
+                in_scope = False
+            elif in_scope:
+                if re.match(r"^\s*[-*]\s+\S", line):
+                    out_of_scope.append(line.strip()[1:].strip())
+            elif line.strip():
+                intent += ("\n" if intent else "") + line.strip()
+        if not intent:
+            gaps.append("'## Intent' is empty")
+        if not out_of_scope:
+            gaps.append("'## Intent' has no non-empty 'Out of scope:' list")
+    approach_lines = _section(body, "Approach")
+    approach = "\n".join(line.strip() for line in (approach_lines or []) if line.strip())
     done_when: dict[str, str] = {}
     stays: list[str] = []
-    done = _section(body, "Done when")
+    done = _section(body, "Contract")
     if done is None:
-        gaps.append("no '## Done when' section")
+        done = _section(body, "Done when")
+    if done is None:
+        gaps.append("no '## Contract' section")
     else:
         for line in done:
             m = _ITEM.match(line)
@@ -84,9 +113,9 @@ def parse_spec(body: str) -> Spec:
                 if m.group(2):
                     stays.append(m.group(1))
         if not done_when:
-            gaps.append("'## Done when' has no item like '- D1: ...'")
+            gaps.append("'## Contract' has no item like '- D1: ...'")
 
-    command, kind, keep, files, settings = "", "test", "", [], False
+    command, kind, keep, files, settings = "", "feature", "", [], False
     judge = _section(body, "Judge")
     if judge is None:
         gaps.append("no '## Judge' section")
@@ -113,9 +142,9 @@ def parse_spec(body: str) -> Spec:
                 files.append(line.strip()[1:].strip().strip("`"))
         if not command:
             gaps.append("'## Judge' has no 'Command:' line")
-        if kind not in ("test", "scaffold"):
-            gaps.append(f"'Kind: {kind}' is unknown; use test or scaffold")
-        if kind == "test" and not files:
+        if kind not in ("feature", "fix", "scaffold"):
+            gaps.append(f"'Kind: {kind}' is unknown; use feature, fix or scaffold")
+        if kind != "scaffold" and not files:
             gaps.append("'## Judge' lists no judge files under 'Files:'")
         for f in files:
             if f.startswith("/") or ".." in Path(f).parts:
@@ -125,7 +154,8 @@ def parse_spec(body: str) -> Spec:
                       "fix the issue body to match kit/spec-format.md")
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
-    return Spec(done_when, command, files, kind, keep, tuple(stays), settings)
+    return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
+                keep, tuple(stays), settings)
 
 
 # ---------------------------------------------------------------- check settings

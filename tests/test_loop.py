@@ -23,12 +23,15 @@ class SpecTest(unittest.TestCase):
         self.assertEqual(list(spec.done_when), ["D1", "D2"])
         self.assertEqual(spec.command, "python3 judge_add.py")
         self.assertEqual(spec.files, ["judge_add.py"])
-        self.assertEqual(spec.kind, "test")
+        self.assertEqual(spec.kind, "feature")
+        self.assertEqual(spec.intent, "Add a habit to the list.")
+        self.assertEqual(spec.out_of_scope, ("Editing or deleting habits.",))
 
     def test_names_every_gap_at_once(self):
         with self.assertRaises(Refused) as r:
             parse_spec("## Goal\nSomething.\n")
-        self.assertIn("Done when", r.exception.reason)
+        self.assertIn("Intent", r.exception.reason)
+        self.assertIn("Contract", r.exception.reason)
         self.assertIn("Judge", r.exception.reason)
 
     def test_refuses_a_twice_used_id_and_a_path_outside(self):
@@ -39,8 +42,19 @@ class SpecTest(unittest.TestCase):
         self.assertIn("inside the project", r.exception.reason)
 
     def test_scaffold_needs_no_files(self):
-        body = "## Done when\n- D1: tests run.\n\n## Judge\nCommand: `true`\nKind: scaffold\n"
+        body = ("## Intent\nRun the first project checks.\n\nOut of scope:\n- App behaviour.\n\n"
+                "## Contract\n- D1: tests run.\n\n## Judge\nCommand: `true`\nKind: scaffold\n")
         self.assertEqual(parse_spec(body).kind, "scaffold")
+
+    def test_ready_spec_needs_intent_scope_and_contract_id(self):
+        body = SPEC.replace("Add a habit to the list.\n", "\n")
+        body = body.replace("- Editing or deleting habits.\n", "")
+        body = body.replace("- D1: adding a habit appends it.", "- adding a habit appends it.")
+        body = body.replace("- D2: adding a habit twice keeps one.", "- adding a habit twice keeps one.")
+        with self.assertRaises(Refused) as r:
+            parse_spec(body)
+        for gap in ("'## Intent' is empty", "Out of scope", "no item like"):
+            self.assertIn(gap, r.exception.reason)
 
 
 class GateTest(unittest.TestCase):

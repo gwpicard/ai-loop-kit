@@ -1,68 +1,73 @@
 # The spec format
 
-A piece is a GitHub issue. Its body is the spec. The gate reads two
-sections exactly as written here. The others are for people and builders.
+A piece is a GitHub issue. Its body is the contract the person approves.
 
 ```markdown
-## Goal
-One or two sentences: what the person gets, in their words.
+## Intent
+What the person wants and why, in their words.
 
-## Done when
-- D1: A condition somebody can check. "When I run `habits add read`, then `habits list` shows read."
-- D2: One condition per line. Number them D1, D2, D3.
-- D3 (stays): Something that already works and must keep working, like "without --title the output is unchanged".
+Out of scope:
+- What this piece will not do.
+
+## Approach
+Optional. Name the files, interface, tools and constraints when they help.
+
+## Contract
+- D1: When I run `habits add read`, then `habits list` shows read.
+- D2 (stays): Without `--title`, the output is unchanged.
 
 ## Judge
-Command: `python3 -m pytest tests/judge/test_piece_add.py -q`
+Kind: feature
+Command: `python -m pytest tests/judge/test_piece_add.py -q`
 Files:
 - tests/judge/test_piece_add.py
+Keep: `python -m pytest`
+```
 
-## Notes
-Anything a builder needs: the area of the code, choices already made,
-what must stay the same.
+`Intent` and a non-empty `Out of scope:` list are required. `Approach` is
+optional. Contract items start with a unique ID such as `D1`. An item already
+true on main can use `(stays)`; its judge test must pass on main.
+
+Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, and
+`Kind: scaffold` for the first piece in an empty project. A fix starts with
+the bug in its first Contract item. `Done when` remains accepted as the old
+name for `Contract`.
+
+## Fix example
+
+```markdown
+## Intent
+Keep a saved habit when another habit is added.
+
+Out of scope:
+- Changing how habits are displayed.
+
+## Contract
+- D1: When I add a second habit, then the first remains in the saved list.
+
+## Judge
+Kind: fix
+Command: `python -m pytest tests/judge/test_piece_retains_habit.py -q`
+Files:
+- tests/judge/test_piece_retains_habit.py
 ```
 
 ## What the gate checks at ready
 
-- `## Done when` has at least one `D<number>:` item, and no ID twice.
-- `## Judge` has a `Command:` line and lists its judge files under `Files:`.
-- The branch `piece/<issue number>` holds the judge files.
-- The judge command, run on today's `main` with only the judge files added,
-  fails. It fails on an assertion, not on a syntax or collection error.
-- Every spec ID appears in the failing output. Put the ID in each test name,
-  like `test_D1_add_shows_in_list`.
-- An item marked `(stays)` already holds on `main`. Its test must exist and
-  must not fail on `main`. Do not bend a test to make it fail.
+- Intent and the out of scope list are present, and each Contract item has
+  one ID.
+- The judge fails on today's main for each item to build. A `(stays)` item
+  passes on main and has a test.
+- `Keep:` passes on main and after the build.
+- `Files:` names judge files inside the project.
 
-- If `Keep:` names a command, it passes on today's `main`. Use the project's
-  whole test command, so that what works today must still work after the
-  build. The run checks it again after each attempt.
-
-## Check settings
-
-A build may not change how the project checks itself: lint, test and
-type-check config files, `.gitignore`, CI files, and the check parts of
-`package.json` (like `xo` or `scripts.test`) and `pyproject.toml` (like
-`[tool.pytest]` or `[tool.ruff]`). Builders cannot edit those files, and the
-gate fails any attempt that changes them. If the piece is about those
-settings, write `Settings: may change` under `## Judge`. Then the pull
-request lists every check setting it changes, for the person to read first.
-
-The gate then fixes the bar: it records a hash of the judge files and a hash
-of the spec on the issue. If either changes later, the piece cannot be built
-until it goes through ready again.
+The gate records a hash of the spec and of the judge bar. A change after ready
+means the piece must go back through shaping and ready.
 
 ## Project environments
 
-The project's `AGENTS.md` names a Test command and, if a fresh clone needs
-one, a Prepare command (`npm ci`, `uv sync`, `docker compose build`). The gate
-runs Prepare in every fresh copy before the judge and `Keep:`, and the run
-runs it before every build. So write `Keep:` as the plain Test command, and
-never put install steps or paths from your computer in a spec. A `.venv` made
-by Prepare is put first on `PATH`.
-
-## The first piece of an empty project
-
-An empty project has nothing to fail. Its first piece sets up the code and
-the test runner. Write `Kind: scaffold` under `## Judge`. Its judge is that
-the command runs and passes, so the gate skips the "fails on main" check.
+The project's `AGENTS.md` names a Test command and, when needed, a Prepare
+command. The gate runs Prepare in each fresh copy before checks, except for
+scaffold readiness. The run prepares the build folder before each build.
+Write `Keep:` as the plain Test command. Do not put install steps or local
+paths in the spec.
