@@ -25,7 +25,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
-                     bar_hash_at, bar_hash_in, branch_name, last_record, main_ref,
+                     bar_hash_at, bar_hash_in, branch_name, changed_check_settings, last_record, main_ref,
                      loop_settings, parse_spec, prepare, record_text, repo_root, rev,
                      run_judge, sh, spec_hash)
 
@@ -154,6 +154,7 @@ def check_ready(root: Path, issue: dict) -> dict:
                           "give every (stays) item a test with its ID in the name")
     return {"move": "ready", "bar": bar, "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
+            "settings": spec.settings,
             "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
 
@@ -174,6 +175,12 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready["files"]) != ready["bar"]:
         return False, "the judge files differ from the ones fixed at ready"
+    if not ready.get("settings"):
+        changed = changed_check_settings(folder)
+        if changed:
+            return False, ("the build changes the project's check settings: "
+                           f"{', '.join(changed)}. Put them back. A piece may change them only "
+                           "when its spec says 'Settings: may change'.")
     code, output = run_judge(folder, ready["command"])
     if code != 0:
         return False, output

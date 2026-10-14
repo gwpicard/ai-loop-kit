@@ -22,7 +22,8 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
-from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name, command_env,  # noqa: E402
+from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
+                     changed_check_settings, command_env,
                      last_record, main_ref, prepare, records, repo_root, sh)
 
 KIT = Path(__file__).resolve().parent.parent
@@ -66,10 +67,14 @@ def builder_settings() -> str:
         "hooks": [{"type": "command", "command": guard}]}]}})
 
 
-def build_once(folder: Path, prompt: str, files: list[str], logfile: Path) -> None:
+def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
+               settings: bool = False) -> None:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     # Claude Code applies Edit(path) deny rules to every file-editing tool.
+    # The gate checks the same files again, since Bash can still write them.
     denied = [f"Edit({f})" for f in files]
+    if not settings:
+        denied += [f"Edit({p.replace('/*', '/**')})" for p in CHECK_FILES]
     args = [claude, "-p", prompt, "--permission-mode", "acceptEdits",
             "--allowedTools", "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
             "--settings", builder_settings()]
@@ -169,7 +174,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     for k in range(1, attempts + 1):
         logfile = logs / f"piece-{n}-attempt-{k}.log"
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
-        build_once(folder, brief(n, issue["body"], ready, last_failure, came_back), ready["files"], logfile)
+        build_once(folder, brief(n, issue["body"], ready, last_failure, came_back),
+                   ready["files"], logfile, ready.get("settings", False))
         commit_leftovers(folder, n, k)
         passed, output = gate.judge(folder, ready)
         if passed:
@@ -205,6 +211,10 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
     body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
             f"The gate ran the frozen judge itself after attempt {k}, and it passed.\n\n"
             f"<details><summary>Judge output</summary>\n\n```\n{output.strip()[-3000:]}\n```\n</details>\n")
+    changed = changed_check_settings(folder)
+    if changed:
+        body += ("\n**Check settings changed** (the spec allows it). Read these first:\n"
+                 + "".join(f"- `{c}`\n" for c in changed))
     existing = gh.pr_for_branch(branch_name(n))
     url = existing["url"] if existing and existing["state"] == "OPEN" else \
         gh.create_pr(branch_name(n), issue["title"], body)
