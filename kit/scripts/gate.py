@@ -264,15 +264,23 @@ def init(gh: GitHub, root: Path) -> None:
     ignore_loop_folder(root)
 
 
+# Files that tools make while tests run. A run must never commit them.
+GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/",
+             ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage"]
+
+
 def ignore_loop_folder(root: Path) -> None:
-    """Ignore .loop/ through git's local exclude file. A builder never edits
-    that file, so a rewritten .gitignore cannot expose the kit's folder."""
+    """Ignore .loop/ and generated files through git's local exclude file. A
+    builder never edits that file, and the project's own files stay as they are."""
     common = Path(sh(["git", "rev-parse", "--git-common-dir"], root).stdout.strip())
     exclude = (common if common.is_absolute() else root / common) / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
     text = exclude.read_text() if exclude.exists() else ""
-    if "/.loop/" not in text.splitlines():
-        exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n") + "/.loop/\n")
+    have = text.splitlines()
+    missing = [g for g in GENERATED if g not in have]
+    if missing:
+        exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n")
+                           + "\n".join(missing) + "\n")
 
 
 def status(gh: GitHub) -> str:

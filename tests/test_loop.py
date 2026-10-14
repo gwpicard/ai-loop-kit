@@ -330,6 +330,16 @@ class RunTest(unittest.TestCase):
         self.assertIn("The builder said:", failed[0])
         self.assertIn("built", failed[0])  # the stand-in's own words reach the issue
 
+    def test_a_build_never_commits_generated_files(self):
+        run.gate.ignore_loop_folder(self.p.root)
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        fake = Path(os.environ["LOOP_CLAUDE"])
+        fake.write_text(fake.read_text().replace("git add -A", "mkdir -p __pycache__ && touch __pycache__/x.pyc && git add -A"))
+        run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertNotIn("__pycache__", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
+
     def test_a_builder_that_changes_the_judge_does_not_pass(self):
         n, result = self.build("cheat")
         self.assertIn("back to shaping", result)

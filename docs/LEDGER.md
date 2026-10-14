@@ -26,6 +26,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 14 Oct 2026 | loop-test-existing, piece 3 | The gate runs the judge in a temporary copy of main, where the git-ignored `.venv` does not exist. Shaping wrote an absolute path from the person's computer into a public issue. | The gate and builders put the project's `.venv/bin` first on `PATH` (in the kit, with a test) |
 | 14 Oct 2026 | loop-test-existing, piece 3, and loop-test-thin, piece 8 | "Every spec ID must fail on main" pushed shaping to drop a true item once, then to pad a test with an unrelated assertion so it failed. The rule harmed the judge. | A Done when item can be marked `(stays)`: it must have a test, and it must not fail on main (in the kit, with tests) |
 | 14 Oct 2026 | the kit's own tests | A judge that prints passing tests by name (like `pytest -v`) made a passing item count as failing on main. | The gate counts a spec ID only on lines that report a failure (in the kit, with a test) |
+| 14 Oct 2026 | loop-test-existing, piece 3 | The pull request held 13 `__pycache__` files: the run commits a builder's leftovers with `git add -A`, and the project ignored no caches. The person removed them by hand. | Generated-file patterns go into git's local exclude file, beside `.loop/` (in the kit, with a test) |
 
 ## Evidence collected, not yet enough to earn a feature
 
@@ -38,6 +39,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 13 Oct 2026 | loop-test-thin, pieces 8 and 9 | Two pieces built in one run both changed `habits/cli.py`. They merged cleanly one after the other, and all tests passed on the combined main. No conflict yet. | Combined-branch integration (not earned) |
 | 13 Oct 2026 | loop-test-thin, piece 12 | The first builder found the judge contradicts itself. Attempts 2 and 3 found the same thing (about 30 seconds wasted). No builder gamed the judge. | A "the bar is wrong" hand-back that ends the piece's attempts early |
 | 13 Oct 2026 | loop-test-thin, piece 12 | Reshaping a returned piece needed a new spec. The gate has no command for that, so shaping used `gh issue edit`. Safe, because the gate rechecks the spec hash before a build, but it is a second door. | A `gate.py spec` command, so every spec change goes through the gate |
+| 14 Oct 2026 | loop-test-existing, piece 3 | To fix a pull request the person rejected, the gate has a rebuild move (approval to building), but the run only picks up ready pieces. The person fixed the branch by hand. | The run picks up pieces sent back to building |
 
 ## What is in the thin kit today
 
