@@ -39,6 +39,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 14 Oct 2026 | loop-test-node, pieces 9 and 10 | Build folders sat in `.loop/worktrees/` inside the project. `xo` linted them, so the person's own `npm test` failed. They also stayed after a give-back, so shaping could not switch to the piece branch. | Build folders live in `~/.cache/ai-loop-kit/worktrees/`, outside the project, and are removed when a piece goes back to shaping. An older folder is reused (in the kit, with tests) |
 | 14 Oct 2026 | loop-test-node, piece 10 | After shaping fixed the judge in a new commit, two builders saw it in git history, took it for a forbidden edit, and restored the old judge. The gate put it back each time. Two attempts were lost. | The brief says the judge files as they are now are the bar, and older versions never count (brief text) |
 | 14 Oct 2026 | loop-test-node, pieces 9 and 10 (third time) | Shaping again wrote judges that break the project's lint. The early stop caught both after one attempt each, with no check weakened. | The shape skill runs the project's Test command on the judge files before the gate check (skill text) |
+| 14 Oct 2026 | release review | The run took the judge command from the last ready record in the issue comments. On a public repository anyone can comment, so a stranger could post a forged record and the run would execute their command. Found by reading the code, before any harm. | The kit reads only comments from people who can push to the repository (owner, member, collaborator) (in the kit, with tests) |
 
 ## Evidence collected, not yet enough to earn a feature
 
@@ -78,8 +79,9 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 - The judge command comes from the issue body. On a public repository a
   stranger could file an issue with a harmful command. Trigger: before the
   kit is used on a repository that accepts outside issues.
-- Gate records are issue comments. A person could forge one by hand. Trigger:
-  a record that does not match what the gate did.
+- Gate records are issue comments. Someone with push access could still
+  forge one by hand; they can already push code. Trigger: a record that does
+  not match what the gate did.
 - The builder runs Bash with Claude Code's normal permissions plus the guard.
   There is no sandbox yet. Trigger: before any run is left alone.
 

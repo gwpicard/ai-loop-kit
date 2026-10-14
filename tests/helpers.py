@@ -40,11 +40,12 @@ class FakeGitHub:
         labels = [x for x in self.issues[n]["labels"] if x not in remove]
         self.issues[n]["labels"] = labels + [x for x in add if x not in labels]
 
-    def comment(self, n: int, text: str) -> None:
-        self.notes[n].append(text)
+    def comment(self, n: int, text: str, author: str = "OWNER") -> None:
+        self.notes[n].append((author, text))
 
     def comments(self, n: int) -> list[str]:
-        return list(self.notes[n])
+        import loopkit
+        return [text for author, text in self.notes[n] if author in loopkit.TRUSTED]
 
     def close(self, n: int, reason: str) -> None:
         if self.issues[n]["state"] == "CLOSED":
