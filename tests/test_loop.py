@@ -77,6 +77,35 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(rec["bar"]), 64)
         self.assertEqual(rec["command"], "python3 judge_add.py")
 
+    def test_submit_refuses_an_unlisted_protected_path(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Protected paths: secrets\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Protect secrets")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "secrets").mkdir()
+        (folder / "secrets" / "key.py").write_text("private_data = True\n")
+        git(folder, "add", "secrets/key.py")
+        git(folder, "commit", "--quiet", "-m", "Change protected path")
+        passed, output = gate.judge(folder, gate.last_record(self.p.gh.comments(n), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("protected paths", output)
+
+    def test_submit_refuses_env_files_and_secret_shapes(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / ".env").write_text("API_TOKEN=not-a-real-secret\n")
+        git(folder, "add", ".env")
+        git(folder, "commit", "--quiet", "-m", "Add environment file")
+        passed, output = gate.judge(folder, gate.last_record(self.p.gh.comments(n), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("secret-shaped", output)
+
     def test_the_ready_note_never_claims_a_check_it_skipped(self):
         n = self.p.piece(spec=SPEC.replace("Command:", "Kind: scaffold\nCommand:"))
         self.ready(n)
@@ -354,6 +383,7 @@ class GateTest(unittest.TestCase):
         self.p.loop_section("test -f prepared.txt", prepare="touch prepared.txt")
         checks = gate.doctor(self.p.gh, self.p.root)
         self.assertTrue(all(ok for ok, _, _ in checks), checks)
+        self.assertTrue(any("main branch protection: unknown" == what for _, what, _ in checks))
 
     def test_doctor_catches_a_red_baseline(self):
         gate.init(self.p.gh, self.p.root)
@@ -381,9 +411,10 @@ class GateTest(unittest.TestCase):
         self.assertIn("2 state labels", r.exception.reason)
 
 
-def guard(command=None, tool="Bash", builder=False, path=None):
+def guard(command=None, tool="Bash", builder=False, path=None, protected=""):
     data = {"command": command} if command is not None else {"file_path": path}
-    env = {**os.environ, "LOOP_BUILDER": "1" if builder else "0"}
+    env = {**os.environ, "LOOP_BUILDER": "1" if builder else "0",
+           "LOOP_PROTECTED_PATHS": protected}
     res = subprocess.run([sys.executable, str(KIT / "hooks" / "guard.py")],
                          input=json.dumps({"tool_name": tool, "tool_input": data}),
                          capture_output=True, text=True, env=env)
@@ -398,6 +429,9 @@ class GuardTest(unittest.TestCase):
         "gh pr merge 3 --squash", "gh issue edit 3 --add-label state:ready",
         "gh api repos/o/r/issues/3/labels -f labels[]=state:done",
         "echo hi && git push origin main", "FOO=1 git push origin main",
+        "git -C . push origin main", 'bash -c "git push --force origin x"',
+        "gh -R a/b pr merge 3", "python3 -c \"import shutil; shutil.rmtree('x')\"",
+        "node -e \"rm -rf x\"", "GIT_CONFIG_COUNT=1 git push origin main",
     ]
     ALLOWED = [
         "git push -u origin piece/4", "rm build/out.txt", "git status", "gh issue list",
@@ -417,6 +451,11 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(guard("gh issue list", builder=True), 2)
         self.assertEqual(guard(tool="Write", path="/p/.claude/settings.json", builder=True), 2)
         self.assertEqual(guard(tool="Write", path="/p/src/app.py", builder=True), 0)
+
+    def test_builder_refuses_protected_paths_and_unreadable_commands(self):
+        self.assertEqual(guard(tool="Edit", path="/p/secrets/key.py", builder=True,
+                               protected="secrets"), 2)
+        self.assertEqual(guard("echo 'unfinished", builder=True), 2)
 
 
 FAKE_CLAUDE = textwrap.dedent('''\

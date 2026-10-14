@@ -21,6 +21,7 @@ and fix what it names; you do not judge the ground by eye.
    - **Prepare command**: makes a fresh clone runnable. Examples: `npm ci` (with a lockfile) or `npm install`; `uv sync`; `python3 -m venv .venv && .venv/bin/pip install -e '.[test]'`; `docker compose build`. Leave it out when a fresh clone needs nothing.
    - **Test command**: runs every test. Examples: `npm test`; `python -m pytest`; `go test ./...`; `docker compose run --rm app npm test`.
    - **Quality commands**: optional checks that run after the judge and Test command pass. For Python, offer `python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-changed.py" origin/main`. For Node, offer `npx stryker run --mutate "$(python3 "$AI_LOOP_KIT_ROOT/quality/changed-lines.py" --files origin/main)" --reporters json` and `npx eslint --rule 'complexity: ["error", 10]' .`. These can take much longer than the regular tests. Say what each command runs and ask before adding it.
+   - **Branch protection**: ask whether the person wants protection on `main`. Offer it only for a public repository or a plan that supports it. If they say yes, use `gh api` to require pull requests. Do not change repository settings before that yes. Doctor reports whether protection is enabled.
    For an empty project, recommend a plain stack for the language the person wants, and ask.
    The gate runs both in a fresh copy of main for every piece, and the run runs Prepare before every build, so both must work from a fresh clone. A project `.venv` made by Prepare is put first on `PATH`.
    Done when: the person has confirmed both commands, or confirmed that Prepare is not needed.
@@ -32,8 +33,9 @@ and fix what it names; you do not judge the ground by eye.
    Prepare command: `<the confirmed command>`
    Test command: `<the confirmed command>`
    Quality: `<each confirmed optional command>`
+   Protected paths: `<paths builders and reviewers must not edit>`
    ```
-   Leave out the Prepare line if there is none. The gate reads these settings from the loop section.
+   Leave out the Prepare line if there is none, and `Protected paths:` when there are none. The gate reads these settings from the loop section.
    Done when: the pull request is open and you have given the person its link.
 5. After the person merges, run `python3 "<KIT>/scripts/gate.py" doctor` again.
    Done when: every check says ok. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.

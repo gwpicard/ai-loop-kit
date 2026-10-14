@@ -45,11 +45,55 @@ def strip_prefix(w: list[str]) -> list[str]:
 
 
 def check_command(cmd: str, builder: bool) -> Optional[str]:
+    if re.search(r"\bpython(?:3)?\b[^\n]*\s-c\s", cmd) and re.search(
+            r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", cmd):
+        return "recursive delete is not allowed. Ask the person."
+    if re.search(r"\bnode\b[^\n]*\s-e\s", cmd) and re.search(
+            r"\brm\s+-[a-zA-Z]*[rR]", cmd):
+        return "recursive delete is not allowed. Ask the person."
     for segment in SPLIT.split(cmd):
-        w = strip_prefix(words(segment.strip()))
+        raw = segment.strip()
+        if re.search(r"(?:^|\s)GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)=", raw):
+            return "GIT_CONFIG_COUNT command injection is not allowed. Use plain git commands."
+        try:
+            w = strip_prefix(shlex.split(raw))
+        except ValueError:
+            if builder:
+                return "the command could not be read safely in a build session. Simplify it and try again."
+            w = strip_prefix(words(raw))
         if not w:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
+        if prog in ("bash", "sh", "zsh") and "-c" in rest:
+            index = rest.index("-c")
+            if index + 1 < len(rest):
+                refused = check_command(rest[index + 1], builder)
+                if refused:
+                    return refused
+        if prog in ("python", "python3", "node"):
+            flag = "-c" if prog.startswith("python") else "-e"
+            if flag in rest:
+                code = rest[rest.index(flag) + 1] if rest.index(flag) + 1 < len(rest) else ""
+                if re.search(r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", code):
+                    return "recursive delete is not allowed. Ask the person."
+        if prog == "git":
+            index = 0
+            while index < len(rest):
+                if rest[index] in ("-C", "-c", "--git-dir", "--work-tree"):
+                    index += 2
+                elif rest[index].startswith("--git-dir=") or rest[index].startswith("--work-tree="):
+                    index += 1
+                else:
+                    break
+            rest = rest[index:]
+        if prog == "gh":
+            index = 0
+            while index < len(rest):
+                if rest[index] in ("-R", "--repo"):
+                    index += 2
+                else:
+                    break
+            rest = rest[index:]
         flags = [a for a in rest if a.startswith("-")]
 
         if prog == "rm" and any(a in ("-r", "-R", "--recursive") or
@@ -94,6 +138,13 @@ def check_path(path: str) -> Optional[str]:
     parts = path.replace("\\", "/").split("/")
     if ".claude" in parts or ".githooks" in parts:
         return "builders never change .claude/ or .githooks/."
+    protected = [item.strip().strip("`") for item in
+                 os.environ.get("LOOP_PROTECTED_PATHS", "").split(os.pathsep) if item.strip()]
+    normal = path.replace("\\", "/").rstrip("/")
+    if any(normal == item.rstrip("/") or normal.startswith(item.rstrip("/") + "/")
+           or ("/" + item.rstrip("/") + "/") in (normal + "/")
+           for item in protected):
+        return "builders and reviewers never edit a protected path. Shape a piece that names it."
     return None
 
 

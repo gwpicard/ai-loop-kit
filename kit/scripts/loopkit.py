@@ -327,6 +327,7 @@ def command_env(folder: Path) -> dict:
     own .venv when Prepare made one, else the person's checkout's .venv."""
     env = dict(os.environ)
     env["AI_LOOP_KIT_ROOT"] = str(Path(__file__).resolve().parent.parent)
+    env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(loop_settings(folder).get("protected paths", []))
     for venv_bin in (folder / ".venv" / "bin", project_root(folder) / ".venv" / "bin"):
         if venv_bin.is_dir():
             env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
@@ -500,6 +501,21 @@ class GitHub:
     def signed_in(self) -> bool:
         return subprocess.run(["gh", "auth", "status"], cwd=self.root,
                               capture_output=True).returncode == 0
+
+    def main_protection(self) -> str:
+        """Report main's protection without turning a missing rule into a doctor failure."""
+        try:
+            repo = self._gh("repo", "view", "--json", "nameWithOwner", "--jq",
+                            ".nameWithOwner").strip()
+        except (RuntimeError, AttributeError):
+            return "unknown"
+        result = subprocess.run(["gh", "api", f"repos/{repo}/branches/main/protection"],
+                                cwd=self.root, capture_output=True, text=True)
+        if result.returncode == 0:
+            return "enabled"
+        if "404" in result.stderr or "Not Found" in result.stderr:
+            return "disabled"
+        return "unknown"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
         self._gh("label", "create", name, "--color", color, "--description",

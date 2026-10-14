@@ -165,6 +165,7 @@ def check_ready(root: Path, issue: dict) -> dict:
             "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
             "settings": spec.settings,
+            "protected_paths": loop_settings(root).get("protected paths", []),
             "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
 
@@ -189,6 +190,25 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if changed_tests:
         return False, ("the build changes existing test files not named in the Contract or Files: "
                        + ", ".join(changed_tests))
+    main = main_ref(folder)
+    changed_paths = sh(["git", "diff", "--name-only", f"{main}...HEAD"], folder).stdout.splitlines()
+    contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
+        " ".join(ready.get("files", []))
+    protected = [p for p in changed_paths for target in ready.get("protected_paths", [])
+                 if (p == target.rstrip("/") or p.startswith(target.rstrip("/") + "/"))
+                 and target not in contract_text]
+    if protected:
+        return False, "the build changes protected paths not named in the Contract: " + \
+            ", ".join(sorted(set(protected)))
+    secret_files = [p for p in changed_paths if Path(p).name == ".env" or
+                    Path(p).name.startswith(".env.") and Path(p).name not in
+                    {".env.example", ".env.sample", ".env.template"}]
+    diff_text = sh(["git", "diff", "--no-ext-diff", f"{main}...HEAD"], folder).stdout
+    secret_patterns = [r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+                       r"\bAKIA[0-9A-Z]{16}\b", r"\bghp_[A-Za-z0-9]{20,}\b",
+                       r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", r"\bsk-[A-Za-z0-9_-]{20,}\b"]
+    if secret_files or any(re.search(pattern, diff_text) for pattern in secret_patterns):
+        return False, "the diff contains a secret-shaped value or .env file"
     markers = conflict_markers(folder)
     if markers:
         return False, f"merge conflict markers are left in: {', '.join(markers)}"
@@ -414,6 +434,8 @@ def doctor(gh: GitHub, root: Path) -> list[tuple[bool, str, str]]:
     except Refused as r:
         add(False, "main has a commit on origin", r.next_step)
         return checks
+    protection = gh.main_protection() if hasattr(gh, "main_protection") else "unknown"
+    checks.append((True, f"main branch protection: {protection}", ""))
     have = set(gh.labels())
     add(all(STATE_PREFIX + s in have for s in STATES), "the state labels exist", "run: gate.py init")
 
