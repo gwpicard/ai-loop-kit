@@ -11,6 +11,7 @@ record on the issue for every move it makes.
     gate.py move N STATE [--reason R]  move a piece
     gate.py sync                       move merged pieces to done
     gate.py status                     list the pieces by state
+    gate.py doctor                     check the project is ready for the loop
 """
 from __future__ import annotations
 
@@ -25,7 +26,8 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      bar_hash_at, bar_hash_in, branch_name, last_record, main_ref,
-                     parse_spec, record_text, repo_root, rev, run_judge, sh, spec_hash)
+                     loop_settings, parse_spec, prepare, record_text, repo_root, rev,
+                     run_judge, sh, spec_hash)
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -87,6 +89,11 @@ def check_ready(root: Path, issue: dict) -> dict:
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
+        ok, poutput = prepare(folder)
+        if not ok:
+            raise Refused("the Prepare command fails on a fresh copy of main:\n"
+                          f"{poutput.strip()[-1500:]}",
+                          "fix the Prepare command in AGENTS.md, then run gate.py doctor")
         if spec.keep:
             # What must stay the same is checked on main as it is today.
             kcode, koutput = run_judge(folder, spec.keep)
@@ -283,6 +290,52 @@ def ignore_loop_folder(root: Path) -> None:
                            + "\n".join(missing) + "\n")
 
 
+def doctor(gh: GitHub, root: Path) -> list[tuple[bool, str, str]]:
+    """Setup's checks, in code. Each is (passed, what, next step)."""
+    checks: list[tuple[bool, str, str]] = []
+
+    def add(ok: bool, what: str, fix: str) -> bool:
+        checks.append((ok, what, "" if ok else fix))
+        return ok
+
+    origin = sh(["git", "remote", "get-url", "origin"], root, check=False).stdout.strip()
+    if not add(bool(origin), "the project has an origin",
+               "create the GitHub repository and add it as origin"):
+        return checks
+    if not add(gh.signed_in(), "gh is signed in", "run: gh auth login"):
+        return checks
+    try:
+        main = main_ref(root)
+        add(main == "origin/main", "main has a commit on origin", "push a first commit to main")
+    except Refused as r:
+        add(False, "main has a commit on origin", r.next_step)
+        return checks
+    have = set(gh.labels())
+    add(all(STATE_PREFIX + s in have for s in STATES), "the state labels exist", "run: gate.py init")
+
+    tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
+    folder = tmp / "main"
+    try:
+        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
+        settings = loop_settings(folder)
+        if not add("test" in settings, "AGENTS.md on main names the Test command",
+                   "merge setup's AGENTS.md section, with a 'Test command:' line"):
+            return checks
+        if "prepare" in settings:
+            ok, output = prepare(folder)
+            if not add(ok, f"Prepare passes on a fresh copy of main ({settings['prepare']})",
+                       "fix the Prepare command:\n" + output.strip()[-800:]):
+                return checks
+        code, output = run_judge(folder, settings["test"])
+        add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
+            "every piece's keep check needs a green main. Fix the tests or the environment, "
+            "or add a Prepare command:\n" + output.strip()[-800:])
+    finally:
+        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
+        shutil.rmtree(tmp, ignore_errors=True)
+    return checks
+
+
 def status(gh: GitHub) -> str:
     lines = []
     for s in STATES[:4]:
@@ -308,6 +361,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     m.add_argument("--reason", default="")
     sub.add_parser("sync")
     sub.add_parser("status")
+    sub.add_parser("doctor")
     args = p.parse_args(argv)
 
     root = repo_root(Path.cwd())
@@ -329,6 +383,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
         elif args.cmd == "status":
             print(status(gh))
+        elif args.cmd == "doctor":
+            checks = doctor(gh, root)
+            for ok, what, fix in checks:
+                print(f"{'ok  ' if ok else 'FAIL'} {what}")
+                if fix:
+                    print(f"     next: {fix}")
+            if not all(ok for ok, _, _ in checks):
+                return 2
     except Refused as r:
         print(f"refused: {r.reason}", file=sys.stderr)
         if r.next_step:

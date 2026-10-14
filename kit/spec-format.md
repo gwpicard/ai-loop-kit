@@ -44,8 +44,12 @@ until it goes through ready again.
 
 ## Project environments
 
-If the project has a `.venv` folder, the gate and the builders put its `bin`
-first on `PATH`. Write `python -m pytest`, never a path from your computer.
+The project's `AGENTS.md` names a Test command and, if a fresh clone needs
+one, a Prepare command (`npm ci`, `uv sync`, `docker compose build`). The gate
+runs Prepare in every fresh copy before the judge and `Keep:`, and the run
+runs it before every build. So write `Keep:` as the plain Test command, and
+never put install steps or paths from your computer in a spec. A `.venv` made
+by Prepare is put first on `PATH`.
 
 ## The first piece of an empty project
 

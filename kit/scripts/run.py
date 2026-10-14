@@ -23,7 +23,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name, command_env,  # noqa: E402
-                     last_record, main_ref, repo_root, sh)
+                     last_record, main_ref, prepare, repo_root, sh)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -112,6 +112,13 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     if sh(["git", "merge", "--no-edit", "--quiet", main], folder, check=False).returncode != 0:
         sh(["git", "merge", "--abort"], folder, check=False)
         reason = f"{branch_name(n)} does not merge cleanly with {main}"
+        gate.move(gh, root, n, "shaping", reason=reason)
+        return f"piece {n}: back to shaping, {reason}"
+
+    ok, poutput = prepare(folder)
+    if not ok:
+        reason = "the Prepare command failed in the build folder; run gate.py doctor"
+        gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
         gate.move(gh, root, n, "shaping", reason=reason)
         return f"piece {n}: back to shaping, {reason}"
 
