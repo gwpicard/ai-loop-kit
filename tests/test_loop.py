@@ -14,7 +14,7 @@ from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 
 import gate
 import run
-from loopkit import Refused, parse_spec, run_judge
+from loopkit import Refused, changed_check_settings, parse_spec, run_judge
 
 
 class SpecTest(unittest.TestCase):
@@ -323,6 +323,8 @@ FAKE_CLAUDE = textwrap.dedent('''\
     case "$FAKE_MODE" in
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
+      loosen) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+              printf '{"rules": {}}\\n' > .eslintrc.json ;;
       *) printf 'def add(items, name):\\n    return items\\n' > habits.py ;;
     esac
     git add -A && git commit --quiet -m "Build"
@@ -439,6 +441,41 @@ class RunTest(unittest.TestCase):
         ready = {"files": ["judge_add.py"], "command": "python3 judge_add.py"}
         self.assertIn(reason, run.brief(n, "spec", ready, "", reason))
         self.assertEqual(run.came_back_reason([]), "")
+
+    def test_a_build_that_changes_check_settings_does_not_pass(self):
+        n, result = self.build("loosen", attempts=1)
+        self.assertIn("back to shaping", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertIn(".eslintrc.json", failed[0])
+        self.assertEqual(self.p.gh.prs, {})
+
+    def test_a_piece_may_change_settings_when_its_spec_says_so(self):
+        os.environ["FAKE_MODE"] = "loosen"
+        n = self.p.piece(spec=SPEC.replace("Files:", "Settings: may change\nFiles:"))
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("pull request ready", result)
+        self.assertIn("- `.eslintrc.json`", self.p.gh.prs[f"piece/{n}"]["body"])
+
+    def test_check_settings_inside_package_json_and_pyproject(self):
+        (self.p.root / "package.json").write_text(
+            '{"name": "x", "dependencies": {}, "xo": {"rules": {}}, "scripts": {"test": "xo && ava"}}')
+        (self.p.root / "pyproject.toml").write_text("[project]\nname = 'x'\n[tool.ruff]\nline-length = 88\n")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "--quiet", "-m", "Settings")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        git(self.p.root, "switch", "--quiet", "-c", "work")
+        self.addCleanup(git, self.p.root, "switch", "--quiet", "main")
+        (self.p.root / "package.json").write_text(
+            '{"name": "x", "dependencies": {"a": "1"}, "xo": {"rules": {"r": "off"}}, "scripts": {"test": "ava"}}')
+        self.assertEqual(changed_check_settings(self.p.root),
+                         ["package.json: scripts.test", "package.json: xo"])
+        git(self.p.root, "checkout", "package.json")
+        (self.p.root / "pyproject.toml").write_text("[project]\nname = 'y'\n[tool.ruff]\nline-length = 88\n")
+        self.assertEqual(changed_check_settings(self.p.root), [])
+        (self.p.root / "pyproject.toml").write_text("[project]\nname = 'y'\n[tool.ruff]\nline-length = 200\n")
+        self.assertEqual(changed_check_settings(self.p.root), ["pyproject.toml: [tool.ruff]"])
+        git(self.p.root, "checkout", "pyproject.toml")
 
     def test_a_builder_that_changes_the_judge_does_not_pass(self):
         n, result = self.build("cheat")

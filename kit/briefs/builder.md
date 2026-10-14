@@ -48,5 +48,8 @@ DATA>>>
 - Never change a file under `.claude/` or `.githooks/`.
 - Never weaken a project check to pass: no lint rule turned off, no test
   skipped, no setting loosened. If a check cannot pass, say why and stop.
+  The gate fails any attempt that changes the project's check settings (lint,
+  test and type-check config, `.gitignore`, CI files), unless the spec says
+  `Settings: may change`.
 - If the guard refuses a command, do not reach the same result another way.
   Say what was refused and stop.

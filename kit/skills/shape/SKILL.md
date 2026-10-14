@@ -23,7 +23,7 @@ Use the KIT path above in every command. Write it out in full. Read
    Done when: each answer is in your notes, or written down as an assumption you made.
 3. If the idea holds more than one piece, split it. One piece is one change a builder can finish in about an hour, with three to six Done when items.
    Done when: the person agrees to the split.
-4. Write the spec in the format of `<KIT>/spec-format.md`, with a test name per Done when item, and show it to the person. If the project already has tests, add `Keep:` with the Test command from the project's AGENTS.md, exactly, so what works today must still work. Mark a Done when item that already holds today as `(stays)`; never bend a test so it fails on main. Never write a rule under Notes that you expect the gate to enforce; the gate reads only Done when and Judge.
+4. Write the spec in the format of `<KIT>/spec-format.md`, with a test name per Done when item, and show it to the person. If the project already has tests, add `Keep:` with the Test command from the project's AGENTS.md, exactly, so what works today must still work. Mark a Done when item that already holds today as `(stays)`; never bend a test so it fails on main. Never write a rule under Notes that you expect the gate to enforce; the gate reads only Done when and Judge. Add `Settings: may change` only when the piece is about the project's lint, test or CI settings.
    Done when: the person says yes to the spec.
 5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
    Done when: the gate prints the piece number.

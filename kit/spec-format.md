@@ -38,6 +38,16 @@ what must stay the same.
   whole test command, so that what works today must still work after the
   build. The run checks it again after each attempt.
 
+## Check settings
+
+A build may not change how the project checks itself: lint, test and
+type-check config files, `.gitignore`, CI files, and the check parts of
+`package.json` (like `xo` or `scripts.test`) and `pyproject.toml` (like
+`[tool.pytest]` or `[tool.ruff]`). Builders cannot edit those files, and the
+gate fails any attempt that changes them. If the piece is about those
+settings, write `Settings: may change` under `## Judge`. Then the pull
+request lists every check setting it changes, for the person to read first.
+
 The gate then fixes the bar: it records a hash of the judge files and a hash
 of the spec on the issue. If either changes later, the piece cannot be built
 until it goes through ready again.

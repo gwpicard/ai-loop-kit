@@ -5,6 +5,7 @@ moves a piece; that is the gate's job (gate.py).
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import os
@@ -43,10 +44,11 @@ class Spec:
     kind: str  # "test", or "scaffold" for the first piece of an empty project
     keep: str = ""  # a command that passes on main and must still pass after the build
     stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
+    settings: bool = False  # True when the piece may change the project's check settings
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
-_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep)\s*:\s*(.*)$", re.IGNORECASE)
+_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -82,7 +84,7 @@ def parse_spec(body: str) -> Spec:
         if not done_when:
             gaps.append("'## Done when' has no item like '- D1: ...'")
 
-    command, kind, keep, files = "", "test", "", []
+    command, kind, keep, files, settings = "", "test", "", [], False
     judge = _section(body, "Judge")
     if judge is None:
         gaps.append("no '## Judge' section")
@@ -99,6 +101,10 @@ def parse_spec(body: str) -> Spec:
                     kind = value.strip("`").strip().lower()
                 elif key == "keep":
                     keep = value.strip("`").strip()
+                elif key == "settings":
+                    settings = value.strip("`").strip().lower() == "may change"
+                    if not settings:
+                        gaps.append(f"'Settings: {value}' is unknown; use 'Settings: may change'")
                 elif value:
                     files += [f.strip().strip("`") for f in value.split(",") if f.strip()]
             elif in_files and re.match(r"^\s*[-*]\s+\S", line):
@@ -117,7 +123,63 @@ def parse_spec(body: str) -> Spec:
                       "fix the issue body to match kit/spec-format.md")
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
-    return Spec(done_when, command, files, kind, keep, tuple(stays))
+    return Spec(done_when, command, files, kind, keep, tuple(stays), settings)
+
+
+# ---------------------------------------------------------------- check settings
+
+# Files that set how the project checks itself. A pattern with no slash
+# matches the file name in any folder.
+CHECK_FILES = [".gitignore", ".github/*", ".eslintrc*", "eslint.config.*", ".xo-config*",
+               ".prettierrc*", "prettier.config.*", "tsconfig*.json", "jest.config.*",
+               "vitest.config.*", ".mocharc*", "ava.config.*", "ruff.toml", ".ruff.toml",
+               ".flake8", "setup.cfg", "tox.ini", "pytest.ini", "mypy.ini", ".mypy.ini",
+               ".pylintrc", ".coveragerc", ".pre-commit-config.yaml"]
+# Check settings inside files that also hold other things.
+PACKAGE_KEYS = ("xo", "eslintConfig", "prettier", "jest", "ava", "mocha", "c8", "nyc", "tsd")
+PACKAGE_SCRIPTS = ("test", "pretest", "posttest", "lint")
+PYPROJECT_TOOLS = re.compile(r"^\[tool\.(pytest|ruff|mypy|coverage|black|isort|pylint|pyright)\b")
+
+
+def _package_checks(text: str) -> dict:
+    data = json.loads(text) if text.strip() else {}
+    scripts = data.get("scripts") or {}
+    return {**{k: data.get(k) for k in PACKAGE_KEYS},
+            **{f"scripts.{k}": scripts.get(k) for k in PACKAGE_SCRIPTS}}
+
+
+def _pyproject_checks(text: str) -> dict:
+    sections: dict = {}
+    current = None
+    for line in text.splitlines():
+        if line.startswith("["):
+            current = line.strip() if PYPROJECT_TOOLS.match(line) else None
+        if current:
+            sections[current] = sections.get(current, "") + line.strip() + "\n"
+    return sections
+
+
+def changed_check_settings(folder: Path) -> list[str]:
+    """The check settings this branch changes, compared with where it left main."""
+    base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
+    names = sh(["git", "diff", "--name-only", base], folder).stdout.split()
+    changed = []
+    for name in names:
+        short = name.rsplit("/", 1)[-1]
+        if any(fnmatch.fnmatch(name if "/" in p else short, p) for p in CHECK_FILES):
+            changed.append(name)
+        elif short in ("package.json", "pyproject.toml"):
+            old = sh(["git", "show", f"{base}:{name}"], folder, check=False).stdout
+            new = (folder / name).read_text(errors="replace") if (folder / name).is_file() else ""
+            read = _package_checks if short == "package.json" else _pyproject_checks
+            try:
+                before, after = read(old), read(new)
+            except ValueError:
+                changed.append(f"{name} (unreadable)")
+                continue
+            changed += [f"{name}: {k}" for k in sorted(set(before) | set(after))
+                        if before.get(k) != after.get(k)]
+    return changed
 
 
 def spec_hash(body: str) -> str:
