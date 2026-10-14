@@ -33,6 +33,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 13 Oct 2026 | loop-test-thin, pieces 8 and 9 | Shaping dropped a Done when item after the person approved the spec, without asking again. Its reason was sound. | The person approves the final spec text |
 | 13 Oct 2026 | loop-test-thin, pieces 8 and 9 | Two pieces built in one run both changed `habits/cli.py`. They merged cleanly one after the other, and all tests passed on the combined main. No conflict yet. | Combined-branch integration (not earned) |
 | 13 Oct 2026 | loop-test-thin, piece 12 | The first builder found the judge contradicts itself. Attempts 2 and 3 found the same thing (about 30 seconds wasted). No builder gamed the judge. | A "the bar is wrong" hand-back that ends the piece's attempts early |
+| 13 Oct 2026 | loop-test-thin, piece 12 | Reshaping a returned piece needed a new spec. The gate has no command for that, so shaping used `gh issue edit`. Safe, because the gate rechecks the spec hash before a build, but it is a second door. | A `gate.py spec` command, so every spec change goes through the gate |
 
 ## What is in the thin kit today
 
