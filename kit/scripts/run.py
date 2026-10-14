@@ -566,6 +566,10 @@ def dirty_folder_reason(folder: Path) -> str:
     dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
     if not dirty:
         return ""
+    merge_head = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
+    merge_states = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
+    if merge_head.returncode == 0 and all(line[:2] in merge_states for line in dirty.splitlines()):
+        return ""
     return ("build folder has uncommitted changes the run did not make. "
             "next: inspect the folder and commit or move those changes before running again")
 

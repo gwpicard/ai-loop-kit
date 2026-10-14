@@ -288,7 +288,7 @@ def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
     out = set(files)
     for name in tracked:
         if Path(name).name == "conftest.py" or any(
-                folder == "." or name.startswith(folder.rstrip("/") + "/")
+                folder != "." and name.startswith(folder.rstrip("/") + "/")
                 for folder in folders):
             out.add(name)
     return sorted(out)

@@ -82,6 +82,17 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(rec["bar"]), 64)
         self.assertEqual(rec["command"], "python3 judge_add.py")
 
+    def test_root_level_judge_bar_does_not_copy_project_source(self):
+        n = self.p.piece()
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "habits.py").write_text(GOOD_CODE)
+        git(self.p.root, "add", "habits.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Add implementation")
+        git(self.p.root, "switch", "--quiet", "main")
+        self.ready(n)
+        record = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertEqual(record["bar_files"], ["judge_add.py"])
+
     def test_submit_refuses_an_unlisted_protected_path(self):
         self.p.loop_section("true")
         agents = self.p.root / "AGENTS.md"
