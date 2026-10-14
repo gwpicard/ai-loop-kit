@@ -12,6 +12,7 @@ person to merge. Three failures send the piece back to shaping with the reason.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -108,8 +109,36 @@ def restore_bar(folder: Path, ready: dict) -> None:
         commit_leftovers(folder, 0, 0)
 
 
+def worktree_home(root: Path) -> Path:
+    """Build folders live outside the project, so its own tools (lint, test
+    discovery) never see them."""
+    base = os.environ.get("LOOP_WORKTREES") or str(
+        Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ai-loop-kit" / "worktrees")
+    key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:8]
+    return Path(base) / f"{root.name}-{key}"
+
+
+def existing_worktree(root: Path, n: int) -> Optional[Path]:
+    """The folder git already has checked out on the piece branch, if any."""
+    path = None
+    for line in sh(["git", "worktree", "list", "--porcelain"], root).stdout.splitlines():
+        if line.startswith("worktree "):
+            path = Path(line[len("worktree "):])
+        elif line == f"branch refs/heads/{branch_name(n)}" and path and path != root:
+            return path
+    return None
+
+
+def release_worktree(root: Path, n: int) -> None:
+    """Remove a piece's build folder when the piece goes back to shaping, so
+    shaping can switch to its branch. Git refuses if the folder holds changes."""
+    folder = existing_worktree(root, n)
+    if folder:
+        sh(["git", "worktree", "remove", str(folder)], root, check=False)
+
+
 def worktree(root: Path, n: int) -> Path:
-    folder = root / ".loop" / "worktrees" / f"piece-{n}"
+    folder = existing_worktree(root, n) or worktree_home(root) / f"piece-{n}"
     if not folder.exists():
         folder.parent.mkdir(parents=True, exist_ok=True)
         res = sh(["git", "worktree", "add", "--quiet", str(folder), branch_name(n)], root, check=False)
@@ -139,12 +168,15 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     check_pushed_branch(root, n)
     gate.move(gh, root, n, "building")
     try:
-        return build_claimed(gh, root, n, issue, attempts)
+        result = build_claimed(gh, root, n, issue, attempts)
     except Exception as e:  # never leave a piece in building
         reason = f"the run stopped with an error: {str(e).strip()[:300]}"
         if gate.state_of(gh.issue(n)) == "building":
             gate.move(gh, root, n, "shaping", reason=reason)
-        return f"piece {n}: back to shaping, {reason}"
+        result = f"piece {n}: back to shaping, {reason}"
+    if gate.state_of(gh.issue(n)) == "shaping":
+        release_worktree(root, n)
+    return result
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) -> str:
@@ -153,12 +185,22 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     folder = worktree(root, n)
 
     # Bring the piece up to date with main, so the pull request merges cleanly.
+    # A conflict is left for the builder to resolve; the gate's keep check then
+    # proves that what main gained still works.
     main = main_ref(root)
+    merge_note = ""
     if sh(["git", "merge", "--no-edit", "--quiet", main], folder, check=False).returncode != 0:
-        sh(["git", "merge", "--abort"], folder, check=False)
-        reason = f"{branch_name(n)} does not merge cleanly with {main}"
-        gate.move(gh, root, n, "shaping", reason=reason)
-        return f"piece {n}: back to shaping, {reason}"
+        conflicts = sh(["git", "diff", "--name-only", "--diff-filter=U"], folder).stdout.split()
+        if not conflicts:
+            sh(["git", "merge", "--abort"], folder, check=False)
+            reason = f"{branch_name(n)} does not merge with {main}"
+            gate.move(gh, root, n, "shaping", reason=reason)
+            return f"piece {n}: back to shaping, {reason}"
+        log(f"piece {n}: main changed; the builder resolves conflicts in {', '.join(conflicts)}")
+        merge_note = ("Main changed since this piece was built. This folder holds an unfinished "
+                      f"merge of main, with conflicts in: {', '.join(conflicts)}. First resolve "
+                      "them: keep what main added and what this piece adds. Remove every "
+                      "conflict marker and commit the merge. Then make the judge pass.")
 
     ok, poutput = prepare(folder)
     if not ok:
@@ -169,7 +211,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
 
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    last_failure = ""
+    last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
     for k in range(1, attempts + 1):
         logfile = logs / f"piece-{n}-attempt-{k}.log"

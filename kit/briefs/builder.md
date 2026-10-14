@@ -23,7 +23,8 @@ The gate decides if you are done by running this command itself:
     {{COMMAND}}
 
 These judge files are fixed. Never change, move, skip or loosen them. If you
-do, the attempt fails.
+do, the attempt fails. They are fixed as they are now in this folder. If git
+history shows an older version, that version no longer counts: never restore it.
 
 {{FILES}}
 

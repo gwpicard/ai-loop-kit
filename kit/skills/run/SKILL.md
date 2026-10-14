@@ -22,6 +22,8 @@ description: Builds the ready pieces. Each attempt is a fresh Claude session; th
 5. After the person merges, run `python3 "<KIT>/scripts/gate.py" sync` to move merged pieces to done.
 6. If the person rejects a pull request, move the piece back in their words: `python3 "<KIT>/scripts/gate.py" move <n> shaping --reason "<their words>"`. Leave the pull request open; the next build pushes to the same branch and updates it. If the spec or the judge must change, use `/ai-loop-kit:shape`. Then the piece goes through ready again, and the next build gets the reason.
    Done when: the piece is in shaping with the person's reason on the issue.
+7. If a pull request conflicts with main after another merge, move the piece back with the reason "conflicts with main", run `gate.py move <n> ready` (the spec and the judge are unchanged), and run it again. The run merges main and the builder resolves the conflicts; the keep check proves both changes still work. Never resolve the conflicts yourself.
+   Done when: the piece is in ready, or the run has started.
 
 ## Rules
 - Never build a piece yourself in this session. The run builds; the gate judges.

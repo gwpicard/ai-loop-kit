@@ -54,7 +54,7 @@ person changed the pull request after the gate judged it.
 | wrong-bar | loop-test-thin | A judge that contradicts itself fails every attempt. The piece returns with `needs-you` and the builders' reasons. It is reshaped and built. | 13 Oct 2026 |
 | rejected-pr | loop-test-node | The person rejects a pull request with a reason. The piece is fixed without hand work on the branch. | 14 Oct 2026: failed, five fixes, then passed on the re-run |
 | docker | new | A project that builds and tests only in Docker. Prepare is `docker compose build`. | not run |
-| conflict | loop-test-thin | Two pieces in one run change the same lines. The second pull request conflicts after the first merges. The kit says so plainly and recovers. | not run |
+| conflict | loop-test-node | Two pieces in one run change the same lines. The second pull request conflicts after the first merges. The kit says so plainly and recovers. | 14 Oct 2026: failed, then passed on the re-run |
 | hard-piece | any | A piece that a real builder cannot pass on the first attempt. Later attempts use the judge's output and pass. | not run |
 
 ### new-project

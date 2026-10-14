@@ -25,7 +25,8 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
-                     bar_hash_at, bar_hash_in, branch_name, changed_check_settings, last_record, main_ref,
+                     bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
+                     conflict_markers, last_record, main_ref,
                      loop_settings, parse_spec, prepare, record_text, repo_root, rev,
                      run_judge, sh, spec_hash)
 
@@ -175,6 +176,9 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready["files"]) != ready["bar"]:
         return False, "the judge files differ from the ones fixed at ready"
+    markers = conflict_markers(folder)
+    if markers:
+        return False, f"merge conflict markers are left in: {', '.join(markers)}"
     if not ready.get("settings"):
         changed = changed_check_settings(folder)
         if changed:

@@ -30,7 +30,7 @@ Use the KIT path above in every command. Write it out in full. Read
 6. Write the judge. Run `git fetch origin main`, then `git switch -c piece/<n> origin/main`. Write the judge test files named in the spec. Each test name holds its spec ID, like `test_D2_streak_resets`. Each test fails today on an assertion, not on an import or syntax error: import new code inside the test. Commit the judge files alone. Then `git switch main`.
    If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`, change the judge files, and commit the change on top.
    Done when: `git log main..piece/<n>` shows one commit holding only the judge files (for a piece that came back, the newest commit holds only the judge change), and you are back on main.
-7. Check it with `python3 "<KIT>/scripts/gate.py" check <n>`. Fix what it names, on the piece branch.
+7. Run the project's Test command on the piece branch. It fails, because the judge fails; read the output and fix every other error that names a judge file, such as lint, type or format errors. Then check it with `python3 "<KIT>/scripts/gate.py" check <n>`. Fix what it names, on the piece branch.
    Done when: it prints `ok`.
 8. Move it with `python3 "<KIT>/scripts/gate.py" move <n> ready`.
    Done when: the piece is in ready, or you have reported the refusal and its `next:` line.

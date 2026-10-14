@@ -37,7 +37,7 @@ class AuditTest(unittest.TestCase):
         return n
 
     def build_folder(self, n: int) -> Path:
-        return self.p.root / ".loop" / "worktrees" / f"piece-{n}"
+        return self.p.folder(n)
 
     def audit(self, n: int, head: str = ""):
         branch = f"piece/{n}"

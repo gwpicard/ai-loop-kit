@@ -323,6 +323,7 @@ FAKE_CLAUDE = textwrap.dedent('''\
     case "$FAKE_MODE" in
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
+      lazy) : ;;
       loosen) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
               printf '{"rules": {}}\\n' > .eslintrc.json ;;
       *) printf 'def add(items, name):\\n    return items\\n' > habits.py ;;
@@ -381,7 +382,7 @@ class RunTest(unittest.TestCase):
         self.p.loop_section("true", prepare="touch prepared.txt")
         n, result = self.build("good", attempts=1)
         self.assertIn("pull request ready", result)
-        self.assertTrue((self.p.root / ".loop" / "worktrees" / f"piece-{n}" / "prepared.txt").exists())
+        self.assertTrue((self.p.folder(n) / "prepared.txt").exists())
 
     def test_keep_failing_on_the_judge_files_stops_the_piece_at_once(self):
         # A lint step in the keep check rejects the judge file itself. No build can fix that.
@@ -401,7 +402,10 @@ class RunTest(unittest.TestCase):
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
         attempts = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(attempts), 1)
-        self.assertTrue((self.p.root / ".loop" / "worktrees" / f"piece-{n}" / "judge_add.py").exists())
+        # The build folder is gone, so shaping can switch to the branch; the work stays on it.
+        self.assertFalse(self.p.folder(n).exists())
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        git(self.p.root, "switch", "--quiet", "main")
 
     def test_an_error_after_the_claim_gives_the_piece_back(self):
         def broken(*args, **kwargs):
@@ -476,6 +480,44 @@ class RunTest(unittest.TestCase):
         (self.p.root / "pyproject.toml").write_text("[project]\nname = 'y'\n[tool.ruff]\nline-length = 200\n")
         self.assertEqual(changed_check_settings(self.p.root), ["pyproject.toml: [tool.ruff]"])
         git(self.p.root, "checkout", "pyproject.toml")
+
+    def test_build_folders_live_outside_the_project(self):
+        n, _ = self.build("good")
+        folder = self.p.folder(n)
+        self.assertTrue(folder.exists())
+        self.assertNotIn(self.p.root.resolve(), folder.resolve().parents)
+
+    def test_an_older_build_folder_inside_the_project_is_reused(self):
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece()
+        old = self.p.root / ".loop" / "worktrees" / f"piece-{n}"
+        git(self.p.root, "worktree", "add", "--quiet", str(old), f"piece/{n}")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        self.assertIn("pull request ready", run.build_piece(self.p.gh, self.p.root, n, 1))
+        self.assertTrue((old / "habits.py").exists())
+
+    def conflict_with_main(self, mode):
+        """Build a piece, then change the same lines on main, then send it round again."""
+        n, _ = self.build("good")
+        (self.p.root / "habits.py").write_text("def add(items, name):\n    raise NotImplementedError(name)\n\n\ndef count(items):\n    return len(items)\n")
+        git(self.p.root, "add", "habits.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Main changes habits.py")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="conflicts with main")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        os.environ["FAKE_MODE"] = mode
+        return n, run.build_piece(self.p.gh, self.p.root, n, 1)
+
+    def test_the_builder_resolves_a_conflict_with_main(self):
+        n, result = self.conflict_with_main("good")
+        self.assertIn("pull request ready", result)
+        git(self.p.root, "merge-base", "--is-ancestor", "origin/main", f"piece/{n}")
+
+    def test_conflict_markers_left_behind_do_not_pass(self):
+        n, result = self.conflict_with_main("lazy")
+        self.assertIn("back to shaping", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertIn("conflict markers", failed[-1])
 
     def test_a_builder_that_changes_the_judge_does_not_pass(self):
         n, result = self.build("cheat")
