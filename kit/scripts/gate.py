@@ -93,7 +93,7 @@ def check_ready(root: Path, issue: dict) -> dict:
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        ok, poutput = prepare(folder)
+        ok, poutput = (True, "") if spec.kind == "scaffold" else prepare(folder)
         if not ok:
             raise Refused("the Prepare command fails on a fresh copy of main:\n"
                           f"{poutput.strip()[-1500:]}",
@@ -179,6 +179,19 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     markers = conflict_markers(folder)
     if markers:
         return False, f"merge conflict markers are left in: {', '.join(markers)}"
+    git_dir = Path(sh(["git", "rev-parse", "--absolute-git-dir"], folder).stdout.strip())
+    prepare_paths = git_dir / "info" / "ai-loop-kit-prepare-paths"
+    if prepare_paths.is_file():
+        roots = prepare_paths.read_text().splitlines()
+        if roots:
+            added = sh(["git", "diff", "--name-only", "--diff-filter=A",
+                        f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
+            leaked = [path for path in added if any(
+                path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/")
+                for root in roots)]
+            if leaked:
+                return False, ("the piece adds files under paths Prepare created: "
+                               + ", ".join(leaked))
     if not ready.get("settings"):
         changed = changed_check_settings(folder)
         if changed:

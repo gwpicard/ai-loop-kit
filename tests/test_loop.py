@@ -243,6 +243,14 @@ class GateTest(unittest.TestCase):
             self.ready(n)
         self.assertIn("Prepare command fails", r.exception.reason)
 
+    def test_scaffold_ready_does_not_run_prepare_on_main(self):
+        self.p.loop_section("true", prepare="test -f pyproject.toml")
+        spec = ("## Done when\n- D1: the scaffold test runs.\n\n## Judge\n"
+                "Command: `true`\nKind: scaffold\n")
+        n = self.p.piece(spec=spec)
+        self.ready(n)
+        self.assertIn("state:ready", self.p.gh.issue(n)["labels"])
+
     def test_doctor_names_each_gap_then_passes(self):
         checks = gate.doctor(self.p.gh, self.p.root)
         failed = [what for ok, what, _ in checks if not ok]
@@ -383,6 +391,28 @@ class RunTest(unittest.TestCase):
         n, result = self.build("good", attempts=1)
         self.assertIn("pull request ready", result)
         self.assertTrue((self.p.folder(n) / "prepared.txt").exists())
+
+    def test_prepare_output_is_excluded_from_the_piece_branch(self):
+        self.p.loop_section("true", prepare="mkdir -p .venv/lib && touch .venv/lib/python.py")
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result, self.p.gh.comments(n))
+        self.assertNotIn(".venv/", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
+        exclude = Path(git(self.p.folder(n), "rev-parse", "--path-format=absolute",
+                           "--git-path", "info/exclude"))
+        self.assertIn(".venv/", exclude.read_text())
+
+    def test_gate_refuses_additions_under_prepare_output_paths(self):
+        self.p.loop_section("true", prepare="mkdir -p .venv/lib && touch .venv/lib/python.py")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        fake = Path(os.environ["LOOP_CLAUDE"])
+        fake.write_text(fake.read_text().replace(
+            "git add -A", "touch .venv/lib/forced.py && git add -f .venv/lib/forced.py && git add -A"))
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("back to shaping", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertIn("Prepare created", failed[-1])
+        self.assertEqual(self.p.gh.prs, {})
 
     def test_keep_failing_on_the_judge_files_stops_the_piece_at_once(self):
         # A lint step in the keep check rejects the judge file itself. No build can fix that.

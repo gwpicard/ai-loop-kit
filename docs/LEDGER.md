@@ -14,6 +14,8 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 
 | Date | Seen in | What went wrong | Entry it earned |
 | --- | --- | --- | --- |
+| 14 Oct 2026 | new public project, scaffold piece | Prepare failed on fresh main because `pyproject.toml` did not exist, so the scaffold could not become ready. | A scaffold piece skips Prepare on main at ready (IN THE KIT, with a test) |
+| 14 Oct 2026 | new public Python project, first build | Prepare made `.venv/` in the build folder. With no `.gitignore`, `git add -A` committed its files to the piece branch. | Prepare-created untracked paths are excluded in the build worktree and the gate rejects additions under them (IN THE KIT, with tests) |
 | 13 Oct 2026 | the thin kit's own tests | A spec ID inside a test name (`test_D1_adds`) was not found, because `\b` treats `_` as a letter. | Ready gate: judge names a spec ID (fixed in the core) |
 | 13 Oct 2026 | loop-test-thin, scaffold piece | The ready note said "the judge fails on main" for a scaffold piece, where the gate skips that check. The kit claimed a check it did not run. | Gate notes state only what the gate checked (fixed, with a test) |
 | 13 Oct 2026 | loop-test-thin, first run | Claude Code warned that `Write(path)` and `MultiEdit(path)` deny rules match nothing; only `Edit(path)` rules count, and they cover every file tool. | Builder judge-file block uses `Edit(path)` only (fixed) |

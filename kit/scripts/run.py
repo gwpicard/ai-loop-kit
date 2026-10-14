@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      changed_check_settings, command_env,
-                     last_record, main_ref, prepare, record_text, records, repo_root, sh)
+                     last_record, main_ref, prepare, record_prepare_outputs, record_text,
+                     records, repo_root, sh, untracked_paths)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -202,12 +203,15 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
                       "them: keep what main added and what this piece adds. Remove every "
                       "conflict marker and commit the merge. Then make the judge pass.")
 
+    before = untracked_paths(folder)
+    before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
     ok, poutput = prepare(folder)
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
         gate.move(gh, root, n, "shaping", reason=reason)
         return f"piece {n}: back to shaping, {reason}"
+    record_prepare_outputs(folder, before, before_dirs)
 
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)

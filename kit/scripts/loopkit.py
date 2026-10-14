@@ -303,6 +303,43 @@ def prepare(folder: Path) -> tuple[bool, str]:
     return code == 0, output
 
 
+def untracked_paths(folder: Path) -> set[str]:
+    """List untracked paths, including files already ignored by the project."""
+    commands = (["git", "ls-files", "--others", "--exclude-standard", "-z"],
+                ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
+    return {path for command in commands for path in sh(command, folder).stdout.split("\0") if path}
+
+
+def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]) -> list[str]:
+    """Exclude new Prepare output in this worktree and record it for the gate."""
+    added = untracked_paths(folder) - before
+    paths = set()
+    for path in added:
+        first, separator, _ = path.partition("/")
+        paths.add(first + "/" if separator and first not in before_dirs else path)
+    if not paths:
+        return []
+
+    git_dir = Path(sh(["git", "rev-parse", "--absolute-git-dir"], folder).stdout.strip())
+    info = git_dir / "info"
+    info.mkdir(parents=True, exist_ok=True)
+    marker = info / "ai-loop-kit-prepare-paths"
+    exclude = Path(sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
+                       "info/exclude"], folder).stdout.strip())
+    recorded = set(marker.read_text().splitlines()) if marker.exists() else set()
+    recorded.update(paths)
+    marker.write_text("\n".join(sorted(recorded)) + "\n")
+
+    existing = exclude.read_text().splitlines() if exclude.exists() else []
+    patterns = {"/" + path for path in paths}
+    missing = sorted(patterns - set(existing))
+    if missing:
+        text = exclude.read_text() if exclude.exists() else ""
+        exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
+                           + "\n".join(missing) + "\n")
+    return sorted(recorded)
+
+
 def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple[int, str]:
     """Run the judge command. The gate calls this; it never trusts a report."""
     try:
