@@ -17,9 +17,10 @@ and fix what it names; you do not judge the ground by eye.
    Done when: every check above "AGENTS.md on main" says ok. For each FAIL, give the person its `next:` line and stop until it is fixed. You never make the first commit or push to main yourself.
 2. Find how the project already builds and tests. Read its files: `package.json` and its lockfile, `pyproject.toml`, `uv.lock`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Makefile`, `Dockerfile`, `docker-compose.yml` or `compose.yaml`, and the CI workflow if there is one. The CI workflow usually shows the exact install and test steps.
    Done when: you can say in one sentence how a fresh clone gets ready and runs its tests.
-3. Agree two commands with the person. Offer the way the project already works as the recommended answer, and the other real options beside it. Never impose a tool the project does not use.
+3. Agree the commands with the person. Offer the way the project already works as the recommended answer, and the other real options beside it. Never impose a tool the project does not use.
    - **Prepare command**: makes a fresh clone runnable. Examples: `npm ci` (with a lockfile) or `npm install`; `uv sync`; `python3 -m venv .venv && .venv/bin/pip install -e '.[test]'`; `docker compose build`. Leave it out when a fresh clone needs nothing.
    - **Test command**: runs every test. Examples: `npm test`; `python -m pytest`; `go test ./...`; `docker compose run --rm app npm test`.
+   - **Quality commands**: optional checks that run after the judge and Test command pass. For Python, offer `python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-changed.py" origin/main`. For Node, offer `npx stryker run --mutate "$(python3 "$AI_LOOP_KIT_ROOT/quality/changed-lines.py" --files origin/main)" --reporters json` and `npx eslint --rule 'complexity: ["error", 10]' .`. These can take much longer than the regular tests. Say what each command runs and ask before adding it.
    For an empty project, recommend a plain stack for the language the person wants, and ask.
    The gate runs both in a fresh copy of main for every piece, and the run runs Prepare before every build, so both must work from a fresh clone. A project `.venv` made by Prepare is put first on `PATH`.
    Done when: the person has confirmed both commands, or confirmed that Prepare is not needed.
@@ -30,8 +31,9 @@ and fix what it names; you do not judge the ground by eye.
    Only the gate (gate.py) changes a state label. The person merges every pull request.
    Prepare command: `<the confirmed command>`
    Test command: `<the confirmed command>`
+   Quality: `<each confirmed optional command>`
    ```
-   Leave out the Prepare line if there is none. The gate reads these two lines exactly.
+   Leave out the Prepare line if there is none. The gate reads these settings from the loop section.
    Done when: the pull request is open and you have given the person its link.
 5. After the person merges, run `python3 "<KIT>/scripts/gate.py" doctor` again.
    Done when: every check says ok. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.

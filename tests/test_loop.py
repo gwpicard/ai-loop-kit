@@ -480,6 +480,32 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, 124)
         self.assertIn("past 0.1 seconds", output)
 
+    def test_quality_commands_run_and_their_output_reaches_the_pull_request(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Quality: printf quality-check-ok\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Add quality command")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        body = self.p.gh.prs[f"piece/{n}"]["body"]
+        self.assertIn("Quality: printf quality-check-ok", body)
+        self.assertIn("quality-check-ok", body)
+
+    def test_quality_failure_returns_the_piece_with_output(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Quality: printf quality-failed; exit 3\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Add failing quality command")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n, result = self.build("good", attempts=1)
+        self.assertIn("back to shaping", result)
+        comments = self.p.gh.comments(n)
+        self.assertTrue(any("quality-failed" in comment for comment in comments))
+        self.assertEqual(self.p.gh.prs, {})
+
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")
         self.assertIn("pull request ready", result)

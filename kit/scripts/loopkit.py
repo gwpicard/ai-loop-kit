@@ -326,6 +326,7 @@ def command_env(folder: Path) -> dict:
     """The environment for judge, prepare and builder commands. Use the folder's
     own .venv when Prepare made one, else the person's checkout's .venv."""
     env = dict(os.environ)
+    env["AI_LOOP_KIT_ROOT"] = str(Path(__file__).resolve().parent.parent)
     for venv_bin in (folder / ".venv" / "bin", project_root(folder) / ".venv" / "bin"):
         if venv_bin.is_dir():
             env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
@@ -335,8 +336,7 @@ def command_env(folder: Path) -> dict:
 
 
 def loop_settings(folder: Path) -> dict:
-    """The project's loop settings: the lines 'Test command:' and 'Prepare
-    command:' in the '## The loop' section of AGENTS.md, as committed."""
+    """Read test, prepare, quality and boundary settings from AGENTS.md."""
     agents = folder / "AGENTS.md"
     text = agents.read_text(errors="replace") if agents.is_file() else ""
     section = _section(text, "The loop") or []
@@ -345,6 +345,17 @@ def loop_settings(folder: Path) -> dict:
         m = re.match(r"^\s*[-*]?\s*(Test|Prepare) command\s*:\s*(.*)$", line, re.IGNORECASE)
         if m and m.group(2).strip().strip("`").strip():
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
+            continue
+        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths)\s*:\s*(.*)$",
+                     line, re.IGNORECASE)
+        if m:
+            key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
+            if key == "quality":
+                out.setdefault(key, []).append(value) if value else None
+            elif key == "protected paths":
+                out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
+            else:
+                out[key] = value
     return out
 
 

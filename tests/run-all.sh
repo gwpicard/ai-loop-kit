@@ -7,6 +7,6 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT" || exit 1
 status=0
 sh tests/house-rules.sh || status=1
-(cd tests && python3 -m unittest -q test_loop test_audit test_testlint) || status=1
+(cd tests && python3 -m unittest -q test_loop test_audit test_testlint test_quality) || status=1
 if [ "$status" -eq 0 ]; then echo "All checks passed."; else echo "Some checks failed." >&2; fi
 exit "$status"
