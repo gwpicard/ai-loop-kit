@@ -354,7 +354,7 @@ def loop_settings(folder: Path) -> dict:
         if m and m.group(2).strip().strip("`").strip():
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
             continue
-        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit)\s*:\s*(.*)$",
+        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit)\s*:\s*(.*)$",
                      line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
@@ -363,6 +363,8 @@ def loop_settings(folder: Path) -> dict:
             elif key == "protected paths":
                 out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
             elif key == "waiting limit":
+                out[key] = value
+            elif key == "idle limit":
                 out[key] = value
             else:
                 out[key] = value

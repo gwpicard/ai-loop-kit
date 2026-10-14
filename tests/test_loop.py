@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
@@ -478,22 +479,34 @@ FAKE_CLAUDE = textwrap.dedent('''\
     # A stand-in for claude -p. FAKE_MODE picks how it behaves.
     if [ "$LOOP_REVIEWER" = 1 ]; then
       case "$FAKE_REVIEW_MODE:$*" in
-        contract-gap:*)
-          echo '{"findings":[{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1","finding":"D1 is not met."}]}'
+        contract-gap:*"Contract reviewer brief"*)
+          echo '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1","finding":"D1 is not met."}]}</verdict>'
+          exit 0 ;;
+        bad-verdict:*)
+          echo '<verdict>{bad json}</verdict>'
           exit 0 ;;
         standard-fix:*"Standards reviewer brief"*)
           printf '\\n# reviewed\\n' >> habits.py
           git add habits.py && git commit --quiet -m "Review fix"
+          echo '<verdict>{"findings":[],"follow_ups":[],"changes":"small local fix"}</verdict>'
           exit 0 ;;
         standard-break:*"Standards reviewer brief"*)
           printf 'def add(items, name):\\n    return items\\n' > habits.py
           git add habits.py && git commit --quiet -m "Bad review fix"
+          echo '<verdict>{"findings":[],"follow_ups":[],"changes":"broken local fix"}</verdict>'
           exit 0 ;;
-        *) exit 0 ;;
+        review-idle:*) sleep 5 ;;
+        *)
+          case "$*" in
+            *"Standards reviewer brief"*) echo '<verdict>{"findings":[],"follow_ups":[],"changes":"none"}</verdict>' ;;
+            *) echo '<verdict>{"findings":[]}</verdict>' ;;
+          esac
+          exit 0 ;;
       esac
     fi
     case "$FAKE_MODE" in
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      idle) sleep 5 ;;
       bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
       cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
       lazy) : ;;
@@ -528,6 +541,13 @@ class RunTest(unittest.TestCase):
         gate.move(self.p.gh, self.p.root, n, "ready")
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
+
+    def test_last_tagged_verdict_accepts_a_code_fence_and_checks_fields(self):
+        output = ('<verdict>{"findings":[],"follow_ups":[],"changes":"old"}</verdict>\n'
+                  '<verdict>```json\n{"findings":[],"follow_ups":[],"changes":"none"}\n```</verdict>')
+        self.assertEqual(run._last_verdict(output, "standards")["changes"], "none")
+        with self.assertRaises(ValueError):
+            run._last_verdict("<verdict>{bad}</verdict>", "contract")
 
     def test_run_lock_refuses_live_runs_and_takes_over_dead_ones(self):
         lock = run.acquire_lock(self.p.root)
@@ -626,7 +646,7 @@ class RunTest(unittest.TestCase):
     def test_waiting_limit_pauses_with_a_next_step(self):
         self.p.loop_section("true")
         agents = self.p.root / "AGENTS.md"
-        agents.write_text(agents.read_text() + "Waiting limit: 2\n")
+        agents.write_text(agents.read_text() + "Waiting limit: 2\nIdle limit: 2\n")
         git(self.p.root, "add", "AGENTS.md")
         git(self.p.root, "commit", "--quiet", "-m", "Set waiting limit")
         git(self.p.root, "push", "--quiet", "origin", "main")
@@ -634,8 +654,44 @@ class RunTest(unittest.TestCase):
             n = self.p.piece()
             self.p.gh.issues[n]["labels"] = ["state:approval"]
         note = run.waiting_limit_note(self.p.gh, self.p.root)
+        self.assertEqual(run.idle_limit_seconds(self.p.root), 120)
         self.assertIn("2 pieces wait in approval", note)
         self.assertIn("next:", note)
+
+    def test_idle_builder_is_recorded_as_builder_failed_and_stops_the_piece(self):
+        with patch("run.idle_limit_seconds", return_value=1):
+            n, result = self.build("idle", attempts=2)
+        self.assertIn("idle", result)
+        self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
+        self.assertIn("builder-failed: 1", gate.report(self.p.gh))
+
+    def test_idle_reviewer_is_recorded_as_builder_failed(self):
+        os.environ["FAKE_REVIEW_MODE"] = "review-idle"
+        with patch("run.idle_limit_seconds", return_value=1):
+            n, result = self.build("good", attempts=1)
+        self.assertIn("standards reviewer idle", result)
+        self.assertIn("builder-failed: 1", gate.report(self.p.gh))
+
+    def test_bad_reviewer_verdict_fails_with_raw_tail_and_environment_record(self):
+        os.environ["FAKE_REVIEW_MODE"] = "bad-verdict"
+        n, result = self.build("good", attempts=1)
+        self.assertIn("invalid verdict", result)
+        self.assertIn("environment: 1", gate.report(self.p.gh))
+        log = self.p.root / ".loop" / "logs" / f"piece-{n}-standards-review.log"
+        self.assertIn("<verdict>{bad json}</verdict>", log.read_text())
+        self.assertIn("Raw tail:", log.read_text())
+
+    def test_dirty_build_folder_is_refused_without_cleaning_it(self):
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        dirty = folder / "person-work.txt"
+        dirty.write_text("keep this work\n")
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("next:", result)
+        self.assertTrue(dirty.is_file())
+        self.assertIn("environment: 1", gate.report(self.p.gh))
 
     def test_standards_reviewer_changes_are_committed_and_judged(self):
         (self.p.root / "standards.md").write_text("Use small local changes.\n")

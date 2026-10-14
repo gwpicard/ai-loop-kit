@@ -12,6 +12,9 @@ Return only a JSON object with this shape:
 {"findings":[{"citation":"D1: ...","hunk":"path:line","finding":"..."}]}
 Return an empty findings list when the contract is met.
 
+Put the object in one final tagged block:
+<verdict>{"findings":[{"citation":"D1: ...","hunk":"path:line","finding":"..."}]}</verdict>
+
 ## Approved contract
 
 <<<DATA

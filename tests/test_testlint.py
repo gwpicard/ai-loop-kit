@@ -69,6 +69,36 @@ test('true', () => expect(true).toBe(true));
             findings = javascript_findings(judge, text, root)
             self.assertTrue(any("private project name" in rule for _, rule in findings))
 
+    def test_javascript_flags_same_call_comparisons_and_source_reads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "src"
+            source.mkdir()
+            (source / "app.js").write_text("export const calculate = x => x;\n")
+            judge = root / "judge.js"
+            text = ("test('D1', () => expect(calculate(1)).toBe(calculate(1)));\n"
+                    "test('D2', () => expect(readFileSync('src/app.js')).toBeTruthy());\n")
+            findings = javascript_findings(judge, text, root)
+            rules = [rule for _, rule in findings]
+            self.assertIn("only assertion compares calls to the same function", rules)
+            self.assertIn("test reads project source as text: src/app.js", rules)
+
+    def test_lints_same_call_comparisons_and_source_reads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "src"
+            source.mkdir()
+            (source / "app.py").write_text("def calculate(value): return value\n")
+            judge = root / "judge.py"
+            text = ("def test_tautology():\n    assert calculate(1) == calculate(1)\n"
+                    "def test_reads_source():\n    assert open('src/app.py').read()\n")
+            findings = python_findings(judge, text, root)
+            rules = [rule for _, rule in findings]
+            self.assertIn("only assertion compares calls to the same function", rules)
+            self.assertIn("test reads project source as text: src/app.py", rules)
+            allowed = "def test_file_contract():\n    assert open('src/app.py').read()\n"
+            self.assertEqual(python_findings(judge, allowed, root, "D1 checks src/app.py"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

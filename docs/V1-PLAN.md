@@ -98,14 +98,13 @@ earned; each earned row has a test, and those tests must still pass.
   the public interface, one test per ID, each file starts with a one-line
   intent comment. The shape skill calls it at its judge step, then runs the
   project's Test command on the judge and `gate.py check`.
-- `kit/briefs/reviewer.md` and a review step in `run.py`: after the gate
-  passes an attempt, a fresh `claude -p` reviewer reads the diff and the
-  project's standards file (`Standards:` in the loop section of `AGENTS.md`;
-  skip the review when none is named). It may commit small fixes. It may not
-  change tests, the judge, check settings or protected paths (same guard as
-  builders). Then the gate runs every submit check again. If any fails, the
-  run drops the reviewer's commits (they are local and unpushed) and goes on
-  with the judged commit. The pull request says what the reviewer changed.
+- Two fresh review sessions in `run.py`: a standards reviewer always runs,
+  using the project's `Standards:` file when named and built-in smell
+  heuristics otherwise; a contract reviewer sees only Intent, Out of scope,
+  Approach, Contract and the diff. Each finding cites a rule or contract
+  line and changed hunk. Standards review may commit small fixes; structural
+  findings and contract judge gaps go in the pull request. The gate reruns
+  every submit check after fixes and drops fixes that fail.
 - The builder brief gains the Approach section and loses any coding standard
   text.
 
@@ -179,6 +178,25 @@ earned; each earned row has a test, and those tests must still pass.
 - Before each attempt, list project files importing modules or files named
   under Approach in the builder brief as "Code that depends on what you
   change". Use the same scan for pull request facts.
+
+### W12. Stronger tests, verdicts and idle handling
+- Judge-writer and standards-reviewer briefs ask what production change
+  should make each test fail; expected values are literals; fakes model
+  success and error separately; do not mock the subject or inspect source
+  text unless the Contract names that file check. `testlint.py` flags a sole
+  assertion comparing calls to the same function and source-file reads.
+- Judge-writer and reviewer briefs check module interfaces, deletion of
+  shallow abstractions, real adapters at seams, and replacing tests for
+  removed modules. Approach names a changed module and its caller interface.
+- Judge writer and both reviewers end with one tagged JSON verdict. The run
+  reads the last tagged block, accepts a code fence, checks the schema and
+  sends missing or invalid verdicts back as environment failures with the
+  raw output tail in the log.
+- Builder and reviewer processes stop after ten minutes without output by
+  default. `Idle limit:` in the loop section changes the minutes; the hard
+  timeout remains. Idle records use `builder-failed` and say `idle`.
+- Before an attempt, refuse a dirty build folder with an environment reason
+  and `next:` line. Never reset or clean it.
 
 ## End of build
 

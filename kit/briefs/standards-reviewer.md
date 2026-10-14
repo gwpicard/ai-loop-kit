@@ -13,10 +13,28 @@ commit small local fixes for cited findings. Put structural findings such as
 a restructure, split or deeper module under Follow-up pieces. Do not do that
 work in this piece.
 
-Return only lines in these forms:
-`FINDING: rule or smell | path:line | finding`
-`FOLLOW-UP: structural work for the person to shape`
-`CHANGES: short description of committed fixes, or none`
+Return one verdict with `findings`, `follow_ups` and `changes`. Each finding
+has `rule`, `hunk` and `finding` string fields. Put structural work in
+`follow_ups`, and describe committed local fixes in `changes`.
+
+Test review points: for each test, ask "What production change should make
+this test fail?" Delete tests with no answer. Expected values are literals,
+not values computed by the code under test. A fake does not accept every
+input; use separate doubles for success and error paths. Never mock the
+subject under test; prefer a local stand-in. Do not grep source or assert a
+symbol is absent unless the Contract names that file check.
+
+Check new abstractions with the deletion test: if it is deleted, does the
+complexity vanish or reappear in callers? A new seam needs two real adapters,
+not hypothetical ones. If a shallow module is removed, delete its tests
+instead of layering new tests over it (replace, do not layer).
+
+Judges call only the module interface: types, invariants, ordering and errors
+that a caller must know. If a judge reaches into internals, report a follow-up
+piece for the module's shape.
+
+Finish with one tagged JSON block:
+<verdict>{"findings":[{"rule":"...","hunk":"path:line","finding":"..."}],"follow_ups":["..."],"changes":"..."}</verdict>
 
 ## Baseline smells
 

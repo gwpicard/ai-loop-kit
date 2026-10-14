@@ -109,7 +109,8 @@ def check_ready(root: Path, issue: dict) -> dict:
                               "fix main first, or correct the Keep: command")
         if bar_files:
             sh(["git", "checkout", head, "--", *bar_files], folder)
-        lint = lint_files([folder / f for f in spec.files], folder)
+        lint = lint_files([folder / f for f in spec.files], folder,
+                          " ".join(spec.done_when.values()))
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")

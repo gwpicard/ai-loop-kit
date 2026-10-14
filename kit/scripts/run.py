@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import signal
 import subprocess
 import sys
@@ -34,6 +35,11 @@ from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  #
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
+DEFAULT_IDLE_LIMIT = 10 * 60
+
+
+class AttemptIdle(Exception):
+    pass
 
 
 def log(msg: str) -> None:
@@ -102,6 +108,14 @@ def waiting_limit_note(gh: GitHub, root: Path) -> str:
         return (f"Run paused: {waiting} pieces wait in approval (limit {limit}). "
                 "next: review or merge a pull request, then run again.")
     return ""
+
+
+def idle_limit_seconds(folder: Path) -> int:
+    value = loop_settings(folder).get("idle limit", "10")
+    try:
+        return max(1, int(value)) * 60
+    except ValueError:
+        return DEFAULT_IDLE_LIMIT
 
 
 def stop_path(root: Path) -> Path:
@@ -227,20 +241,62 @@ def _valid_hunk(citation: str, hunks: dict[str, list[tuple[int, int]]]) -> bool:
     return any(start <= hi and end >= lo for lo, hi in hunks.get(path, []))
 
 
+def _last_verdict(output: str, reviewer: str) -> dict:
+    matches = re.findall(r"<verdict>\s*(.*?)\s*</verdict>", output, flags=re.I | re.S)
+    if not matches:
+        raise ValueError("missing <verdict> block")
+    payload = matches[-1].strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*([\s\S]*?)\s*```", payload, flags=re.I)
+    if fenced:
+        payload = fenced.group(1).strip()
+    try:
+        data = json.loads(payload)
+    except ValueError as error:
+        raise ValueError(f"bad verdict JSON: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError("verdict must be a JSON object")
+    if reviewer == "standards":
+        if not isinstance(data.get("findings"), list) or not isinstance(data.get("follow_ups"), list) \
+                or not isinstance(data.get("changes"), str):
+            raise ValueError("standards verdict needs findings, follow_ups and changes")
+        for finding in data["findings"]:
+            if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
+                                                    for key in ("rule", "hunk", "finding")):
+                raise ValueError("each standards finding needs rule, hunk and finding strings")
+        if any(not isinstance(item, str) for item in data["follow_ups"]):
+            raise ValueError("standards follow_ups must be strings")
+    elif reviewer == "contract":
+        if not isinstance(data.get("findings"), list):
+            raise ValueError("contract verdict needs a findings list")
+        for finding in data["findings"]:
+            if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
+                                                    for key in ("citation", "hunk", "finding")):
+                raise ValueError("each contract finding needs citation, hunk and finding strings")
+    return data
+
+
+def _logged_verdict(logfile: Path, reviewer: str) -> dict:
+    output = logfile.read_text(errors="replace") if logfile.exists() else ""
+    try:
+        return _last_verdict(output, reviewer)
+    except ValueError as error:
+        with logfile.open("a") as out:
+            out.write(f"\nInvalid {reviewer} verdict: {error}\nRaw tail:\n{output[-2000:]}\n")
+        raise Refused(f"{reviewer} returned an invalid verdict: {error}",
+                      f"read {logfile} and correct the review output")
+
+
 def parse_standards_findings(output: str, standards: str, diff: str) -> list[str]:
     """Keep only findings that cite a rule or smell and a changed hunk."""
     hunks = _diff_hunks(diff)
     allowed = [name.lower() for name in BASELINE_SMELLS]
     allowed += ["unrelated special-case branches", "pass-through wrappers",
                 "logic in the owning layer", "reuse existing helpers"]
+    verdict = _last_verdict(output, "standards")
     findings = []
-    for line in output.splitlines():
-        if not line.startswith("FINDING:"):
-            continue
-        parts = [part.strip() for part in line[len("FINDING:"):].split("|", 2)]
-        if len(parts) != 3:
-            continue
-        rule, hunk, description = parts
+    for finding in verdict["findings"]:
+        rule, hunk, description = (finding["rule"].strip(), finding["hunk"].strip(),
+                                   finding["finding"].strip())
         if not any(rule.lower() == label for label in allowed) and rule.lower() not in standards.lower():
             continue
         if _valid_hunk(hunk, hunks):
@@ -250,13 +306,7 @@ def parse_standards_findings(output: str, standards: str, diff: str) -> list[str
 
 def parse_contract_findings(output: str, body: str, diff: str) -> list[str]:
     """Keep contract findings that cite an approved line and a changed hunk."""
-    match = re.search(r"\{[\s\S]*\"findings\"[\s\S]*\}", output)
-    if not match:
-        return []
-    try:
-        data = json.loads(match.group(0))
-    except ValueError:
-        return []
+    data = _last_verdict(output, "contract")
     ids = set(re.findall(r"\b(D\d+)\b", body))
     out_of_scope = []
     in_scope = False
@@ -290,7 +340,57 @@ def _review_prompt(name: str, values: dict[str, str]) -> str:
     return prompt
 
 
-def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str]) -> None:
+def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
+                  hard_seconds: int = ATTEMPT_TIMEOUT) -> str:
+    """Copy output to a log and stop a silent or overlong process group."""
+    assert proc.stdout is not None
+    stream = proc.stdout
+    os.set_blocking(stream.fileno(), False)
+    selector = selectors.DefaultSelector()
+    selector.register(stream, selectors.EVENT_READ)
+    started = last_output = time.monotonic()
+    eof = False
+    reason = ""
+    while not eof or proc.poll() is None:
+        now = time.monotonic()
+        if proc.poll() is None and not reason:
+            if now - started >= hard_seconds:
+                reason = "hard"
+            elif now - last_output >= idle_seconds:
+                reason = "idle"
+            if reason:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        timeout = 0.1
+        if proc.poll() is None and not reason:
+            timeout = min(timeout, max(0.0, min(hard_seconds - (now - started),
+                                                idle_seconds - (now - last_output))))
+        events = selector.select(timeout)
+        for key, _ in events:
+            try:
+                chunk = os.read(key.fd, 4096)
+            except BlockingIOError:
+                continue
+            if not chunk:
+                eof = True
+                selector.unregister(stream)
+                continue
+            out.write(chunk.decode(errors="replace"))
+            out.flush()
+            last_output = time.monotonic()
+    proc.wait()
+    selector.close()
+    stream.close()
+    if reason:
+        out.write("\nAttempt stopped after idle limit with no output.\n" if reason == "idle"
+                  else f"\nThe attempt ran past {hard_seconds // 60} minutes and was stopped.\n")
+    return reason
+
+
+def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
+                    idle_seconds: int) -> str:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
     settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
@@ -302,17 +402,9 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
         args += ["--disallowedTools", *[f"Edit({path})" for path in disallowed]]
     env = {**command_env(folder), "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
     with logfile.open("w") as out:
-        proc = subprocess.Popen(args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
+        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
-        try:
-            proc.wait(timeout=ATTEMPT_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            proc.wait()
-            out.write(f"\nReview ran past {ATTEMPT_TIMEOUT // 60} minutes and was stopped.\n")
+        return _pump_session(proc, out, idle_seconds)
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
@@ -336,10 +428,15 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                "**/*.test.*", "**/*.spec.*", "**/conftest.py"]
     denied += CHECK_FILES
     denied += settings.get("protected paths", [])
-    _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
-        "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied)
+    standards_status = _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
+        "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied,
+        idle_limit_seconds(folder))
+    if standards_status == "idle":
+        raise AttemptIdle(f"standards reviewer idle for {idle_limit_seconds(folder) // 60} minutes; "
+                          f"see {standards_log}")
     commit_leftovers(standards_folder, n, k)
     standard_output = standards_log.read_text(errors="replace")
+    standards_verdict = _logged_verdict(standards_log, "standards")
     standard_findings = parse_standards_findings(standard_output, standards_context, diff)
     standard_head = rev(standards_folder, "HEAD")
     reviewer_note = "Standards review ran once."
@@ -353,8 +450,7 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
             reviewer_note += " Reviewer fixes kept:\n" + (commits or "none")
         else:
             reviewer_note += " Reviewer fixes were dropped because a submit check failed:\n" + output[-1200:]
-    follow_ups = [line.split(":", 1)[1].strip() for line in standard_output.splitlines()
-                  if line.startswith("FOLLOW-UP:") and line.split(":", 1)[1].strip()]
+    follow_ups = standards_verdict["follow_ups"]
 
     final_diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
     contract_parts = []
@@ -376,9 +472,14 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     sh(["git", "worktree", "add", "--quiet", "-b", contract_branch,
         str(contract_folder), rev(folder, "HEAD")], root)
     contract_log = logs / f"piece-{n}-contract-review.log"
-    _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
-        "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied)
+    contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
+        "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied,
+        idle_limit_seconds(folder))
+    if contract_status == "idle":
+        raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder) // 60} minutes; "
+                          f"see {contract_log}")
     contract_output = contract_log.read_text(errors="replace")
+    _logged_verdict(contract_log, "contract")
     contract_findings = parse_contract_findings(contract_output, issue["body"], final_diff)
     # Contract reviewers are read-only. Their branch is never merged.
     return {"standards_findings": standard_findings,
@@ -395,7 +496,7 @@ def builder_settings() -> str:
 
 
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
-               settings: bool = False) -> None:
+               settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT) -> str:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     # Claude Code applies Edit(path) deny rules to every file-editing tool.
     # The gate checks the same files again, since Bash can still write them.
@@ -409,19 +510,9 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
         args += ["--disallowedTools", *denied]
     env = {**command_env(folder), "LOOP_BUILDER": "1"}
     with logfile.open("w") as out:
-        proc = None
-        try:
-            proc = subprocess.Popen(args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
-                                    env=env, start_new_session=True)
-            proc.wait(timeout=ATTEMPT_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            if proc is not None:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait()
-            out.write(f"\nThe attempt ran past {ATTEMPT_TIMEOUT // 60} minutes and was stopped.\n")
+        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                env=env, start_new_session=True)
+        return _pump_session(proc, out, idle_seconds)
 
 
 def builder_words(logfile: Path) -> str:
@@ -471,6 +562,14 @@ def release_worktree(root: Path, n: int) -> None:
         sh(["git", "worktree", "remove", str(folder)], root, check=False)
 
 
+def dirty_folder_reason(folder: Path) -> str:
+    dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
+    if not dirty:
+        return ""
+    return ("build folder has uncommitted changes the run did not make. "
+            "next: inspect the folder and commit or move those changes before running again")
+
+
 def worktree(root: Path, n: int) -> Path:
     folder = existing_worktree(root, n) or worktree_home(root) / f"piece-{n}"
     if not folder.exists():
@@ -503,6 +602,11 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     gate.move(gh, root, n, "building")
     try:
         result = build_claimed(gh, root, n, issue, attempts)
+    except AttemptIdle as e:
+        reason = str(e)
+        if gate.state_of(gh.issue(n)) == "building":
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
+        result = f"piece {n}: back to shaping, {reason}"
     except Exception as e:  # never leave a piece in building
         reason = f"the run stopped with an error: {str(e).strip()[:300]}"
         if gate.state_of(gh.issue(n)) == "building":
@@ -517,6 +621,12 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
     folder = worktree(root, n)
+    dirty = dirty_folder_reason(folder)
+    if dirty:
+        status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
+        gh.comment(n, f"**Run:** {dirty}\n\n```\n{status[-1200:]}\n```")
+        gate.move(gh, root, n, "shaping", reason=dirty, reason_type="environment")
+        return f"piece {n}: back to shaping, {dirty}"
 
     # Bring the piece up to date with main, so the pull request merges cleanly.
     # A conflict is left for the builder to resolve; the gate's keep check then
@@ -556,10 +666,23 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
             return f"piece {n}: back to shaping, {reason}"
         logfile = logs / f"piece-{n}-attempt-{k}.log"
+        dirty_reason = dirty_folder_reason(folder)
+        if dirty_reason:
+            status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
+            reason = dirty_reason
+            gh.comment(n, f"**Run:** {reason}\n\n``\n{status[-1200:]}\n```")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+            return f"piece {n}: back to shaping, {reason}"
         started = time.monotonic()
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
-        build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
-                   ready["files"], logfile, ready.get("settings", False))
+        idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
+                                 ready["files"], logfile, ready.get("settings", False),
+                                 idle_limit_seconds(folder))
+        if idle_status == "idle":
+            reason = f"builder attempt idle for {idle_limit_seconds(folder) // 60} minutes; see {logfile}"
+            gh.comment(n, f"**Run:** {reason}")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
+            return f"piece {n}: back to shaping, {reason}"
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
             lines = outcome.read_text(errors="replace").splitlines()

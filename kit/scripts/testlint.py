@@ -23,8 +23,38 @@ def _is_project_module(root: Path, module: str, source: Path) -> bool:
     return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
 
 
+def _project_source_path(root: Path, value: str) -> Optional[str]:
+    value = value.strip().strip("`'\"")
+    if not value or "{" in value or "$" in value:
+        return None
+    candidate = Path(value)
+    if candidate.is_absolute():
+        try:
+            candidate = candidate.resolve().relative_to(root.resolve())
+        except ValueError:
+            return None
+    candidate = (root / candidate).resolve()
+    try:
+        relative = candidate.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+    if not candidate.is_file() or candidate.suffix not in {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+        return None
+    parts = Path(relative).parts
+    if any(part.lower() in {"test", "tests", "__tests__"} for part in parts) or \
+            candidate.name.startswith(("test_", "judge_")):
+        return None
+    return relative
+
+
+def _contract_names_file(contract: str, relative: str) -> bool:
+    text = contract.lower()
+    return relative.lower() in text or Path(relative).name.lower() in text
+
+
 def python_findings(path: Path, text: str,
-                    project_root: Optional[Path] = None) -> list[tuple[int, str]]:
+                    project_root: Optional[Path] = None,
+                    contract: str = "") -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
     try:
         tree = ast.parse(text, filename=str(path))
@@ -64,6 +94,29 @@ def python_findings(path: Path, text: str,
                     findings.append((assertion.lineno, "assert expression equals itself"))
                 elif isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
                     findings.append((assertion.lineno, "assert compares two literals"))
+        if len(asserts) == 1 and isinstance(asserts[0].test, ast.Compare):
+            comparison = asserts[0].test
+            if len(comparison.comparators) == 1 and isinstance(comparison.left, ast.Call) and \
+                    isinstance(comparison.comparators[0], ast.Call) and \
+                    ast.dump(comparison.left.func) == ast.dump(comparison.comparators[0].func):
+                findings.append((asserts[0].lineno,
+                                 "only assertion compares calls to the same function"))
+        if project_root:
+            for call in calls:
+                name = _name(call.func)
+                if name == "open" and call.args and isinstance(call.args[0], ast.Constant) and \
+                        isinstance(call.args[0].value, str):
+                    source = _project_source_path(project_root, call.args[0].value)
+                    if source and not _contract_names_file(contract, source):
+                        findings.append((call.lineno, "test reads project source as text: " + source))
+                elif name.endswith((".read_text", ".read_bytes")):
+                    source_arg = next((n for n in ast.walk(call.func.value)
+                                       if isinstance(n, ast.Constant) and isinstance(n.value, str)), None) \
+                        if isinstance(call.func, ast.Attribute) else None
+                    if source_arg:
+                        source = _project_source_path(project_root, source_arg.value)
+                        if source and not _contract_names_file(contract, source):
+                            findings.append((call.lineno, "test reads project source as text: " + source))
         for call in calls:
             name = _name(call.func)
             if name == "pytest.mark.skip" or name == "pytest.mark.skipif" or name == "pytest.mark.xfail":
@@ -85,7 +138,8 @@ def _name(node: ast.AST) -> str:
 
 
 def javascript_findings(path: Path, text: str,
-                        project_root: Optional[Path] = None) -> list[tuple[int, str]]:
+                        project_root: Optional[Path] = None,
+                        contract: str = "") -> list[tuple[int, str]]:
     findings = []
     for match in re.finditer(r"\.(only|skip)\s*\(|\b(xit|xdescribe)\s*\(", text):
         findings.append((text.count("\n", 0, match.start()) + 1, "disabled or skipped test"))
@@ -103,6 +157,17 @@ def javascript_findings(path: Path, text: str,
         line = text.count("\n", 0, match.start()) + 1
         if not re.search(r"\bexpect\s*\(|\bassert\b", block):
             findings.append((line, "test has no expect or assert"))
+        if project_root:
+            for read in re.finditer(r"\breadFileSync\s*\(\s*['\"]([^'\"]+)['\"]", block):
+                source = _project_source_path(project_root, read.group(1))
+                if source and not _contract_names_file(contract, source):
+                    findings.append((line + block.count("\n", 0, read.start()),
+                                     "test reads project source as text: " + source))
+        same_calls = re.search(
+            r"expect\s*\(\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\([^)]*\)\s*\)"
+            r"\s*\.to(?:Be|Equal)\s*\(\s*\1\s*\([^)]*\)\s*\)", block)
+        if same_calls and len(re.findall(r"\bexpect\s*\(", block)) == 1:
+            findings.append((line, "only assertion compares calls to the same function"))
     for match in re.finditer(r"\bexpect\s*\(\s*true\s*\)", text):
         findings.append((text.count("\n", 0, match.start()) + 1, "expect(true)"))
     if project_root:
@@ -124,15 +189,16 @@ def javascript_findings(path: Path, text: str,
     return findings
 
 
-def lint_files(files: Iterable[Path], project_root: Optional[Path] = None) -> list[str]:
+def lint_files(files: Iterable[Path], project_root: Optional[Path] = None,
+               contract: str = "") -> list[str]:
     """Return one file:line:rule line for each finding."""
     out = []
     for path in files:
         text = path.read_text(errors="replace")
         if path.suffix == ".py":
-            findings = python_findings(path, text, project_root)
+            findings = python_findings(path, text, project_root, contract)
         elif path.suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
-            findings = javascript_findings(path, text, project_root)
+            findings = javascript_findings(path, text, project_root, contract)
         else:
             continue
         out.extend(f"{path}:{line}: {rule}" for line, rule in findings)

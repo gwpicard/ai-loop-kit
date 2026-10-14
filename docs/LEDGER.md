@@ -77,6 +77,7 @@ in `docs/V1-PLAN.md`.
 | Shape, run and setup guidance | `kit/skills/` | IN THE KIT; v1 plan W9 |
 | Product definition, overview and in-progress changelog | `docs/V1.md`, `README.md`, `CHANGELOG.md` | IN THE KIT; v1 plan W10 |
 | File-size limit, changed-function CRAP, public-interface judges, approval waiting limit and importer context | `kit/scripts/gate.py`, `kit/scripts/testlint.py`, `kit/quality/crap.py`, `kit/scripts/run.py` | IN THE KIT; v1 plan W11 |
+| Test quality lint, module-interface reviews, tagged verdicts, idle limits and dirty-folder refusal | `kit/scripts/testlint.py`, `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 plan W12 |
 
 ## What is in v1
 
