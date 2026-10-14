@@ -57,6 +57,45 @@ class QualityHelperTest(unittest.TestCase):
         helper = load("mutmut-changed.py")
         self.assertEqual(helper.patterns(base, self.root), ["src.module.count*"])
 
+    def test_crap_helper_flags_a_changed_function_at_thirty(self):
+        path = self.root / "module.py"
+        path.write_text("def choose(x):\n    return x\n")
+        git(self.root, "add", "module.py")
+        git(self.root, "commit", "--quiet", "-m", "base")
+        git(self.root, "switch", "-c", "piece")
+        path.write_text("def choose(x):\n    if x:\n        if x > 1:\n            if x > 2:\n                if x > 3:\n                    if x > 4:\n                        return 1\n    return 0\n")
+        git(self.root, "add", "module.py")
+        git(self.root, "commit", "--quiet", "-m", "complex function")
+        (self.root / "coverage.json").write_text(
+            '{"files":{"module.py":{"executed_lines":[],"missing_lines":[1,2,3,4,5,6,7,8,9]}}}')
+        script = KIT / "quality" / "crap.py"
+        result = subprocess.run(["python3", str(script), "--coverage", "coverage.json",
+                                 "--base", "main"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("CRAP: module.py:1 choose", result.stdout)
+
+    def test_crap_helper_catches_a_score_rise_above_main(self):
+        path = self.root / "module.py"
+        path.write_text("def choose(x):\n    return x\n")
+        git(self.root, "add", "module.py")
+        git(self.root, "commit", "--quiet", "-m", "base")
+        git(self.root, "switch", "-c", "piece")
+        path.write_text("def choose(x):\n    if x:\n        return 1\n    return 0\n")
+        git(self.root, "add", "module.py")
+        git(self.root, "commit", "--quiet", "-m", "add branch")
+        (self.root / "coverage.json").write_text(
+            '{"files":{"module.py":{"executed_lines":[1,2,3,4],"missing_lines":[]}}}')
+        script = KIT / "quality" / "crap.py"
+        result = subprocess.run(["python3", str(script), "--coverage", "coverage.json",
+                                 "--base", "main"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("main=1.00", result.stdout)
+
+    def test_crap_diff_ranges_keep_the_site_of_a_deleted_line(self):
+        helper = load("crap.py")
+        self.assertEqual(helper.changed_ranges("+++ b/module.py\n@@ -3 +2,0 @@\n"),
+                         {"module.py": [(1, 2)]})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,8 @@ Command: `python -m pytest tests/judge/test_piece_add.py -q`
 Files:
 - tests/judge/test_piece_add.py
 Keep: `python -m pytest`
+# Optional: allow this named file to cross 1,000 lines.
+Large file: src/generated.py
 ```
 
 `Intent` and a non-empty `Out of scope:` list are required. `Approach` is
@@ -60,6 +62,8 @@ Files:
   passes on main and has a test.
 - `Keep:` passes on main and after the build.
 - `Files:` names judge files inside the project.
+- At submit a file may not grow from under 1,000 lines to 1,000 or more
+  unless its path is named with `Large file:`.
 
 The gate records a hash of the spec and of the judge bar. A change after ready
 means the piece must go back through shaping and ready.

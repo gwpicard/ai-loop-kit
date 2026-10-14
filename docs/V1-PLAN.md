@@ -86,7 +86,8 @@ earned; each earned row has a test, and those tests must still pass.
 - Setup proposes defaults per stack and writes them only on the person's yes:
   Python: a `mutmut` command scoped to changed functions; Node: Stryker with
   `--mutate` on changed line ranges and `--reporters json`, and ESLint's
-  `complexity` rule. Setup says each is optional and what it costs in time.
+  `complexity` rule. W11 replaces the Node Stryker offer with ESLint only.
+  Setup says each is optional and what it costs in time.
 - `kit/quality/` holds the small helper scripts these defaults need (for
   example, changed line ranges from `git diff -U0`).
 
@@ -158,6 +159,26 @@ earned; each earned row has a test, and those tests must still pass.
 - `kit/.claude-plugin/plugin.json`: version `1.0.0-dev`.
 - `docs/LEDGER.md`: mark each ledger idea that v1 now holds as in the kit,
   with "v1 plan" as the source.
+
+### W11. Size, risk and verification limits
+- At submit, fail a file that grows from under 1,000 lines to 1,000 or more,
+  unless the Judge section names it with `Large file: <path>`. List any file
+  over 1,000 lines in the pull request risk section.
+- Add `kit/quality/crap.py`, standard library only. Read coverage.py JSON
+  supplied by the project; do not run coverage. Calculate cyclomatic
+  complexity from the AST and coverage per function. Check only functions
+  overlapping `git diff -U0` ranges. Fail CRAP at 30 or above and when a
+  changed existing function's CRAP is higher than its main version.
+- Setup offers CRAP with coverage.py for Python. Node setup offers only
+  ESLint's `complexity` rule; Node CRAP waits.
+- `testlint.py` refuses judge tests that import a private name from project
+  code.
+- The run starts no new piece while at least three pieces wait in approval.
+  `Waiting limit:` in the loop section changes the limit. Print one line with
+  a `next:` step.
+- Before each attempt, list project files importing modules or files named
+  under Approach in the builder brief as "Code that depends on what you
+  change". Use the same scan for pull request facts.
 
 ## End of build
 

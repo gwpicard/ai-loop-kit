@@ -53,10 +53,11 @@ class Spec:
     keep: str = ""  # a command that passes on main and must still pass after the build
     stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
     settings: bool = False  # True when the piece may change the project's check settings
+    large_files: tuple = ()  # Explicit files allowed to cross the 1,000-line mark
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
-_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings)\s*:\s*(.*)$", re.IGNORECASE)
+_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -118,7 +119,7 @@ def parse_spec(body: str) -> Spec:
         if not done_when:
             gaps.append("'## Contract' has no item like '- D1: ...'")
 
-    command, kind, keep, files, settings = "", "feature", "", [], False
+    command, kind, keep, files, settings, large_files = "", "feature", "", [], False, []
     judge = _section(body, "Judge")
     if judge is None:
         gaps.append("no '## Judge' section")
@@ -139,6 +140,12 @@ def parse_spec(body: str) -> Spec:
                     settings = value.strip("`").strip().lower() == "may change"
                     if not settings:
                         gaps.append(f"'Settings: {value}' is unknown; use 'Settings: may change'")
+                elif key == "large file":
+                    target = value.strip("`").strip()
+                    if not target or target.startswith("/") or ".." in Path(target).parts:
+                        gaps.append("'Large file:' must name a path inside the project")
+                    else:
+                        large_files.append(target)
                 elif value:
                     files += [f.strip().strip("`") for f in value.split(",") if f.strip()]
             elif in_files and re.match(r"^\s*[-*]\s+\S", line):
@@ -158,7 +165,7 @@ def parse_spec(body: str) -> Spec:
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
     return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
-                keep, tuple(stays), settings)
+                keep, tuple(stays), settings, tuple(large_files))
 
 
 # ---------------------------------------------------------------- check settings
@@ -347,7 +354,7 @@ def loop_settings(folder: Path) -> dict:
         if m and m.group(2).strip().strip("`").strip():
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
             continue
-        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths)\s*:\s*(.*)$",
+        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit)\s*:\s*(.*)$",
                      line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
@@ -355,6 +362,8 @@ def loop_settings(folder: Path) -> dict:
                 out.setdefault(key, []).append(value) if value else None
             elif key == "protected paths":
                 out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
+            elif key == "waiting limit":
+                out[key] = value
             else:
                 out[key] = value
     return out

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -48,6 +49,25 @@ test('true', () => expect(true).toBe(true));
         self.assertIn("test has no expect or assert", rules)
         self.assertIn("disabled or skipped test", rules)
         self.assertIn("expect(true)", rules)
+
+    def test_python_refuses_private_imports_from_project_code(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "app.py").write_text("def _helper(): return 1\ndef public(): return 2\n")
+            private = "from app import _helper\ndef test_private():\n    assert _helper() == 1\n"
+            public = "from app import public\ndef test_public():\n    assert public() == 2\n"
+            findings = python_findings(root / "judge.py", private, root)
+            self.assertTrue(any("private project name" in rule for _, rule in findings))
+            self.assertEqual(python_findings(root / "judge.py", public, root), [])
+
+    def test_javascript_refuses_private_named_imports_from_project_code(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "app.js").write_text("export const _helper = () => 1;\n")
+            judge = root / "judge.js"
+            text = "import { _helper } from './app.js';\ntest('D1', () => expect(_helper()).toBe(1));\n"
+            findings = javascript_findings(judge, text, root)
+            self.assertTrue(any("private project name" in rule for _, rule in findings))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ description: Builds the ready pieces. Each attempt is a fresh Claude session; th
 ## Steps
 1. Say which pieces are ready, and that each gets up to three attempts.
    Done when: the person has seen the list. If nothing is ready, suggest `/ai-loop-kit:shape` and stop.
+   Before each piece, the run checks how many pull requests wait in approval. At `Waiting limit:` (default 3), it starts no new piece and prints one `next:` step.
 2. Start the run in the background: `python3 "<KIT>/scripts/run.py"` (or with piece numbers to build only those). Write the KIT path out in full.
    Done when: the run has started.
 3. While it runs, report each line it prints: claims, attempts, passes, failures. The attempt logs are in `.loop/logs/`.

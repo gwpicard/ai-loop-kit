@@ -109,7 +109,7 @@ def check_ready(root: Path, issue: dict) -> dict:
                               "fix main first, or correct the Keep: command")
         if bar_files:
             sh(["git", "checkout", head, "--", *bar_files], folder)
-        lint = lint_files([folder / f for f in spec.files])
+        lint = lint_files([folder / f for f in spec.files], folder)
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
@@ -166,6 +166,7 @@ def check_ready(root: Path, issue: dict) -> dict:
             "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
             "settings": spec.settings,
             "protected_paths": loop_settings(root).get("protected paths", []),
+            "large_files": list(spec.large_files),
             "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
 
@@ -200,6 +201,19 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if protected:
         return False, "the build changes protected paths not named in the Contract: " + \
             ", ".join(sorted(set(protected)))
+    oversized = []
+    for path in changed_paths:
+        target = folder / path
+        if path in ready.get("large_files", []) or not target.is_file():
+            continue
+        before = sh(["git", "show", f"{main}:{path}"], folder, check=False).stdout
+        before_lines = len(before.splitlines())
+        after_lines = len(target.read_text(errors="replace").splitlines())
+        if before_lines < 1000 <= after_lines:
+            oversized.append(path)
+    if oversized:
+        return False, ("the build takes a file from under 1,000 lines to 1,000 or more: "
+                       + ", ".join(oversized) + ". Add 'Large file: <path>' to the Judge section.")
     secret_files = [p for p in changed_paths if Path(p).name == ".env" or
                     Path(p).name.startswith(".env.") and Path(p).name not in
                     {".env.example", ".env.sample", ".env.template"}]

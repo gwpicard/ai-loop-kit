@@ -91,6 +91,19 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
     return recovered
 
 
+def waiting_limit_note(gh: GitHub, root: Path) -> str:
+    value = loop_settings(root).get("waiting limit", "3")
+    try:
+        limit = max(1, int(value))
+    except ValueError:
+        limit = 3
+    waiting = len(gh.issues_with_label(STATE_PREFIX + "approval"))
+    if waiting >= limit:
+        return (f"Run paused: {waiting} pieces wait in approval (limit {limit}). "
+                "next: review or merge a pull request, then run again.")
+    return ""
+
+
 def stop_path(root: Path) -> Path:
     return root / ".loop" / "stop"
 
@@ -641,6 +654,15 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
         risk.append("check settings touched: " + ", ".join(changed_settings))
     importers = dependent_files(folder, ready.get("approach", ""), paths, ready.get("files"))
     risk.append(f"{len(importers)} project file(s) import a named or changed module")
+    large = []
+    for path in paths:
+        candidate = folder / path
+        if candidate.is_file():
+            count = len(candidate.read_text(errors="replace").splitlines())
+            if count > 1000:
+                large.append(f"`{path}` ({count} lines)")
+    if large:
+        risk.append("files over 1,000 lines: " + ", ".join(large))
     migration_count = sum(bool(re.search(r"(^|/)(migrations?|alembic)(/|$)", p, re.I)) for p in paths)
     revert = f"Revert {len(paths)} changed file(s)" + (
         f" and account for {migration_count} migration file(s)" if migration_count else "") + "."
@@ -711,6 +733,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         for n in pieces:
             if stop_requested(root):
                 log("stop requested; ending before the next piece")
+                break
+            waiting = waiting_limit_note(gh, root)
+            if waiting:
+                print(waiting)
+                results.append(waiting)
                 break
             try:
                 results.append(build_piece(gh, root, n, args.attempts))

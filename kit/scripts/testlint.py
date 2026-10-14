@@ -4,15 +4,47 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 
-def python_findings(path: Path, text: str) -> list[tuple[int, str]]:
+def _is_project_module(root: Path, module: str, source: Path) -> bool:
+    if module.startswith("."):
+        try:
+            relative = source.resolve().relative_to(root.resolve()).parent
+        except ValueError:
+            relative = Path()
+        level = len(module) - len(module.lstrip("."))
+        parts = list(relative.parts[:max(0, len(relative.parts) - level + 1)])
+        module = ".".join(parts + [part for part in module[level:].split(".") if part])
+    parts = [part for part in module.split(".") if part]
+    if not parts:
+        return False
+    base = root.joinpath(*parts)
+    return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
+
+
+def python_findings(path: Path, text: str,
+                    project_root: Optional[Path] = None) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
     try:
         tree = ast.parse(text, filename=str(path))
     except SyntaxError as error:
         return [(error.lineno or 1, "python syntax error")]
+    if project_root:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    private = [part for part in alias.name.split(".") if part.startswith("_")]
+                    if private and _is_project_module(project_root, alias.name, path):
+                        findings.append((node.lineno, "judge imports a private project name: " + alias.name))
+            elif isinstance(node, ast.ImportFrom) and node.module and \
+                    _is_project_module(project_root, node.module, path):
+                names = [alias.name for alias in node.names if alias.name.startswith("_")]
+                if node.module.rsplit(".", 1)[-1].startswith("_"):
+                    names.append(node.module)
+                if names:
+                    findings.append((node.lineno, "judge imports a private project name: " +
+                                     ", ".join(names)))
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or not node.name.startswith("test"):
             continue
@@ -52,7 +84,8 @@ def _name(node: ast.AST) -> str:
     return ""
 
 
-def javascript_findings(path: Path, text: str) -> list[tuple[int, str]]:
+def javascript_findings(path: Path, text: str,
+                        project_root: Optional[Path] = None) -> list[tuple[int, str]]:
     findings = []
     for match in re.finditer(r"\.(only|skip)\s*\(|\b(xit|xdescribe)\s*\(", text):
         findings.append((text.count("\n", 0, match.start()) + 1, "disabled or skipped test"))
@@ -72,18 +105,34 @@ def javascript_findings(path: Path, text: str) -> list[tuple[int, str]]:
             findings.append((line, "test has no expect or assert"))
     for match in re.finditer(r"\bexpect\s*\(\s*true\s*\)", text):
         findings.append((text.count("\n", 0, match.start()) + 1, "expect(true)"))
+    if project_root:
+        imports = [re.compile(r"import\s*\{([^}]+)\}\s*from\s*['\"]([^'\"]+)"),
+                   re.compile(r"(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\s*\(\s*['\"]([^'\"]+)")]
+        for pattern in imports:
+            for match in pattern.finditer(text):
+                names, module = match.groups()
+                module = module or ""
+                target = (Path(path).parent / module).resolve()
+                if not any(candidate.is_file() for candidate in
+                           (target, target.with_suffix(".js"), target.with_suffix(".ts"),
+                            target / "index.js", target / "index.ts")):
+                    continue
+                private = re.findall(r"(?:^|,)\s*(_[A-Za-z0-9_$]+)", names or "")
+                if private:
+                    findings.append((text.count("\n", 0, match.start()) + 1,
+                                     "judge imports a private project name: " + ", ".join(private)))
     return findings
 
 
-def lint_files(files: Iterable[Path]) -> list[str]:
+def lint_files(files: Iterable[Path], project_root: Optional[Path] = None) -> list[str]:
     """Return one file:line:rule line for each finding."""
     out = []
     for path in files:
         text = path.read_text(errors="replace")
         if path.suffix == ".py":
-            findings = python_findings(path, text)
+            findings = python_findings(path, text, project_root)
         elif path.suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
-            findings = javascript_findings(path, text)
+            findings = javascript_findings(path, text, project_root)
         else:
             continue
         out.extend(f"{path}:{line}: {rule}" for line, rule in findings)

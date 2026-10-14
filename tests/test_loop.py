@@ -50,6 +50,10 @@ class SpecTest(unittest.TestCase):
         self.assertEqual(list(parse_spec(SPEC.replace("## Contract", "## Done when")).done_when),
                          ["D1", "D2"])
 
+    def test_judge_can_name_a_large_file_exception(self):
+        self.assertEqual(parse_spec(SPEC + "Large file: src/generated.py\n").large_files,
+                         ("src/generated.py",))
+
     def test_ready_spec_needs_intent_scope_and_contract_id(self):
         body = SPEC.replace("Add a habit to the list.\n", "\n")
         body = body.replace("- Editing or deleting habits.\n", "")
@@ -106,6 +110,17 @@ class GateTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("secret-shaped", output)
 
+    def test_submit_refuses_growth_past_one_thousand_lines(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "generated.py").write_text("value = 1\n" * 1000)
+        git(folder, "add", "generated.py")
+        git(folder, "commit", "--quiet", "-m", "Add large file")
+        passed, output = gate.judge(folder, gate.last_record(self.p.gh.comments(n), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("1,000 or more", output)
+
     def test_the_ready_note_never_claims_a_check_it_skipped(self):
         n = self.p.piece(spec=SPEC.replace("Command:", "Kind: scaffold\nCommand:"))
         self.ready(n)
@@ -124,7 +139,7 @@ class GateTest(unittest.TestCase):
         n = self.p.piece(judge="def oops(:\n")
         with self.assertRaises(Refused) as r:
             self.ready(n)
-        self.assertIn("wrong reason", r.exception.reason)
+        self.assertIn("python syntax error", r.exception.reason)
 
     def test_ready_refuses_a_judge_with_no_assertion(self):
         n = self.p.piece(judge="def test_D1():\n    pass\n")
@@ -287,7 +302,7 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(gate.sync(self.p.gh, self.p.root)), 1)
         self.assertIn("state:done", self.p.gh.issue(n)["labels"])
 
-    def test_keep_must_pass_on_main_and_still_pass_after_the_build(self):
+    def test_changes_to_frozen_judge_support_are_refused(self):
         keep_spec = SPEC.replace("Files:", "Keep: `python3 keep_check.py`\nFiles:")
         n = self.p.piece(spec=keep_spec)
         with self.assertRaises(Refused) as r:  # no keep_check.py on main yet
@@ -309,7 +324,7 @@ class GateTest(unittest.TestCase):
         (self.p.root / "README.md").unlink()  # the build breaks what worked before
         passed, why = gate.judge(self.p.root, ready)
         self.assertFalse(passed)
-        self.assertIn("keep check now fails", why)
+        self.assertIn("judge files differ", why)
 
     def test_a_stays_item_must_hold_on_main_and_have_a_test(self):
         stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",
@@ -588,6 +603,39 @@ class RunTest(unittest.TestCase):
         (self.p.root / "habits.py").write_text("def add(): pass\n")
         self.assertEqual(run.dependent_files(self.p.root, "Change `habits.py`", ["habits.py"]),
                          ["consumer.py"])
+        ready = {"files": ["judge_add.py"], "approach": "Change `habits.py`",
+                 "command": "python3 judge_add.py"}
+        prompt = run.brief(1, SPEC, ready, "", folder=self.p.root)
+        self.assertIn("Code that depends on what you change", prompt)
+        self.assertIn("`consumer.py`", prompt)
+
+    def test_pull_request_risk_names_files_over_one_thousand_lines(self):
+        n = self.p.piece(spec=SPEC + "Large file: generated.txt\n")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        (folder / "generated.txt").write_text("line\n" * 1001)
+        git(folder, "add", "habits.py", "generated.txt")
+        git(folder, "commit", "--quiet", "-m", "Add large file")
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        passed, output = gate.judge(folder, ready)
+        self.assertTrue(passed, output)
+        facts, _ = run.pull_request_facts(folder, ready, output)
+        self.assertIn("files over 1,000 lines: `generated.txt` (1001 lines)", facts)
+
+    def test_waiting_limit_pauses_with_a_next_step(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Waiting limit: 2\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Set waiting limit")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        for _ in range(2):
+            n = self.p.piece()
+            self.p.gh.issues[n]["labels"] = ["state:approval"]
+        note = run.waiting_limit_note(self.p.gh, self.p.root)
+        self.assertIn("2 pieces wait in approval", note)
+        self.assertIn("next:", note)
 
     def test_standards_reviewer_changes_are_committed_and_judged(self):
         (self.p.root / "standards.md").write_text("Use small local changes.\n")

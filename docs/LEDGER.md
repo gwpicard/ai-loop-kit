@@ -76,6 +76,7 @@ in `docs/V1-PLAN.md`.
 | Command guard, protected paths, secret scan and protection status | `kit/hooks/guard.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W8 |
 | Shape, run and setup guidance | `kit/skills/` | IN THE KIT; v1 plan W9 |
 | Product definition, overview and in-progress changelog | `docs/V1.md`, `README.md`, `CHANGELOG.md` | IN THE KIT; v1 plan W10 |
+| File-size limit, changed-function CRAP, public-interface judges, approval waiting limit and importer context | `kit/scripts/gate.py`, `kit/scripts/testlint.py`, `kit/quality/crap.py`, `kit/scripts/run.py` | IN THE KIT; v1 plan W11 |
 
 ## What is in v1
 
@@ -89,6 +90,8 @@ in `docs/V1-PLAN.md`.
   any accepted reviewer fix.
 - Pull requests include checked change facts, risks and test evidence. The
   person still approves and merges.
+- Submit checks include the file-size rule, secret scan, protected paths and
+  changed-function CRAP when the project has its coverage JSON.
 - The earn rule resumes after v1 merges. The rehearsal table in the plan is
   still required before v1 merges.
 
