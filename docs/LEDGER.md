@@ -58,23 +58,39 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 14 Oct 2026 | loop-test-node, piece 6 | Just after a move to ready, `gate.py status` still showed the piece in shaping. GitHub's issue list lagged. The session checked again and went on. | Status reads each piece directly, not the search list. Seen twice on 14 Oct (pieces 6 and 10); no harm yet, as the session checked again. Next candidate |
 | 14 Oct 2026 | loop-test-node, pieces 9 and 10 | Shaping wrote the rule for using both options together under Notes, so no judge tested it. The run's report reminded the person, who checked it by hand (it held). | A piece that depends on another piece's option gets a Done when item once both exist |
 
-## What is in the thin kit today
+## In the kit from the v1 plan
 
-- The shape skill, the spec format, and the judge written during shaping.
-- Six states and ten moves, held by the gate. Labels change only through it.
-- The ready gate: the spec parses, the judge fails on main on an assertion,
-  every spec ID shows in the failing output, the bar and the spec are hashed.
-- The claim check: the spec has not changed since ready.
-- The run: a worktree per piece, up to three fresh `claude -p` attempts, the
-  gate runs the judge, a changed judge fails and is put back, a pass pushes
-  the branch and opens a pull request, three failures send it back with
-  `needs-you`.
-- The person merges. `gate.py sync` moves merged pieces to done.
-- The guard: no push to main, no force push, no recursive delete, no
-  hand-written state label, no agent merge; builders never push, never run
-  `gh` and never touch `.claude/` or `.githooks/`.
-- Two layers already: the judge files are blocked from edits in the builder
-  session, and the gate compares their hash.
+The earn rule was suspended for this planned build. These entries are held
+in v1 by the named code and checks; the source is the corresponding package
+in `docs/V1-PLAN.md`.
+
+| Idea now held | Where it is held | Status and source |
+| --- | --- | --- |
+| Intent, scope, approach and numbered contract items | `kit/scripts/loopkit.py`, `kit/spec-format.md` | IN THE KIT; v1 plan W1 |
+| Typed hand-backs, a report and a gate-controlled spec edit | `kit/scripts/gate.py` | IN THE KIT; v1 plan W2 |
+| Run lock, recovery, stop, elapsed time and process timeouts | `kit/scripts/run.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W3 |
+| Judge test lint, frozen support files and skipped-test refusal | `kit/scripts/testlint.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W4 |
+| Project quality commands and changed-scope helpers | `kit/quality/`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W5 |
+| Judge writer, standards review and separate contract review | `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 plan W6 |
+| Pull request facts, evidence, importer count and builder rationale | `kit/scripts/run.py`, `kit/briefs/builder.md` | IN THE KIT; v1 plan W7 |
+| Command guard, protected paths, secret scan and protection status | `kit/hooks/guard.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W8 |
+| Shape, run and setup guidance | `kit/skills/` | IN THE KIT; v1 plan W9 |
+| Product definition, overview and in-progress changelog | `docs/V1.md`, `README.md`, `CHANGELOG.md` | IN THE KIT; v1 plan W10 |
+
+## What is in v1
+
+- v1 is defined in `docs/V1.md`; its build order and evidence are in
+  `docs/V1-PLAN.md`.
+- Every piece has a checked contract and a judge fixed at ready.
+- The run has one lock, recovers interrupted pieces and checks stop requests
+  at attempt boundaries.
+- Every passing build gets a fresh standards review and a separate contract
+  review. The gate checks the judge, Keep and Quality commands again after
+  any accepted reviewer fix.
+- Pull requests include checked change facts, risks and test evidence. The
+  person still approves and merges.
+- The earn rule resumes after v1 merges. The rehearsal table in the plan is
+  still required before v1 merges.
 
 ## Known gaps, written down now so they are not forgotten
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0 (in progress)
+
+V1 adds an Intent and Contract format, typed hand-backs, safer runs, judge
+quality checks, project Quality commands, two independent reviews, and
+pull requests written from checked facts. The gate now checks protected paths
+and secret shapes. See [the v1 definition](docs/V1.md).
+
 ## 0.10.0
 
 This version follows v0.9.0 of the first kit.
