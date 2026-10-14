@@ -50,6 +50,9 @@ NEEDS_REASON = {"pull-back", "give-back", "reject", "rebuild", "drop", "reopen"}
 WRONG_REASON = re.compile(r"SyntaxError|IndentationError|ERROR collecting|"
                           r"command not found|No such file or directory")
 
+# A line that reports a failing test: pytest, unittest, TAP and plain runners.
+FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
+
 LABEL_COLOURS = {"shaping": "c5def5", "ready": "0e8a16", "building": "fbca04",
                  "approval": "5319e7", "done": "006b75", "dropped": "cccccc"}
 
@@ -111,17 +114,37 @@ def check_ready(root: Path, issue: dict) -> dict:
                       "fix the judge so it fails on an assertion")
     else:
         # The ID may sit inside a test name, like test_D1_adds, so do not use \b.
-        named = [i for i in spec.done_when if re.search(rf"(?<![A-Za-z0-9]){i}(?![0-9])", output)]
+        # Count an ID only on a line that reports a failure, so that a runner
+        # which also prints passing tests (pytest -v) cannot fake a failure.
+        fail_lines = "\n".join(line for line in output.splitlines() if FAIL_LINE.search(line))
+
+        def named_in(text: str, i: str) -> bool:
+            return re.search(rf"(?<![A-Za-z0-9]){i}(?![0-9])", text) is not None
+        build = [i for i in spec.done_when if i not in spec.stays]
+        named = [i for i in build if named_in(fail_lines, i)]
         if not named:
             raise Refused("the judge fails on main, but its output names no spec ID "
-                          f"({', '.join(spec.done_when)}):\n{tail}",
+                          f"({', '.join(build)}):\n{tail}",
                           "put the spec ID in each test name, like test_D1_adds_a_habit")
-        missing = [i for i in spec.done_when if i not in named]
+        missing = [i for i in build if i not in named]
         if missing:
             raise Refused(f"no failing judge test names {', '.join(missing)}",
-                          "give every Done when item at least one test")
+                          "give every Done when item at least one test, or mark an item that "
+                          "already holds as '(stays)'")
+        failing_stays = [i for i in spec.stays if named_in(fail_lines, i)]
+        if failing_stays:
+            raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
+                          "a (stays) item already holds today; test only what it says")
+    if spec.stays:
+        judge_text = "".join(sh(["git", "show", f"{head}:{f}"], root).stdout for f in spec.files)
+        untested = [i for i in spec.stays
+                    if not re.search(rf"(?<![A-Za-z0-9]){i}(?![0-9])", judge_text)]
+        if untested:
+            raise Refused(f"no judge test names {', '.join(untested)}",
+                          "give every (stays) item a test with its ID in the name")
     return {"move": "ready", "bar": bar, "files": spec.files, "command": spec.command,
-            "kind": spec.kind, "keep": spec.keep, "commit": head, "main": main_sha,
+            "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
+            "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
 
 
@@ -173,7 +196,9 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         if record["kind"] == "scaffold":
             note += " Scaffold piece: the fails-on-main check does not apply."
         else:
-            note += " The judge fails on main as it should, naming every spec ID."
+            note += " The judge fails on main as it should, naming every spec ID to build."
+            if record["stays"]:
+                note += f" {', '.join(record['stays'])} already hold on main, as marked."
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."

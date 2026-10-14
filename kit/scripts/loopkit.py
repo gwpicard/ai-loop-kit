@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -38,9 +39,10 @@ class Spec:
     files: list[str]
     kind: str  # "test", or "scaffold" for the first piece of an empty project
     keep: str = ""  # a command that passes on main and must still pass after the build
+    stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
 
 
-_ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*[:.)]\s*(\S.*)$")
+_ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
 _FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep)\s*:\s*(.*)$", re.IGNORECASE)
 
 
@@ -61,6 +63,7 @@ def parse_spec(body: str) -> Spec:
     """Read the spec from an issue body. Refuse with every gap at once."""
     gaps: list[str] = []
     done_when: dict[str, str] = {}
+    stays: list[str] = []
     done = _section(body, "Done when")
     if done is None:
         gaps.append("no '## Done when' section")
@@ -70,7 +73,9 @@ def parse_spec(body: str) -> Spec:
             if m:
                 if m.group(1) in done_when:
                     gaps.append(f"spec ID {m.group(1)} is used twice")
-                done_when[m.group(1)] = m.group(2).strip()
+                done_when[m.group(1)] = m.group(3).strip()
+                if m.group(2):
+                    stays.append(m.group(1))
         if not done_when:
             gaps.append("'## Done when' has no item like '- D1: ...'")
 
@@ -107,7 +112,9 @@ def parse_spec(body: str) -> Spec:
     if gaps:
         raise Refused("the spec is incomplete: " + "; ".join(gaps),
                       "fix the issue body to match kit/spec-format.md")
-    return Spec(done_when, command, files, kind, keep)
+    if done_when and len(stays) == len(done_when):
+        gaps.append("every Done when item is marked (stays), so there is nothing to build")
+    return Spec(done_when, command, files, kind, keep, tuple(stays))
 
 
 def spec_hash(body: str) -> str:
@@ -171,11 +178,28 @@ def bar_hash_in(folder: Path, files: list[str]) -> str:
     return h.hexdigest()
 
 
+def project_root(folder: Path) -> Path:
+    """The person's checkout, even from a worktree or a temporary copy."""
+    common = sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], folder).stdout.strip()
+    return Path(common).parent
+
+
+def command_env(folder: Path) -> dict:
+    """The environment for judge and builder commands. A project .venv that git
+    ignores exists only in the person's checkout, so put its bin first on PATH."""
+    env = dict(os.environ)
+    venv_bin = project_root(folder) / ".venv" / "bin"
+    if venv_bin.is_dir():
+        env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
+        env["VIRTUAL_ENV"] = str(venv_bin.parent)
+    return env
+
+
 def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple[int, str]:
     """Run the judge command. The gate calls this; it never trusts a report."""
     try:
         res = subprocess.run(command, shell=True, cwd=folder, capture_output=True,
-                             text=True, timeout=timeout)
+                             text=True, timeout=timeout, env=command_env(folder))
         return res.returncode, (res.stdout + res.stderr)
     except subprocess.TimeoutExpired:
         return 124, f"the judge ran past {timeout} seconds"

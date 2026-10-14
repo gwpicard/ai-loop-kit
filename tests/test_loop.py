@@ -85,6 +85,14 @@ class GateTest(unittest.TestCase):
             self.ready(n)
         self.assertIn("names no spec ID", r.exception.reason)
 
+    def test_a_passing_test_printed_by_name_does_not_count_as_failing(self):
+        # Like pytest -v: D2 passes on main and is printed, but only D1 fails.
+        judge = JUDGE.replace("def d2():\n    import habits\n", "def d2():\n    return\n")
+        n = self.p.piece(judge=judge)
+        with self.assertRaises(Refused) as r:
+            self.ready(n)
+        self.assertIn("no failing judge test names D2", r.exception.reason)
+
     def test_ready_refuses_when_an_id_has_no_test(self):
         n = self.p.piece(judge=JUDGE.replace("test_D2", "test_two"))
         with self.assertRaises(Refused) as r:
@@ -180,6 +188,46 @@ class GateTest(unittest.TestCase):
         passed, why = gate.judge(self.p.root, ready)
         self.assertFalse(passed)
         self.assertIn("keep check now fails", why)
+
+    def test_a_stays_item_must_hold_on_main_and_have_a_test(self):
+        stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",
+                                  "- D2: adding a habit twice keeps one.\n- D3 (stays): the readme is still there.")
+        judge = JUDGE.replace('check("test_D2_add_skips_duplicates", d2)',
+                              'check("test_D2_add_skips_duplicates", d2)\n'
+                              'check("test_D3_readme_stays", lambda: open("README.md").read())')
+        n = self.p.piece(spec=stays_spec, judge=judge)
+        self.ready(n)
+        self.assertIn("D3 already hold", self.p.gh.comments(n)[-1])
+
+    def test_a_stays_item_bent_to_fail_on_main_is_refused(self):
+        stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",
+                                  "- D2: adding a habit twice keeps one.\n- D3 (stays): habits still imports.")
+        judge = JUDGE.replace('check("test_D2_add_skips_duplicates", d2)',
+                              'check("test_D2_add_skips_duplicates", d2)\ncheck("test_D3_still_imports", d1)')
+        n = self.p.piece(spec=stays_spec, judge=judge)
+        with self.assertRaises(Refused) as r:
+            self.ready(n)
+        self.assertIn("marked (stays) but fails on main", r.exception.reason)
+
+    def test_a_stays_item_without_a_test_is_refused(self):
+        stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",
+                                  "- D2: adding a habit twice keeps one.\n- D3 (stays): nothing breaks.")
+        n = self.p.piece(spec=stays_spec)
+        with self.assertRaises(Refused) as r:
+            self.ready(n)
+        self.assertIn("no judge test names D3", r.exception.reason)
+
+    def test_judges_run_with_the_projects_venv_first_on_path(self):
+        venv_bin = self.p.root / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        tool = venv_bin / "habits-tool"
+        tool.write_text("#!/bin/sh\necho from-the-venv\n")
+        tool.chmod(0o755)
+        git(self.p.root, "worktree", "add", "--quiet", "--detach", str(Path(self.p.tmp.name) / "wt"), "main")
+        from loopkit import run_judge
+        code, out = run_judge(Path(self.p.tmp.name) / "wt", "habits-tool")
+        self.assertEqual(code, 0)
+        self.assertIn("from-the-venv", out)
 
     def test_the_loop_folder_stays_ignored_whatever_gitignore_says(self):
         (self.p.root / ".gitignore").write_text("__pycache__/\n")

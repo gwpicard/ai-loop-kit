@@ -22,8 +22,8 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
-from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name, last_record,  # noqa: E402
-                     main_ref, repo_root, sh)
+from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name, command_env,  # noqa: E402
+                     last_record, main_ref, repo_root, sh)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -60,7 +60,7 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path) -> No
             "--settings", builder_settings()]
     if denied:
         args += ["--disallowedTools", *denied]
-    env = {**os.environ, "LOOP_BUILDER": "1"}
+    env = {**command_env(folder), "LOOP_BUILDER": "1"}
     with logfile.open("w") as out:
         try:
             subprocess.run(args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
