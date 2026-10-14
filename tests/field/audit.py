@@ -33,7 +33,7 @@ from typing import Optional
 KIT = Path(__file__).resolve().parent.parent.parent / "kit" / "scripts"
 sys.path.insert(0, str(KIT))
 import gate  # noqa: E402
-from loopkit import (NEEDS_YOU, STATE_PREFIX, GitHub, bar_hash_at, branch_name,  # noqa: E402
+from loopkit import (NEEDS_YOU, STATE_PREFIX, TRUSTED, GitHub, bar_hash_at, branch_name,  # noqa: E402
                      records, repo_root, sh)
 
 BACK_MOVES = ("pull-back", "give-back", "reject", "rebuild")
@@ -119,7 +119,8 @@ def load(root: Path) -> list[tuple[dict, Optional[dict]]]:
             continue
         n = i["number"]
         comments = [c["body"] for c in gh_json(root, "issue", "view", str(n),
-                                               "--json", "comments")["comments"]]
+                                               "--json", "comments")["comments"]
+                    if c.get("authorAssociation") in TRUSTED]
         piece = {**i, "labels": labels, "comments": comments}
         found = gh_json(root, "pr", "list", "--head", branch_name(n), "--state", "all",
                         "--limit", "1", "--json", "number,url,state,headRefOid,files")

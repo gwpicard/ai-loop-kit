@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      changed_check_settings, command_env,
-                     last_record, main_ref, prepare, records, repo_root, sh)
+                     last_record, main_ref, prepare, record_text, records, repo_root, sh)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60

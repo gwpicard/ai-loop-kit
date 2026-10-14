@@ -19,6 +19,8 @@ STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
+# Comment authors whose gate records count: people who can push already.
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
 # Colour codes and terminal links that tools print. Issue comments show them raw.
 _TERMINAL_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -360,8 +362,11 @@ class GitHub:
         self._gh("issue", "comment", str(n), "--body-file", "-", stdin=text)
 
     def comments(self, n: int) -> list[str]:
+        """Comments from people who can push to the repository. On a public
+        repository anyone can comment, so a gate record from anyone else is
+        never read: it could carry a forged judge command."""
         data = json.loads(self._gh("issue", "view", str(n), "--json", "comments"))
-        return [c["body"] for c in data["comments"]]
+        return [c["body"] for c in data["comments"] if c.get("authorAssociation") in TRUSTED]
 
     def close(self, n: int, reason: str) -> None:
         self._gh("issue", "close", str(n), "--reason", reason)
