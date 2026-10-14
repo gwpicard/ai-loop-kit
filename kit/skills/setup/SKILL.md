@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Prepares a project for the loop. Checks git and GitHub, makes the state labels and records the test command. Use once per project, before the first shape.
+description: Prepares a project for the loop. Runs the kit's own checks, agrees how the project prepares and tests itself, and records both in AGENTS.md. Use once per project, before the first shape, and again when a check fails.
 ---
 # Setup
 
@@ -9,21 +9,30 @@ description: Prepares a project for the loop. Checks git and GitHub, makes the s
 
 Use the KIT path above in every command below. Write it out in full.
 
+The kit checks the project in code with `gate.py doctor`. You read its result
+and fix what it names; you do not judge the ground by eye.
+
 ## Steps
-1. Check the ground. Run `git status`, `git remote -v`, `git log -1 --oneline main` and `gh auth status`.
-   Done when: the project is a git repository with an `origin` on GitHub, `main` has at least one commit on origin, and `gh` is signed in. If any is missing, tell the person the one command that fixes it, and stop. You never make the first commit or push to main yourself.
-2. Make the labels with `python3 "<KIT>/scripts/gate.py" init`.
-   Done when: it prints `ok`.
-3. Find the test command. Read the project's files first (package.json, pyproject.toml, Makefile). If the project is empty, recommend one that fits the language the person wants, and ask them to confirm.
-   Done when: the person has confirmed the command.
-4. Run the test command once on main. If any test fails, stop and show the failures. A red baseline blocks every piece, because the gate's keep check must pass on main. Find the cause: often the environment (wrong package versions), not the code. Recommend a project `.venv` (the gate and the builders put `.venv/bin` first on `PATH`), and check that git ignores it. Do not narrow the command to hide failures without the person's yes.
-   Done when: the test command passes on main, or the person has chosen what to do about each failure.
-5. Add a short section to the project's `AGENTS.md` (make the file if it is missing), and commit it on a branch. Open a pull request for the person.
+1. Make the labels with `python3 "<KIT>/scripts/gate.py" init`, then run `python3 "<KIT>/scripts/gate.py" doctor`.
+   Done when: every check above "AGENTS.md on main" says ok. For each FAIL, give the person its `next:` line and stop until it is fixed. You never make the first commit or push to main yourself.
+2. Find how the project already builds and tests. Read its files: `package.json` and its lockfile, `pyproject.toml`, `uv.lock`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Makefile`, `Dockerfile`, `docker-compose.yml` or `compose.yaml`, and the CI workflow if there is one. The CI workflow usually shows the exact install and test steps.
+   Done when: you can say in one sentence how a fresh clone gets ready and runs its tests.
+3. Agree two commands with the person. Offer the way the project already works as the recommended answer, and the other real options beside it. Never impose a tool the project does not use.
+   - **Prepare command**: makes a fresh clone runnable. Examples: `npm ci` (with a lockfile) or `npm install`; `uv sync`; `python3 -m venv .venv && .venv/bin/pip install -e '.[test]'`; `docker compose build`. Leave it out when a fresh clone needs nothing.
+   - **Test command**: runs every test. Examples: `npm test`; `python -m pytest`; `go test ./...`; `docker compose run --rm app npm test`.
+   For an empty project, recommend a plain stack for the language the person wants, and ask.
+   The gate runs both in a fresh copy of main for every piece, and the run runs Prepare before every build, so both must work from a fresh clone. A project `.venv` made by Prepare is put first on `PATH`.
+   Done when: the person has confirmed both commands, or confirmed that Prepare is not needed.
+4. Add the loop section to the project's `AGENTS.md` (make the file if it is missing), commit it on a branch, and open a pull request for the person:
    ```
    ## The loop
    This project uses AI Loop Kit. Pieces are GitHub issues with one `state:` label.
    Only the gate (gate.py) changes a state label. The person merges every pull request.
-   Test command: <the confirmed command, such as python -m pytest>
+   Prepare command: `<the confirmed command>`
+   Test command: `<the confirmed command>`
    ```
+   Leave out the Prepare line if there is none. The gate reads these two lines exactly.
    Done when: the pull request is open and you have given the person its link.
+5. After the person merges, run `python3 "<KIT>/scripts/gate.py" doctor` again.
+   Done when: every check says ok. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.
 6. Tell the person what comes next: if the project is empty, its first piece is a scaffold piece (see `<KIT>/spec-format.md`). Then `/ai-loop-kit:shape`.

@@ -229,6 +229,37 @@ class GateTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("from-the-venv", out)
 
+    def test_prepare_runs_in_the_fresh_copy_before_keep_and_judge(self):
+        self.p.loop_section("true", prepare="touch prepared.txt")
+        keep_spec = SPEC.replace("Files:", "Keep: `test -f prepared.txt`\nFiles:")
+        n = self.p.piece(spec=keep_spec)
+        self.ready(n)  # keep would fail without the Prepare step
+        self.assertIn("state:ready", self.p.gh.issue(n)["labels"])
+
+    def test_a_failing_prepare_refuses_ready(self):
+        self.p.loop_section("true", prepare="exit 3")
+        n = self.p.piece()
+        with self.assertRaises(Refused) as r:
+            self.ready(n)
+        self.assertIn("Prepare command fails", r.exception.reason)
+
+    def test_doctor_names_each_gap_then_passes(self):
+        checks = gate.doctor(self.p.gh, self.p.root)
+        failed = [what for ok, what, _ in checks if not ok]
+        self.assertIn("the state labels exist", failed)
+        self.assertIn("AGENTS.md on main names the Test command", failed)
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("test -f prepared.txt", prepare="touch prepared.txt")
+        checks = gate.doctor(self.p.gh, self.p.root)
+        self.assertTrue(all(ok for ok, _, _ in checks), checks)
+
+    def test_doctor_catches_a_red_baseline(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("exit 1")
+        checks = gate.doctor(self.p.gh, self.p.root)
+        self.assertFalse(checks[-1][0])
+        self.assertIn("tests pass on a fresh copy", checks[-1][1])
+
     def test_the_loop_folder_stays_ignored_whatever_gitignore_says(self):
         (self.p.root / ".gitignore").write_text("__pycache__/\n")
         gate.ignore_loop_folder(self.p.root)
@@ -339,6 +370,12 @@ class RunTest(unittest.TestCase):
         fake.write_text(fake.read_text().replace("git add -A", "mkdir -p __pycache__ && touch __pycache__/x.pyc && git add -A"))
         run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertNotIn("__pycache__", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
+
+    def test_the_run_prepares_the_build_folder_first(self):
+        self.p.loop_section("true", prepare="touch prepared.txt")
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        self.assertTrue((self.p.root / ".loop" / "worktrees" / f"piece-{n}" / "prepared.txt").exists())
 
     def test_a_builder_that_changes_the_judge_does_not_pass(self):
         n, result = self.build("cheat")

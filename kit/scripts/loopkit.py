@@ -19,6 +19,7 @@ STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
 JUDGE_TIMEOUT = 900
+PREPARE_TIMEOUT = 1800
 
 
 class Refused(Exception):
@@ -185,14 +186,39 @@ def project_root(folder: Path) -> Path:
 
 
 def command_env(folder: Path) -> dict:
-    """The environment for judge and builder commands. A project .venv that git
-    ignores exists only in the person's checkout, so put its bin first on PATH."""
+    """The environment for judge, prepare and builder commands. Use the folder's
+    own .venv when Prepare made one, else the person's checkout's .venv."""
     env = dict(os.environ)
-    venv_bin = project_root(folder) / ".venv" / "bin"
-    if venv_bin.is_dir():
-        env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
-        env["VIRTUAL_ENV"] = str(venv_bin.parent)
+    for venv_bin in (folder / ".venv" / "bin", project_root(folder) / ".venv" / "bin"):
+        if venv_bin.is_dir():
+            env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
+            env["VIRTUAL_ENV"] = str(venv_bin.parent)
+            break
     return env
+
+
+def loop_settings(folder: Path) -> dict:
+    """The project's loop settings: the lines 'Test command:' and 'Prepare
+    command:' in the '## The loop' section of AGENTS.md, as committed."""
+    agents = folder / "AGENTS.md"
+    text = agents.read_text(errors="replace") if agents.is_file() else ""
+    section = _section(text, "The loop") or []
+    out = {}
+    for line in section:
+        m = re.match(r"^\s*[-*]?\s*(Test|Prepare) command\s*:\s*(.*)$", line, re.IGNORECASE)
+        if m and m.group(2).strip().strip("`").strip():
+            out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
+    return out
+
+
+def prepare(folder: Path) -> tuple[bool, str]:
+    """Run the project's Prepare command in a fresh folder, if it has one.
+    It makes a fresh copy runnable: npm ci, uv sync, docker compose build."""
+    command = loop_settings(folder).get("prepare")
+    if not command:
+        return True, ""
+    code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT)
+    return code == 0, output
 
 
 def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple[int, str]:
@@ -259,6 +285,14 @@ class GitHub:
 
     def close(self, n: int, reason: str) -> None:
         self._gh("issue", "close", str(n), "--reason", reason)
+
+    def labels(self) -> list[str]:
+        data = json.loads(self._gh("label", "list", "--limit", "200", "--json", "name"))
+        return [d["name"] for d in data]
+
+    def signed_in(self) -> bool:
+        return subprocess.run(["gh", "auth", "status"], cwd=self.root,
+                              capture_output=True).returncode == 0
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
         self._gh("label", "create", name, "--color", color, "--description",

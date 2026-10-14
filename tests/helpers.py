@@ -18,7 +18,7 @@ class FakeGitHub:
         self.issues: dict[int, dict] = {}
         self.notes: dict[int, list[str]] = {}
         self.prs: dict[str, dict] = {}
-        self.labels: set[str] = set()
+        self.made_labels: set[str] = set()
 
     def issue(self, n: int) -> dict:
         i = self.issues[n]
@@ -51,7 +51,13 @@ class FakeGitHub:
         self.issues[n]["state"] = "CLOSED"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
-        self.labels.add(name)
+        self.made_labels.add(name)
+
+    def labels(self) -> list:
+        return sorted(self.made_labels)
+
+    def signed_in(self) -> bool:
+        return True
 
     def create_pr(self, head: str, title: str, body: str) -> str:
         url = f"https://example.invalid/pull/{len(self.prs) + 1}"
@@ -139,6 +145,16 @@ class Project:
         git(self.root, "commit", "--quiet", "-m", "Judge")
         git(self.root, "switch", "--quiet", "main")
         return n
+
+    def loop_section(self, test: str, prepare: str = "") -> None:
+        """Commit an AGENTS.md loop section on main and push it."""
+        lines = ["# AGENTS.md", "", "## The loop", f"Test command: `{test}`"]
+        if prepare:
+            lines.append(f"Prepare command: `{prepare}`")
+        (self.root / "AGENTS.md").write_text("\n".join(lines) + "\n")
+        git(self.root, "add", "AGENTS.md")
+        git(self.root, "commit", "--quiet", "-m", "Loop section")
+        git(self.root, "push", "--quiet", "origin", "main")
 
     def close(self) -> None:
         self.tmp.cleanup()
