@@ -1,229 +1,54 @@
-# The spec format, version 1
+# The spec format
 
-This file is the one home of the spec format. The one parser,
-`kit/scripts/loop/spec.py`, reads it. The gate, the lint, the needs list and
-the fingerprint all use that parser. No other file reads the markers.
-
-Read a spec with `kit/scripts/spec.py show <number>` or
-`kit/scripts/spec.py show --file <path>`. Both print JSON.
-
-## The block
-
-A piece is a GitHub issue. Its body has a short plain header, then the spec
-block, then anything the gate writes below it.
+A piece is a GitHub issue. Its body is the spec. The gate reads two
+sections exactly as written here. The others are for people and builders.
 
 ```markdown
-A one-line plain header that says what the piece is for.
-
-<!-- spec:start version=1 -->
 ## Goal
-...
-<!-- spec:end -->
+One or two sentences: what the person gets, in their words.
+
+## Done when
+- D1: A condition somebody can check. "When I run `habits add read`, then `habits list` shows read."
+- D2: One condition per line. Number them D1, D2, D3.
+- D3 (stays): Something that already works and must keep working, like "without --title the output is unchanged".
+
+## Judge
+Command: `python3 -m pytest tests/judge/test_piece_add.py -q`
+Files:
+- tests/judge/test_piece_add.py
+
+## Notes
+Anything a builder needs: the area of the code, choices already made,
+what must stay the same.
 ```
 
-- The start marker is `<!-- spec:start version=1 -->`. The end marker is
-  `<!-- spec:end -->`. Each sits alone on its line.
-- A marker inside a fenced code block does not count.
-- An issue has one block. A second block, or a start marker with no end
-  marker, is a fault.
-- A body with no markers has no spec. The parser reports `found: false`. The
-  gate then computes the needs from the empty fields.
-- A block with a version the kit does not know is refused. The refusal
-  exits with code 3 and has a `next:` line. A block with no version is
-  refused in the same way. Version 1 is the only version.
-- Text before the start marker is the header. Text after the end marker is
-  not part of the spec. The needs list and the fingerprint sit there.
+## What the gate checks at ready
 
-Headings follow the rules of `section()` in `kit/scripts/loop/spec.py`. A field is
-a `## ` heading. A heading inside a fenced code block does not count.
+- `## Done when` has at least one `D<number>:` item, and no ID twice.
+- `## Judge` has a `Command:` line and lists its judge files under `Files:`.
+- The branch `piece/<issue number>` holds the judge files.
+- The judge command, run on today's `main` with only the judge files added,
+  fails. It fails on an assertion, not on a syntax or collection error.
+- Every spec ID appears in the failing output. Put the ID in each test name,
+  like `test_D1_add_shows_in_list`.
+- An item marked `(stays)` already holds on `main`. Its test must exist and
+  must not fail on `main`. Do not bend a test to make it fail.
 
-## Fields
+- If `Keep:` names a command, it passes on today's `main`. Use the project's
+  whole test command, so that what works today must still work after the
+  build. The run checks it again after each attempt.
 
-| Field | Key in the parser | Needed on the full path | Needed on the quick path |
-| --- | --- | --- | --- |
-| Goal | `goal` | yes | yes |
-| User story | `user_story` | yes | no |
-| Expected flow | `expected_flow` | yes | yes |
-| How to observe it | `how_to_observe` | yes | no |
-| Edge cases | `edge_cases` | yes | yes |
-| Limits | `limits` | yes | no |
-| Must stay the same | `must_stay_the_same` | yes | yes |
-| Follow | `follow` | yes | no |
-| Changes to current behaviour | `changes` | yes | no |
-| Coverage | `coverage` | yes | no |
-| Not in this piece | `not_in_this_piece` | yes | no |
-| Judge | `judge` | yes | yes |
-| Links | `links` | yes | yes |
-| Sensitive areas | `sensitive_areas` | yes | no |
-| Decisions | `decisions` | no | no |
-| Research | `research` | no | no |
-| Open questions | `open_questions` | no | no |
+The gate then fixes the bar: it records a hash of the judge files and a hash
+of the spec on the issue. If either changes later, the piece cannot be built
+until it goes through ready again.
 
-A needed field that is missing or empty is listed in `missing`. A field that
-holds "None." counts as answered. A field that is not needed may be left out.
+## Project environments
 
-## The quick path
+If the project has a `.venv` folder, the gate and the builders put its `bin`
+first on `PATH`. Write `python -m pytest`, never a path from your computer.
 
-A small change uses the quick path. The block opens with the line
-`Path: quick`, before the first heading. Without that line the path is
-`full`. Any other value is a fault.
+## The first piece of an empty project
 
-The quick path needs only Goal, Expected flow, Edge cases, Must stay the same,
-Judge and Links. The change must be one piece, in one area, with no sensitive
-area, no new dependency and a judge that is a single test. The gate checks
-those limits. The parser only reads the fields.
-
-## IDs
-
-- A flow step is a line that starts with `FL-` and a number, such as
-  `FL-1 The user opens the menu.`
-- An edge case is a line that starts with `EC-` and a number, such as
-  `EC-1 When the month has no invoices, then the file holds the header line only.`
-- A step or case may run over more lines. The next line that is not blank and
-  not a list item continues it.
-- An ID is used once. The parser lists a repeated ID in `duplicate_ids`.
-- A line in Expected flow or Edge cases with no ID is listed in
-  `flow_without_id` or `edge_cases_without_id`.
-- An edge case reads "When ..., then ...". The parser gives `trigger` and
-  `result`. A case with no "then" has a `result` of null.
-- The Judge field's `Proves:` line names the IDs that the tests prove.
-
-## Coverage
-
-Coverage has one answer for each category below. Write each as `Category:`
-and the answer. Several may share a line. An answer may say
-"Not applicable, because ..." when the reason is real. A category with no
-answer, or with "Not applicable" and no reason, is listed in
-`unanswered_coverage`.
-
-The categories (the list is proposed, and this file is its home):
-
-- Permissions
-- Data kept
-- Errors
-- Empty states
-- What leaves the tool
-
-## The Judge field
-
-Each line is `Key: value`. A line that does not start with a known key
-continues the line above it.
-
-| Key | Meaning |
-| --- | --- |
-| `Kind:` | The judge kind, then an optional note after a comma. |
-| `Command:` | The command that runs the judge. |
-| `Proves:` | The IDs the judge proves. |
-| `Held-out cases:` | The fingerprint of the hidden cases, as the 64 hex digits that `loop.heldout store` prints. Never their content. The ready gate compares it with the store. |
-| `Fails today:` | The gate's record that the judge fails. Only the gate writes it, at ready. |
-| `Route:` | The word `open` marks "route open". |
-| `Hypotheses:` | The hypotheses of a metric piece or an open route, split by `;`. |
-
-A spec marked "route open" has `Route: open`. The parser sets `route_open`.
-The ready gate refuses such a spec until the hypothesis list and the held-out
-twin exist.
-
-### Supported test runners
-
-The parser names the runner at the start of `Command:` in `judge.runner`.
-It is null for any other command.
-
-| Command starts with | `runner` |
-| --- | --- |
-| `pytest`, `python3 -m pytest` | `pytest` |
-| `python3 -m unittest` | `unittest` |
-| `npm`, `pnpm`, `yarn` | `npm`, `pnpm`, `yarn` |
-| `vitest`, `npx vitest` | `vitest` |
-| `jest`, `npx jest` | `jest` |
-| `go test` | `go` |
-| `cargo test` | `cargo` |
-| `sh`, `bash` | `shell` |
-
-## Links
-
-- `Relies on:` code or services, by name, split by commas. A word that names a
-  file of the project is a relied-on file: the ready gate records its fingerprint,
-  and a change to it on `main` sends the piece back at the claim.
-- `Touches:` areas, split by commas. Each area is in the project's area map,
-  `docs/area-map`, or is named under `New area:` in Changes to current
-  behaviour. The ready gate refuses any other.
-
-Waiting for another piece is a GitHub blocked-by link. It is not a spec field.
-
-## Changes to current behaviour
-
-Each line may carry these labels, and several may share a line.
-
-- `Added:`, `Changed:` and `Removed:` say what changes.
-- `Docs:` names the docs the pull request must change, split by commas.
-- `New area:` names a new area, split by commas. Use it when the change makes
-  an area that the area map does not hold yet.
-- `Not reversible:`, `New dependency:` and `Security:` mark the change. Write
-  what is not reversible, which dependency is new, or what security behaviour
-  changes. A mark whose text is `no` or `none` marks nothing. Each mark is a
-  must-look reason: the ready gate gives the piece individual review.
-
-## Must stay the same
-
-Prose says what must not change. At least one `Check:` line is required. Each
-`Check:` line names a command that proves it, such as
-`Check: python3 -m pytest tests/test_old.py`. The ready gate refuses a spec with
-no `Check:` line, except for the scaffold piece. It runs each command on
-`main`, and it must pass there. The parser gives the commands in
-`must_stay_checks`.
-
-## Lists
-
-Sensitive areas, Decisions, Research and Open questions are lists. Each item
-starts with `- `. A line that continues an item is indented or follows it
-directly. "None." in a list field means an empty list.
-
-## Research
-
-Each finding is one list item. It records its source, its date and what it
-rests on, so the claim gate can check it again.
-
-```
-- The folder rename uses the same rule. Source: src/folders/rename.ts.
-  Checked 3 October 2026. Rests on: fingerprint 4c1e9a2b.
-- The package is small. Source: left-pad. Checked 2026-10-01.
-  Rests on: version 1.3.0.
-```
-
-- `Source:` is one word: a file path, an address or a package name.
-- The date is `YYYY-MM-DD` or `D Month YYYY`. `Checked` is the usual word.
-- `Rests on: fingerprint <hex>` is for an in-project file, the one `Source:`
-  names. The fingerprint is the first 7 to 64 hex digits of the SHA-256 of the
-  file at `main`. `python3 -m loop.research stamp --path <file>` prints it.
-- `Rests on: version <text>` is for an outside page or package. A package
-  version is compared with the one the project's manifest names
-  (`package.json` or `requirements.txt`). A page has no version the kit can read
-  offline, so its date is its check.
-
-The needs list holds a finding that lacks any of the three parts. At every
-claim the gate checks each finding: the fingerprint of a file, or the version
-and the age of an outside one (`research_age_days` in the policy file). A finding
-it cannot confirm sends the piece back to shaping. `loop.spec.parse_finding`
-reads one item.
-
-## Decisions
-
-A line that starts with `must-look` in Decisions, written by the person, marks
-the piece for individual review. It is the fifth must-look reason, beside a
-sensitive area and the three marks above.
-
-## Sensitive areas
-
-A sensitive area is accepted when its list item holds three things. The first
-is the label `Accepted:`. The second is the person's own words in quotes. The
-third is a date, written `YYYY-MM-DD` or `D Month YYYY`. An item without all
-three stays on the needs list for the person. The check does not judge whether
-the words are the person's. The person decides that at the gate.
-
-## What the parser returns
-
-`to_dict()` always has the same keys: `found`, `version`, `path`, `header`,
-`fields`, `must_stay_checks`, `missing`, `flow`, `flow_without_id`, `edge_cases`,
-`edge_cases_without_id`, `ids`, `duplicate_ids`, `coverage`,
-`unanswered_coverage`, `judge`, `route_open`, `links`, `changes`,
-`sensitive_areas`, `decisions`, `research` and `open_questions`.
+An empty project has nothing to fail. Its first piece sets up the code and
+the test runner. Write `Kind: scaffold` under `## Judge`. Its judge is that
+the command runs and passes, so the gate skips the "fails on main" check.

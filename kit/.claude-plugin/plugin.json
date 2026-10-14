@@ -1,11 +1,11 @@
 {
   "name": "ai-loop-kit",
-  "description": "A state machine for building software with agents: shape a piece, let a run build it, and check it at the gate.",
+  "description": "A thin, checked loop for building software with Claude Code: shape a piece, let a run build it, and let the gate prove it is done.",
   "author": {
     "name": "Guillaume Picard"
   },
   "homepage": "https://github.com/gwpicard/ai-loop-kit",
   "repository": "https://github.com/gwpicard/ai-loop-kit",
   "license": "MIT",
-  "version": "0.1.0"
+  "version": "0.2.0-dev"
 }

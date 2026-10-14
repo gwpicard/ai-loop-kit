@@ -1,338 +1,341 @@
 #!/usr/bin/env python3
-# contract: agent
-# contract: changes-state
-"""gate.py: the only way a piece changes state.
+"""The gate: the only code that moves a piece from one state to another.
 
-A thin command line over loop/moves.py (the moves and shared rules),
-loop/states.py (the table of seven states and fourteen moves) and
-loop/github.py (the gh wrapper, credential() and the push step).
+A piece is a GitHub issue with exactly one `state:` label. The gate allows
+only the moves in MOVES, runs the checks for each one itself, and writes a
+record on the issue for every move it makes.
 
-Commands:
-  gate.py capture [<number>] --title <title> --body-file <file> [--type feature|bug|chore]
-  gate.py move <number> <state> [--reason <why>] [--option key=value ...]
-  gate.py drop <number> --reason <why>
-  gate.py answer <number> --question <text> --answer <text> --by <who answered>
-  gate.py spec <number> --body-file <file>
-  gate.py comment <number> (--text <words> | --body-file <file>)
-  gate.py report [<number>] [--brief]
-  gate.py labels --create
-  gate.py branch <number> [--push]
-  gate.py check-main [--brief] [--dry-run]
-  gate.py sync (--dry-run | --confirm <digest>)
-
-A <number> is the piece's local number or, once sync has opened its issue, the
-issue's number.
-
-The gate acts on GitHub only as its GitHub App, set up in the second half of
-/setup. Before the App exists it makes every move in the piece record
-(.agents/pieces/<n>/), queues the GitHub writes there, and its next: line names
-gate.py sync. Only the person runs gate.py sync, with their own sign-in. They
-run gate.py sync --dry-run first, which lists every queued write in full and
-prints a digest of the queue. Sync needs --confirm with that digest, and
-refuses a queue that changed since. It also refuses unless a person is at a
-terminal (standard input and output both a terminal), it refuses in an agent
-session, and the guard hook refuses it too.
-
-check-main finds a merge the person made on GitHub, and checks `main` after it when `main` had
-moved since the final combined check. It does nothing while a run is going. A piece whose pull
-request merged on the tested commit goes to done by move 11. With --brief (the session start
-hook) it only says what it found.
-
-Every command prints JSON when standard output is not a terminal, and takes
---dry-run where it changes state.
+    gate.py init                       make the labels, ignore .loop/
+    gate.py capture --title T --body-file F
+    gate.py check N                    run the ready checks, move nothing
+    gate.py move N STATE [--reason R]  move a piece
+    gate.py sync                       move merged pieces to done
+    gate.py status                     list the pieces by state
 """
-
 from __future__ import annotations
 
 import argparse
-import os
-import subprocess
+import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
+                     bar_hash_at, bar_hash_in, branch_name, last_record, main_ref,
+                     parse_spec, record_text, repo_root, rev, run_judge, sh, spec_hash)
 
-from loop import bootstrap, evidence, github, judge, moves, policy, spec, states
-from loop.cli import ExitCode, Failure, run
-from loop.gates import merge as merge_gate
-from loop.gates import ready as ready_gate
-from loop.paths import PathError, Paths, find_project_root
+# (from, to): the move's name. Anything else is refused.
+MOVES = {
+    ("new", "shaping"): "capture",
+    ("shaping", "ready"): "ready",
+    ("ready", "shaping"): "pull-back",
+    ("ready", "building"): "claim",
+    ("building", "shaping"): "give-back",
+    ("building", "approval"): "submit",
+    ("approval", "done"): "merged",
+    ("approval", "shaping"): "reject",
+    ("approval", "building"): "rebuild",
+    ("dropped", "shaping"): "reopen",
+}
+for _s in ("shaping", "ready", "building", "approval"):
+    MOVES[(_s, "dropped")] = "drop"
 
-PROG = "gate.py"
+# Moves that need a reason, because they send work back or end it.
+NEEDS_REASON = {"pull-back", "give-back", "reject", "rebuild", "drop", "reopen"}
 
+# A judge that fails for one of these reasons fails for the wrong reason.
+WRONG_REASON = re.compile(r"SyntaxError|IndentationError|ERROR collecting|"
+                          r"command not found|No such file or directory")
 
-def _common(command: argparse.ArgumentParser, *, changes: bool = True) -> None:
-    command.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="print JSON on standard output (the default when it is not a terminal)",
-    )
-    if changes:
-        command.add_argument(
-            "--dry-run",
-            action="store_true",
-            default=argparse.SUPPRESS,
-            help="say what would change, and change nothing",
-        )
+# A line that reports a failing test: pytest, unittest, TAP and plain runners.
+FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
 
-
-def _number(text: str) -> int:
-    cleaned = text.lstrip("#")
-    if not cleaned.isdigit() or int(cleaned) < 1:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a piece number")
-    return int(cleaned)
-
-
-def setup(parser: argparse.ArgumentParser) -> None:
-    commands = parser.add_subparsers(dest="command", required=True, metavar="command")
-
-    capture = commands.add_parser("capture", help="move 1: capture an idea as a piece")
-    capture.add_argument("number", nargs="?", type=_number, help="an issue that exists")
-    capture.add_argument("--title", default="", help="the idea in the person's words")
-    capture.add_argument("--body-file", help="a file with the body (the spec block)")
-    capture.add_argument("--type", default="feature", choices=states.TYPES)
-    _common(capture)
-
-    move = commands.add_parser("move", help="move a piece by one move of the table")
-    move.add_argument("number", type=_number)
-    move.add_argument("target", help="the state to move to")
-    move.add_argument("--reason", help="why; every move back needs one")
-    move.add_argument("--option", action="append", default=[], metavar="KEY=VALUE",
-                      help="a value for the move's checks (repeat for more)")
-    _common(move)
-
-    record_move = commands.add_parser("move-record", help="move without executing a project judge")
-    record_move.add_argument("number", type=_number)
-    record_move.add_argument("target", choices=("shaping", "dropped", "approval"))
-    record_move.add_argument("--reason")
-    record_move.add_argument("--option", action="append", default=[], metavar="KEY=VALUE")
-    _common(record_move)
-
-    drop = commands.add_parser("drop", help="move 14: drop a piece, with a reason")
-    drop.add_argument("number", type=_number)
-    drop.add_argument("--reason", required=True)
-    _common(drop)
-
-    answer = commands.add_parser("answer", help="write an answer under Decisions")
-    answer.add_argument("number", type=_number)
-    answer.add_argument("--question", required=True, help="the open question it answers")
-    answer.add_argument("--answer", required=True)
-    answer.add_argument("--by", required=True,
-                        help='who answered; an agent session records only "the agent"')
-    answer.add_argument("--parked", action="store_true",
-                        help="the question was a builder's, parked in building; the spec does "
-                        "not hold it")
-    _common(answer)
-
-    spec_cmd = commands.add_parser("spec", help="hand the gate a new spec for a piece in shaping")
-    spec_cmd.add_argument("number", type=_number)
-    spec_cmd.add_argument("--body-file", required=True)
-    _common(spec_cmd)
-
-    comment = commands.add_parser("comment", help="post a comment on the issue as the App")
-    comment.add_argument("number", type=_number)
-    words = comment.add_mutually_exclusive_group(required=True)
-    words.add_argument("--text")
-    words.add_argument("--body-file")
-    _common(comment)
-
-    report = commands.add_parser("report", help="where each piece is and what waits")
-    report.add_argument("number", nargs="?", type=_number)
-    report.add_argument("--brief", action="store_true",
-                        help="the short report the session start hook injects; no GitHub call")
-    _common(report, changes=False)
-
-    labels = commands.add_parser("labels", help="create the gate's own labels")
-    labels.add_argument("--create", action="store_true", required=True)
-    _common(labels)
-
-    branch = commands.add_parser("branch", help="make the piece branch, and push it")
-    branch.add_argument("number", type=_number)
-    branch.add_argument("--push", action="store_true", help="push it, after the secret scan")
-    _common(branch)
-
-    check_main = commands.add_parser(
-        "check-main", help="find a merge the person made after main moved, and check main")
-    check_main.add_argument("--brief", action="store_true",
-                            help="only say what was found; change nothing and run no test")
-    _common(check_main)
-
-    sync = commands.add_parser("sync", help="the person sends the queued GitHub writes")
-    sync.add_argument("--confirm", metavar="DIGEST",
-                      help="the digest that sync --dry-run printed for the queue")
-    _common(sync)
+LABEL_COLOURS = {"shaping": "c5def5", "ready": "0e8a16", "building": "fbca04",
+                 "approval": "5319e7", "done": "006b75", "dropped": "cccccc"}
 
 
-def _read(path: str) -> str:
+def state_of(issue: dict) -> str:
+    states = [lab[len(STATE_PREFIX):] for lab in issue["labels"] if lab.startswith(STATE_PREFIX)]
+    if len(states) != 1:
+        raise Refused(f"piece {issue['number']} has {len(states)} state labels: {states}",
+                      "a person fixes the labels by hand, then runs the move again")
+    if states[0] not in STATES:
+        raise Refused(f"'{STATE_PREFIX}{states[0]}' is not a state")
+    return states[0]
+
+
+# ---------------------------------------------------------------- checks
+
+def check_ready(root: Path, issue: dict) -> dict:
+    """The ready gate. Returns the record to write. Refuses on any gap."""
+    n = issue["number"]
+    spec = parse_spec(issue["body"] or "")
+    branch = branch_name(n)
+    head = rev(root, branch)
+    if head is None:
+        raise Refused(f"there is no branch {branch}",
+                      f"create {branch} from main and commit the judge files on it")
+    bar = bar_hash_at(root, head, spec.files) if spec.files else ""
+    main = main_ref(root)
+    main_sha = rev(root, main)
+
+    # Run the judge on today's main, with only the judge files added.
+    tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
+    folder = tmp / "main"
     try:
-        return Path(path).read_text(encoding="utf-8")
-    except OSError as error:
-        raise Failure(
-            f"cannot read {path} ({error.strerror})",
-            next_command=f"{PROG} --help",
-            code=ExitCode.USAGE,
-        ) from error
+        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
+        if spec.keep:
+            # What must stay the same is checked on main as it is today.
+            kcode, koutput = run_judge(folder, spec.keep)
+            if kcode != 0:
+                raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
+                              "fix main first, or correct the Keep: command")
+        if spec.files:
+            sh(["git", "checkout", head, "--", *spec.files], folder)
+        code, output = run_judge(folder, spec.command)
+    finally:
+        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tail = output.strip()[-1500:]
+    if spec.kind == "scaffold":
+        # The first piece of an empty project: its judge is that the test
+        # command runs, so there is nothing that must fail on main.
+        pass
+    elif code == 0:
+        raise Refused("the judge already passes on main, so there is nothing to build",
+                      "make the judge test what the Done when items ask for")
+    elif WRONG_REASON.search(output):
+        raise Refused("the judge fails on main for the wrong reason "
+                      f"(a broken test, not a missing feature):\n{tail}",
+                      "fix the judge so it fails on an assertion")
+    else:
+        # The ID may sit inside a test name, like test_D1_adds, so do not use \b.
+        # Count an ID only on a line that reports a failure, so that a runner
+        # which also prints passing tests (pytest -v) cannot fake a failure.
+        fail_lines = "\n".join(line for line in output.splitlines() if FAIL_LINE.search(line))
+
+        def named_in(text: str, i: str) -> bool:
+            return re.search(rf"(?<![A-Za-z0-9]){i}(?![0-9])", text) is not None
+        build = [i for i in spec.done_when if i not in spec.stays]
+        named = [i for i in build if named_in(fail_lines, i)]
+        if not named:
+            raise Refused("the judge fails on main, but its output names no spec ID "
+                          f"({', '.join(build)}):\n{tail}",
+                          "put the spec ID in each test name, like test_D1_adds_a_habit")
+        missing = [i for i in build if i not in named]
+        if missing:
+            raise Refused(f"no failing judge test names {', '.join(missing)}",
+                          "give every Done when item at least one test, or mark an item that "
+                          "already holds as '(stays)'")
+        failing_stays = [i for i in spec.stays if named_in(fail_lines, i)]
+        if failing_stays:
+            raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
+                          "a (stays) item already holds today; test only what it says")
+    if spec.stays:
+        judge_text = "".join(sh(["git", "show", f"{head}:{f}"], root).stdout for f in spec.files)
+        untested = [i for i in spec.stays
+                    if not re.search(rf"(?<![A-Za-z0-9]){i}(?![0-9])", judge_text)]
+        if untested:
+            raise Refused(f"no judge test names {', '.join(untested)}",
+                          "give every (stays) item a test with its ID in the name")
+    return {"move": "ready", "bar": bar, "files": spec.files, "command": spec.command,
+            "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
+            "commit": head, "main": main_sha,
+            "spec": spec_hash(issue["body"] or "")}
 
 
-def _paths() -> Paths:
+def check_frozen(issue: dict, comments: list[str]) -> dict:
+    """The spec may not change after ready. Returns the ready record."""
+    ready = last_record(comments, "ready")
+    if ready is None:
+        raise Refused(f"piece {issue['number']} has no ready record",
+                      "move it back to shaping and through the ready gate")
+    if ready["spec"] != spec_hash(issue["body"] or ""):
+        raise Refused("the spec changed after the piece became ready",
+                      "pull the piece back to shaping and take it through ready again")
+    return ready
+
+
+def judge(folder: Path, ready: dict) -> tuple[bool, str]:
+    """Run the frozen judge in a build folder. The bar must be unchanged."""
+    if ready["files"] and bar_hash_in(folder, ready["files"]) != ready["bar"]:
+        return False, "the judge files differ from the ones fixed at ready"
+    code, output = run_judge(folder, ready["command"])
+    if code != 0:
+        return False, output
+    if ready.get("keep"):
+        kcode, koutput = run_judge(folder, ready["keep"])
+        if kcode != 0:
+            return False, f"the judge passes, but the keep check now fails:\n{koutput}"
+    return True, output
+
+
+# ---------------------------------------------------------------- moves
+
+def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
+         folder: Optional[Path] = None, pr: str = "") -> str:
+    issue = gh.issue(n)
+    frm = state_of(issue)
+    name = MOVES.get((frm, to))
+    if name is None:
+        allowed = sorted(t for (f, t) in MOVES if f == frm)
+        raise Refused(f"there is no move from {frm} to {to}",
+                      f"from {frm} a piece can go to: {', '.join(allowed)}")
+    if name in NEEDS_REASON and not reason:
+        raise Refused(f"the {name} move needs a reason", "pass --reason")
+
+    record: dict = {"move": name, "from": frm, "to": to}
+    note = f"{frm} → {to} ({name})."
+    comments = gh.comments(n)
+    if name == "ready":
+        record = {**check_ready(root, issue), "from": frm, "to": to}
+        if record["kind"] == "scaffold":
+            note += " Scaffold piece: the fails-on-main check does not apply."
+        else:
+            note += " The judge fails on main as it should, naming every spec ID to build."
+            if record["stays"]:
+                note += f" {', '.join(record['stays'])} already hold on main, as marked."
+        if record["keep"]:
+            note += f" The keep check `{record['keep']}` passes on main."
+        note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
+    elif name == "claim":
+        check_frozen(issue, comments)
+    elif name == "submit":
+        ready = check_frozen(issue, comments)
+        if folder is None or not pr:
+            raise Refused("submit needs the build folder and the pull request",
+                          "the run makes this move, not a person")
+        passed, output = judge(folder, ready)
+        if not passed:
+            raise Refused(f"the judge does not pass:\n{output.strip()[-1500:]}")
+        record["pr"] = pr
+        note += f" The gate ran the judge and it passed. Pull request: {pr}"
+    elif name == "merged":
+        found = gh.pr_for_branch(branch_name(n))
+        if not found or found["state"] != "MERGED":
+            raise Refused(f"the pull request for {branch_name(n)} is not merged",
+                          "the person merges it on GitHub")
+    if reason:
+        record["reason"] = reason
+        note += f" Reason: {reason}"
+
+    add = [STATE_PREFIX + to]
+    remove = [STATE_PREFIX + frm]
+    if name in ("give-back", "reject"):
+        add.append(NEEDS_YOU)
+    elif NEEDS_YOU in issue["labels"] and to in ("ready", "dropped", "done"):
+        remove.append(NEEDS_YOU)
+    gh.comment(n, record_text(record, note))
+    gh.set_labels(n, add, remove)
+    if issue.get("state", "OPEN") == "OPEN":
+        if to == "done":
+            gh.close(n, "completed")
+        elif to == "dropped":
+            gh.close(n, "not planned")
+    return note
+
+
+def capture(gh: GitHub, title: str, body: str) -> int:
+    n = gh.create_issue(title, body, [STATE_PREFIX + "shaping"])
+    gh.comment(n, record_text({"move": "capture", "from": "new", "to": "shaping"},
+                              "new → shaping (capture)."))
+    return n
+
+
+def sync(gh: GitHub, root: Path) -> list[str]:
+    notes = []
+    # The pull request's closing words close the issue when it merges, so a
+    # merged piece may already be closed. Look at closed issues too.
+    for item in gh.issues_with_label(STATE_PREFIX + "approval", closed_too=True):
+        found = gh.pr_for_branch(branch_name(item["number"]))
+        if found and found["state"] == "MERGED":
+            notes.append(f"{item['number']}: " + move(gh, root, item["number"], "done"))
+    return notes
+
+
+def init(gh: GitHub, root: Path) -> None:
+    for s in STATES:
+        gh.ensure_label(STATE_PREFIX + s, LABEL_COLOURS[s], f"Loop state: {s}. Only the gate sets it.")
+    gh.ensure_label(NEEDS_YOU, "d93f0b", "The piece waits for the person.")
+    ignore_loop_folder(root)
+
+
+# Files that tools make while tests run. A run must never commit them.
+GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/",
+             ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage"]
+
+
+def ignore_loop_folder(root: Path) -> None:
+    """Ignore .loop/ and generated files through git's local exclude file. A
+    builder never edits that file, and the project's own files stay as they are."""
+    common = Path(sh(["git", "rev-parse", "--git-common-dir"], root).stdout.strip())
+    exclude = (common if common.is_absolute() else root / common) / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    text = exclude.read_text() if exclude.exists() else ""
+    have = text.splitlines()
+    missing = [g for g in GENERATED if g not in have]
+    if missing:
+        exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n")
+                           + "\n".join(missing) + "\n")
+
+
+def status(gh: GitHub) -> str:
+    lines = []
+    for s in STATES[:4]:
+        items = gh.issues_with_label(STATE_PREFIX + s)
+        lines.append(f"{s}: " + (", ".join(
+            f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
+            for i in items) or "none"))
+    return "\n".join(lines)
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    p = argparse.ArgumentParser(prog="gate.py", description=__doc__.split("\n\n")[0])
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("init")
+    c = sub.add_parser("capture")
+    c.add_argument("--title", required=True)
+    c.add_argument("--body-file", required=True)
+    ck = sub.add_parser("check")
+    ck.add_argument("n", type=int)
+    m = sub.add_parser("move")
+    m.add_argument("n", type=int)
+    m.add_argument("to", choices=STATES)
+    m.add_argument("--reason", default="")
+    sub.add_parser("sync")
+    sub.add_parser("status")
+    args = p.parse_args(argv)
+
+    root = repo_root(Path.cwd())
+    gh = GitHub(root)
     try:
-        root = find_project_root(Path.cwd())
-    except PathError as error:
-        raise Failure(str(error), next_command="cd <the project>, then run gate.py again",
-                      code=ExitCode.ENVIRONMENT) from error
-    return Paths.for_project(root)
-
-
-def _options(raw: list[str]) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for item in raw:
-        key, sep, value = item.partition("=")
-        if not sep or not key:
-            raise Failure(f"--option {item!r} is not KEY=VALUE", code=ExitCode.USAGE,
-                          next_command=f"{PROG} move --help")
-        found[key] = value
-    return found
-
-
-def _branch(gate: moves.Gate, paths: Paths, args: argparse.Namespace, dry: bool) -> dict[str, Any]:
-    piece = gate.piece(args.number)
-    number = piece.number
-    name = f"piece-{number}"
-    parsed = spec.parse(piece.body).to_dict()
-    scaffold = parsed["found"] and parsed["path"] == "quick" and ready_gate._is_scaffold(parsed)
-    command = str(parsed["judge"]["command"] or "") if scaffold else ""
-    if scaffold:
-        bootstrap.check(paths.root, command)
-    root = str(paths.root)
-    have = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q",
-                           f"refs/heads/{name}"], capture_output=True, text=True, check=False)
-    made = False
-    if scaffold and have.returncode == 0:
-        bootstrap.check(paths.root, command, ref=name, use_working_marker=False)
-    if have.returncode != 0 and not dry:
-        done = subprocess.run(["git", "-C", root, "branch", name, "main"],
-                              capture_output=True, text=True, check=False)
-        if done.returncode != 0:
-            raise Failure(f"git could not make {name} from main ({done.stderr.strip()})",
-                          next_command=f"git -C {root} branch --list", code=ExitCode.FAILURE)
-        made = True
-    out: dict[str, Any] = {"piece": number, "branch": name, "made": made}
-    if args.push and not dry:
-        try:
-            out.update(github.push(paths, name))
-        except github.NoApp as error:
-            raise Failure(
-                error.message,
-                next_command=f"tell the person to run, in their own terminal: cd {root} && "
-                f"git push origin {name} (their pre-push hook scans for secrets)",
-                code=ExitCode.REFUSED,
-            ) from error
-    return out
-
-
-def _check_main(gate: moves.Gate, hub: github.GitHub, paths: Paths, *, quiet: bool
-                ) -> dict[str, Any]:
-    try:
-        loaded = policy.load(paths.policy_file) if paths.policy_file.exists() \
-            else policy.with_defaults({})
-    except policy.PolicyError as error:
-        raise Failure(f"the policy file cannot be used ({error})", next_command="fix "
-                      f"{paths.policy_file}, then run {PROG} check-main again",
-                      code=ExitCode.ENVIRONMENT) from error
-    limit = int(loaded["test_timeout_seconds"])
-    command = str(loaded["test_command"])
-
-    def run_tests(ref: str) -> dict[str, Any]:
-        return judge.run(command, paths.root, ref, time_limit=limit)
-
-    found = merge_gate.check_main(
-        paths, settle=lambda number: gate.move(number, "done"), run_tests=run_tests,
-        test_command=command, app=hub.available, dry_run=quiet,
-        record=lambda number, entry: evidence.append(paths, number, [entry]))
-    if quiet:
-        waiting = found["merges"]
-        found["line"] = (
-            f"The person merged pull request {waiting[0]['pull_request']}"
-            + (" after main moved" if waiting[0]["main_moved"] else "")
-            + f". Run {PROG} check-main to record it and check main." if waiting else "")
-        return found
-    red = [m for m in found["merges"] if m.get("main_check") == "red"]
-    if red or (found["unreadable"] and not found["merges"]):
-        raise Failure(
-            found["next"] or "a merge on GitHub could not be read",
-            next_command=found["next"] or f"{PROG} check-main again",
-            code=ExitCode.FAILURE if red else ExitCode.ENVIRONMENT, data=found)
-    return found
-
-
-def handle(args: argparse.Namespace) -> dict[str, Any]:
-    paths = _paths()
-    dry = bool(getattr(args, "dry_run", False))
-    command = args.command
-    person = command == "sync"
-    hub = github.GitHub(paths, as_person=person)
-    gate = moves.Gate(paths, hub, env=os.environ)
-    try:
-        if command == "capture":
-            body = _read(args.body_file) if args.body_file else None
-            if args.number is None and body is None:
-                raise Failure("a new piece needs --body-file", code=ExitCode.USAGE,
-                              next_command=f'{PROG} capture --title "<t>" --body-file <file>')
-            return gate.capture(title=args.title, body=body, issue_type=args.type,
-                                number=args.number, dry_run=dry)
-        if command == "move-record" and args.target not in {"shaping", "dropped", "approval"}:
-            raise Failure("move-record admits only non-executing targets", code=ExitCode.REFUSED,
-                          next_command=f"{PROG} move-record --help")
-        if command in {"move", "move-record"}:
-            return gate.move(args.number, args.target, reason=args.reason,
-                             options=_options(args.option), dry_run=dry)
-        if command == "drop":
-            return gate.move(args.number, "dropped", reason=args.reason, dry_run=dry)
-        if command == "answer":
-            return gate.answer(args.number, question=args.question, answer=args.answer,
-                               by=args.by, parked=args.parked, dry_run=dry)
-        if command == "spec":
-            return gate.set_spec(args.number, _read(args.body_file), dry_run=dry)
-        if command == "comment":
-            text = args.text if args.text is not None else _read(args.body_file)
-            return gate.comment(args.number, text, dry_run=dry)
-        if command == "report":
-            return gate.report(brief=args.brief, number=args.number)
-        if command == "labels":
-            return gate.create_labels(dry_run=dry)
-        if command == "branch":
-            return _branch(gate, paths, args, dry)
-        if command == "check-main":
-            return _check_main(gate, hub, paths, quiet=bool(args.brief or dry))
-        if command == "sync":
-            if github.in_agent_session(os.environ):
-                raise moves.MoveError(
-                    "gate.py sync acts with the person's own sign-in, so only the person "
-                    "runs it, never an agent session",
-                    next_command=github.sync_command(paths.root),
-                )
-            return gate.sync(hub, dry_run=dry, confirm=args.confirm)
-    except moves.MoveError as error:
-        raise Failure(error.message, next_command=error.next_command, code=error.code,
-                      data=error.data) from error
-    except github.GitHubError as error:
-        raise Failure(error.message, next_command=error.next_command, code=error.code) from error
-    except evidence.EvidenceError as error:
-        raise Failure(str(error), next_command=error.next_command,
-                      code=ExitCode.REFUSED) from error
-    except spec.SpecError as error:
-        raise Failure(str(error), next_command=error.next_command,
-                      code=ExitCode.REFUSED if error.refused else ExitCode.FAILURE) from error
-    raise Failure(f"{command} is not a command", next_command=f"{PROG} --help",
-                  code=ExitCode.USAGE)
-
-
-def main(argv: list[str]) -> int:
-    return run(PROG, "The only way a piece changes state.", setup, handle, argv,
-               changes_state=True)
+        if args.cmd == "init":
+            init(gh, root)
+            print("ok: labels made, .loop/ ignored locally")
+        elif args.cmd == "capture":
+            n = capture(gh, args.title, Path(args.body_file).read_text())
+            print(f"ok: captured piece {n} in shaping")
+        elif args.cmd == "check":
+            issue = gh.issue(args.n)
+            rec = check_ready(root, issue)
+            print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
+        elif args.cmd == "move":
+            print("ok: " + move(gh, root, args.n, args.to, args.reason))
+        elif args.cmd == "sync":
+            print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
+        elif args.cmd == "status":
+            print(status(gh))
+    except Refused as r:
+        print(f"refused: {r.reason}", file=sys.stderr)
+        if r.next_step:
+            print(f"next: {r.next_step}", file=sys.stderr)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
