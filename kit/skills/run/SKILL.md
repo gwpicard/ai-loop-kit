@@ -20,8 +20,11 @@ description: Builds the ready pieces. Each attempt is a fresh Claude session; th
 4. Report the result: each pull request link for the person to read and merge, and each piece sent back to shaping with its reason.
    Done when: the person has every link and reason.
 5. After the person merges, run `python3 "<KIT>/scripts/gate.py" sync` to move merged pieces to done.
+6. If the person rejects a pull request, move the piece back in their words: `python3 "<KIT>/scripts/gate.py" move <n> shaping --reason "<their words>"`. Leave the pull request open; the next build pushes to the same branch and updates it. If the spec or the judge must change, use `/ai-loop-kit:shape`. Then the piece goes through ready again, and the next build gets the reason.
+   Done when: the piece is in shaping with the person's reason on the issue.
 
 ## Rules
 - Never build a piece yourself in this session. The run builds; the gate judges.
 - Never merge a pull request. The person merges.
 - Never move a state label by hand.
+- Never reset, rewrite or force-push a piece branch. The run refuses a branch whose pushed commits are missing locally.

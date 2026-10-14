@@ -55,6 +55,9 @@ WRONG_REASON = re.compile(r"SyntaxError|IndentationError|ERROR collecting|"
 # A line that reports a failing test: pytest, unittest, TAP and plain runners.
 FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
 
+# The judge passes and the keep check fails only because of the judge files.
+BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
+
 LABEL_COLOURS = {"shaping": "c5def5", "ready": "0e8a16", "building": "fbca04",
                  "approval": "5319e7", "done": "006b75", "dropped": "cccccc"}
 
@@ -177,8 +180,28 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if ready.get("keep"):
         kcode, koutput = run_judge(folder, ready["keep"])
         if kcode != 0:
+            if ready["files"] and keep_passes_without_judge(folder, ready):
+                return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
             return False, f"the judge passes, but the keep check now fails:\n{koutput}"
     return True, output
+
+
+def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
+    """Run the keep check once with the judge files set aside. If it passes,
+    the judge files break it, and no build can fix that."""
+    aside = Path(tempfile.mkdtemp(prefix="loop-aside-"))
+    moved = []
+    try:
+        for i, f in enumerate(ready["files"]):
+            if (folder / f).is_file():
+                shutil.move(str(folder / f), str(aside / str(i)))
+                moved.append((aside / str(i), folder / f))
+        code, _ = run_judge(folder, ready["keep"])
+        return code == 0
+    finally:
+        for held, home in moved:
+            shutil.move(str(held), str(home))
+        shutil.rmtree(aside, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- moves

@@ -46,5 +46,7 @@ DATA>>>
 
 - Never push, and never run `gh`. The run does that after the gate checks you.
 - Never change a file under `.claude/` or `.githooks/`.
+- Never weaken a project check to pass: no lint rule turned off, no test
+  skipped, no setting loosened. If a check cannot pass, say why and stop.
 - If the guard refuses a command, do not reach the same result another way.
   Say what was refused and stop.
