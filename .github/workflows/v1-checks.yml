@@ -1,5 +1,4 @@
-# Run the complete offline rehearsal suite on pull requests and main.
-name: v1 checks
+name: checks
 on:
   pull_request:
   push:
@@ -8,41 +7,21 @@ on:
 permissions:
   contents: read
 jobs:
-  rehearsal:
-    # The gate names this repository only.
+  checks:
     if: github.repository == 'gwpicard/ai-loop-kit'
-    # The computer stand-ins model macOS tools used by the pre-run check.
-    runs-on: macos-15
-    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.9', '3.12']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.10'
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '22'
-      - name: Check the offline test path
-        run: |
-          if command -v claude >/dev/null 2>&1; then
-            echo "Remove real Claude from the test PATH, then rerun." >&2
-            exit 1
-          fi
-      - name: Install check tools
-        run: |
-          python3 -m pip install pytest==8.4.2 ruff==0.15.12 mypy==1.17.1
-          npm install --no-save --ignore-scripts playwright
-      - name: Rehearse
-        id: rehearse
-        env:
-          MERGE_DECISION_ARTIFACT_DIR: ${{ runner.temp }}/merge-decision-evidence
-        run: tests/run-all.sh
-      - name: Keep failed merge rehearsal evidence
-        if: failure() && steps.rehearse.outcome == 'failure'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: merge-decision-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/merge-decision-evidence
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 7
+          python-version: ${{ matrix.python }}
+      - run: |
+          git config --global user.email checks@example.invalid
+          git config --global user.name checks
+      - run: tests/run-all.sh
