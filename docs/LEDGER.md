@@ -47,6 +47,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 13 Oct 2026 | loop-test-thin, piece 12 | The first builder found the judge contradicts itself. Attempts 2 and 3 found the same thing (about 30 seconds wasted). No builder gamed the judge. | A "the bar is wrong" hand-back that ends the piece's attempts early. Partly earned on 14 Oct: the keep-on-judge-files case stops early; a judge that contradicts itself still uses every attempt |
 | 13 Oct 2026 | loop-test-thin, piece 12 | Reshaping a returned piece needed a new spec. The gate has no command for that, so shaping used `gh issue edit`. Safe, because the gate rechecks the spec hash before a build, but it is a second door. | A `gate.py spec` command, so every spec change goes through the gate |
 | 14 Oct 2026 | loop-test-existing, piece 3 | To fix a pull request the person rejected, the gate has a rebuild move (approval to building), but the run only picks up ready pieces. The person fixed the branch by hand. | The run picks up pieces sent back to building. Answered on 14 Oct another way: a rejected piece goes back through shaping and ready, and the brief carries the reason |
+| 14 Oct 2026 | loop-test-node, piece 6 | Just after a move to ready, `gate.py status` still showed the piece in shaping. GitHub's issue list lagged. The session checked again and went on. | Status reads each piece directly, not the search list (not earned: one sighting, no harm) |
 
 ## What is in the thin kit today
 
