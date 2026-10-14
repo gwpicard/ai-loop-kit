@@ -21,6 +21,13 @@ DATA>>>
 
 {{APPROACH}}
 
+## Code that depends on what you change
+
+The run found these project files that import modules or files named under
+Approach. Check them when changing the public shape:
+
+{{DEPENDENTS}}
+
 ## The judge
 
 The gate decides if you are done by running this command itself:
@@ -45,7 +52,9 @@ DATA>>>
 2. Build the smallest change that makes the judge pass.
 3. Run the judge command often.
 4. Commit your work on this branch with plain messages. Do not push.
-5. Stop when the judge passes, and say in two or three lines what you built
+5. Write `.loop/why.md` with exactly two short paragraphs: why this change;
+   then what could go wrong. Do not include implementation notes.
+6. Stop when the judge passes, and say in two or three lines what you built
    and any choice you made alone.
 
 ## Never

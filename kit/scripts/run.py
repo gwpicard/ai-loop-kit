@@ -12,6 +12,7 @@ person to merge. Three failures send the piece back to shaping with the reason.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -113,7 +114,57 @@ def came_back_reason(comments: list[str]) -> str:
     return "\n".join(reasons)
 
 
-def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = "") -> str:
+def dependent_files(folder: Path, approach: str, changed: list[str],
+                    exclude: Optional[list[str]] = None) -> list[str]:
+    """List project source files that import a path or module named by the piece."""
+    names = set()
+    for path in changed:
+        names.add(Path(path).stem)
+    paths = re.findall(r"(?<![\w.-])([\w./-]+\.(?:py|js|jsx|ts|tsx|mjs|cjs))\b", approach)
+    for path in paths:
+        names.add(Path(path).stem)
+    if not names:
+        return []
+    ignored = {".git", ".venv", "venv", "node_modules", "dist", "build", ".loop"}
+    excluded = set(exclude or [])
+    found = []
+    for path in folder.rglob("*"):
+        relative = path.relative_to(folder).as_posix()
+        if not path.is_file() or ignored.intersection(path.parts) or relative in excluded:
+            continue
+        if any(part.lower() in {"test", "tests", "__tests__"} for part in path.parts) or \
+                path.name.startswith("test_"):
+            continue
+        if path.suffix not in {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+            continue
+        try:
+            source = path.read_text(errors="replace")
+        except OSError:
+            continue
+        depends = False
+        if path.suffix == ".py":
+            try:
+                tree = ast.parse(source)
+                imported = set()
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        imported.update(alias.name.split(".")[0] for alias in node.names)
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        imported.add(node.module.split(".")[0])
+                depends = bool(imported & names)
+            except SyntaxError:
+                depends = any(re.search(rf"\b{re.escape(name)}\b", source) for name in names)
+        else:
+            depends = bool(re.search(r"\b(?:import|require)\b", source)) and any(
+                re.search(rf"(?:[/.'\"]|\b){re.escape(name)}(?:[/.'\"]|\b)", source)
+                for name in names)
+        if depends:
+            found.append(path.relative_to(folder).as_posix())
+    return sorted(set(found))
+
+
+def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = "",
+          folder: Optional[Path] = None) -> str:
     text = (KIT / "briefs" / "builder.md").read_text()
     files = "\n".join(f"- `{f}`" for f in ready["files"]) or "- (none: the command is the judge)"
     earlier = last_failure or "This is the first attempt."
@@ -124,7 +175,10 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
     for key, value in {"PIECE": str(n), "SPEC": body.strip(),
                        "APPROACH": ready.get("approach", "") or "No approach was supplied.",
                        "COMMAND": ready["command"],
-                       "FILES": files, "LAST_FAILURE": earlier}.items():
+                       "FILES": files,
+                       "DEPENDENTS": "\n".join(f"- `{f}`" for f in dependent_files(
+                           folder or Path.cwd(), ready.get("approach", ""), [], ready.get("files"))) or "- (none found)",
+                       "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
     return text
 
@@ -491,7 +545,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         logfile = logs / f"piece-{n}-attempt-{k}.log"
         started = time.monotonic()
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
-        build_once(folder, brief(n, issue["body"], ready, last_failure, came_back),
+        build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
                    ready["files"], logfile, ready.get("settings", False))
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
@@ -546,12 +600,69 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     return f"piece {n}: back to shaping, needs you"
 
 
+def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str]:
+    main = main_ref(folder)
+    paths = sh(["git", "diff", "--name-only", f"{main}...HEAD"], folder).stdout.splitlines()
+    grouped: dict[str, list[str]] = {}
+    for path in paths:
+        area = Path(path).parts[0] if len(Path(path).parts) > 1 else "root"
+        grouped.setdefault(area, []).append(path)
+    areas = "\n".join(f"- **{area}:** " + ", ".join(f"`{p}`" for p in sorted(files))
+                      for area, files in sorted(grouped.items())) or "- No tracked files changed."
+    added = sh(["git", "diff", "--name-only", "--diff-filter=A", f"{main}...HEAD"],
+               folder).stdout.splitlines()
+    tests = [p for p in added if "test" in p.lower() or Path(p).name.startswith("test_")
+             or p in ready.get("files", [])]
+    tests_text = ", ".join(f"`{p}`" for p in tests) if tests else "none added"
+    manifests = [p for p in paths if Path(p).name in
+                 {"package.json", "pyproject.toml", "requirements.txt", "requirements-dev.txt"}
+                 or Path(p).name.startswith("requirements") and p.endswith(".txt")]
+    dependencies = []
+    for manifest in manifests:
+        diff = sh(["git", "diff", "--no-ext-diff", "--unified=0", f"{main}...HEAD", "--", manifest],
+                  folder).stdout
+        additions = [line[1:].strip() for line in diff.splitlines()
+                     if line.startswith("+") and not line.startswith("+++")]
+        dependencies.append(f"`{manifest}`: " + (", ".join(additions) if additions else "changed"))
+    dependency_text = "; ".join(dependencies) if dependencies else "none"
+    settings = loop_settings(folder)
+    protected = settings.get("protected paths", [])
+    risk = []
+    if any(any(path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/") for p in protected)
+           for path in paths):
+        risk.append("protected paths touched")
+    if any(re.search(r"(^|/)(migrations?|alembic)(/|$)", p, re.I) for p in paths):
+        risk.append("migration files touched")
+    if any(re.search(r"(^|/)(config|\.github)(/|$)|(^|/)[^/]*config[^/]*$", p, re.I)
+           or p.startswith(".github/") for p in paths):
+        risk.append("configuration or CI files touched")
+    changed_settings = changed_check_settings(folder)
+    if changed_settings:
+        risk.append("check settings touched: " + ", ".join(changed_settings))
+    importers = dependent_files(folder, ready.get("approach", ""), paths, ready.get("files"))
+    risk.append(f"{len(importers)} project file(s) import a named or changed module")
+    migration_count = sum(bool(re.search(r"(^|/)(migrations?|alembic)(/|$)", p, re.I)) for p in paths)
+    revert = f"Revert {len(paths)} changed file(s)" + (
+        f" and account for {migration_count} migration file(s)" if migration_count else "") + "."
+    risk_text = "\n".join(f"- {line}" for line in risk) if risk else "- No flagged paths."
+    risk_text += "\n- Importers: " + (", ".join(f"`{p}`" for p in importers) if importers else "none found")
+    why_path = folder / ".loop" / "why.md"
+    why = why_path.read_text(errors="replace").strip() if why_path.is_file() else "Why: not supplied.\n\nWhat could go wrong: not supplied."
+    evidence = (f"- Judge, Keep and Quality output:\n\n```text\n{output.strip()[-5000:]}\n```\n"
+                f"- Bar hash: `{ready['bar']}`\n- Judged commit: `{rev(folder, 'HEAD')}`\n"
+                f"- Tests added: {tests_text}\n- New dependencies: {dependency_text}\n- {revert}")
+    facts = ("## What changed\n\n" + areas + "\n\n## Risk\n\n" + risk_text +
+             "\n\n## Why and what could go wrong\n\n" + why + "\n")
+    return facts, evidence
+
+
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                       k: int, output: str, review: Optional[dict] = None) -> str:
     sh(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
+    facts, evidence = pull_request_facts(folder, last_record(gh.comments(n), "ready") or {}, output)
     body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
             f"The gate ran the frozen judge itself after attempt {k}, and it passed.\n\n"
-            f"<details><summary>Judge output</summary>\n\n```\n{output.strip()[-3000:]}\n```\n</details>\n")
+            f"{facts}\n## Evidence\n\n{evidence}\n")
     review = review or {}
     if review.get("contract_findings"):
         body = ("## Contract review findings\n\n" + "\n".join(

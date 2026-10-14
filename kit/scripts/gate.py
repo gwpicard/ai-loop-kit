@@ -224,6 +224,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
             if ready["files"] and keep_passes_without_judge(folder, ready):
                 return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
             return False, f"the judge passes, but the keep check now fails:\n{koutput}"
+        output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
     for command in loop_settings(folder).get("quality", []):
         qcode, qoutput = run_judge(folder, command)

@@ -448,6 +448,10 @@ FAKE_CLAUDE = textwrap.dedent('''\
       *) printf 'def add(items, name):\\n    return items\\n' > habits.py ;;
     esac
     git add -A && git commit --quiet -m "Build"
+    if [ "$FAKE_MODE" = good ]; then
+      mkdir -p .loop
+      printf 'This change lets the user add a habit.\\n\\nA typo could save a duplicate.\\n' > .loop/why.md
+    fi
     echo "built"
     ''')
 
@@ -530,6 +534,22 @@ class RunTest(unittest.TestCase):
         self.assertTrue((logs / f"piece-{n}-standards-review.log").is_file())
         self.assertTrue((logs / f"piece-{n}-contract-review.log").is_file())
 
+    def test_pull_request_contains_facts_evidence_and_the_builder_reason(self):
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        body = self.p.gh.prs[f"piece/{n}"]["body"]
+        for part in ("## What changed", "## Risk", "## Evidence", "Bar hash:",
+                     "Judged commit:", "Judge, Keep and Quality output", "judge_add.py",
+                     "This change lets the user add a habit.", "A typo could save a duplicate."):
+            self.assertIn(part, body)
+        self.assertIn("Tests added:", body)
+
+    def test_import_scan_finds_python_dependants_for_approach(self):
+        (self.p.root / "consumer.py").write_text("import habits\n")
+        (self.p.root / "habits.py").write_text("def add(): pass\n")
+        self.assertEqual(run.dependent_files(self.p.root, "Change `habits.py`", ["habits.py"]),
+                         ["consumer.py"])
+
     def test_standards_reviewer_changes_are_committed_and_judged(self):
         (self.p.root / "standards.md").write_text("Use small local changes.\n")
         self.p.loop_section("true")
@@ -573,6 +593,20 @@ class RunTest(unittest.TestCase):
         self.assertIn("pull request ready", result)
         self.assertIn("state:approval", self.p.gh.issue(n)["labels"])
         self.assertIn(f"piece/{n}", git(self.p.remote, "branch"))
+
+    def test_submit_evidence_includes_a_passing_keep_result(self):
+        self.p.loop_section("true")
+        n = self.p.piece(spec=SPEC.replace("Files:", "Keep: `true`\nFiles:"))
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        os.environ["FAKE_MODE"] = "good"
+        fake = Path(os.environ["LOOP_CLAUDE"])
+        subprocess.run([str(fake)], cwd=folder, check=True, env={**os.environ,
+                       "LOOP_BUILDER": "1"})
+        run.commit_leftovers(folder, n, 1)
+        passed, output = gate.judge(folder, gate.last_record(self.p.gh.comments(n), "ready"))
+        self.assertTrue(passed, output)
+        self.assertIn("Keep: true", output)
 
     def test_a_failing_build_goes_back_to_shaping(self):
         n, result = self.build("bad")
