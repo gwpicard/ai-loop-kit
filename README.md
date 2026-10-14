@@ -38,8 +38,8 @@ with a first commit on `main`.
 2. Shape a piece with `/ai-loop-kit:shape`.
 3. Build ready pieces with `/ai-loop-kit:run`.
 4. Review the pull request on GitHub and merge it.
-5. Sync the merged piece with `python3 "<KIT>/scripts/gate.py" sync`, using
-   the kit's installed path for `<KIT>`.
+5. After you merge, tell Claude the pull request is merged. The run skill
+   then runs `gate.py sync`, which moves merged pieces to done.
 
 ## Limits
 
