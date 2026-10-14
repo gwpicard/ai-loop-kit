@@ -159,10 +159,26 @@ def _pyproject_checks(text: str) -> dict:
     return sections
 
 
+def _changed_files(folder: Path) -> tuple[str, list[str]]:
+    """Where this branch left main, and the files it changes since."""
+    base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
+    return base, sh(["git", "diff", "--name-only", base], folder).stdout.split()
+
+
+def conflict_markers(folder: Path) -> list[str]:
+    """Changed files that still hold merge conflict markers."""
+    _, names = _changed_files(folder)
+    names = [f for f in names if (folder / f).is_file()]
+    if not names:
+        return []
+    res = sh(["git", "grep", "-l", "-I", "-E", "^(<<<<<<<|>>>>>>>)( |$)", "--", *names],
+             folder, check=False)
+    return res.stdout.split()
+
+
 def changed_check_settings(folder: Path) -> list[str]:
     """The check settings this branch changes, compared with where it left main."""
-    base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
-    names = sh(["git", "diff", "--name-only", base], folder).stdout.split()
+    base, names = _changed_files(folder)
     changed = []
     for name in names:
         short = name.rsplit("/", 1)[-1]

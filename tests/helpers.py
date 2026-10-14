@@ -1,6 +1,7 @@
 """Test helpers: an in-memory GitHub and a throwaway project with a remote."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -135,6 +136,8 @@ class Project:
         git(self.root, "remote", "add", "origin", str(self.remote))
         git(self.root, "push", "--quiet", "-u", "origin", "main")
         self.gh = FakeGitHub()
+        self._worktrees = os.environ.get("LOOP_WORKTREES")
+        os.environ["LOOP_WORKTREES"] = str(base / "build-folders")
 
     def piece(self, judge: str = JUDGE, spec: str = SPEC) -> int:
         import gate
@@ -156,5 +159,14 @@ class Project:
         git(self.root, "commit", "--quiet", "-m", "Loop section")
         git(self.root, "push", "--quiet", "origin", "main")
 
+    def folder(self, n: int) -> Path:
+        """The run's build folder for a piece."""
+        import run
+        return run.worktree_home(self.root) / f"piece-{n}"
+
     def close(self) -> None:
+        if self._worktrees is None:
+            os.environ.pop("LOOP_WORKTREES", None)
+        else:
+            os.environ["LOOP_WORKTREES"] = self._worktrees
         self.tmp.cleanup()
