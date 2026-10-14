@@ -19,6 +19,8 @@ STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
+REASON_TYPES = ("spec-unclear", "bar-wrong", "environment", "builder-failed",
+                "person-rejected", "conflict")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
@@ -427,6 +429,9 @@ class GitHub:
 
     def comment(self, n: int, text: str) -> None:
         self._gh("issue", "comment", str(n), "--body-file", "-", stdin=text)
+
+    def edit_body(self, n: int, body: str) -> None:
+        self._gh("issue", "edit", str(n), "--body-file", "-", stdin=body)
 
     def comments(self, n: int) -> list[str]:
         """Comments from people who can push to the repository. On a public

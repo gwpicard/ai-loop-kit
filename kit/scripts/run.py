@@ -42,7 +42,7 @@ def came_back_reason(comments: list[str]) -> str:
     for r in records(comments):
         if r.get("move") == "claim":
             built = True
-        elif built and r.get("move") in ("reject", "pull-back", "give-back", "rebuild"):
+        elif built and r.get("move") in ("reject", "pull-back", "give-back"):
             reasons.append(f"- {r.get('reason', '')}")
     return "\n".join(reasons)
 
@@ -173,7 +173,7 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     except Exception as e:  # never leave a piece in building
         reason = f"the run stopped with an error: {str(e).strip()[:300]}"
         if gate.state_of(gh.issue(n)) == "building":
-            gate.move(gh, root, n, "shaping", reason=reason)
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
         result = f"piece {n}: back to shaping, {reason}"
     if gate.state_of(gh.issue(n)) == "shaping":
         release_worktree(root, n)
@@ -195,7 +195,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         if not conflicts:
             sh(["git", "merge", "--abort"], folder, check=False)
             reason = f"{branch_name(n)} does not merge with {main}"
-            gate.move(gh, root, n, "shaping", reason=reason)
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="conflict")
             return f"piece {n}: back to shaping, {reason}"
         log(f"piece {n}: main changed; the builder resolves conflicts in {', '.join(conflicts)}")
         merge_note = ("Main changed since this piece was built. This folder holds an unfinished "
@@ -209,7 +209,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
-        gate.move(gh, root, n, "shaping", reason=reason)
+        gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
         return f"piece {n}: back to shaping, {reason}"
     record_prepare_outputs(folder, before, before_dirs)
 
@@ -222,6 +222,14 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         build_once(folder, brief(n, issue["body"], ready, last_failure, came_back),
                    ready["files"], logfile, ready.get("settings", False))
+        outcome = folder / ".loop" / "outcome"
+        if outcome.is_file():
+            lines = outcome.read_text(errors="replace").splitlines()
+            if lines and lines[0].strip() == "bar-wrong" and "\n".join(lines[1:]).strip():
+                reason = "\n".join(lines[1:]).strip()[:500]
+                gh.comment(n, f"**Run:** attempt {k} reports bar-wrong: {reason}")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+                return f"piece {n}: back to shaping, {reason}"
         commit_leftovers(folder, n, k)
         passed, output = gate.judge(folder, ready)
         if passed:
@@ -233,7 +241,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
                           "check fails on the judge files themselves. The run stops here.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             reason = "the keep check fails on the judge files themselves; fix the judge"
-            gate.move(gh, root, n, "shaping", reason=reason)
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
             return f"piece {n}: back to shaping, {reason}"
         if "differ from the ones fixed at ready" in output:
             restore_bar(folder, ready)
@@ -247,7 +255,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
                       f"The builder said:\n\n<<<\n{said}\n>>>\n\n"
                       f"The judge said:\n\n```\n{output.strip()[-1500:]}\n```")
     reason = f"the judge still fails after {attempts} attempts; see the comments above"
-    gate.move(gh, root, n, "shaping", reason=reason)
+    gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
     return f"piece {n}: back to shaping, needs you"
 
 

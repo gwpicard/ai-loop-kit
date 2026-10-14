@@ -25,9 +25,10 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
+                     REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      conflict_markers, last_record, main_ref,
-                     loop_settings, parse_spec, prepare, record_text, repo_root, rev,
+                     loop_settings, parse_spec, prepare, record_text, records, repo_root, rev,
                      run_judge, sh, spec_hash)
 
 # (from, to): the move's name. Anything else is refused.
@@ -40,14 +41,14 @@ MOVES = {
     ("building", "approval"): "submit",
     ("approval", "done"): "merged",
     ("approval", "shaping"): "reject",
-    ("approval", "building"): "rebuild",
     ("dropped", "shaping"): "reopen",
 }
 for _s in ("shaping", "ready", "building", "approval"):
     MOVES[(_s, "dropped")] = "drop"
 
 # Moves that need a reason, because they send work back or end it.
-NEEDS_REASON = {"pull-back", "give-back", "reject", "rebuild", "drop", "reopen"}
+NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
+NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen"}
 
 # A judge that fails for one of these reasons fails for the wrong reason.
 WRONG_REASON = re.compile(r"SyntaxError|IndentationError|ERROR collecting|"
@@ -231,7 +232,7 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
 # ---------------------------------------------------------------- moves
 
 def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
-         folder: Optional[Path] = None, pr: str = "") -> str:
+         reason_type: str = "", folder: Optional[Path] = None, pr: str = "") -> str:
     issue = gh.issue(n)
     frm = state_of(issue)
     name = MOVES.get((frm, to))
@@ -241,6 +242,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
                       f"from {frm} a piece can go to: {', '.join(allowed)}")
     if name in NEEDS_REASON and not reason:
         raise Refused(f"the {name} move needs a reason", "pass --reason")
+    if name in NEEDS_TYPE and reason_type not in REASON_TYPES:
+        raise Refused(f"the {name} move needs a typed reason", "pass --type and --reason")
 
     record: dict = {"move": name, "from": frm, "to": to}
     note = f"{frm} → {to} ({name})."
@@ -277,6 +280,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     if reason:
         record["reason"] = reason
         note += f" Reason: {reason}"
+    if reason_type:
+        record["type"] = reason_type
 
     add = [STATE_PREFIX + to]
     remove = [STATE_PREFIX + frm]
@@ -394,6 +399,42 @@ def status(gh: GitHub) -> str:
     return "\n".join(lines)
 
 
+def report(gh: GitHub) -> str:
+    """Count hand-backs by typed reason and by piece from trusted records."""
+    counts: dict[str, int] = {}
+    pieces: dict[int, list[str]] = {}
+    seen: dict[int, set[str]] = {}
+    for state in STATES:
+        for issue in gh.issues_with_label(STATE_PREFIX + state, closed_too=True):
+            n = issue["number"]
+            if n in seen:
+                continue
+            seen[n] = set()
+            for record in records(gh.comments(n)):
+                kind = record.get("type")
+                if record.get("move") not in NEEDS_TYPE or kind not in REASON_TYPES:
+                    continue
+                key = f"{kind}: {record.get('reason', '')}"
+                counts[kind] = counts.get(kind, 0) + 1
+                pieces.setdefault(n, []).append(key)
+    lines = [f"{kind}: {counts.get(kind, 0)}" for kind in REASON_TYPES]
+    lines.append("by piece:")
+    lines += [f"{n}: " + "; ".join(items) for n, items in sorted(pieces.items())]
+    if not pieces:
+        lines.append("none")
+    return "\n".join(lines)
+
+
+def replace_spec(gh: GitHub, n: int, body: str) -> None:
+    """Replace a piece's spec only while it is in shaping."""
+    issue = gh.issue(n)
+    if state_of(issue) != "shaping":
+        raise Refused("the spec can only change while a piece is shaping",
+                      "move the piece back to shaping, then edit its spec")
+    parse_spec(body)
+    gh.edit_body(n, body)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="gate.py", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -407,9 +448,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     m.add_argument("n", type=int)
     m.add_argument("to", choices=STATES)
     m.add_argument("--reason", default="")
+    m.add_argument("--type", dest="reason_type", choices=REASON_TYPES, default="")
+    s = sub.add_parser("spec")
+    s.add_argument("n", type=int)
+    s.add_argument("--body-file", required=True)
     sub.add_parser("sync")
     sub.add_parser("status")
     sub.add_parser("doctor")
+    sub.add_parser("report")
     args = p.parse_args(argv)
 
     root = repo_root(Path.cwd())
@@ -426,7 +472,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             rec = check_ready(root, issue)
             print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
         elif args.cmd == "move":
-            print("ok: " + move(gh, root, args.n, args.to, args.reason))
+            print("ok: " + move(gh, root, args.n, args.to, args.reason,
+                                  args.reason_type))
+        elif args.cmd == "spec":
+            replace_spec(gh, args.n, Path(args.body_file).read_text())
+            print(f"ok: piece {args.n} spec replaced")
         elif args.cmd == "sync":
             print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
         elif args.cmd == "status":
@@ -439,6 +489,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     print(f"     next: {fix}")
             if not all(ok for ok, _, _ in checks):
                 return 2
+        elif args.cmd == "report":
+            print(report(gh))
     except Refused as r:
         print(f"refused: {r.reason}", file=sys.stderr)
         if r.next_step:

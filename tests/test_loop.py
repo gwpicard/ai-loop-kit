@@ -14,7 +14,7 @@ from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 
 import gate
 import run
-from loopkit import Refused, changed_check_settings, parse_spec, run_judge
+from loopkit import Refused, changed_check_settings, parse_spec, records, run_judge
 
 
 class SpecTest(unittest.TestCase):
@@ -45,6 +45,10 @@ class SpecTest(unittest.TestCase):
         body = ("## Intent\nRun the first project checks.\n\nOut of scope:\n- App behaviour.\n\n"
                 "## Contract\n- D1: tests run.\n\n## Judge\nCommand: `true`\nKind: scaffold\n")
         self.assertEqual(parse_spec(body).kind, "scaffold")
+
+    def test_done_when_remains_an_alias(self):
+        self.assertEqual(list(parse_spec(SPEC.replace("## Contract", "## Done when")).done_when),
+                         ["D1", "D2"])
 
     def test_ready_spec_needs_intent_scope_and_contract_id(self):
         body = SPEC.replace("Add a habit to the list.\n", "\n")
@@ -131,6 +135,33 @@ class GateTest(unittest.TestCase):
             gate.move(self.p.gh, self.p.root, n, "dropped")
         gate.move(self.p.gh, self.p.root, n, "dropped", reason="not needed")
         self.assertEqual(self.p.gh.issue(n)["state"], "CLOSED")
+
+    def test_moves_back_need_a_known_type_and_record_it(self):
+        n = self.p.piece()
+        self.ready(n)
+        with self.assertRaises(Refused) as r:
+            gate.move(self.p.gh, self.p.root, n, "shaping", reason="unclear")
+        self.assertIn("typed reason", r.exception.reason)
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="unclear",
+                  reason_type="spec-unclear")
+        self.assertEqual(records(self.p.gh.comments(n))[-1]["type"], "spec-unclear")
+
+    def test_spec_command_only_edits_a_valid_spec_while_shaping(self):
+        n = self.p.piece()
+        gate.replace_spec(self.p.gh, n, SPEC)
+        self.assertEqual(self.p.gh.issue(n)["body"], SPEC)
+        self.ready(n)
+        with self.assertRaises(Refused):
+            gate.replace_spec(self.p.gh, n, SPEC)
+
+    def test_report_counts_typed_handbacks(self):
+        n = self.p.piece()
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="bad spec",
+                  reason_type="spec-unclear")
+        report = gate.report(self.p.gh)
+        self.assertIn("spec-unclear: 1", report)
+        self.assertIn(f"{n}: spec-unclear: bad spec", report)
 
     def test_claim_refuses_a_spec_changed_after_ready(self):
         n = self.p.piece()
@@ -259,7 +290,8 @@ class GateTest(unittest.TestCase):
 
     def test_scaffold_ready_does_not_run_prepare_on_main(self):
         self.p.loop_section("true", prepare="test -f pyproject.toml")
-        spec = ("## Done when\n- D1: the scaffold test runs.\n\n## Judge\n"
+        spec = ("## Intent\nSet up the test runner.\n\nOut of scope:\n- Product code.\n\n"
+                "## Contract\n- D1: the scaffold test runs.\n\n## Judge\n"
                 "Command: `true`\nKind: scaffold\n")
         n = self.p.piece(spec=spec)
         self.ready(n)
@@ -344,6 +376,7 @@ FAKE_CLAUDE = textwrap.dedent('''\
     # A stand-in for claude -p. FAKE_MODE picks how it behaves.
     case "$FAKE_MODE" in
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
       cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
       lazy) : ;;
       loosen) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
@@ -385,7 +418,7 @@ class RunTest(unittest.TestCase):
         labels = self.p.gh.issue(n)["labels"]
         self.assertIn("state:shaping", labels)
         self.assertIn("needs-you", labels)
-        failed = [c for c in self.p.gh.comments(n) if "attempt" in c and "failed" in c]
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(failed), 2)
         self.assertIn("The builder said:", failed[0])
         self.assertIn("built", failed[0])  # the stand-in's own words reach the issue
@@ -444,6 +477,14 @@ class RunTest(unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, 3)
         self.assertIn("fails on the judge files themselves", result)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
+
+    def test_bar_wrong_outcome_returns_without_more_attempts(self):
+        n, result = self.build("bar-wrong", attempts=3)
+        self.assertIn("The judge contradicts", result)
+        seen = records(self.p.gh.comments(n))
+        handbacks = [r for r in seen if r.get("move") == "give-back"]
+        self.assertEqual(len(handbacks), 1)
+        self.assertEqual(handbacks[0]["type"], "bar-wrong")
         attempts = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(attempts), 1)
         # The build folder is gone, so shaping can switch to the branch; the work stays on it.
@@ -480,10 +521,12 @@ class RunTest(unittest.TestCase):
     def test_a_rebuild_tells_the_builder_why_the_piece_came_back(self):
         n, _ = self.build("good")
         gate.move(self.p.gh, self.p.root, n, "shaping",
-                  reason="it turned off a lint rule for the whole project")
+                  reason="it turned off a lint rule for the whole project",
+                  reason_type="person-rejected")
         gate.move(self.p.gh, self.p.root, n, "ready")
         gate.move(self.p.gh, self.p.root, n, "building")
-        gate.move(self.p.gh, self.p.root, n, "shaping", reason="the push failed")
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="the push failed",
+                  reason_type="environment")
         reason = run.came_back_reason(self.p.gh.comments(n))
         self.assertEqual(reason, "- it turned off a lint rule for the whole project\n- the push failed")
         ready = {"files": ["judge_add.py"], "command": "python3 judge_add.py"}
@@ -547,7 +590,8 @@ class RunTest(unittest.TestCase):
         git(self.p.root, "add", "habits.py")
         git(self.p.root, "commit", "--quiet", "-m", "Main changes habits.py")
         git(self.p.root, "push", "--quiet", "origin", "main")
-        gate.move(self.p.gh, self.p.root, n, "shaping", reason="conflicts with main")
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="conflicts with main",
+                  reason_type="conflict")
         gate.move(self.p.gh, self.p.root, n, "ready")
         os.environ["FAKE_MODE"] = mode
         return n, run.build_piece(self.p.gh, self.p.root, n, 1)
