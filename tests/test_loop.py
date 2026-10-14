@@ -91,7 +91,8 @@ class GateTest(unittest.TestCase):
         git(self.p.root, "switch", "--quiet", "main")
         self.ready(n)
         record = gate.last_record(self.p.gh.comments(n), "ready")
-        self.assertEqual(record["bar_files"], ["judge_add.py"])
+        self.assertIn("judge_add.py", record["bar_files"])
+        self.assertNotIn("habits.py", record["bar_files"])
 
     def test_submit_refuses_an_unlisted_protected_path(self):
         self.p.loop_section("true")

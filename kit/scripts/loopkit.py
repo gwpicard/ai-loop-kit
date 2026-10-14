@@ -285,10 +285,13 @@ def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
         return []
     tracked = sh(["git", "ls-tree", "-r", "--name-only", ref], root).stdout.splitlines()
     folders = {str(Path(name).parent) for name in files}
+    source_suffixes = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+                       ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php", ".cs"}
     out = set(files)
     for name in tracked:
         if Path(name).name == "conftest.py" or any(
-                folder != "." and name.startswith(folder.rstrip("/") + "/")
+                (folder != "." and name.startswith(folder.rstrip("/") + "/")) or
+                (folder == "." and Path(name).suffix.lower() not in source_suffixes)
                 for folder in folders):
             out.add(name)
     return sorted(out)
@@ -301,9 +304,9 @@ def _hash_paths(read, files: list[str]) -> str:
     return h.hexdigest()
 
 
-def bar_hash_at(root: Path, ref: str, files: list[str]) -> str:
+def bar_hash_at(root: Path, ref: str, files: list[str], frozen: Optional[list[str]] = None) -> str:
     """Hash the complete judge bar as it is in a commit."""
-    paths = bar_file_list(root, ref, files)
+    paths = frozen if frozen is not None else bar_file_list(root, ref, files)
 
     def read(path: str) -> bytes:
         res = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True)
