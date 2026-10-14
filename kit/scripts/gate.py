@@ -27,9 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
-                     conflict_markers, last_record, main_ref,
+                     bar_file_list, conflict_markers, last_record, main_ref,
                      loop_settings, parse_spec, prepare, record_text, records, repo_root, rev,
-                     run_judge, sh, spec_hash)
+                     run_judge, sh, skipped_tests, spec_hash)
+from testlint import lint_files  # noqa: E402
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -85,6 +86,7 @@ def check_ready(root: Path, issue: dict) -> dict:
     if head is None:
         raise Refused(f"there is no branch {branch}",
                       f"create {branch} from main and commit the judge files on it")
+    bar_files = bar_file_list(root, head, spec.files)
     bar = bar_hash_at(root, head, spec.files) if spec.files else ""
     main = main_ref(root)
     main_sha = rev(root, main)
@@ -105,8 +107,12 @@ def check_ready(root: Path, issue: dict) -> dict:
             if kcode != 0:
                 raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
                               "fix main first, or correct the Keep: command")
-        if spec.files:
-            sh(["git", "checkout", head, "--", *spec.files], folder)
+        if bar_files:
+            sh(["git", "checkout", head, "--", *bar_files], folder)
+        lint = lint_files([folder / f for f in spec.files])
+        if lint:
+            raise Refused("the judge has quality problems:\n" + "\n".join(lint),
+                          "fix the judge files, then run gate.py check again")
         code, output = run_judge(folder, spec.command)
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
@@ -154,7 +160,8 @@ def check_ready(root: Path, issue: dict) -> dict:
         if untested:
             raise Refused(f"no judge test names {', '.join(untested)}",
                           "give every (stays) item a test with its ID in the name")
-    return {"move": "ready", "bar": bar, "files": spec.files, "command": spec.command,
+    return {"move": "ready", "bar": bar, "bar_files": bar_files,
+            "contract": spec.done_when, "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
             "settings": spec.settings,
             "commit": head, "main": main_sha,
@@ -175,8 +182,12 @@ def check_frozen(issue: dict, comments: list[str]) -> dict:
 
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
-    if ready["files"] and bar_hash_in(folder, ready["files"]) != ready["bar"]:
+    if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
         return False, "the judge files differ from the ones fixed at ready"
+    changed_tests = changed_existing_tests(folder, ready)
+    if changed_tests:
+        return False, ("the build changes existing test files not named in the Contract or Files: "
+                       + ", ".join(changed_tests))
     markers = conflict_markers(folder)
     if markers:
         return False, f"merge conflict markers are left in: {', '.join(markers)}"
@@ -200,15 +211,45 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
     code, output = run_judge(folder, ready["command"])
+    if skipped_tests(output):
+        return False, f"the judge reported skipped tests:\n{output.strip()[-1500:]}"
     if code != 0:
         return False, output
     if ready.get("keep"):
         kcode, koutput = run_judge(folder, ready["keep"])
+        if skipped_tests(koutput):
+            return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
         if kcode != 0:
             if ready["files"] and keep_passes_without_judge(folder, ready):
                 return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
             return False, f"the judge passes, but the keep check now fails:\n{koutput}"
     return True, output
+
+
+def changed_existing_tests(folder: Path, ready: dict) -> list[str]:
+    """Find edits to existing tests, fixtures or conftest files outside scope."""
+    base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
+    changed = sh(["git", "diff", "--name-only", base], folder).stdout.splitlines()
+    contract_text = "\n".join(str(v) for v in ready.get("contract", {}).values())
+    allowed = list(ready.get("files", []))
+    return sorted(name for name in changed if _is_test_support(name) and
+                  _exists_at(folder, base, name) and
+                  not any(name == p or name.startswith(p.rstrip("/") + "/") for p in allowed) and
+                  name not in contract_text)
+
+
+def _exists_at(folder: Path, ref: str, name: str) -> bool:
+    return sh(["git", "cat-file", "-e", f"{ref}:{name}"], folder, check=False).returncode == 0
+
+
+def _is_test_support(name: str) -> bool:
+    path = Path(name)
+    parts = {p.lower() for p in path.parts}
+    base = path.name.lower()
+    return (base == "conftest.py" or "fixture" in base or "fixtures" in parts or
+            "test" in parts or "tests" in parts or "__tests__" in parts or
+            base.startswith("test_") or base.endswith("_test.py") or
+            ".test." in base or ".spec." in base)
 
 
 def keep_passes_without_judge(folder: Path, ready: dict) -> bool:

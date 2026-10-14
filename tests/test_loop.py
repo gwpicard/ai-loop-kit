@@ -97,6 +97,45 @@ class GateTest(unittest.TestCase):
             self.ready(n)
         self.assertIn("wrong reason", r.exception.reason)
 
+    def test_ready_refuses_a_judge_with_no_assertion(self):
+        n = self.p.piece(judge="def test_D1():\n    pass\n")
+        with self.assertRaises(Refused) as r:
+            self.ready(n)
+        self.assertIn("test has no assertion", r.exception.reason)
+
+    def test_bar_includes_files_under_the_judge_folder(self):
+        n = self.p.piece()
+        self.ready(n)
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertIn("README.md", ready["bar_files"])
+        folder = run.worktree(self.p.root, n)
+        (folder / "README.md").write_text("changed support\n")
+        git(folder, "add", "README.md")
+        git(folder, "commit", "--quiet", "-m", "Change judge support")
+        passed, output = gate.judge(folder, ready)
+        self.assertFalse(passed)
+        self.assertIn("fixed at ready", output)
+
+    def test_gate_rejects_existing_test_edits_outside_contract(self):
+        (self.p.root / "tests").mkdir()
+        (self.p.root / "tests" / "test_existing.py").write_text("assert True\n")
+        git(self.p.root, "add", "tests/test_existing.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Add existing test")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n = self.p.piece()
+        folder = run.worktree(self.p.root, n)
+        (folder / "tests" / "test_existing.py").write_text("assert False\n")
+        git(folder, "add", "tests/test_existing.py")
+        git(folder, "commit", "--quiet", "-m", "Change existing test")
+        changed = gate.changed_existing_tests(folder, {"files": ["judge_add.py"], "contract": {}})
+        self.assertEqual(changed, ["tests/test_existing.py"])
+
+    def test_judge_skip_summary_does_not_pass(self):
+        ready = {"files": [], "command": "printf '1 passed, 1 skipped\\n'"}
+        passed, output = gate.judge(self.p.root, ready)
+        self.assertFalse(passed)
+        self.assertIn("reported skipped", output)
+
     def test_ready_refuses_a_judge_that_names_no_spec_id(self):
         n = self.p.piece(judge=JUDGE.replace("test_D1", "test_one").replace("test_D2", "test_two"))
         with self.assertRaises(Refused) as r:

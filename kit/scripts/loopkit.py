@@ -272,26 +272,48 @@ def main_ref(root: Path) -> str:
                   "make a first commit on main and push it")
 
 
-def bar_hash_at(root: Path, ref: str, files: list[str]) -> str:
-    """Hash the judge files as they are in a commit."""
+def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
+    """Judge files, test support files beside them, and every conftest."""
+    if not files:
+        return []
+    tracked = sh(["git", "ls-tree", "-r", "--name-only", ref], root).stdout.splitlines()
+    folders = {str(Path(name).parent) for name in files}
+    out = set(files)
+    for name in tracked:
+        if Path(name).name == "conftest.py" or any(
+                folder == "." or name.startswith(folder.rstrip("/") + "/")
+                for folder in folders):
+            out.add(name)
+    return sorted(out)
+
+
+def _hash_paths(read, files: list[str]) -> str:
     h = hashlib.sha256()
     for f in sorted(files):
-        res = subprocess.run(["git", "show", f"{ref}:{f}"], cwd=root, capture_output=True)
-        if res.returncode != 0:
-            raise Refused(f"judge file '{f}' is not in {ref}",
-                          f"commit the judge files on {ref} first")
-        h.update(f.encode() + b"\0" + res.stdout + b"\0")
+        h.update(f.encode() + b"\0" + read(f) + b"\0")
     return h.hexdigest()
+
+
+def bar_hash_at(root: Path, ref: str, files: list[str]) -> str:
+    """Hash the complete judge bar as it is in a commit."""
+    paths = bar_file_list(root, ref, files)
+
+    def read(path: str) -> bytes:
+        res = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True)
+        if res.returncode != 0:
+            raise Refused(f"judge support file '{path}' is not in {ref}",
+                          f"commit the judge files and support files on {ref} first")
+        return res.stdout
+
+    return _hash_paths(read, paths)
 
 
 def bar_hash_in(folder: Path, files: list[str]) -> str:
     """Hash the judge files as they are on disk."""
-    h = hashlib.sha256()
-    for f in sorted(files):
-        p = folder / f
-        data = p.read_bytes() if p.is_file() else b"<missing>"
-        h.update(f.encode() + b"\0" + data + b"\0")
-    return h.hexdigest()
+    def read(path: str) -> bytes:
+        p = folder / path
+        return p.read_bytes() if p.is_file() else b"<missing>"
+    return _hash_paths(read, files)
 
 
 def project_root(folder: Path) -> Path:
@@ -390,6 +412,13 @@ def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple
                 pass
             proc.communicate()
         return 124, f"the judge ran past {timeout} seconds"
+
+
+def skipped_tests(output: str) -> bool:
+    """Recognise skipped counts in pytest, vitest and jest summaries."""
+    patterns = (r"\b[1-9]\d*\s+skipped\b", r"\bskipped\s*:\s*[1-9]\d*\b")
+    return any(re.search(pattern, line, re.IGNORECASE)
+               for line in output.splitlines() for pattern in patterns)
 
 
 # ---------------------------------------------------------------- GitHub
