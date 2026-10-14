@@ -79,7 +79,7 @@ def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str],
 
     moves = [r.get("move") for r in recs]
     submits = [r for r in recs if r.get("move") == "submit"]
-    failed = sum(1 for c in piece["comments"] if c.startswith("**Run:** attempt") and " failed" in c[:60])
+    failed = sum(1 for c in piece["comments"] if c.startswith("**Run:** attempt"))
     score = {"piece": piece["number"], "title": piece["title"], "state": state,
              "builds": moves.count("claim"), "attempts": failed + len(submits),
              "sent_back": sum(moves.count(m) for m in BACK_MOVES), "changed_after_gate": None}
