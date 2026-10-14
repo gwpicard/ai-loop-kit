@@ -161,7 +161,8 @@ def check_ready(root: Path, issue: dict) -> dict:
             raise Refused(f"no judge test names {', '.join(untested)}",
                           "give every (stays) item a test with its ID in the name")
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
-            "contract": spec.done_when, "files": spec.files, "command": spec.command,
+            "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
+            "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
             "settings": spec.settings,
             "commit": head, "main": main_sha,
@@ -461,7 +462,8 @@ def report(gh: GitHub) -> str:
             seen[n] = set()
             for record in records(gh.comments(n)):
                 kind = record.get("type")
-                if record.get("move") not in NEEDS_TYPE or kind not in REASON_TYPES:
+                if (record.get("move") not in NEEDS_TYPE and record.get("move") != "judge-gap") or \
+                        kind not in REASON_TYPES:
                     continue
                 key = f"{kind}: {record.get('reason', '')}"
                 counts[kind] = counts.get(kind, 0) + 1

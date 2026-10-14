@@ -422,6 +422,22 @@ class GuardTest(unittest.TestCase):
 FAKE_CLAUDE = textwrap.dedent('''\
     #!/bin/sh
     # A stand-in for claude -p. FAKE_MODE picks how it behaves.
+    if [ "$LOOP_REVIEWER" = 1 ]; then
+      case "$FAKE_REVIEW_MODE:$*" in
+        contract-gap:*)
+          echo '{"findings":[{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1","finding":"D1 is not met."}]}'
+          exit 0 ;;
+        standard-fix:*"Standards reviewer brief"*)
+          printf '\\n# reviewed\\n' >> habits.py
+          git add habits.py && git commit --quiet -m "Review fix"
+          exit 0 ;;
+        standard-break:*"Standards reviewer brief"*)
+          printf 'def add(items, name):\\n    return items\\n' > habits.py
+          git add habits.py && git commit --quiet -m "Bad review fix"
+          exit 0 ;;
+        *) exit 0 ;;
+      esac
+    fi
     case "$FAKE_MODE" in
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
@@ -446,6 +462,7 @@ class RunTest(unittest.TestCase):
         os.environ["LOOP_CLAUDE"] = str(fake)
         self.addCleanup(os.environ.pop, "LOOP_CLAUDE", None)
         self.addCleanup(os.environ.pop, "FAKE_MODE", None)
+        self.addCleanup(os.environ.pop, "FAKE_REVIEW_MODE", None)
 
     def build(self, mode, attempts=2):
         os.environ["FAKE_MODE"] = mode
@@ -505,6 +522,51 @@ class RunTest(unittest.TestCase):
         comments = self.p.gh.comments(n)
         self.assertTrue(any("quality-failed" in comment for comment in comments))
         self.assertEqual(self.p.gh.prs, {})
+
+    def test_both_reviewers_run_without_a_project_standards_file(self):
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        logs = self.p.root / ".loop" / "logs"
+        self.assertTrue((logs / f"piece-{n}-standards-review.log").is_file())
+        self.assertTrue((logs / f"piece-{n}-contract-review.log").is_file())
+
+    def test_standards_reviewer_changes_are_committed_and_judged(self):
+        (self.p.root / "standards.md").write_text("Use small local changes.\n")
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Standards: standards.md\n")
+        git(self.p.root, "add", "AGENTS.md", "standards.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Add review standards")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        os.environ["FAKE_REVIEW_MODE"] = "standard-fix"
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        self.assertIn("reviewed", (self.p.folder(n) / "habits.py").read_text())
+        self.assertIn("Reviewer fixes kept", self.p.gh.prs[f"piece/{n}"]["body"])
+
+    def test_failing_reviewer_fixes_are_left_out_of_the_pull_request(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Standards: standards.md\n")
+        (self.p.root / "standards.md").write_text("Use small local changes.\n")
+        git(self.p.root, "add", "AGENTS.md", "standards.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Add review standards")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        os.environ["FAKE_REVIEW_MODE"] = "standard-break"
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        self.assertIn("return items if", (self.p.folder(n) / "habits.py").read_text())
+        self.assertIn("Reviewer fixes were dropped", self.p.gh.prs[f"piece/{n}"]["body"])
+
+    def test_contract_review_gap_is_recorded_and_heads_the_pull_request(self):
+        os.environ["FAKE_REVIEW_MODE"] = "contract-gap"
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        body = self.p.gh.prs[f"piece/{n}"]["body"]
+        self.assertTrue(body.startswith("## Contract review findings"))
+        self.assertIn("D1 is not met", body)
+        self.assertTrue(any("judge-gap" in comment for comment in self.p.gh.comments(n)))
+        self.assertIn("judge-gap: 1", gate.report(self.p.gh))
 
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")

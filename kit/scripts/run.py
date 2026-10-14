@@ -15,10 +15,12 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -26,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      changed_check_settings, command_env,
-                     last_record, main_ref, prepare, record_prepare_outputs, record_text,
+                     last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
 
 KIT = Path(__file__).resolve().parent.parent
@@ -119,10 +121,202 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
         earlier = ("This piece was built before and came back for these reasons:\n"
                    f"{came_back}\nThe branch still holds that earlier build. Change it so the "
                    f"reasons no longer apply.\n\n{earlier}")
-    for key, value in {"PIECE": str(n), "SPEC": body.strip(), "COMMAND": ready["command"],
+    for key, value in {"PIECE": str(n), "SPEC": body.strip(),
+                       "APPROACH": ready.get("approach", "") or "No approach was supplied.",
+                       "COMMAND": ready["command"],
                        "FILES": files, "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
     return text
+
+
+BASELINE_SMELLS = (
+    "Mysterious Name", "Duplicated Code", "Feature Envy", "Data Clumps",
+    "Primitive Obsession", "Repeated Switches", "Shotgun Surgery", "Divergent Change",
+    "Speculative Generality", "Message Chains", "Middle Man", "Refused Bequest",
+)
+
+
+def _diff_hunks(diff: str) -> dict[str, list[tuple[int, int]]]:
+    hunks: dict[str, list[tuple[int, int]]] = {}
+    path = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            hunks.setdefault(path, [])
+        elif path and line.startswith("@@"):
+            match = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            if match:
+                start, count = int(match.group(1)), int(match.group(2) or "1")
+                hunks[path].append((start, start + max(count, 1) - 1))
+    return hunks
+
+
+def _valid_hunk(citation: str, hunks: dict[str, list[tuple[int, int]]]) -> bool:
+    match = re.search(r"([^\s|]+):(\d+)(?:-(\d+))?", citation)
+    if not match:
+        return False
+    path, start = match.group(1), int(match.group(2))
+    end = int(match.group(3) or start)
+    return any(start <= hi and end >= lo for lo, hi in hunks.get(path, []))
+
+
+def parse_standards_findings(output: str, standards: str, diff: str) -> list[str]:
+    """Keep only findings that cite a rule or smell and a changed hunk."""
+    hunks = _diff_hunks(diff)
+    allowed = [name.lower() for name in BASELINE_SMELLS]
+    allowed += ["unrelated special-case branches", "pass-through wrappers",
+                "logic in the owning layer", "reuse existing helpers"]
+    findings = []
+    for line in output.splitlines():
+        if not line.startswith("FINDING:"):
+            continue
+        parts = [part.strip() for part in line[len("FINDING:"):].split("|", 2)]
+        if len(parts) != 3:
+            continue
+        rule, hunk, description = parts
+        if not any(rule.lower() == label for label in allowed) and rule.lower() not in standards.lower():
+            continue
+        if _valid_hunk(hunk, hunks):
+            findings.append(f"{rule} at {hunk}: {description}")
+    return findings
+
+
+def parse_contract_findings(output: str, body: str, diff: str) -> list[str]:
+    """Keep contract findings that cite an approved line and a changed hunk."""
+    match = re.search(r"\{[\s\S]*\"findings\"[\s\S]*\}", output)
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group(0))
+    except ValueError:
+        return []
+    ids = set(re.findall(r"\b(D\d+)\b", body))
+    out_of_scope = []
+    in_scope = False
+    for line in body.splitlines():
+        if line.strip().lower().startswith("out of scope:"):
+            in_scope = True
+        elif line.startswith("## "):
+            in_scope = False
+        elif in_scope and re.match(r"^\s*[-*]\s+\S", line):
+            out_of_scope.append(line.strip()[1:].strip())
+    findings = []
+    hunks = _diff_hunks(diff)
+    for finding in data.get("findings", []):
+        citation = str(finding.get("citation", ""))
+        hunk = str(finding.get("hunk", ""))
+        detail = str(finding.get("finding", "")).strip()
+        cited_id = re.search(r"\b(D\d+)\b", citation)
+        cites_scope = any(item and item in citation for item in out_of_scope)
+        if not detail or not _valid_hunk(hunk, hunks):
+            continue
+        if not (cited_id and cited_id.group(1) in ids) and not cites_scope:
+            continue
+        findings.append(f"{citation} at {hunk}: {detail}")
+    return findings
+
+
+def _review_prompt(name: str, values: dict[str, str]) -> str:
+    prompt = (KIT / "briefs" / name).read_text()
+    for key, value in values.items():
+        prompt = prompt.replace("{{" + key + "}}", value)
+    return prompt
+
+
+def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str]) -> None:
+    claude = os.environ.get("LOOP_CLAUDE", "claude")
+    guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
+    settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [{"type": "command", "command": guard}]}]}})
+    args = [claude, "-p", prompt, "--permission-mode", "acceptEdits", "--allowedTools",
+            "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
+            "--settings", settings]
+    if disallowed:
+        args += ["--disallowedTools", *[f"Edit({path})" for path in disallowed]]
+    env = {**command_env(folder), "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
+    with logfile.open("w") as out:
+        proc = subprocess.Popen(args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
+                                env=env, start_new_session=True)
+        try:
+            proc.wait(timeout=ATTEMPT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+            out.write(f"\nReview ran past {ATTEMPT_TIMEOUT // 60} minutes and was stopped.\n")
+
+
+def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
+                 ready: dict) -> dict:
+    """Run one standards review and one contract review in fresh sessions."""
+    settings = loop_settings(folder)
+    main = main_ref(folder)
+    diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
+    standards_path = settings.get("standards", "")
+    standards = (folder / standards_path).read_text(errors="replace") if standards_path else ""
+    standards_context = standards or "No project standards file is named. Use the built-in baseline."
+    standards_folder = folder.parent / f"review-standards-{n}-{k}-{uuid.uuid4().hex[:8]}"
+    standards_branch = f"review/standards-{n}-{k}-{uuid.uuid4().hex[:8]}"
+    judged = rev(folder, "HEAD")
+    sh(["git", "worktree", "add", "--quiet", "-b", standards_branch,
+        str(standards_folder), judged], root)
+    logs = root / ".loop" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    standards_log = logs / f"piece-{n}-standards-review.log"
+    denied = list(ready.get("files", [])) + ["tests/**", "**/test_*", "**/*_test.py",
+               "**/*.test.*", "**/*.spec.*", "**/conftest.py"]
+    denied += CHECK_FILES
+    denied += settings.get("protected paths", [])
+    _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
+        "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied)
+    commit_leftovers(standards_folder, n, k)
+    standard_output = standards_log.read_text(errors="replace")
+    standard_findings = parse_standards_findings(standard_output, standards_context, diff)
+    standard_head = rev(standards_folder, "HEAD")
+    reviewer_note = "Standards review ran once."
+    if standard_head != judged:
+        passed, output = gate.judge(standards_folder, ready)
+        if passed:
+            sh(["git", "merge", "--ff-only", "--quiet", standards_branch], folder)
+            passed, output = gate.judge(folder, ready)
+        if passed:
+            commits = sh(["git", "log", "--oneline", f"{judged}..HEAD"], folder).stdout.strip()
+            reviewer_note += " Reviewer fixes kept:\n" + (commits or "none")
+        else:
+            reviewer_note += " Reviewer fixes were dropped because a submit check failed:\n" + output[-1200:]
+    follow_ups = [line.split(":", 1)[1].strip() for line in standard_output.splitlines()
+                  if line.startswith("FOLLOW-UP:") and line.split(":", 1)[1].strip()]
+
+    final_diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
+    contract_parts = []
+    body = issue["body"] or ""
+    for section in ("Intent", "Approach", "Contract", "Done when"):
+        lines = body.splitlines()
+        for index, line in enumerate(lines):
+            if line.strip().lower() == f"## {section}".lower():
+                part = [line]
+                for rest in lines[index + 1:]:
+                    if rest.startswith("## "):
+                        break
+                    part.append(rest)
+                contract_parts.extend(part)
+                break
+    contract = "\n".join(contract_parts)
+    contract_folder = folder.parent / f"review-contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
+    contract_branch = f"review/contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
+    sh(["git", "worktree", "add", "--quiet", "-b", contract_branch,
+        str(contract_folder), rev(folder, "HEAD")], root)
+    contract_log = logs / f"piece-{n}-contract-review.log"
+    _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
+        "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied)
+    contract_output = contract_log.read_text(errors="replace")
+    contract_findings = parse_contract_findings(contract_output, issue["body"], final_diff)
+    # Contract reviewers are read-only. Their branch is never merged.
+    return {"standards_findings": standard_findings,
+            "contract_findings": contract_findings,
+            "follow_ups": follow_ups, "reviewer_note": reviewer_note}
 
 
 def builder_settings() -> str:
@@ -315,7 +509,13 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
-            return open_pull_request(gh, root, folder, n, issue, k, output)
+            review = review_piece(root, folder, n, k, issue, ready)
+            if review["contract_findings"]:
+                reason = "; ".join(review["contract_findings"])
+                gh.comment(n, record_text({"move": "judge-gap", "type": "judge-gap",
+                                          "reason": reason},
+                                          "Contract review found a judge gap: " + reason))
+            return open_pull_request(gh, root, folder, n, issue, k, output, review)
         if output.startswith(gate.BAR_WRONG):
             # No build can fix this, and more attempts invite loosening a check.
             gh.comment(n, f"**Run:** attempt {k} of {attempts}: the judge passes, but the keep "
@@ -347,11 +547,23 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
 
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
-                      k: int, output: str) -> str:
+                      k: int, output: str, review: Optional[dict] = None) -> str:
     sh(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
     body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
             f"The gate ran the frozen judge itself after attempt {k}, and it passed.\n\n"
             f"<details><summary>Judge output</summary>\n\n```\n{output.strip()[-3000:]}\n```\n</details>\n")
+    review = review or {}
+    if review.get("contract_findings"):
+        body = ("## Contract review findings\n\n" + "\n".join(
+            f"- {finding}" for finding in review["contract_findings"]) + "\n\n" + body)
+    if review.get("reviewer_note"):
+        body += f"\n## Review\n\n{review['reviewer_note']}\n"
+    if review.get("standards_findings"):
+        body += "\nStandards findings:\n" + "\n".join(
+            f"- {finding}" for finding in review["standards_findings"]) + "\n"
+    if review.get("follow_ups"):
+        body += "\n## Follow-up pieces\n\n" + "\n".join(
+            f"- {finding}" for finding in review["follow_ups"]) + "\n"
     changed = changed_check_settings(folder)
     if changed:
         body += ("\n**Check settings changed** (the spec allows it). Read these first:\n"

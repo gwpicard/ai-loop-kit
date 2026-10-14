@@ -21,7 +21,7 @@ STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
 REASON_TYPES = ("spec-unclear", "bar-wrong", "environment", "builder-failed",
-                "person-rejected", "conflict")
+                "person-rejected", "conflict", "judge-gap")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
