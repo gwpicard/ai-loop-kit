@@ -14,6 +14,18 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 
 | Date | Seen in | What went wrong | Entry it earned |
 | --- | --- | --- | --- |
+| 15 Oct 2026 | v1 rehearsals, setup | Setup did not offer a standards file or protected paths unless asked. | Setup offers a standards file and protected paths, then records them on the person's yes. |
+| 15 Oct 2026 | v1 rehearsals, mutmut | Mutmut left `mutants/` in the build folder and broke later pytest runs. | Each run records and clears known Quality output between attempts, and setup sets pytest `testpaths` with mutmut. |
+| 15 Oct 2026 | v1 rehearsals, setup and doctor | A Quality command that could not pass on the project was accepted. | Setup and doctor dry-run Quality commands on fresh main; failures name the check and distinguish environment failures. |
+| 15 Oct 2026 | v1 rehearsals, builder | CRAP guidance, command retry advice and permission for new tests were missing or unclear. | The builder brief explains the CRAP bar, simple command retries, and that only edits to existing tests need Contract names. |
+| 15 Oct 2026 | v1 rehearsals, builder | A builder could not report that the judge was wrong. | The builder reports `.loop/outcome`; a bar-wrong result ends the attempt loop at once. |
+| 15 Oct 2026 | v1 rehearsals, stop | Stop recorded a false bar-wrong failure. | Stop records `stopped` and preserves any earlier failure reason. |
+| 15 Oct 2026 | v1 rehearsals, interrupted run | Killing the run left a builder process alive. | The run tracks builder and reviewer process groups, kills them on interruption, and detects an orphan at startup. |
+| 15 Oct 2026 | v1 rehearsals, gate | A judge assertion containing “No such file or directory” was misclassified by its message text. | Wrong-reason checks use the process error type, not assertion text. |
+| 15 Oct 2026 | v1 rehearsals, judge writer | Judge-writer IDs could clash when it edited an existing judge file. | The brief requires unique IDs and renaming stale tests when editing judge files. |
+| 15 Oct 2026 | v1 rehearsals, setup | Setup wrote mutmut configuration keys removed in mutmut 3.8. | Setup writes the current mutmut configuration keys. |
+| 15 Oct 2026 | v1 rehearsals, doctor | An old `.loop/worktrees/` folder made `npm test` fail in the project root. | Doctor warns about old in-project worktrees and tells the person how to remove them. |
+| 15 Oct 2026 | v1 rehearsals, standards review | A reviewer brief seemed to block all fixes, including non-test fixes. | A reviewer can commit a non-test fix, and the gate retains it after checks pass. |
 | 14 Oct 2026 | new public project, scaffold piece | Prepare failed on fresh main because `pyproject.toml` did not exist, so the scaffold could not become ready. | A scaffold piece skips Prepare on main at ready (IN THE KIT, with a test) |
 | 14 Oct 2026 | new public Python project, first build | Prepare made `.venv/` in the build folder. With no `.gitignore`, `git add -A` committed its files to the piece branch. | Prepare-created untracked paths are excluded in the build worktree and the gate rejects additions under them (IN THE KIT, with tests) |
 | 15 Oct 2026 | final suite, rebuild and audit cases | A root-level judge snapshot copied the whole piece tree into temporary `main`, including the implementation. The judge then passed before the build, and the audit bar changed. | Root-level judge bars do not include source files as judge support (in the kit, with tests) |

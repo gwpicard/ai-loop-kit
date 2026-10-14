@@ -28,7 +28,8 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
-                     loop_settings, parse_spec, prepare, record_text, records, repo_root, rev,
+                     clean_quality_outputs, loop_settings, parse_spec, prepare,
+                     record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
 from testlint import lint_files  # noqa: E402
 
@@ -49,11 +50,12 @@ for _s in ("shaping", "ready", "building", "approval"):
 
 # Moves that need a reason, because they send work back or end it.
 NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
-NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen"}
+NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen", "stopped"}
 
 # A judge that fails for one of these reasons fails for the wrong reason.
-WRONG_REASON = re.compile(r"SyntaxError|IndentationError|ERROR collecting|"
-                          r"command not found|No such file or directory")
+WRONG_REASON = re.compile(r"(?m)^\s*(?:E\s+)?(?:SyntaxError|IndentationError|"
+                          r"ModuleNotFoundError|ImportError|FileNotFoundError):|"
+                          r"(?m)^ERROR collecting(?:\s|$)")
 
 # A line that reports a failing test: pytest, unittest, TAP and plain runners.
 FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
@@ -127,7 +129,7 @@ def check_ready(root: Path, issue: dict) -> dict:
     elif code == 0:
         raise Refused("the judge already passes on main, so there is nothing to build",
                       "make the judge test what the Done when items ask for")
-    elif WRONG_REASON.search(output):
+    elif (code == 127 and "command not found" in output) or WRONG_REASON.search(output):
         raise Refused("the judge fails on main for the wrong reason "
                       f"(a broken test, not a missing feature):\n{tail}",
                       "fix the judge so it fails on an assertion")
@@ -315,6 +317,14 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
         shutil.rmtree(aside, ignore_errors=True)
 
 
+def quality_fails_on_main(folder: Path, command: str) -> bool:
+    """Check a failed Quality command in a fresh main worktree."""
+    root = repo_root(folder)
+    main = main_ref(folder)
+    ok, _ = quality_on_fresh_main(root, main, command)
+    return not ok
+
+
 # ---------------------------------------------------------------- moves
 
 def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
@@ -410,9 +420,31 @@ def init(gh: GitHub, root: Path) -> None:
     ignore_loop_folder(root)
 
 
+def quality_on_fresh_main(root: Path, main: str, command: str) -> tuple[bool, str]:
+    """Run one Quality command in its own prepared copy of main."""
+    tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
+    folder = tmp / "main"
+    try:
+        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
+        ok, output = prepare(folder)
+        if not ok:
+            return False, "Prepare failed:\n" + output.strip()[-800:]
+        code, output = run_judge(folder, command)
+        clean_quality_outputs(folder, record_quality_outputs(folder))
+        return code == 0, output
+    finally:
+        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
+        try:
+            tmp.rmdir()
+        except OSError:
+            pass
+
+
 # Files that tools make while tests run. A run must never commit them.
 GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/",
-             ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage"]
+             ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage",
+             ".coverage.*", "mutants/", ".stryker-tmp/", "coverage.json", "coverage.xml",
+             "coverage.lcov"]
 
 
 def ignore_loop_folder(root: Path) -> None:
@@ -429,7 +461,7 @@ def ignore_loop_folder(root: Path) -> None:
                            + "\n".join(missing) + "\n")
 
 
-def doctor(gh: GitHub, root: Path) -> list[tuple[bool, str, str]]:
+def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -454,6 +486,11 @@ def doctor(gh: GitHub, root: Path) -> list[tuple[bool, str, str]]:
     have = set(gh.labels())
     add(all(STATE_PREFIX + s in have for s in STATES), "the state labels exist", "run: gate.py init")
 
+    old_worktrees = root / ".loop" / "worktrees"
+    if old_worktrees.is_dir() and any(old_worktrees.iterdir()):
+        checks.append((True, "warning: old in-project worktrees can break project tests",
+                       "The person can remove the old .loop/worktrees/ folder after checking it."))
+
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
     folder = tmp / "main"
     try:
@@ -471,6 +508,10 @@ def doctor(gh: GitHub, root: Path) -> list[tuple[bool, str, str]]:
         add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
             "every piece's keep check needs a green main. Fix the tests or the environment, "
             "or add a Prepare command:\n" + output.strip()[-800:])
+        for command in [*settings.get("quality", []), *(extra_quality or [])]:
+            qok, qoutput = quality_on_fresh_main(root, main, command)
+            add(qok, f"Quality command passes on a fresh copy of main ({command})",
+                f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
@@ -553,7 +594,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     s.add_argument("--body-file", required=True)
     sub.add_parser("sync")
     sub.add_parser("status")
-    sub.add_parser("doctor")
+    d = sub.add_parser("doctor")
+    d.add_argument("--quality-command", action="append", default=[],
+                   help="also dry-run this proposed Quality command on fresh main")
     sub.add_parser("report")
     sub.add_parser("stop")
     args = p.parse_args(argv)
@@ -582,7 +625,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif args.cmd == "status":
             print(status(gh))
         elif args.cmd == "doctor":
-            checks = doctor(gh, root)
+            checks = doctor(gh, root, args.quality_command)
             for ok, what, fix in checks:
                 print(f"{'ok  ' if ok else 'FAIL'} {what}")
                 if fix:

@@ -12,7 +12,8 @@ conversation.
 
 Write tests that call the public interface. Write at least one test for each
 Contract ID and put that ID in the test name. Each judge file starts with a
-one-line comment that states the Intent.
+one-line comment that states the Intent. When editing an existing judge file,
+keep test IDs unique and rename stale tests that clash with a new Contract ID.
 
 For each test, ask: "What production change should make this test fail?" If
 there is none, delete it. Expected values are literals, never computed with

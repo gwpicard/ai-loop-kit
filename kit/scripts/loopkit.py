@@ -20,7 +20,7 @@ STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
-REASON_TYPES = ("spec-unclear", "bar-wrong", "environment", "builder-failed",
+REASON_TYPES = ("spec-unclear", "bar-wrong", "stopped", "environment", "builder-failed",
                 "person-rejected", "conflict", "judge-gap")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
@@ -438,6 +438,55 @@ def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple
                 pass
             proc.communicate()
         return 124, f"the judge ran past {timeout} seconds"
+
+
+QUALITY_OUTPUTS = ("mutants", ".stryker-tmp", ".coverage", "coverage.json",
+                   "coverage.xml", "coverage.lcov", ".coverage.*")
+
+
+def record_quality_outputs(folder: Path) -> list[str]:
+    """List files and directories made under the known Quality output names."""
+    found: set[str] = set()
+    tracked = set(sh(["git", "ls-files"], folder, check=False).stdout.splitlines())
+    for name in QUALITY_OUTPUTS:
+        if "*" in name:
+            for root in folder.glob(name):
+                rel = root.relative_to(folder).as_posix()
+                if rel in tracked:
+                    continue
+                found.add(rel)
+                if root.is_dir() and not root.is_symlink():
+                    found.update(path.relative_to(folder).as_posix() for path in root.rglob("*"))
+            continue
+        root = folder / name
+        if root.is_symlink() or root.is_file():
+            if name not in tracked:
+                found.add(name)
+        elif root.is_dir():
+            found.add(name)
+            found.update(path.relative_to(folder).as_posix() for path in root.rglob("*")
+                         if path.relative_to(folder).as_posix() not in tracked)
+    return sorted(found)
+
+
+def clean_quality_outputs(folder: Path, recorded: list[str]) -> None:
+    """Remove only recorded paths under known Quality output names, one path at a time."""
+    allowed = set(QUALITY_OUTPUTS)
+    paths = []
+    for name in recorded:
+        rel = Path(name)
+        if not rel.parts or rel.is_absolute() or not any(
+                fnmatch.fnmatchcase(rel.parts[0], pattern) for pattern in allowed) or ".." in rel.parts:
+            continue
+        paths.append(folder / rel)
+    for path in sorted(paths, key=lambda item: len(item.parts), reverse=True):
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 def skipped_tests(output: str) -> bool:

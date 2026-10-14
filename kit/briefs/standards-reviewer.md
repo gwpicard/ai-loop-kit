@@ -12,6 +12,8 @@ Never change tests, judge files, check settings or protected paths. You may
 commit small local fixes for cited findings. Put structural findings such as
 a restructure, split or deeper module under Follow-up pieces. Do not do that
 work in this piece.
+You may commit a small fix to non-test project code when a cited finding
+supports it. Keep that fix separate from test changes, which are forbidden.
 
 Return one verdict with `findings`, `follow_ups` and `changes`. Each finding
 has `rule`, `hunk` and `finding` string fields. Put structural work in

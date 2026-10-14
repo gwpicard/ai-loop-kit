@@ -173,6 +173,17 @@ class GateTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("fixed at ready", output)
 
+    def test_builder_may_add_a_new_test_file_outside_contract(self):
+        n = self.p.piece()
+        folder = run.worktree(self.p.root, n)
+        (folder / "tests").mkdir()
+        (folder / "tests" / "test_new.py").write_text("def test_new_feature(): pass\n")
+        git(folder, "add", "tests/test_new.py")
+        git(folder, "commit", "--quiet", "-m", "Add implementation test")
+        changed = gate.changed_existing_tests(folder,
+            {"files": ["judge_add.py"], "contract": {}})
+        self.assertEqual(changed, [])
+
     def test_gate_rejects_existing_test_edits_outside_contract(self):
         (self.p.root / "tests").mkdir()
         (self.p.root / "tests" / "test_existing.py").write_text("assert True\n")
@@ -192,6 +203,15 @@ class GateTest(unittest.TestCase):
         passed, output = gate.judge(self.p.root, ready)
         self.assertFalse(passed)
         self.assertIn("reported skipped", output)
+
+    def test_assertion_message_is_not_treated_as_a_judge_error_type(self):
+        judge = ("# Add a habit to the list.\n"
+                 "def test_D1_adds_a_habit():\n    assert False, 'No such file or directory'\n"
+                 "def test_D2_avoids_duplicates():\n    assert False, 'ERROR collecting'\n")
+        n = self.p.piece(judge=judge)
+        with self.assertRaises(Refused) as refused:
+            self.ready(n)
+        self.assertNotIn("wrong reason", refused.exception.reason)
 
     def test_ready_refuses_a_judge_that_names_no_spec_id(self):
         n = self.p.piece(judge=JUDGE.replace("test_D1", "test_one").replace("test_D2", "test_two"))
@@ -413,6 +433,24 @@ class GateTest(unittest.TestCase):
         self.assertTrue(all(ok for ok, _, _ in checks), checks)
         self.assertTrue(any("main branch protection: unknown" == what for _, what, _ in checks))
 
+    def test_doctor_checks_quality_commands_on_main(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Quality: printf quality-check-failed; exit 4\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Add bad quality command")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        checks = gate.doctor(self.p.gh, self.p.root)
+        failure = next((item for item in checks if not item[0] and "Quality" in item[1]), None)
+        self.assertIsNotNone(failure, checks)
+        self.assertIn("quality-check-failed", failure[2])
+
+    def test_doctor_warns_about_old_in_project_worktrees(self):
+        (self.p.root / ".loop" / "worktrees" / "old").mkdir(parents=True)
+        checks = gate.doctor(self.p.gh, self.p.root)
+        self.assertTrue(any("old in-project worktrees" in what for _, what, _ in checks))
+
     def test_doctor_catches_a_red_baseline(self):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("exit 1")
@@ -554,6 +592,23 @@ class RunTest(unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
 
+    def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
+        setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
+        builder = (KIT / "briefs" / "builder.md").read_text()
+        judge_writer = (KIT / "agents" / "judge-writer.md").read_text()
+        standards_reviewer = (KIT / "briefs" / "standards-reviewer.md").read_text()
+        self.assertIn("standards file", setup)
+        self.assertIn("Protected paths", setup)
+        self.assertIn("testpaths", setup)
+        self.assertNotIn("paths_to_mutate", setup)
+        self.assertIn("CRAP", builder)
+        self.assertIn("simple commands", builder)
+        self.assertIn("new test files", builder)
+        self.assertIn(".loop/outcome", builder)
+        self.assertIn("IDs unique", judge_writer)
+        self.assertIn("rename stale tests", judge_writer)
+        self.assertIn("non-test project code", standards_reviewer)
+
     def test_last_tagged_verdict_accepts_a_code_fence_and_checks_fields(self):
         output = ('<verdict>{"findings":[],"follow_ups":[],"changes":"old"}</verdict>\n'
                   '<verdict>```json\n{"findings":[],"follow_ups":[],"changes":"none"}\n```</verdict>')
@@ -587,6 +642,22 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, 124)
         self.assertIn("past 0.1 seconds", output)
 
+    def test_quality_outputs_are_recorded_and_removed_between_attempts(self):
+        folder = self.p.root
+        (folder / "mutants" / "cache").mkdir(parents=True)
+        (folder / "mutants" / "cache" / "result.bin").write_text("generated")
+        (folder / ".stryker-tmp" / "out").mkdir(parents=True)
+        (folder / ".stryker-tmp" / "out" / "result.json").write_text("generated")
+        (folder / "coverage.json").write_text("{}")
+        (folder / ".coverage.worker").write_text("coverage")
+        recorded = run.record_quality_outputs(folder)
+        self.assertGreaterEqual(len(recorded), 5)
+        run.clean_quality_outputs(folder, recorded)
+        self.assertFalse((folder / "mutants").exists())
+        self.assertFalse((folder / ".stryker-tmp").exists())
+        self.assertFalse((folder / "coverage.json").exists())
+        self.assertFalse((folder / ".coverage.worker").exists())
+
     def test_quality_commands_run_and_their_output_reaches_the_pull_request(self):
         self.p.loop_section("true")
         agents = self.p.root / "AGENTS.md"
@@ -612,6 +683,10 @@ class RunTest(unittest.TestCase):
         comments = self.p.gh.comments(n)
         self.assertTrue(any("quality-failed" in comment for comment in comments))
         self.assertEqual(self.p.gh.prs, {})
+        handback = [r for r in records(comments) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["type"], "environment")
+        self.assertIn("Quality check failed", handback["reason"])
+        self.assertNotIn("judge still fails", handback["reason"])
 
     def test_both_reviewers_run_without_a_project_standards_file(self):
         n, result = self.build("good", attempts=1)
@@ -717,6 +792,8 @@ class RunTest(unittest.TestCase):
         n, result = self.build("good", attempts=1)
         self.assertIn("pull request ready", result)
         self.assertIn("reviewed", (self.p.folder(n) / "habits.py").read_text())
+        changed_by_reviewer = git(self.p.folder(n), "show", "--format=", "--name-only", "HEAD").strip()
+        self.assertEqual(changed_by_reviewer, "habits.py")
         self.assertIn("Reviewer fixes kept", self.p.gh.prs[f"piece/{n}"]["body"])
 
     def test_failing_reviewer_fixes_are_left_out_of_the_pull_request(self):
@@ -829,7 +906,7 @@ class RunTest(unittest.TestCase):
         self.assertIn("fails on the judge files themselves", result)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
 
-    def test_bar_wrong_outcome_returns_without_more_attempts(self):
+    def test_builder_bar_wrong_outcome_returns_on_first_attempt(self):
         n, result = self.build("bar-wrong", attempts=3)
         self.assertIn("The judge contradicts", result)
         seen = records(self.p.gh.comments(n))
@@ -842,6 +919,52 @@ class RunTest(unittest.TestCase):
         self.assertFalse(self.p.folder(n).exists())
         git(self.p.root, "switch", "--quiet", f"piece/{n}")
         git(self.p.root, "switch", "--quiet", "main")
+
+    def test_stop_records_stopped_and_report_counts_it(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        (self.p.root / ".loop").mkdir(exist_ok=True)
+        (self.p.root / ".loop" / "stop").write_text("stop\n")
+        result = run.build_piece(self.p.gh, self.p.root, n, 2)
+        self.assertIn("person asked the run to stop", result)
+        handbacks = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"]
+        self.assertEqual(handbacks[0]["type"], "stopped")
+        self.assertIn("stopped: 1", gate.report(self.p.gh))
+
+    def test_stop_keeps_the_previous_judge_failure_reason(self):
+        with patch("run.stop_requested", side_effect=[False, True]):
+            n, result = self.build("bad", attempts=3)
+        self.assertIn("back to shaping", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["type"], "stopped")
+        self.assertTrue(handback["reason"].startswith("Attempt 1 failed."))
+
+    def test_run_refuses_lock_with_a_live_orphan_process_group(self):
+        sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        def stop_sleeper():
+            if sleeper.poll() is None:
+                sleeper.kill()
+            sleeper.wait()
+        self.addCleanup(stop_sleeper)
+        lock = run.lock_path(self.p.root)
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text(json.dumps({"pid": 2147483647, "started_at": 0,
+                                    "children": [sleeper.pid]}))
+        with self.assertRaises(Refused) as refused:
+            run.acquire_lock(self.p.root)
+        self.assertIn("orphan", refused.exception.reason)
+
+    def test_run_kills_tracked_process_groups_on_interrupt(self):
+        sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        def stop_sleeper():
+            if sleeper.poll() is None:
+                sleeper.kill()
+            sleeper.wait()
+        self.addCleanup(stop_sleeper)
+        run.track_process(sleeper, self.p.root)
+        self.assertTrue(run.kill_active_processes())
+        sleeper.wait(timeout=2)
+        self.assertNotEqual(sleeper.returncode, 0)
 
     def test_an_error_after_the_claim_gives_the_piece_back(self):
         def broken(*args, **kwargs):

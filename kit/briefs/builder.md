@@ -57,6 +57,17 @@ DATA>>>
 6. Stop when the judge passes, and say in two or three lines what you built
    and any choice you made alone.
 
+## Tests and commands
+
+You may add new test files for your change. Do not edit or delete an existing
+test unless the Contract names it. Keep new branches in new small functions.
+Changed functions must not score worse on CRAP than they do on main. If a
+compound shell command is refused, retry its parts as simple commands or use
+the Edit tool. If the judge or project checks show that the bar is wrong,
+write `.loop/outcome` with `bar-wrong` on its first line and a short reason
+on the next line. Use this only when no implementation can make the checks
+agree.
+
 ## Never
 
 - Never push, and never run `gh`. The run does that after the gate checks you.

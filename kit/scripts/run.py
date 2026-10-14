@@ -30,12 +30,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      changed_check_settings, command_env,
+                     clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
 DEFAULT_IDLE_LIMIT = 10 * 60
+_ACTIVE_GROUPS: set[int] = set()
+_RUN_LOCK_PATH: Optional[Path] = None
 
 
 class AttemptIdle(Exception):
@@ -60,30 +63,96 @@ def process_alive(pid: int) -> bool:
         return True
 
 
+def process_group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _write_lock_groups() -> None:
+    if not _RUN_LOCK_PATH or not _RUN_LOCK_PATH.is_file():
+        return
+    try:
+        data = json.loads(_RUN_LOCK_PATH.read_text())
+    except (ValueError, OSError):
+        return
+    data["children"] = sorted(_ACTIVE_GROUPS)
+    _RUN_LOCK_PATH.write_text(json.dumps(data) + "\n")
+
+
+def track_process(proc: subprocess.Popen, root: Optional[Path] = None) -> None:
+    global _RUN_LOCK_PATH
+    if root is not None:
+        _RUN_LOCK_PATH = lock_path(root)
+    _ACTIVE_GROUPS.add(proc.pid)
+    _write_lock_groups()
+
+
+def _untrack_process(proc: subprocess.Popen) -> None:
+    _ACTIVE_GROUPS.discard(proc.pid)
+    _write_lock_groups()
+
+
+def kill_active_processes() -> bool:
+    groups = list(_ACTIVE_GROUPS)
+    for pgid in groups:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline and any(process_group_alive(pgid) for pgid in groups):
+        time.sleep(0.02)
+    for pgid in groups:
+        if process_group_alive(pgid):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        _ACTIVE_GROUPS.discard(pgid)
+    _write_lock_groups()
+    return bool(groups)
+
+
 def acquire_lock(root: Path) -> Path:
     """Create the run lock, taking over only when its recorded process is dead."""
     path = lock_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = json.dumps({"pid": os.getpid(), "started_at": time.time()}) + "\n"
+    global _RUN_LOCK_PATH
+    data = json.dumps({"pid": os.getpid(), "started_at": time.time(), "children": []}) + "\n"
     for _ in range(2):
         try:
             with path.open("x") as f:
                 f.write(data)
+            _RUN_LOCK_PATH = path
             return path
         except FileExistsError:
             try:
                 current = json.loads(path.read_text())
                 pid = int(current["pid"])
             except (ValueError, KeyError, TypeError, OSError):
+                current = {}
                 pid = 0
             if pid and process_alive(pid):
                 raise Refused(f"another run is live (pid {pid})", "wait for it to finish")
+            groups = [int(value) for value in current.get("children", [])
+                      if str(value).isdigit()]
+            if any(process_group_alive(group) for group in groups):
+                raise Refused("an orphan builder or reviewer from the previous run is still alive",
+                              "stop that process group, then run again")
             path.unlink(missing_ok=True)
     raise Refused("could not take the run lock", "check .loop/run.lock and try again")
 
 
 def release_lock(path: Path) -> None:
     path.unlink(missing_ok=True)
+    global _RUN_LOCK_PATH
+    if _RUN_LOCK_PATH == path:
+        _RUN_LOCK_PATH = None
 
 
 def recover_building(gh: GitHub, root: Path) -> list[str]:
@@ -124,6 +193,11 @@ def stop_path(root: Path) -> Path:
 
 def stop_requested(root: Path) -> bool:
     return stop_path(root).is_file()
+
+
+def _interrupt_handler(signum, frame) -> None:
+    kill_active_processes()
+    raise KeyboardInterrupt(f"signal {signum}")
 
 
 def clear_stop(root: Path) -> None:
@@ -381,6 +455,7 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
             out.flush()
             last_output = time.monotonic()
     proc.wait()
+    _untrack_process(proc)
     selector.close()
     stream.close()
     if reason:
@@ -404,6 +479,7 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
     with logfile.open("w") as out:
         proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
+        track_process(proc)
         return _pump_session(proc, out, idle_seconds)
 
 
@@ -512,6 +588,7 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
     with logfile.open("w") as out:
         proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
+        track_process(proc)
         return _pump_session(proc, out, idle_seconds)
 
 
@@ -666,8 +743,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     came_back = came_back_reason(gh.comments(n))
     for k in range(1, attempts + 1):
         if stop_requested(root):
-            reason = "the person asked the run to stop"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+            reason = (last_failure if last_failure.startswith("Attempt ")
+                      else "the person asked the run to stop")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="stopped")
             return f"piece {n}: back to shaping, {reason}"
         logfile = logs / f"piece-{n}-attempt-{k}.log"
         dirty_reason = dirty_folder_reason(folder)
@@ -698,7 +776,19 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
                 gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
                 return f"piece {n}: back to shaping, {reason}"
         commit_leftovers(folder, n, k)
-        passed, output = gate.judge(folder, ready)
+        clean_quality_outputs(folder, record_quality_outputs(folder))
+        try:
+            passed, output = gate.judge(folder, ready)
+        finally:
+            clean_quality_outputs(folder, record_quality_outputs(folder))
+        failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
+        if not passed and failed_quality:
+            command = failed_quality.group(1)
+            kind = "environment" if gate.quality_fails_on_main(folder, command) else "builder-failed"
+            reason = f"Quality check failed: {command}"
+            gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type=kind)
+            return f"piece {n}: back to shaping, {reason}"
         if passed:
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
@@ -732,8 +822,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
                       f"The builder said:\n\n<<<\n{said}\n>>>\n\n"
                       f"The judge said:\n\n```\n{output.strip()[-1500:]}\n```")
         if stop_requested(root):
-            reason = "the person asked the run to stop"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+            reason = last_failure if last_failure.startswith("Attempt ") else \
+                "the person asked the run to stop"
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="stopped")
             return f"piece {n}: back to shaping, {reason}"
     reason = f"the judge still fails after {attempts} attempts; see the comments above"
     gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
@@ -844,6 +935,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     gh = GitHub(root)
     try:
         lock = acquire_lock(root)
+        signal.signal(signal.SIGTERM, _interrupt_handler)
+        signal.signal(signal.SIGINT, _interrupt_handler)
     except Refused as r:
         print(f"refused: {r.reason}", file=sys.stderr)
         print(f"next: {r.next_step}", file=sys.stderr)
