@@ -220,6 +220,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         if not passed:
             raise Refused(f"the judge does not pass:\n{output.strip()[-1500:]}")
         record["pr"] = pr
+        record["commit"] = rev(folder, "HEAD")
         note += f" The gate ran the judge and it passed. Pull request: {pr}"
     elif name == "merged":
         found = gh.pr_for_branch(branch_name(n))
