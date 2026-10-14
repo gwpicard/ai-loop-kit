@@ -16,23 +16,36 @@ Read [docs/ANGLE.md](docs/ANGLE.md) for why it works this way.
 
 ## Status
 
-Version 0.2 is a restart. The first version reached 35,000 lines without
-building a piece, so this one starts as the thinnest loop that works and grows
-only when a real run proves a feature is needed. Use it on a scratch project,
-with you nearby. It is not yet safe to leave alone.
+Version 0.10.0 is the thin kit. It grows only when a real run shows that a
+feature is needed. Use it with you nearby.
 
-## Try it
+## Install
 
-From a clone of this repository, in Claude Code inside your project:
+In Claude Code, add the GitHub marketplace and install the plugin:
 
 ```text
-/plugin marketplace add /path/to/ai-loop-kit
+/plugin marketplace add gwpicard/ai-loop-kit
 /plugin install ai-loop-kit@ai-loop-kit
 /ai-loop-kit:setup
 ```
 
-You need `git`, `gh` (signed in), Python 3.9 or later, and a GitHub
-repository with a first commit on `main`.
+## First 15 minutes
+
+You need `git`, `gh` signed in, Python 3.9 or later, and a GitHub repository
+with a first commit on `main`.
+
+1. In Claude Code in your project, run `/ai-loop-kit:setup`.
+2. Shape a piece with `/ai-loop-kit:shape`.
+3. Build ready pieces with `/ai-loop-kit:run`.
+4. Review the pull request on GitHub and merge it.
+5. Sync the merged piece with `python3 "<KIT>/scripts/gate.py" sync`, using
+   the kit's installed path for `<KIT>`.
+
+## Limits
+
+Runs need your attention. There is no sandbox. Docker has not been tested.
+The kit is for one person; teams have not been tested. A weak judge can let a
+weak build pass, so review the spec and the pull request yourself.
 
 ## Where things live
 
