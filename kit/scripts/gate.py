@@ -53,9 +53,9 @@ NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
 NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen", "stopped"}
 
 # A judge that fails for one of these reasons fails for the wrong reason.
-WRONG_REASON = re.compile(r"(?m)^\s*(?:E\s+)?(?:SyntaxError|IndentationError|"
+WRONG_REASON = re.compile(r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|"
                           r"ModuleNotFoundError|ImportError|FileNotFoundError):|"
-                          r"(?m)^ERROR collecting(?:\s|$)")
+                          r"^ERROR collecting(?:\s|$)", re.MULTILINE)
 
 # A line that reports a failing test: pytest, unittest, TAP and plain runners.
 FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
