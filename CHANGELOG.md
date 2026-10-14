@@ -1,11 +1,19 @@
 # Changelog
 
-## 0.2.0 (in progress)
+## 0.10.0
 
-A restart. The first kit moves to `legacy/` and its design to
-`docs/archive/`. The new kit is the thinnest loop that works: shape, a gate
-with a fixed judge, a run with fresh sessions, and a small guard. Every idea
-from the first design waits in `docs/LEDGER.md` until a real run earns it.
+This version follows v0.9.0 of the first kit.
+
+Setup records the project's prepare and test commands. Shape writes an issue
+spec and its judge. The gate checks them, tracks piece states, and syncs merged
+work. Run builds ready pieces in fresh Claude sessions and opens a pull request
+when the judge passes. A guard refuses the hard rules. The person reviews and
+merges each pull request.
+
+Field tests covered a new project, existing Python and Node projects, a
+contradictory judge, a rejected pull request, and a conflict after a merge.
+The Docker scenario has not been run. See [the field results](tests/field/RESULTS.md)
+and [the field scenarios](tests/field/SCENARIOS.md).
 
 ## 0.1.0
 
