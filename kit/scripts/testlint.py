@@ -87,6 +87,18 @@ def python_findings(path: Path, text: str,
             continue
         calls = [n for n in ast.walk(node) if isinstance(n, ast.Call)]
         asserts = [n for n in ast.walk(node) if isinstance(n, ast.Assert)]
+        no_raise_calls = [call for call in calls
+                          if _name(call.func).split(".")[-1].replace("_", "").lower()
+                          in {"assertnotraises", "assertnoraises", "assertdoesnotraise",
+                              "assertdoesnotthrow", "assertnoexception",
+                              "doesnotraise", "notraises"}]
+        outcome_assertions = [call for call in calls
+                              if (_name(call.func).split(".")[-1].lower().startswith("assert")
+                                  and call not in no_raise_calls)
+                              or _name(call.func) == "pytest.raises"]
+        if no_raise_calls and not asserts and not outcome_assertions:
+            findings.append((no_raise_calls[0].lineno,
+                             "test only checks that a call does not raise"))
         meaningful = bool(asserts or any(_name(c.func).split(".")[-1].startswith("assert") or
                          _name(c.func) == "pytest.raises" for c in calls))
         if not meaningful:
@@ -163,6 +175,14 @@ def javascript_findings(path: Path, text: str,
             end += 1
         block = text[start:end]
         line = text.count("\n", 0, match.start()) + 1
+        no_throw_assertions = re.findall(
+            r"expect\s*\(.*?\)\s*\.\s*not\s*\.\s*toThrow(?:Error)?\s*\(|"
+            r"assert\s*\.\s*doesNotThrow\s*\(", block, re.DOTALL)
+        expectation_count = len(re.findall(r"\bexpect\s*\(", block))
+        does_not_throw_count = len(re.findall(r"\bassert\s*\.\s*doesNotThrow\s*\(", block))
+        if no_throw_assertions and expectation_count + does_not_throw_count == \
+                len(no_throw_assertions):
+            findings.append((line, "test only checks that a call does not throw"))
         if not re.search(r"\bexpect\s*\(|\bassert\b", block):
             findings.append((line, "test has no expect or assert"))
         if project_root:

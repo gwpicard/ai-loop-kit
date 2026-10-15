@@ -21,6 +21,8 @@ the code under test. A fake must not accept every input: use separate doubles
 for success and error paths. Never mock the subject under test; prefer a local
 stand-in such as a temporary folder or in-memory store. Do not grep source or
 assert that a symbol is absent, unless a Contract item names that file check.
+Each test must assert an outcome: a returned value, output or state. A check
+that only verifies a call does not raise or throw is not enough.
 
 Judge only the module's public interface: the types, invariants, ordering and
 errors a caller must know. If the judge must reach past that interface, report

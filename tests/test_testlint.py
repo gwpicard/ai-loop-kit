@@ -40,6 +40,25 @@ def test_method():
 """
         self.assertEqual(python_findings(Path("test_example.py"), text), [])
 
+    def test_python_requires_an_outcome_beyond_not_raising(self):
+        text = """def test_no_raise():
+    case.assertNotRaises(do_work)
+def test_return_value():
+    assert do_work() == "done"
+"""
+        rules = [rule for _, rule in python_findings(Path("test_example.py"), text)]
+        self.assertIn("test only checks that a call does not raise", rules)
+        self.assertEqual(rules.count("test only checks that a call does not raise"), 1)
+
+    def test_javascript_requires_an_outcome_beyond_not_throwing(self):
+        text = """test('no throw', () => expect(() => doWork()).not.toThrow());
+test('return value', () => expect(doWork()).toBe('done'));
+"""
+        findings = javascript_findings(Path("test.js"), text)
+        rules = [rule for _, rule in findings]
+        self.assertIn("test only checks that a call does not throw", rules)
+        self.assertEqual(rules.count("test only checks that a call does not throw"), 1)
+
     def test_javascript_reports_empty_skipped_and_true_expect_tests(self):
         text = """test('empty', () => {});
 it.skip('skipped', () => expect(1).toBe(1));
