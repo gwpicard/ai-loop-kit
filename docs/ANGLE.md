@@ -26,12 +26,12 @@ whether it meets the contract; the person approves the contract and merge.
 | Loop mechanisms | Repeats the build and judge, with typed hand-backs and bounded checks. |
 | Roles | Shaper, judge writer, builder, reviewers, gate, run and person each have a clear job. |
 
-The kit grew from v1's written plan. The earn rule is suspended for that
-build. Once v1 merges, it applies again: write the observed failure in
-`docs/LEDGER.md`, add a test that reproduces it, then add the smallest fix.
+The kit grew from v1's written plan. The earn rule was suspended for that
+build. It now applies: write the observed failure in the maintainer's ledger,
+add a test that reproduces it, then add the smallest fix.
 
 ## Read next
 
 - `docs/V1.md`: the v1 definition.
-- `docs/LEDGER.md`: the ideas the kit holds and what waits for evidence.
-- `docs/LESSONS.md`: what the first build taught us.
+- The maintainer's ledger holds the ideas the kit supports and what waits for
+  evidence. The maintainer's lessons record what the first build taught us.

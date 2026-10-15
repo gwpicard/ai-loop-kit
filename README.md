@@ -1,30 +1,26 @@
 # AI Loop Kit
 
-A small set of Claude Code skills that build software in a checked loop. An
-agent cannot say a piece of work is done. The gate runs the checks itself.
+Build software with Claude Code in small steps. A script checks each step before you review the change.
 
-- `/ai-loop-kit:shape` turns an idea into a contract: intent, scope,
-  approach, numbered items and a judge written before any code.
-- The gate (`kit/scripts/gate.py`) is the only thing that moves a piece. It
-  refuses "ready" unless the judge fails on today's `main` for the right
-  reason, and it fixes the judge with a hash.
-- `/ai-loop-kit:run` builds each ready piece in fresh Claude Code or Codex
-  sessions, up to three attempts. Set `Agent: claude` or `Agent: codex` in
-  the loop section of `AGENTS.md`, or pass `/ai-loop-kit:run --agent codex`
-  for one run. Claude Code is the default. The gate runs the judge itself. A
-  pass opens a pull request. You merge.
+Version 1.1.0 is released. It works best with Python and Node projects.
 
-Read [docs/V1.md](docs/V1.md) for the v1 definition and how the kit works.
-Read [docs/ANGLE.md](docs/ANGLE.md) for why it works this way.
+![How AI Loop Kit works](docs/images/how-it-works.svg)
 
-## Status
+## What it does
 
-Version 1.0.0 is the current release target. After v1, a new feature must
-answer a failure seen in a real run. Use the kit with you nearby.
+1. Shape an idea into a **piece**: a GitHub issue with the task, its limits and a contract. The contract lists the results the change must meet.
+2. You approve the task and its contract before work starts.
+3. Run the piece. The selected agent gets up to three fresh tries to build it.
+4. The **gate**, a script that controls the steps, runs a **judge** (tests for the contract) and your **keep check** (the project's full test command). Two fresh reviewers check the code and the contract. The gate runs the checks again.
+5. If the checks pass, the gate opens a pull request. You read it and merge it.
+
+## Who it is for
+
+One developer using Claude Code with a GitHub project, who wants to review small pull requests.
 
 ## Install
 
-In Claude Code, add the GitHub marketplace and install the plugin:
+In Claude Code, run:
 
 ```text
 /plugin marketplace add gwpicard/ai-loop-kit
@@ -32,41 +28,67 @@ In Claude Code, add the GitHub marketplace and install the plugin:
 /ai-loop-kit:setup
 ```
 
-## First 15 minutes
+### What you need
 
-You need `git`, `gh` signed in, Python 3.9 or later, and a GitHub repository
-with a first commit on `main`. Setup agrees the Test and optional Quality
-commands, protected paths, and whether to enable branch protection.
+- `git` and `gh` signed in to GitHub
+- Python 3.9 or later
+- A GitHub repository with one commit on `main`, and permission to push to it
+- A Claude Code sign-in
 
-1. In Claude Code in your project, run `/ai-loop-kit:setup`.
-2. Shape a piece with `/ai-loop-kit:shape`.
-3. Build ready pieces with `/ai-loop-kit:run`.
-4. Review the pull request on GitHub and merge it.
-5. After you merge, run `gate.py sync` to move merged pieces to done.
-6. Use `gate.py report` to see why pieces came back, or `gate.py stop` to
-   stop a live run after its current attempt.
+## Your first 15 minutes
+
+1. Run `/ai-loop-kit:setup` in your project.
+2. Ask Claude to shape one small idea with `/ai-loop-kit:shape <idea>`.
+3. Run `/ai-loop-kit:run` to build every ready piece in turn.
+4. Read each pull request and merge it if it meets the contract.
+
+For example, ask for `tally --top 2 words.txt` to print `b 3` and then `a 2`. The pull request shows the changed files, test results, risks and why the builder made the change. The contract can also say that output without `--top` must stay the same.
+
+## Commands
+
+- `/ai-loop-kit:setup` asks how to prepare and test a fresh copy of the project, and which files agents must not change. It writes the loop settings on a branch and opens a pull request for you to merge. Run it once per project, then again when you want to change settings.
+- `/ai-loop-kit:shape <idea>` asks questions, splits the work when needed, writes the task and contract for you to approve, gets a test written for it, then makes the piece ready.
+- `/ai-loop-kit:run` builds every ready piece in turn, with up to three tries and two reviews per piece. It opens a pull request for each piece and pauses when three pull requests wait for you.
+
+### Things you can ask Claude during a run
+
+- “Stop the run after the current try.”
+- “Show the report of why pieces came back.”
+- “Reject this pull request with this reason: …”
+- “Drop this piece.”
+
+To start a walk-away run, use `python3 "<KIT>/scripts/run.py" --walk-away`. Walk-away is a preview.
+
+## Previews in 1.1
+
+- Walk-away runs: preview: not yet field-tested.
+- Researcher: preview: not yet field-tested.
+- Goal loop kind: preview: not yet field-tested.
+- Gauntlet loop kind: preview: not yet field-tested.
+- Codex backend with `Agent: codex`: preview: not yet field-tested.
+- Walk-away refuses to start unless its probe proves the sandbox blocks the forbidden actions.
+
+## What you approve
+
+You approve the task, including its intent, what is out of scope and its contract. You also approve the merge. A script runs the checks between those decisions.
+
+## Words you will see
+
+- **Piece:** a GitHub issue that describes one change.
+- **Gate:** the script that checks work and moves a piece through its steps.
+- **Judge:** tests that check whether the contract's results hold.
+- **Contract:** the numbered results that a change must meet.
+- **Keep check:** the project's full test command, which must still pass.
+- **Prepare command:** the command that makes a fresh project copy ready for checks or a build.
+- **Guard:** a hook that blocks some forbidden commands. It is not a sandbox.
 
 ## Limits
 
-Runs need your attention. The guard is not a sandbox. Docker and team use
-have not been tested. A weak judge can let a weak build pass, so review the
-contract and the pull request yourself. Mutation testing is experimental:
-setup offers it only when the project's tests call changed code in-process
-and the project uses mutmut 3.8 or later. Subprocess-only tests do not score
-mutants, and older mutmut versions do not read the supported configuration
-keys.
+The attended loop from 1.0 is the tested path. Preview features have only automated tests so far. Stay nearby while the attended loop runs. The guard is not a sandbox. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
 
-## Where things live
+## More to read
 
-- `kit/`: the plugin. Skills, the gate, the run, the guard, the builder brief.
-- `tests/`: the checks. The last `tests/run-all.sh` run took about six minutes.
-- `docs/ANGLE.md`: what the kit is for.
-- `docs/LEDGER.md`: every idea from the first design, and what would earn it
-  a place.
-- `docs/LESSONS.md`: what the first build taught us.
-- `docs/v1/`: the v1 findings, results and build notes; earlier plan files
-  remain in git history.
-- `legacy/` and `docs/archive/`: the first kit and its design, kept as a
-  parts bin and as reasoning.
-
-The kit is licensed under [MIT](LICENSE).
+- [How it works](docs/V1.md)
+- [Why it works this way](docs/DESIGN.md)
+- [Changelog](CHANGELOG.md)
+- [MIT licence](LICENSE)

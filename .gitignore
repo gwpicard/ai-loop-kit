@@ -16,3 +16,11 @@ plan.local.md
 # Folders the loop kit creates while it works. They are local and never saved.
 .agents/worktrees/
 .agents/runs/
+
+# Maintainer notes, kept local and private
+legacy/
+docs/archive/
+docs/v1/
+docs/v1.1/
+docs/LEDGER.md
+docs/LESSONS.md
