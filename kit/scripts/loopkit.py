@@ -30,6 +30,10 @@ JUDGE_TIMEOUT = 900
 # Colour codes and terminal links that tools print. Issue comments show them raw.
 _TERMINAL_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 PREPARE_TIMEOUT = 1800
+SECRET_ENV_NAME = re.compile(
+    r"(?:^|_)(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIALS?)(?:_|$)|^DATABASE_URL$",
+    re.IGNORECASE,
+)
 
 
 class Refused(Exception):
@@ -384,13 +388,18 @@ def project_root(folder: Path) -> Path:
     return Path(common).parent
 
 
-def command_env(folder: Path, protected_paths: Optional[list[str]] = None) -> dict:
-    """The environment for judge, prepare and builder commands.
+def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
+               scrub_secrets: bool = False) -> dict:
+    """The environment for judge, prepare and agent commands.
 
     Use only the folder's own .venv. A project checkout's environment must not
-    choose the interpreter for a fresh worktree's Prepare command.
+    choose the interpreter for a fresh worktree's Prepare command. Agent
+    sessions can also drop secret-shaped variables.
     """
     env = dict(os.environ)
+    if scrub_secrets:
+        for name in secret_env_names(env):
+            env.pop(name, None)
     env["AI_LOOP_KIT_ROOT"] = str(Path(__file__).resolve().parent.parent)
     frozen_paths = (loop_settings(folder).get("protected paths", [])
                     if protected_paths is None else protected_paths)
@@ -411,6 +420,13 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None) -> di
     return env
 
 
+def secret_env_names(env=None):
+    """Return secret-shaped environment variable names without their values."""
+    source = os.environ if env is None else env
+    return sorted(name for name in source if SECRET_ENV_NAME.search(name)
+                  and not re.fullmatch(r"GIT_CONFIG_KEY_\d+", name))
+
+
 def loop_settings(folder: Path) -> dict:
     """Read test, prepare, quality and boundary settings from AGENTS.md."""
     agents = folder / "AGENTS.md"
@@ -424,7 +440,7 @@ def loop_settings(folder: Path) -> dict:
             continue
         m = re.match(
             r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|"
-            r"Keep|Agent|Sandbox domains)\s*:\s*(.*)$", line, re.IGNORECASE)
+            r"Keep|Agent|Sandbox domains|Secret paths)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":
@@ -435,6 +451,8 @@ def loop_settings(folder: Path) -> dict:
                 out[key] = value
             elif key == "idle limit":
                 out[key] = value
+            elif key == "secret paths":
+                out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
             elif key == "agent":
                 out[key] = value.lower()
             else:

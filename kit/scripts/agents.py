@@ -77,7 +77,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     if backend == "claude":
         args = _claude_args(work, prompt, role, disallowed or [], settings_allowed,
                             walk_away, domains)
-        env = {**command_env(work, protected_paths=protected_paths),
+        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True),
                "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
                "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
         if walk_away:
@@ -91,11 +91,9 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                 "sandbox_workspace_write.writable_roots=[]", "--config",
                 "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
                 "sandbox_workspace_write.exclude_tmpdir_env_var=true", prompt]
-        env = {**command_env(work, protected_paths=protected_paths),
+        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True),
                "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
                "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
-        env.pop("GH_TOKEN", None)
-        env.pop("GITHUB_TOKEN", None)
     return subprocess.Popen(args, cwd=working, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, env=env, start_new_session=True)
 

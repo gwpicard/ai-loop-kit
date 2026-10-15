@@ -12,6 +12,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 
+import agents
+import loopkit
 import review
 import run
 import sandbox
@@ -65,6 +67,66 @@ class SandboxTest(unittest.TestCase):
                           sandbox_settings["credentials"]["envVars"]},
                          {"GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN"})
         self.assertTrue(settings["permissions"]["blockReadsOutsideWorkingDirectories"])
+
+    def test_settings_deny_project_env_files_and_configured_secret_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".env").touch()
+            (root / ".env.local").touch()
+            (root / ".env.example").touch()
+            (root / "private").mkdir()
+            (root / "AGENTS.md").write_text(
+                "## The loop\nSecret paths: private/keys.json\n")
+            settings = sandbox.settings_for(root)
+        denied = settings["sandbox"]["filesystem"]["denyRead"]
+        self.assertIn(str((root / ".env").resolve()), denied)
+        self.assertIn(str((root / ".env.local").resolve()), denied)
+        self.assertNotIn(str((root / ".env.example").resolve()), denied)
+        self.assertIn(str((root / "private" / "keys.json").resolve()), denied)
+
+    def test_builder_environment_drops_secret_shaped_variables(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(loopkit, "project_root", return_value=root), \
+                 patch.dict("os.environ", {
+                     "PATH": "/usr/bin", "OPENAI_API_KEY": "hidden",
+                     "APP_SECRET": "hidden", "DATABASE_URL": "hidden",
+                     "PUBLIC_ENDPOINT": "https://example.test",
+                     "GIT_CONFIG_KEY_0": "core.autocrlf",
+                 }, clear=True), \
+                 patch.object(agents.subprocess, "Popen") as popen:
+                agents.start_session("codex", "brief", root, role="builder")
+                builder_env = popen.call_args.kwargs["env"]
+                agents.start_session("codex", "brief", root, role="reviewer")
+                reviewer_env = popen.call_args.kwargs["env"]
+        for env in (builder_env, reviewer_env):
+            self.assertNotIn("OPENAI_API_KEY", env)
+            self.assertNotIn("APP_SECRET", env)
+            self.assertNotIn("DATABASE_URL", env)
+            self.assertEqual(env["PUBLIC_ENDPOINT"], "https://example.test")
+            self.assertEqual(env["GIT_CONFIG_KEY_0"], "core.autocrlf")
+
+    def test_preflight_reports_secret_variable_names_without_values(self):
+        class GitHub:
+            @staticmethod
+            def issues_with_label(label):
+                return []
+
+        with tempfile.TemporaryDirectory() as temp, \
+             patch.dict("os.environ", {
+                 "OPENAI_API_KEY": "hidden-value", "DATABASE_URL": "hidden-value",
+             }, clear=True), \
+             patch.object(walkaway.agents, "selected", return_value="codex"), \
+             patch.object(walkaway.subprocess, "run", return_value=type(
+                 "Result", (), {"returncode": 0, "stdout": "codex 1", "stderr": ""})()), \
+             patch.object(walkaway.shutil, "disk_usage", return_value=type(
+                 "Usage", (), {"free": 11 * 1024 ** 3})()), \
+             patch.object(sandbox, "codex_probe", return_value=(True, "ok")):
+            checks = walkaway.preflight(GitHub(), Path(temp), baseline_checked=True)
+        report = next(label for ok, label, _ in checks if "secret-shaped" in label)
+        self.assertIn("OPENAI_API_KEY", report)
+        self.assertIn("DATABASE_URL", report)
+        self.assertNotIn("hidden-value", report)
 
     def test_file_tool_hook_rejects_paths_outside_build_folder(self):
         with tempfile.TemporaryDirectory() as temp:
