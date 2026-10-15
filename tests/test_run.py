@@ -526,6 +526,25 @@ class RunTest(unittest.TestCase):
         self.assertFalse((self.p.folder(n) / "src/auth.py").exists())
         self.assertEqual(self.p.gh.prs, {})
 
+    def test_gate_refuses_a_protected_path_missing_from_the_contract(self):
+        self.p.loop_section("true")
+        agents_file = self.p.root / "AGENTS.md"
+        agents_file.write_text(agents_file.read_text() + "Protected paths: src/auth.py\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Protect auth route")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "src").mkdir()
+        (folder / "src/auth.py").write_text("protected change\n")
+        git(folder, "add", "src/auth.py")
+        git(folder, "commit", "--quiet", "-m", "Change protected path")
+        passed, output = gate.judge(
+            folder, gate.last_record(self.p.gh.comments(n), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("protected paths", output)
+
     def test_submit_evidence_includes_a_passing_keep_result(self):
         self.p.loop_section("true")
         n = self.p.piece(spec=SPEC.replace("Files:", "Keep: `true`\nFiles:"))
