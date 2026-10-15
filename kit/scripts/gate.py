@@ -118,7 +118,7 @@ def check_ready(root: Path, issue: dict) -> dict:
         raise Refused(f"there is no branch {branch}",
                       f"create {branch} from main and commit the judge files on it")
     bar_files = bar_file_list(root, head, spec.files)
-    bar = bar_hash_at(root, head, spec.files) if spec.files else ""
+    bar = bar_hash_at(root, head, spec.files, bar_files) if spec.files else ""
     main = main_ref(root)
     main_sha = rev(root, main)
 
@@ -240,7 +240,8 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
     """Claim is valid only while the judge bar still matches ready."""
     head = rev(root, branch_name(n))
     if head is None or (ready["files"] and
-                        bar_hash_at(root, head, ready.get("bar_files", ready["files"]))
+                        bar_hash_at(root, head, ready["files"],
+                                    ready.get("bar_files", ready["files"]))
                         != ready["bar"]):
         raise Refused("the judge bar changed after the piece became ready",
                       "move the piece back to shaping and run the ready gate again")

@@ -1,24 +1,25 @@
 """Goal and gauntlet judges used by the ready gate and run loop."""
 from __future__ import annotations
 
-import unittest
 import tempfile
+import unittest
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
-from helpers import KIT, SPEC
-from loopkit import Refused, parse_spec
 import critic
 import gate
 import measure
 import run
+from helpers import KIT, SPEC, Project, git
+from loopkit import Refused, parse_spec
 
 
 class LoopKindSpecTest(unittest.TestCase):
     def test_goal_spec_and_builder_brief_keep_research_together(self):
         body = SPEC.replace("Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
-                            "Kind: goal\nMeasure: `python3 bench.py`\nTarget: `< 200`\n")
+                            "Kind: goal\nMeasure: `python3 bench.py`\nTarget: `< 200`\n"
+                            "Files:\n- bench.py\n")
         body += ("\n## Research\n- R1: The API supports batching "
                  "(source: https://example.test/api, read: 2026-10-15)\n")
         spec = parse_spec(body)
@@ -32,26 +33,61 @@ class LoopKindSpecTest(unittest.TestCase):
         self.assertIn("Measure: python3 bench.py", brief)
         self.assertIn("R1: The API supports batching", brief)
 
-    def test_goal_spec_reads_measure_and_target_without_test_files(self):
+    def test_goal_spec_reads_measure_and_target_and_exit_files(self):
         body = SPEC.replace("Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
                             "Kind: goal\n"
-                            "Measure: `python3 bench.py`\nTarget: `< 200`\n")
+                            "Measure: `python3 bench.py`\nTarget: `< 200`\n"
+                            "Files:\n- bench.py\n")
         spec = parse_spec(body)
         self.assertEqual(spec.kind, "goal")
         self.assertEqual(spec.measure, "python3 bench.py")
         self.assertEqual(spec.target, "< 200")
-        self.assertEqual(spec.files, [])
+        self.assertEqual(spec.files, ["bench.py"])
+
+    def test_goal_ready_refuses_missing_exit_files(self):
+        project = Project()
+        self.addCleanup(project.close)
+        body = SPEC.replace("Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
+                            "Kind: goal\nMeasure: `python3 bench.py`\nTarget: `< 200`\n")
+        number = project.piece(spec=body)
+        with self.assertRaisesRegex(Refused, "goal judges need.*Files"):
+            gate.move(project.gh, project.root, number, "ready")
 
     def test_gauntlet_spec_reads_capture_reference_and_criteria(self):
         body = SPEC.replace("Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
                             "Kind: gauntlet\n"
                             "Capture: `python3 render.py`\nReference: `docs/example.png`\n"
-                            "Criteria:\n- Readable labels\n- Clear hierarchy\n")
+                            "Criteria:\n- Readable labels\n- Clear hierarchy\n"
+                            "Files:\n- render.py\n- docs/example.png\n")
         spec = parse_spec(body)
         self.assertEqual(spec.kind, "gauntlet")
         self.assertEqual(spec.capture, "python3 render.py")
         self.assertEqual(spec.reference, "docs/example.png")
         self.assertEqual(spec.criteria, ("Readable labels", "Clear hierarchy"))
+        self.assertEqual(spec.files, ["render.py", "docs/example.png"])
+
+    def test_editing_goal_measure_script_fails_attempt_with_bar_changed(self):
+        project = Project()
+        self.addCleanup(project.close)
+        body = SPEC.replace(
+            "Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
+            "Kind: goal\nMeasure: `python3 bench.py`\nTarget: `< 10`\nFiles:\n- bench.py\n")
+        number = project.piece(spec=body)
+        git(project.root, "switch", "--quiet", f"piece/{number}")
+        (project.root / "bench.py").write_text("print(100)\n")
+        git(project.root, "add", "bench.py")
+        git(project.root, "commit", "--quiet", "-m", "Add goal measure")
+        git(project.root, "switch", "--quiet", "main")
+
+        gate.move(project.gh, project.root, number, "ready")
+        ready = gate.last_record(project.gh.comments(number), "ready")
+        self.assertIn("bench.py", ready["bar_files"])
+
+        git(project.root, "switch", "--quiet", f"piece/{number}")
+        (project.root / "bench.py").write_text("print(1)\n")
+        passed, reason = gate.judge(project.root, ready)
+        self.assertFalse(passed)
+        self.assertIn("judge files differ from the ones fixed at ready", reason)
 
 
 class MeasureTest(unittest.TestCase):
@@ -128,7 +164,7 @@ class GateHooksTest(unittest.TestCase):
     def test_goal_ready_records_main_measurements_and_requires_a_miss(self):
         spec = parse_spec(SPEC.replace(
             "Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
-            "Kind: goal\nMeasure: `bench`\nTarget: `< 10`\n"))
+            "Kind: goal\nMeasure: `bench`\nTarget: `< 10`\nFiles:\n- bench.py\n"))
         with patch.object(measure, "measure_values", return_value=[10, 12, 11]):
             _, output, record = gate._kind_ready_judge(Path.cwd(), spec)
         self.assertIn("median 11", output)

@@ -189,8 +189,14 @@ def parse_spec(body: str) -> Spec:
             gaps.append("'## Judge' lists no judge files under 'Files:'")
         if kind == "goal" and (not measure or not target):
             gaps.append("goal judges need 'Measure:' and 'Target:' lines")
+        if kind == "goal" and not files:
+            gaps.append("goal judges need files under 'Files:' to freeze the measure "
+                        "and its support")
         if kind == "gauntlet" and (not capture or not reference or not criteria):
             gaps.append("gauntlet judges need 'Capture:', 'Reference:' and non-empty 'Criteria:'")
+        if kind == "gauntlet" and not files:
+            gaps.append("gauntlet judges need files under 'Files:' to freeze the capture "
+                        "and its support")
         for f in files:
             if f.startswith("/") or ".." in Path(f).parts:
                 gaps.append(f"judge file '{f}' must be a path inside the project")

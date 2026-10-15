@@ -47,19 +47,22 @@ accepted as the old name for `Contract`.
 
 ## Goal judge
 
-A goal judge uses `Measure:` and `Target:` instead of test files. The command
-must print one finite number on its last non-empty line. The gate runs it three
-times and uses the median. The target uses `<`, `<=`, `>` or `>=` followed by a
-number. At ready, the median on main must miss the target. Before changing
-code, each attempt writes one hypothesis to `.loop/hypothesis`. An attempt
-passes when the median meets the target and `Keep:` passes. The pull request
-records the main and attempt values and the hypotheses tried.
+A goal judge uses `Measure:` and `Target:` instead of a test command. `Files:`
+names the measure script and its support files. The command must print one
+finite number on its last non-empty line. The gate runs it three times and uses
+the median. The target uses `<`, `<=`, `>` or `>=` followed by a number. At
+ready, the median on main must miss the target. Before changing code, each
+attempt writes one hypothesis to `.loop/hypothesis`. An attempt passes when the
+median meets the target and `Keep:` passes. The pull request records the main
+and attempt values and the hypotheses tried.
 
 ```markdown
 ## Judge
 Kind: goal
 Measure: `python bench.py`
 Target: < 200
+Files:
+- bench.py
 Keep: `python -m pytest`
 ```
 
@@ -67,10 +70,12 @@ Keep: `python -m pytest`
 
 A gauntlet judge uses `Capture:` to make artefact files under
 `.loop/capture/`, `Reference:` to name a project path or URL, and a non-empty
-list of `Criteria:`. Three fresh blind critics see the two artefacts in random
-order. Main must win fewer than two comparisons at ready. An attempt passes
-when ours wins at least two and `Keep:` passes. The pull request records each
-verdict and the order shown to each critic.
+list of `Criteria:`. `Files:` names the capture script, its support files and
+any local reference files. The gate freezes these files in the bar. Three
+fresh blind critics see the two artefacts in random order. Main must win fewer
+than two comparisons at ready. An attempt passes when ours wins at least two
+and `Keep:` passes. The pull request records each verdict and the order shown
+to each critic.
 
 ```markdown
 Kind: gauntlet
@@ -79,6 +84,9 @@ Reference: `docs/example.png`
 Criteria:
 - Readable labels
 - Clear hierarchy
+Files:
+- render.py
+- docs/example.png
 ```
 
 ## Fix example
@@ -107,7 +115,7 @@ Files:
 - The judge fails on today's main for each item to build. A `(stays)` item
   passes on main and has a test.
 - `Keep:` passes on main and after the build.
-- `Files:` names judge files inside the project.
+- `Files:` names the files an exit check runs, inside the project.
 - Each Research line has a source URL and a real read date.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
   unless its path is named with `Large file:`.
