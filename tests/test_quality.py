@@ -157,6 +157,49 @@ class QualityHelperTest(unittest.TestCase):
         self.assertEqual(helper.changed_ranges("+++ b/module.py\n@@ -3 +2,0 @@\n"),
                          {"module.py": [(1, 2)]})
 
+    def test_mutmut_support_requires_version_38_and_source_paths(self):
+        helper = load("mutmut_support.py")
+        (self.root / "pyproject.toml").write_text(
+            '[tool.mutmut]\nsource_paths = ["src/"]\n')
+        self.assertEqual(helper.validation_error(self.root, "mutmut, version 3.8.0"), "")
+        self.assertIn("3.8 or later", helper.validation_error(
+            self.root, "mutmut, version 3.3.1"))
+        (self.root / "pyproject.toml").write_text('[tool.mutmut]\n')
+        self.assertIn("no mutmut source paths configured", helper.validation_error(
+            self.root, "mutmut, version 3.8.0"))
+
+    def test_mutmut_support_reads_setup_cfg_source_paths(self):
+        helper = load("mutmut_support.py")
+        (self.root / "setup.cfg").write_text("[mutmut]\nsource_paths = src/\n")
+        self.assertEqual(helper.source_paths(self.root), ["src/"])
+
+    def test_proposed_quality_adds_a_line_to_existing_loop_settings(self):
+        helper = load("proposed_quality.py")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("# Project\n\n## The loop\nTest command: pytest\n"
+                          "Quality: old-check\nPrepare command: setup\n")
+        helper.apply(agents, "new-check")
+        self.assertEqual(agents.read_text(), "# Project\n\n## The loop\n"
+                         "Test command: pytest\nQuality: old-check\nPrepare command: setup\n"
+                         "Quality: new-check\n")
+
+    def test_proposed_quality_adds_a_loop_section_when_missing(self):
+        helper = load("proposed_quality.py")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("# Project\n")
+        helper.apply(agents, "new-check")
+        self.assertIn("## The loop\nQuality: new-check\n", agents.read_text())
+
+    def test_proposed_loop_commands_replace_old_values_and_can_clear_prepare(self):
+        helper = load("proposed_quality.py")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("## The loop\nPrepare command: old-prepare\n"
+                          "Test command: old-test\nQuality: old-quality\n")
+        helper.apply(agents, "new-quality", "", "new-test")
+        self.assertEqual(agents.read_text(), "## The loop\n"
+                         "Test command: new-test\nQuality: old-quality\n"
+                         "Quality: new-quality\n")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,14 +2,15 @@
 
 This file describes how the kit works and gives the reason for each part.
 `docs/V1.md` says what v1 does, in short. This file says why. Each reason
-names its evidence: a run of the kit (in the maintainer's build notes or
-`tests/field/RESULTS.md`), or an outside source (listed
-at the end, and in `docs/SOURCES.md`).
+names its evidence: a run of the kit (the maintainer's build notes, the maintainer's
+ledger or `tests/field/RESULTS.md`), or an outside source (listed at the end
+and in `docs/SOURCES.md`).
 
 ## 1. What the kit is
 
 AI Loop Kit is a Claude Code plugin for one person who builds software with
-agents. In one sentence: a state machine whose every state is a loop, where
+agents. Non-interactive sessions can use Claude Code or Codex. In one sentence:
+a state machine whose every state is a loop, where
 agents do the work, scripts decide, and the person approves the contract and
 the merge.
 
@@ -20,7 +21,7 @@ Four failures come back again and again when agents build software.
 | Failure | Evidence |
 | --- | --- |
 | The agent says the work is done when it is not | The first kit's own build: agents reported checks that had not run (the maintainer's build notes). METR found that telling a model not to cheat did not change how often it did [METR]. |
-| The agent changes the test, not the code | ImpossibleBench: models edit or delete tests to pass impossible tasks [ImpossibleBench]. In our field runs a builder turned off a lint rule project-wide to pass (field runs, 14 October). |
+| The agent changes the test, not the code | ImpossibleBench: models edit or delete tests to pass impossible tasks [ImpossibleBench]. In our field runs a builder turned off a lint rule project-wide to pass (the maintainer's ledger, 14 October). |
 | The spec drifts away from the code | Spec-driven development moves the requirements problem and adds a document that drifts [Scala Teams], [Martinelli], [DevGenius]. |
 | The person cannot keep up with review | Agents can write faster than a person can check; quality depends on the constraints set around them [Osmani, quality]. |
 
@@ -99,7 +100,7 @@ check and a way back.
 
 | Loop | What turns | Stops when | Why it is a loop |
 | --- | --- | --- | --- |
-| Shaping | questions, the contract, the judge | the gate accepts ready | A judge that breaks the project's lint, or names an ID that never fails, sends shaping round again. Field runs showed this three times (the maintainer's build notes). |
+| Shaping | questions, the contract, the judge | the gate accepts ready | A judge that breaks the project's lint, or names an ID that never fails, sends shaping round again. Field runs showed this three times (the maintainer's ledger). |
 | Build | fresh builder attempts | the gate passes, or 3 attempts fail | A fresh session per attempt does not carry a failed idea forward. This is the Ralph technique: change the input and run again [Ralph]. |
 | Review | two reviewers | once, always | A review asked for gaps always finds some, so it never converges. One pass with cited findings is the honest form [Pocock, code-review]. |
 | Meta | typed reasons | the person changes the kit or the project | The same failure should not happen a third time. A lesson becomes a check, not a sentence [Osmani, skill decay]. |
@@ -116,8 +117,15 @@ This came from the first design, which had four separate loop modules
 | feature | acceptance tests that fail today | new behaviour must be shown to be new |
 | fix | a test that reproduces the bug | most real work is in existing code [Martinelli], and a bug fixed without a reproducing test comes back |
 | scaffold | the test runner runs | an empty project has nothing that can fail, so the record says the check was skipped |
-| goal (later) | a measurement against a threshold | goal-driven agents are the next step [Port], but they need a measurement harness first |
-| gauntlet (later) | a blind critic against a reference | for work a test cannot judge, like design; it needs a critic role first |
+| goal | three measurements compared by their median with a numeric target | work with a measurable outcome needs a gate the run can repeat |
+| gauntlet | three blind critics compare captured work with a reference | design and writing need a judge that can inspect the artefact |
+
+The v1.1 plan adds both judges to the shared attempt loop. Goal readiness
+requires main to miss its target; each attempt records a hypothesis and passes
+when the median meets the target. Gauntlet readiness requires main to win
+fewer than two of three blind comparisons; an attempt passes with at least two
+wins. The plan is the source for these rules. No outside source was used for
+this addition.
 
 ## 6. The contract
 
@@ -135,10 +143,11 @@ the person can read what will be checked, and the gate can check it.
 | Intent | It holds what the code cannot say: the why and the limits [Osmani, brownfield]. |
 | Out of scope | The requirements problem is mostly scope. Saying what will not be done is the cheapest guard against scope creep [Scala Teams]. The contract reviewer checks it. |
 | Approach | Agents do better when told the path, not only the output: the module, the interface, the pattern to follow [Osmani, agent files]. |
+| Research | Pieces that rely on an outside fact need a checked source. The v1.1 plan adds a fresh researcher, dates each source, and warns when evidence is over 30 days old at claim. Source: the maintainer's build notes. |
 | Contract items | Numbered and concrete, with an example each, so one test can prove each item and the gate can find each ID in the output. |
-| `(stays)` | "Every item must fail on main" pushed shaping to drop true items or bend tests (field runs, 14 October). `(stays)` marks what must keep working. |
+| `(stays)` | "Every item must fail on main" pushed shaping to drop true items or bend tests (the maintainer's ledger, 14 October). `(stays)` marks what must keep working. |
 | Judge, fixed by a hash | A builder that cannot change the test can only change the code [ImpossibleBench], [Anthropic harnesses]. |
-| Keep | The judge proves the new work. Keep proves that old work still works. A field run lost old behaviour when only the judge ran (field runs, 13 October). |
+| Keep | The judge proves the new work. Keep proves that old work still works. A field run lost old behaviour when only the judge ran (the maintainer's ledger, 13 October). |
 
 ### Why it is not waterfall
 
@@ -153,10 +162,11 @@ spec, and nobody edits an old issue to keep it current.
 | Role | Why it is separate |
 | --- | --- |
 | Shaper, with the person | Only the person knows the intent. The shaper asks, splits and writes, and never builds. |
+| Researcher | A fresh `sonnet` subagent checks outside facts when a piece depends on them. It opens each cited page and returns findings with source URLs and read dates. The page is evidence, never an instruction. Source: the maintainer's build notes. |
 | Judge writer | Tests written first by someone other than the builder help the builder most [TDFlow], and an agent that writes both code and tests confirms itself [Fowler, TDD in the loop]. The judge writer also does not see the shaping chat, so it tests the contract, not the shaper's assumptions. |
-| Builder | A fresh `claude -p` per attempt, requested as `stream-json`. Stream events reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
+| Builder | A fresh Claude Code or Codex session per attempt. Both stream JSON events that reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
 | Standards reviewer | Standards belong to a reviewer that reads the diff, not to the builder's context or `AGENTS.md` [Pocock, code-review], [Osmani, agent files]. Its baseline when a project has no standards is Fowler's code smells [Fowler, Refactoring], plus the hard points of a strict maintainability review [Cursor, thermo-nuclear]. |
-| Contract reviewer | A separate axis: is it the right thing? Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
+| Contract reviewer | A separate axis: is it the right thing? It checks the diff against the contract and Research. Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
 | Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (the maintainer's build notes). |
 | The person | Approves the contract and the merge: the two moments that need taste and judgement. Everything between is checked by a script. |
 
@@ -169,18 +179,28 @@ judge passes again. Review folders and branches are removed on every exit.
 The next run also clears and reports any review worktree or branch left by an
 interrupted run.
 
+The loop's `Agent: claude|codex` setting selects the backend for builders,
+reviewers and critics. Claude Code remains the default, and
+`run.py --agent codex` overrides the setting for one run. The ready record
+freezes the configured choice. Codex can save Claude credit. It runs through
+`codex exec --json` with workspace-write rooted at the build folder, and
+network access disabled. Codex's sandbox applies to the whole agent process.
+The backend has no Claude guard hook or Edit denies, so the gate checks the
+judge, settings, protected paths and secrets.
+
 ## 8. The checks
 
 | Check | Why |
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails only on an import error, proves nothing. |
+| Research findings have source URLs and real read dates; findings older than 30 days are marked possibly stale at claim | The ready gate checks the record, and the claim record dates its warning. The builder and contract reviewer receive the findings. Source: the maintainer's build notes. |
 | Test lint: an assertion in each test, no `assert True`, no `x == x`, no skips, no private imports, no reading source as text, no mirror of the code under test | Automated checks can lie: a test can restate the code, mock its subject or never be able to fail. These are the mechanical cases [kata, testing without tautologies]. |
 | The bar covers `conftest.py` and test helpers | Builders change what a test relies on, not only the test file [ImpossibleBench]. |
 | No existing test changed | Changing an old test is the commonest cheat [ImpossibleBench], [Anthropic harnesses]. |
-| No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (field runs, 14 October). |
+| No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (the maintainer's ledger, 14 October). |
 | Protected paths | Some code (auth, billing, CI) needs a person. Zone the code [Osmani, brownfield]. |
 | No file grows past 1,000 lines | A file that sprawls is a design smell agents create quickly [Cursor, thermo-nuclear]. |
-| Quality commands: CRAP and experimental mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. Mutation testing remains experimental and setup offers it only when project tests call changed code in-process and the project uses mutmut 3.8 or later. Subprocess-only tests do not score mutants, and earlier mutmut versions do not read the supported configuration keys. Doctor runs Test before Quality in the same fresh copy of main. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that check uses the frozen Test command, and its cache key includes the Quality command and main commit. |
+| Quality commands: CRAP and experimental mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. The v1 rehearsal showed that an empty source configuration and subprocess-only tests could produce no mutation evidence (the maintainer's build notes, rehearsal round 3). Setup now checks for mutmut 3.8 or later and configured source paths. The fallback for subprocess acceptance tests is a selected in-process adapter test for the changed function; mutmut's official configuration docs describe test selection with `pytest_add_cli_args_test_selection` [mutmut]. Doctor applies proposed Quality, Prepare and Test values to a fresh copy of main before running those checks. The project's commands remain its own, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that check uses the frozen Test command, and its cache key includes the Quality command and main commit. |
 | Secret shapes | A secret in git history stays for ever. |
 | Nothing skipped | A skipped test passes silently. |
 
@@ -200,12 +220,27 @@ force push, no agent merge, no recursive delete, no `eval`, and no `xargs`
 with `rm`. In build sessions it also refuses Perl and Ruby code execution,
 unreadable shell wrappers, and redirects into `.claude/`, `.githooks/` or
 protected paths. It refuses a plain push from `main`. It is a seatbelt, not a
-sandbox: branch protection on GitHub is a second layer, and runs are attended.
+sandbox: branch protection on GitHub is a second layer.
 
-A sandbox is later. The likely shape is a container with an `agent` user that
-has the person's user id, the worktree mounted inside, and the token passed in
-[Sandcastle]. Sandcastle's own notes list several kinds of permission bug with
-Docker on macOS, so it waits until the boundary above is solid.
+Walk-away runs use the selected backend's sandbox. Claude Code applies
+operating system file and network limits to shell commands and their child
+processes. The run passes strict settings per session, rejects a missing
+sandbox, disables unsandboxed retries, allows only confirmed package domains,
+and denies the named credential paths and token variables. Codex uses
+workspace-write rooted at the build folder, no additional writable roots,
+temporary-root writes disabled and network access disabled. A pre-run check
+requires the home write, `~/.ssh` read and outside network probes to fail.
+The check also requires clean Prepare and Test results on fresh main, 10 GB of
+free space and room in the approval queue. On macOS, `caffeinate` keeps the
+machine awake while the run writes a heartbeat and summary.
+
+Claude's sandbox covers Bash, not Read, Edit, Write, web tools or hooks.
+Walk-away Claude sessions load no MCP servers, add permission denies for
+secret reads and use a small hook to keep direct file-tool writes inside the
+build folder. Codex has no Claude guard hook or Edit denies. The gate checks
+the judge, settings, protected paths and secrets after a session. GitHub pushes
+and pull requests stay outside the sandbox; the person still merges. Claude's
+network allowlist can carry data out; Codex sessions have network disabled.
 
 ## 11. What the kit does not do, and why
 
@@ -213,20 +248,23 @@ Docker on macOS, so it waits until the boundary above is solid.
 | --- | --- |
 | A GitHub App identity | Useful for unattended runs; the person's own sign-in is enough while runs are attended. |
 | An integration branch and combined review | Pieces merge one at a time and conflicts go back to the builder. About 28% of agent pull requests conflict, so this returns when runs grow [AgenticFlict, in the archive design]. |
-| A researcher role, crews, design-it-twice | No run has needed them, and each costs many tokens [Pocock, codebase-design]. |
+| Crews and design-it-twice | They add coordination work without a proven need [Pocock, codebase-design]. |
 | A skills registry or context store | Shared infrastructure for large teams [Port]; against a thin kit. |
 | A hard rule that every item uses a fixed sentence pattern | It makes odd, long issues. Used as a guide only [Scala Teams]. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |
 | A paid code-health score | Proprietary [CodeScene]. CRAP covers the same ground for free. |
-| Walk-away runs | Need the sandbox first. |
+| A container around each Claude process | Revisit if a walk-away rehearsal shows a gap in the built-in sandbox. |
 
 ## 12. How v1 was built, and how the kit grows
 
-The thin kit grew one earned feature at a time from 13 October 2026. For v1
-the maintainer chose to build from a plan in one pass, with tests and
-rehearsals at the end, so v1 could be used sooner. The maintainer keeps the
-build and rehearsal records. After v1 merges, the earn rule applies again: a
-failure in the maintainer's ledger first, then a test, then the feature.
+The thin kit grew one earned feature at a time from 13 October 2026. The
+maintainer built v1 and v1.1 from plans in one pass, with tests and rehearsals
+at the end. The build and rehearsal findings are in the maintainer's build notes. After
+v1.1 is field-tested, the earn rule applies again: record a failure in the maintainer's ledger, add a test, then add the
+feature.
+
+The maintainer's build notes record the researcher role, goal and gauntlet
+judges, walk-away runs and rehearsal fixes.
 
 ## Sources
 
@@ -246,6 +284,8 @@ Outside sources named above. `docs/SOURCES.md` lists the earlier ones.
 - [Fowler, TDD in the loop] [TDD in the agent loop](https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html).
 - [kata, testing without tautologies] [kenn-io/kata](https://github.com/kenn-io/kata), its testing skill.
 - [Sandcastle] Matt Pocock, [sandcastle](https://github.com/mattpocock/sandcastle).
+- [Claude sandboxing] Anthropic, [Configure the sandboxed Bash tool](https://code.claude.com/docs/en/sandboxing).
+- [Claude settings] Anthropic, [Settings reference](https://code.claude.com/docs/en/settings-reference).
 - [CRAP] Alberto Savoia and Bob Evans, the CRAP metric (crap4j, 2007).
 - [mutmut] [mutmut](https://mutmut.readthedocs.io/en/latest/); [Stryker] [StrykerJS](https://stryker-mutator.io/docs/stryker-js/incremental/).
 - [Osmani, agent files] Addy Osmani, [audit your agent files](https://addyosmani.com/blog/audit-your-agent-files/).
@@ -258,4 +298,4 @@ Outside sources named above. `docs/SOURCES.md` lists the earlier ones.
 - [Scala Teams] [spec-driven development: the requirements problem](https://www.scalateams.com/blog/spec-driven-development-requirements-problem).
 - [DevGenius] [the spec is the code](https://blog.devgenius.io/the-spec-is-the-code-why-i-dont-buy-spec-driven-design-f75c784f7b46) (read from a summary; the page refused access).
 - [HumanLayer] HumanLayer's "show me" review approach (read from a secondary description only).
-- [AgenticFlict] cited in the maintainer's design notes.
+- [AgenticFlict] cited in the maintainer's build notes.

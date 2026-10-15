@@ -1,0 +1,265 @@
+"""Settings and smoke probes for Claude Code's built-in Bash sandbox."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import agents
+
+MIN_VERSION = (2, 1, 285)
+PROBE_PATH = Path.home() / "sandbox-probe"
+
+
+def version_tuple(value: str) -> tuple[int, int, int]:
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", value)
+    return tuple(map(int, match.groups())) if match else (0, 0, 0)
+
+
+def version_ok(value: str) -> bool:
+    return version_tuple(value) >= MIN_VERSION
+
+
+def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
+    """Return strict per-session sandbox settings for one build worktree."""
+    home = Path.home()
+    caches = [home / ".npm", home / ".cache" / "pip"]
+    temp = Path(tempfile.gettempdir())
+    work = folder.resolve()
+    return {
+        "sandbox": {
+            "enabled": True,
+            "failIfUnavailable": True,
+            "allowUnsandboxedCommands": False,
+            "filesystem": {
+                "allowWrite": [str(work), str(temp), *(str(path) for path in caches)],
+                "allowRead": [str(work), str(temp), *(str(path) for path in caches)],
+                "denyRead": [str(home / ".ssh"), str(home / ".config" / "gh"),
+                             str(home / "Library" / "Keychains")],
+            },
+            "credentials": {
+                "files": [
+                    {"path": "~/.ssh", "mode": "deny"},
+                    {"path": "~/.config/gh", "mode": "deny"},
+                    {"path": "~/Library/Keychains", "mode": "deny"},
+                ],
+                "envVars": [
+                    {"name": name, "mode": "deny"}
+                    for name in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN")
+                ],
+            },
+            "network": {"strictAllowlist": True, "allowedDomains": sorted(set(domains or []))},
+        },
+        "permissions": {
+            "blockReadsOutsideWorkingDirectories": True,
+            "deny": [
+                "Read(~/.ssh/**)", "Read(~/.config/gh/**)",
+                "Read(~/Library/Keychains/**)", "Bash(git push *)", "Bash(gh *)",
+            ],
+        },
+    }
+
+
+def claude_args(folder: Path, domains: Optional[list[str]] = None) -> list[str]:
+    settings = json.dumps(settings_for(folder, domains), separators=(",", ":"))
+    return ["--settings", settings, "--strict-mcp-config", "--mcp-config",
+            '{"mcpServers":{}}']
+
+
+def session_settings(folder: Path, domains: Optional[list[str]] = None) -> dict:
+    """Combine the existing guard with a walk-away file-tool boundary."""
+    guard = Path(__file__).resolve().parents[1] / "hooks" / "guard.py"
+    boundary = Path(__file__).resolve()
+    hooks = [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [
+        {"type": "command", "command": f'python3 "{guard}"'},
+        {"type": "command", "command": f'python3 "{boundary}" guard'},
+    ]}]
+    settings = settings_for(folder, domains)
+    settings["hooks"] = {"PreToolUse": hooks}
+    return settings
+
+
+def guard_tool_input(tool: str, data: dict, folder: Path) -> Optional[str]:
+    """Limit Claude file tools to the active build worktree."""
+    if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
+        return None
+    raw = data.get("file_path") or data.get("notebook_path") or ""
+    path = Path(str(raw))
+    if not path.is_absolute():
+        path = folder / path
+    try:
+        path.resolve().relative_to(folder.resolve())
+    except (OSError, ValueError):
+        return "walk-away file tools may only write inside the active build folder"
+    return None
+
+
+def guard_main(argv: Optional[list[str]] = None) -> int:
+    """PreToolUse hook entry point for file-tool writes in walk-away sessions."""
+    args = sys.argv[1:] if argv is None else argv
+    if args != ["guard"]:
+        return 2
+    try:
+        call = json.load(sys.stdin)
+        folder = Path(os.environ["LOOP_BUILD_ROOT"])
+    except (ValueError, KeyError, OSError):
+        return 2
+    reason = guard_tool_input(call.get("tool_name", ""),
+                              call.get("tool_input") or {}, folder)
+    if reason:
+        print(f"Refused by walk-away sandbox: {reason}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def walkaway_settings_files(root: Path) -> list[Path]:
+    home = Path.home()
+    candidates = [
+        Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
+        home / ".claude" / "managed-settings.json",
+        home / ".claude" / "settings.json",
+        home / ".claude" / "settings.local.json",
+        root / ".claude" / "settings.json",
+        root / ".claude" / "settings.local.json",
+    ]
+    return list(dict.fromkeys(path for path in candidates if path.is_file()))
+
+
+def excluded_commands(root: Path) -> list[str]:
+    """Read loaded settings and report sandbox escape rules without echoing content."""
+    found = []
+    for path in walkaway_settings_files(root):
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            found.append(f"{path}: unreadable settings")
+            continue
+        commands = data.get("sandbox", {}).get("excludedCommands", [])
+        if commands:
+            found.append(f"{path}: sandbox.excludedCommands is set")
+    return found
+
+
+def probe(folder: Path, domains: Optional[list[str]] = None,
+          claude: str = "claude", timeout: int = 90) -> tuple[bool, str]:
+    """Ask a real Claude session to try bounded, content-free boundary checks."""
+    if PROBE_PATH.exists():
+        return False, f"{PROBE_PATH} already exists; move it before the sandbox probe"
+    prompt = (
+        "Use Bash to run this shell script exactly. It prints no file contents: "
+        "touch ~/sandbox-probe >/dev/null 2>&1; echo HOME_WRITE_EXIT:$?; "
+        "for p in ~/.ssh ~/.config/gh ~/Library/Keychains; do "
+        "ls \"$p\" >/dev/null 2>&1; echo READ_EXIT:$?; done; "
+        "curl --noproxy '*' -Is --max-time 8 https://example.com >/dev/null 2>&1; "
+        "echo NETWORK_EXIT:$?. Do not retry any command outside the sandbox."
+    )
+    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
+            "--permission-mode", "acceptEdits", "--tools", "Bash",
+            *claude_args(folder, domains)]
+    try:
+        result = subprocess.run(args, cwd=folder, capture_output=True, text=True,
+                                timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"Claude sandbox probe could not run: {error}"
+    if PROBE_PATH.exists():
+        # Leave the probe artefact in place so a human can inspect it if the sandbox leaked.
+        return False, "sandbox allowed a write outside the build folder; ~/sandbox-probe exists"
+    output = result.stdout + result.stderr
+    if "Not logged in" in output or "authentication_failed" in output:
+        return False, "Claude sandbox probe could not authenticate; run /login and retry"
+    if result.returncode:
+        return False, f"Claude sandbox probe exited {result.returncode}: {output[-500:].strip()}"
+    results = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "user":
+            results.extend(event.get("message", {}).get("content", []))
+    text = "\n".join(str(result.get("content", "")) for result in results
+                      if isinstance(result, dict) and result.get("type") == "tool_result")
+    statuses = re.findall(r"(?:HOME_WRITE_EXIT|READ_EXIT|NETWORK_EXIT):(\d+)", text)
+    if len(statuses) != 5:
+        return False, "Claude sandbox probe did not return all five shell exit statuses"
+    if any(code == "0" for code in statuses):
+        return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
+    return True, "Claude sandbox blocked the home write, three credential reads and unlisted network request"
+
+
+def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
+    """Check Codex's workspace-write boundary before an unattended run."""
+    if PROBE_PATH.exists():
+        return False, f"{PROBE_PATH} already exists; move it before the sandbox probe"
+    ssh_path = Path.home() / ".ssh"
+    if not ssh_path.is_dir() or not os.access(ssh_path, os.R_OK):
+        return False, "~/.ssh is unavailable for the sandbox read probe"
+    if shutil.which("curl") is None:
+        return False, "curl is unavailable for the sandbox network probe"
+    prompt = (
+        "Use the shell to run each check once and report the exit codes in a final line exactly "
+        "as <probe>{\"write\":N,\"ssh_read\":N,\"network\":N}</probe>. Do not retry. "
+        "First run `touch ~/sandbox-probe >/dev/null 2>&1; echo $?`; then run "
+        "`ls ~/.ssh >/dev/null 2>&1; echo $?`; then run "
+        "`curl --noproxy '*' -Is --max-time 8 https://example.com >/dev/null 2>&1; echo $?`. "
+        "Do not print file contents."
+    )
+    try:
+        proc = agents.start_session("codex", prompt, folder, role="probe")
+        output, _ = proc.communicate(timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"Codex sandbox probe could not run: {error}"
+    if PROBE_PATH.exists():
+        return False, "Codex sandbox allowed a write outside the build folder; ~/sandbox-probe exists"
+    if proc.returncode:
+        return False, f"Codex sandbox probe exited {proc.returncode}: {output.decode(errors='replace')[-500:].strip()}"
+    text = agents.event_text(output)
+    match = re.search(r"<probe>\s*(\{.*?\})\s*</probe>", text, re.I | re.S)
+    if not match:
+        return False, "Codex sandbox probe did not return all three shell exit codes"
+    try:
+        results = json.loads(match.group(1))
+        statuses = [int(results[key]) for key in ("write", "ssh_read", "network")]
+    except (ValueError, KeyError, TypeError):
+        return False, "Codex sandbox probe returned invalid shell exit codes"
+    if any(code == 0 for code in statuses):
+        return False, "Codex sandbox allowed a home write, SSH read or outside network request"
+    return True, "Codex sandbox blocked the home write, SSH read and outside network request"
+
+
+def usage_limit_event(event: dict) -> bool:
+    """Recognise rate and usage limits from Claude's streamed result event."""
+    if not event:
+        return False
+    text = " ".join(str(event.get(key, "")) for key in ("result", "error", "subtype"))
+    return bool(event.get("is_error") and re.search(r"rate.?limit|usage.?limit|overloaded", text, re.I))
+
+
+def reset_wait_seconds(event: dict, now: Optional[datetime] = None) -> int:
+    """Use the reset time Claude reports, or the plan's 30 minute fallback."""
+    values = [event.get(key) for key in ("reset_at", "resetAt", "resets_at", "resetsAt")]
+    details = event.get("rate_limit") or event.get("rateLimit") or event.get("usageLimits")
+    if isinstance(details, dict):
+        values += [details.get(key) for key in ("reset_at", "resetAt", "resets_at", "resetsAt")]
+    for value in values:
+        if isinstance(value, (int, float)):
+            timestamp = value / 1000 if value > 10_000_000_000 else value
+            return max(0, int(timestamp - (now or datetime.now(timezone.utc)).timestamp()))
+        if isinstance(value, str):
+            try:
+                stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return max(0, int((stamp - (now or datetime.now(timezone.utc))).total_seconds()))
+            except ValueError:
+                continue
+    return 30 * 60
+
+
+if __name__ == "__main__":
+    sys.exit(guard_main())

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0 (15 October 2026)
+
+- Walk-away runs (`run.py --walk-away`) use a sandbox and a pre-run probe. They wait on usage limits, write a heartbeat and make a morning summary. preview: not yet field-tested.
+- The researcher role checks outside facts and records sources and dates. preview: not yet field-tested.
+- The goal loop kind checks a numeric measure against a target. preview: not yet field-tested.
+- The gauntlet loop kind compares captured work with a reference using blind critics. preview: not yet field-tested.
+- The Codex backend is selected with `Agent: codex`. preview: not yet field-tested.
+- Mutation testing checks its version and source paths. Setup tests proposed settings on a configured project.
+
+The attended loop from 1.0 is the tested path. The v1.1 preview features have automated tests but no field tests yet.
+
 ## 1.0.0 (15 October 2026)
 
 V1 adds an Intent and Contract format, typed hand-backs, safer runs, judge

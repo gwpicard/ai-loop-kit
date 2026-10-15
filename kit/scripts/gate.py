@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
@@ -35,7 +36,11 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      clean_quality_outputs, loop_settings, parse_spec, prepare,
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
+from proposed_quality import apply as apply_proposed_quality  # noqa: E402
+import critic  # noqa: E402
+import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
+from research import stale_findings  # noqa: E402
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -81,6 +86,26 @@ def state_of(issue: dict) -> str:
     return states[0]
 
 
+def _kind_ready_judge(folder: Path, spec) -> tuple[bool, str, dict]:
+    """Run the goal or gauntlet baseline while checking a piece for ready."""
+    if spec.kind == "goal":
+        output, record = measure.ready(folder, spec.measure, spec.target)
+        return True, output, record
+    if spec.kind == "gauntlet":
+        output, record = critic.ready(folder, spec.capture, spec.reference, list(spec.criteria))
+        return True, output, record
+    return False, "", {}
+
+
+def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
+    """Run the measurement or blind critic for one completed attempt."""
+    if ready.get("kind") == "goal":
+        return measure.judge_attempt(folder, ready)
+    if ready.get("kind") == "gauntlet":
+        return critic.judge_attempt(folder, ready)
+    return -1, ""
+
+
 # ---------------------------------------------------------------- checks
 
 def check_ready(root: Path, issue: dict) -> dict:
@@ -120,13 +145,20 @@ def check_ready(root: Path, issue: dict) -> dict:
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
-        code, output = run_judge(folder, spec.command)
+        kind_record = {}
+        if spec.kind in ("goal", "gauntlet"):
+            _, output, kind_record = _kind_ready_judge(folder, spec)
+            code = 1
+        else:
+            code, output = run_judge(folder, spec.command)
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
 
     tail = output.strip()[-1500:]
-    if spec.kind == "scaffold":
+    if spec.kind in ("goal", "gauntlet"):
+        pass
+    elif spec.kind == "scaffold":
         # The first piece of an empty project: its judge is that the test
         # command runs, so there is nothing that must fail on main.
         pass
@@ -167,17 +199,24 @@ def check_ready(root: Path, issue: dict) -> dict:
         if untested:
             raise Refused(f"no judge test names {', '.join(untested)}",
                           "give every (stays) item a test with its ID in the name")
+    agent = loop_settings(root).get("agent", "claude")
+    if agent not in {"claude", "codex"}:
+        raise Refused(f"Agent must be claude or codex, not {agent!r}",
+                      "set `Agent: claude` or `Agent: codex` in the loop section of AGENTS.md")
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
             "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": spec.keep or loop_settings(root).get("keep", ""),
+            **kind_record,
             "test": loop_settings(root).get("test", ""),
             "prepare": loop_settings(root).get("prepare", ""),
             "quality": loop_settings(root).get("quality", []),
             "standards": loop_settings(root).get("standards", ""),
             "idle_limit": loop_settings(root).get("idle limit", "10"),
             "waiting_limit": loop_settings(root).get("waiting limit", "3"),
+            "agent": agent,
             "stays": list(spec.stays),
+            "research": list(spec.research),
             "settings": spec.settings,
             "protected_paths": loop_settings(root).get("protected paths", []),
             "large_files": list(spec.large_files),
@@ -205,6 +244,11 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
                         != ready["bar"]):
         raise Refused("the judge bar changed after the piece became ready",
                       "move the piece back to shaping and run the ready gate again")
+
+
+def claim_stale_research(ready: dict) -> list[str]:
+    """Name findings that are more than 30 days old at claim time."""
+    return stale_findings(ready.get("research", []))
 
 
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
@@ -278,8 +322,12 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
     protected_paths = ready.get("protected_paths", [])
-    code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
-    if skipped_tests(output):
+    kind_code, kind_output = _kind_attempt_judge(folder, ready)
+    if kind_code >= 0:
+        code, output = kind_code, kind_output
+    else:
+        code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
+    if kind_code < 0 and skipped_tests(output):
         return False, f"the judge reported skipped tests:\n{output.strip()[-1500:]}"
     if code != 0:
         return False, output
@@ -290,14 +338,20 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         if kcode != 0:
             if ready["files"] and keep_passes_without_judge(folder, ready):
                 return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
-            return False, f"the judge passes, but the keep check now fails:\n{koutput}"
+            failure = f"the judge passes, but the keep check now fails:\n{koutput}"
+            if kind_code >= 0:
+                failure += f"\n\n{output}"
+            return False, failure
         output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
     for command in ready.get("quality", []):
         qcode, qoutput = run_judge(folder, command, protected_paths=protected_paths)
         quality_results.append(f"Quality: {command}\nExit: {qcode}\n{qoutput.strip()}")
         if qcode != 0:
-            return False, "a Quality command failed:\n" + "\n\n".join(quality_results)
+            failure = "a Quality command failed:\n" + "\n\n".join(quality_results)
+            if kind_code >= 0:
+                failure += f"\n\n{output}"
+            return False, failure
     if quality_results:
         output += "\n\n" + "\n\n".join(quality_results)
     return True, output
@@ -395,6 +449,10 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     elif name == "claim":
         ready = check_frozen(issue, comments)
         check_claim_bar(root, n, ready)
+        stale = claim_stale_research(ready)
+        if stale:
+            record["stale_research"] = stale
+            note += f" Research findings {', '.join(stale)} are possibly stale; check them before building."
     elif name == "submit":
         ready = check_frozen(issue, comments)
         if folder is None:
@@ -461,13 +519,22 @@ def init(gh: GitHub, root: Path) -> None:
 
 def quality_on_fresh_main(root: Path, main: str, command: str,
                           test_command: str = "",
-                          protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
+                          protected_paths: Optional[list[str]] = None,
+                          prepare_command: Optional[str] = None,
+                          proposed_quality: str = "") -> tuple[bool, str]:
     """Run Test, then one Quality command in its own prepared copy of main."""
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        ok, output = prepare(folder, protected_paths=protected_paths)
+        if proposed_quality:
+            apply_proposed_quality(folder / "AGENTS.md", proposed_quality,
+                                   prepare_command, test_command)
+            settings = loop_settings(folder)
+            command = settings.get("quality", [command])[-1]
+            test_command = settings.get("test", "")
+        ok, output = prepare(folder, command=prepare_command,
+                             protected_paths=protected_paths)
         if not ok:
             return False, "Prepare failed:\n" + output.strip()[-800:]
         if test_command:
@@ -507,7 +574,11 @@ def ignore_loop_folder(root: Path) -> None:
                            + "\n".join(missing) + "\n")
 
 
-def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) -> list[tuple[bool, str, str]]:
+def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
+           proposed_prepare: Optional[str] = None,
+           proposed_test: Optional[str] = None,
+           walk_away: bool = False,
+           agent: Optional[str] = None) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -556,27 +627,48 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) ->
         add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
             "every piece's keep check needs a green main. Fix the tests or the environment, "
             "or add a Prepare command:\n" + output.strip()[-800:])
-        for command in [*settings.get("quality", []), *(extra_quality or [])]:
-            qok, qoutput = quality_on_fresh_main(root, main, command, settings["test"])
-            if ("no changed Python functions found" in qoutput or
-                    "no mutmut source paths configured" in qoutput):
+        for command in settings.get("quality", []):
+            qok, qoutput = quality_on_fresh_main(
+                root, main, command, settings["test"],
+                prepare_command=settings.get("prepare", ""))
+            if "no changed Python functions found" in qoutput:
                 add(True, f"Quality mutation check could not be exercised on main ({command})", "")
             else:
                 add(qok, f"Quality command passes on a fresh copy of main ({command})",
                     f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
+        for command in extra_quality or []:
+            qprepare = (proposed_prepare if proposed_prepare is not None
+                        else settings.get("prepare", ""))
+            qtest = proposed_test if proposed_test is not None else settings["test"]
+            qok, qoutput = quality_on_fresh_main(
+                root, main, command, qtest, prepare_command=qprepare,
+                proposed_quality=command)
+            if "no changed Python functions found" in qoutput:
+                add(True, f"Quality mutation check could not be exercised on main ({command})", "")
+            else:
+                add(qok, f"Proposed Quality command passes on a fresh copy of main ({command})",
+                    f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
+    if walk_away and all(ok for ok, _, _ in checks):
+        import walkaway
+        checks.extend(walkaway.preflight(gh, root, baseline_checked=True, agent=agent))
     return checks
 
 
-def status(gh: GitHub) -> str:
+def status(gh: GitHub, root: Optional[Path] = None) -> str:
     lines = []
     for s in STATES[:4]:
         items = gh.issues_with_label(STATE_PREFIX + s)
         lines.append(f"{s}: " + (", ".join(
             f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
             for i in items) or "none"))
+    if root is not None:
+        import walkaway
+        heartbeat = walkaway.heartbeat_status(root)
+        if heartbeat:
+            lines.append(heartbeat)
     return "\n".join(lines)
 
 
@@ -649,6 +741,12 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor")
     d.add_argument("--quality-command", action="append", default=[],
                    help="also dry-run this proposed Quality command on fresh main")
+    d.add_argument("--prepare-command",
+                   help="use this proposed Prepare command for doctor dry-runs")
+    d.add_argument("--test-command",
+                   help="use this proposed Test command for doctor dry-runs")
+    d.add_argument("--walk-away", action="store_true",
+                   help="also check the active sandbox and unattended-run prerequisites")
     sub.add_parser("report")
     sub.add_parser("stop")
     return p
@@ -679,9 +777,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif args.cmd == "sync":
             print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
         elif args.cmd == "status":
-            print(status(gh))
+            print(status(gh, root))
         elif args.cmd == "doctor":
-            checks = doctor(gh, root, args.quality_command)
+            checks = doctor(gh, root, args.quality_command,
+                            args.prepare_command, args.test_command, args.walk_away)
             for ok, what, fix in checks:
                 print(f"{'ok  ' if ok else 'FAIL'} {what}")
                 if fix:

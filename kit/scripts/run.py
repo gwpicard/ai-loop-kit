@@ -11,26 +11,25 @@ person to merge. Three failures send the piece back to shaping with the reason.
 """
 from __future__ import annotations
 
-import argparse
 import ast
 import hashlib
 import json
 import os
 import re
-import selectors
 import signal
-import subprocess
 import sys
 import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
-from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
-                     changed_check_settings, command_env,
+import agents  # noqa: E402
+import sandbox  # noqa: E402
+import walkaway  # noqa: E402
+from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
+                     changed_check_settings,
                      clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
@@ -174,6 +173,19 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
           folder: Optional[Path] = None) -> str:
     text = (KIT / "briefs" / "builder.md").read_text()
     files = "\n".join(f"- `{f}`" for f in ready["files"]) or "- (none: the command is the judge)"
+    command = ready.get("command", "")
+    kind_rules = ""
+    if ready.get("kind") == "goal":
+        command = "Measure: " + ready["measure"]
+        kind_rules = ("Before changing code in every attempt, write one testable hypothesis to "
+                      "`.loop/hypothesis`. The gate measures the result three times and uses "
+                      "the median. Meet Target and Keep to pass.\n")
+        files = "- (the measured value is the judge)"
+    elif ready.get("kind") == "gauntlet":
+        command = "Capture: " + ready["capture"]
+        kind_rules = ("The gate captures your result and runs three fresh blind critics against "
+                      "the named reference. Do not change the reference or criteria.\n")
+        files = "- (the captured artefact is the judge)"
     earlier = last_failure or "This is the first attempt."
     if came_back:
         earlier = ("This piece was built before and came back for these reasons:\n"
@@ -181,50 +193,51 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
                    f"reasons no longer apply.\n\n{earlier}")
     for key, value in {"PIECE": str(n), "SPEC": body.strip(),
                        "APPROACH": ready.get("approach", "") or "No approach was supplied.",
-                       "COMMAND": ready["command"],
+                       "RESEARCH": research_brief(ready),
+                       "COMMAND": command,
                        "FILES": files,
                        "DEPENDENTS": "\n".join(f"- `{f}`" for f in dependent_files(
                            folder or Path.cwd(), ready.get("approach", ""), [], ready.get("files"))) or "- (none found)",
                        "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
+    if kind_rules:
+        text += "\n## Loop kind instructions\n\n" + kind_rules
     return text
 
 
-def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict) -> dict:
+def research_brief(ready: dict) -> str:
+    """Format frozen findings and claim-time stale flags for the builder."""
+    stale = set(ready.get("stale_research", []))
+    lines = [f"- {item['id']}: {item['finding']} (source: {item['source']}, read: {item['read']})"
+             + (" [possibly stale]" if item["id"] in stale else "")
+             for item in ready.get("research", [])]
+    return "\n".join(lines) or "- No outside facts were used."
+
+
+def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict,
+                 walk_away: bool = False, domains: Optional[list[str]] = None) -> dict:
     import review
-    return review.review_piece(root, folder, n, k, issue, ready)
-
-
-def builder_settings() -> str:
-    """Wire the guard into the builder session, whether or not the plugin loads."""
-    guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
-    return json.dumps({"hooks": {"PreToolUse": [{
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{"type": "command", "command": guard}]}]}})
+    return review.review_piece(root, folder, n, k, issue, ready, walk_away, domains)
 
 
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT,
-               protected_paths: Optional[list[str]] = None) -> str:
-    claude = os.environ.get("LOOP_CLAUDE", "claude")
-    # Claude Code applies Edit(path) deny rules to every file-editing tool.
-    # The gate checks the same files again, since Bash can still write them.
-    denied = [f"Edit({f})" for f in files]
-    if not settings:
-        denied += [f"Edit({p.replace('/*', '/**')})" for p in CHECK_FILES]
-    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--permission-mode", "acceptEdits",
-            "--allowedTools", "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
-            "--settings", builder_settings()]
-    if denied:
-        args += ["--disallowedTools", *denied]
-    env = {**command_env(folder, protected_paths=protected_paths), "LOOP_BUILDER": "1"}
-    with logfile.open("w") as out:
-        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                env=env, start_new_session=True)
+               protected_paths: Optional[list[str]] = None,
+               walk_away: bool = False, domains: Optional[list[str]] = None,
+               result_event: Optional[dict] = None,
+               append_log: bool = False, backend: str = "claude") -> str:
+    with logfile.open("a" if append_log else "w") as out:
+        proc = agents.start_session(
+            backend, prompt, folder, role="builder", disallowed=files,
+            settings_allowed=settings, protected_paths=protected_paths,
+            walk_away=walk_away, domains=domains)
         track_process(proc)
         from review import _pump_session
-        return _pump_session(proc, out, idle_seconds, activity_path=folder)
+        status = _pump_session(proc, out, idle_seconds, activity_path=folder,
+                               result_event=result_event, backend=backend)
+        if walk_away and result_event is not None and sandbox.usage_limit_event(result_event):
+            return "usage-limit"
+        return status
 
 
 def builder_words(logfile: Path) -> str:
@@ -312,21 +325,23 @@ def check_pushed_branch(root: Path, n: int) -> None:
                       "judge files, commit, run gate.py check, then run again")
 
 
-def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
+def build_piece(gh: GitHub, root: Path, n: int, attempts: int,
+                walk_away: bool = False, agent_override: Optional[str] = None) -> str:
     _cache_main_for_piece()
     try:
-        return _build_piece(gh, root, n, attempts)
+        return _build_piece(gh, root, n, attempts, walk_away, agent_override)
     finally:
         _clear_main_piece_cache()
 
 
-def _build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
+def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
+                 walk_away: bool = False, agent_override: Optional[str] = None) -> str:
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     check_pushed_branch(root, n)
     gate.move(gh, root, n, "building")
     try:
-        result = build_claimed(gh, root, n, issue, attempts)
+        result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override)
     except AttemptIdle as e:
         reason = str(e)
         if gate.state_of(gh.issue(n)) == "building":
@@ -342,9 +357,13 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     return result
 
 
-def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) -> str:
+def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
+                  walk_away: bool = False, agent_override: Optional[str] = None) -> str:
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
+    ready = {**ready, "agent": agents.selected(root, agent_override or ready.get("agent"))}
+    claim = last_record(gh.comments(n), "claim") or {}
+    ready = {**ready, "stale_research": claim.get("stale_research", [])}
     folder = worktree(root, n)
     dirty = dirty_folder_reason(folder)
     if dirty:
@@ -397,6 +416,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
     main_quality_results: dict[tuple[str, str], bool] = {}
+    kind_history: list[str] = []
     for k in range(1, attempts + 1):
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
@@ -414,11 +434,34 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         started = time.monotonic()
         started_at = datetime.now(timezone.utc)
         (folder / ".loop" / "outcome").unlink(missing_ok=True)
+        if ready.get("kind") == "goal":
+            (folder / ".loop" / "hypothesis").unlink(missing_ok=True)
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
-        idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
-                                 ready["files"], logfile, ready.get("settings", False),
+        domains = walkaway.approved_domains(root) if walk_away else None
+        if walk_away:
+            walkaway.write_heartbeat(root, n, k)
+        result_event = {}
+        prompt = brief(n, issue["body"], ready, last_failure, came_back, folder)
+        idle_status = build_once(folder, prompt, ready["files"], logfile,
+                                 ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
-                                 ready.get("protected_paths", []))
+                                 ready.get("protected_paths", []), walk_away, domains,
+                                 result_event, backend=ready["agent"])
+        if idle_status == "usage-limit":
+            wait_seconds = sandbox.reset_wait_seconds(result_event)
+            log(f"piece {n}: usage limit; waiting {wait_seconds} seconds before one retry")
+            time.sleep(wait_seconds)
+            result_event = {}
+            idle_status = build_once(folder, prompt, ready["files"], logfile,
+                                     ready.get("settings", False),
+                                     idle_limit_seconds(folder, ready.get("idle_limit")),
+                                     ready.get("protected_paths", []), walk_away, domains,
+                                     result_event, append_log=True, backend=ready["agent"])
+            if idle_status == "usage-limit":
+                reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
+                gh.comment(n, f"**Run:** {reason}")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+                return f"piece {n}: back to shaping, {reason}"
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
@@ -439,10 +482,17 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
         try:
-            passed, output = gate.judge(folder, ready)
+            attempt_ready = {**ready, "attempt": k}
+            passed, output = gate.judge(folder, attempt_ready)
         finally:
             clean_quality_outputs(folder, record_quality_outputs(folder))
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
+        if ready.get("kind") in ("goal", "gauntlet"):
+            kind_history.append(f"Attempt {k}: {output.strip()}")
+            baseline = (f"Main measurement: {ready['main_measurements']}; median "
+                        f"{ready['main_median']}\n" if ready.get("kind") == "goal" else
+                        f"Main gauntlet: {ready['main_verdicts']}\n")
+            output += "\n\n" + baseline + "Attempt history:\n" + "\n".join(kind_history)
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)
@@ -483,7 +533,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
-            review = review_piece(root, folder, n, k, issue, ready)
+            review = review_piece(root, folder, n, k, issue, ready, walk_away,
+                                  walkaway.approved_domains(root) if walk_away else None)
             if review["contract_findings"]:
                 reason = "; ".join(review["contract_findings"])
                 gh.comment(n, record_text({"move": "judge-gap", "type": "judge-gap",
@@ -533,69 +584,9 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="run.py", description=__doc__.split("\n\n")[0])
-    p.add_argument("pieces", nargs="*", type=int)
-    p.add_argument("--attempts", type=int, default=3)
-    p.add_argument("--verdict-kind", choices=("judge-writer",))
-    p.add_argument("--verdict-file")
-    args = p.parse_args(argv)
-    if args.verdict_kind or args.verdict_file:
-        try:
-            if not args.verdict_kind or not args.verdict_file:
-                raise Refused("verdict check needs both kind and file", "pass --verdict-kind and --verdict-file")
-            from review import _logged_verdict
-            print(json.dumps(_logged_verdict(Path(args.verdict_file), args.verdict_kind), sort_keys=True))
-            return 0
-        except Refused as error:
-            print(f"refused: {error.reason}", file=sys.stderr)
-            print(f"next: {error.next_step}", file=sys.stderr)
-            return 2
-    root = repo_root(Path.cwd())
-    gh = GitHub(root)
-    try:
-        lock = acquire_lock(root)
-        signal.signal(signal.SIGTERM, _interrupt_handler)
-        signal.signal(signal.SIGINT, _interrupt_handler)
-    except Refused as r:
-        print(f"refused: {r.reason}", file=sys.stderr)
-        print(f"next: {r.next_step}", file=sys.stderr)
-        return 2
-    results = []
-    try:
-        gate.ignore_loop_folder(root)
-        removed_reviews = cleanup_interrupted_reviews(root)
-        if removed_reviews:
-            log("removed abandoned review " + "; ".join(removed_reviews))
-        results.extend(recover_building(gh, root))
-        gate.sync(gh, root)
-        pieces = args.pieces or ready_pieces(gh, log)
-        if not pieces:
-            print("Nothing is ready. Shape a piece first.")
-            return 0
-        for n in pieces:
-            if stop_requested(root):
-                log("stop requested; ending before the next piece")
-                break
-            first_ready = last_record(gh.comments(n), "ready")
-            waiting = waiting_limit_note(gh, root, first_ready)
-            if waiting:
-                print(waiting)
-                results.append(waiting)
-                break
-            try:
-                results.append(build_piece(gh, root, n, args.attempts))
-            except Refused as r:
-                results.append(f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else ""))
-            except Exception as e:  # keep going with the other pieces
-                results.append(f"piece {n}: stopped by an error: {e}")
-        print("\nRun finished.")
-        print("\n".join(results))
-        return 0
-    finally:
-        if stop_requested(root):
-            clear_stop(root)
-        release_lock(lock)
-
+    """Run the command-line orchestration from its focused module."""
+    from run_cli import main as cli_main
+    return cli_main(argv, sys.modules[__name__])
 
 if __name__ == "__main__":
     sys.exit(main())

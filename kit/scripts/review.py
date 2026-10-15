@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Optional
 
 import gate
-from loopkit import (CHECK_FILES, Refused, command_env, loop_settings, main_ref, prepare,
+import agents
+from loopkit import (CHECK_FILES, Refused, main_ref, prepare,
                      record_prepare_outputs, rev, sh, untracked_paths)
 from procs import AttemptIdle, _untrack_process, track_process
 from run import commit_leftovers, idle_limit_seconds
@@ -161,7 +162,9 @@ def _review_prompt(name: str, values: dict[str, str]) -> str:
 
 def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
                   hard_seconds: int = ATTEMPT_TIMEOUT,
-                  activity_path: Optional[Path] = None) -> str:
+                  activity_path: Optional[Path] = None,
+                  result_event: Optional[dict] = None,
+                  backend: str = "claude") -> str:
     """Copy output to a log and stop a silent or overlong process group."""
     assert proc.stdout is not None
     stream = proc.stdout
@@ -224,11 +227,18 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
             lines = pending.split("\n")
             pending = lines.pop()
             for line in lines:
-                _write_claude_log_line(out, line)
+                if result_event is not None:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        event = None
+                    if isinstance(event, dict) and event.get("type") == "result":
+                        result_event.update(event)
+                out.write(agents.log_line(line, backend))
             out.flush()
             last_output = time.monotonic()
     if pending:
-        _write_claude_log_line(out, pending)
+        out.write(agents.log_line(pending, backend))
     proc.wait()
     _untrack_process(proc)
     selector.close()
@@ -259,46 +269,31 @@ def _folder_activity_stamp(folder: Optional[Path]) -> float:
 
 def _write_claude_log_line(out, line: str) -> None:
     """Keep stream-json transport out of the human-readable session log."""
-    try:
-        event = json.loads(line)
-    except ValueError:
-        out.write(line + "\n")
-        return
-    if not isinstance(event, dict):
-        return
-    if event.get("type") == "result" and (event.get("is_error") or event.get("error")):
-        error = event.get("result") or event.get("error") or "Claude reported an error"
-        out.write(f"Claude result error: {error}\n")
-        return
-    message = event.get("message", {})
-    if event.get("type") != "assistant" or not isinstance(message, dict):
-        return
-    content = message.get("content", [])
-    for block in content if isinstance(content, list) else []:
-        if isinstance(block, dict) and block.get("type") == "text":
-            out.write(str(block.get("text", "")))
-            out.write("\n")
+    out.write(agents.log_line(line, "claude"))
 
 
 def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
-                    idle_seconds: int, protected_paths: Optional[list[str]] = None) -> str:
-    claude = os.environ.get("LOOP_CLAUDE", "claude")
-    guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
-    settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{"type": "command", "command": guard}]}]}})
-    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--permission-mode", "acceptEdits", "--allowedTools",
-            "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
-            "--settings", settings]
-    if disallowed:
-        args += ["--disallowedTools", *[f"Edit({path})" for path in disallowed]]
-    env = {**command_env(folder, protected_paths=protected_paths),
-           "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
-    with logfile.open("w") as out:
-        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                env=env, start_new_session=True)
-        track_process(proc)
-        return _pump_session(proc, out, idle_seconds, activity_path=folder)
+                    idle_seconds: int, protected_paths: Optional[list[str]] = None,
+                    walk_away: bool = False, domains: Optional[list[str]] = None,
+                    backend: str = "claude") -> str:
+    for retry in range(2 if walk_away else 1):
+        result_event = {}
+        with logfile.open("w" if retry == 0 else "a") as out:
+            proc = agents.start_session(
+                backend, prompt, folder, role="reviewer", disallowed=disallowed,
+                protected_paths=protected_paths, walk_away=walk_away, domains=domains)
+            track_process(proc)
+            status = _pump_session(proc, out, idle_seconds, activity_path=folder,
+                                   result_event=result_event, backend=backend)
+        if not walk_away or not sandbox.usage_limit_event(result_event):
+            return status
+        if retry:
+            return "usage-limit"
+        wait_seconds = sandbox.reset_wait_seconds(result_event)
+        with logfile.open("a") as out:
+            out.write(f"\nUsage limit; waiting {wait_seconds} seconds before one retry.\n")
+        time.sleep(wait_seconds)
+    return "usage-limit"
 
 
 def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
@@ -319,15 +314,31 @@ def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
-                 ready: dict) -> dict:
+                 ready: dict, walk_away: bool = False,
+                 domains: Optional[list[str]] = None) -> dict:
     try:
-        return _review_piece(root, folder, n, k, issue, ready)
+        return _review_piece(root, folder, n, k, issue, ready, walk_away, domains)
     finally:
         _cleanup_review_worktrees(root, n, k)
 
 
+def contract_research(body: str) -> str:
+    """Return the approved Research section for the contract reviewer."""
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == "## research":
+            section = [line]
+            for rest in lines[index + 1:]:
+                if rest.startswith("## "):
+                    break
+                section.append(rest)
+            return "\n".join(section)
+    return "No outside findings."
+
+
 def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
-                  ready: dict) -> dict:
+                  ready: dict, walk_away: bool = False,
+                  domains: Optional[list[str]] = None) -> dict:
     """Run one standards review and one contract review in fresh sessions."""
     main = main_ref(folder)
     diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
@@ -355,7 +366,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     denied += ready.get("protected_paths", [])
     standards_status = _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
         "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
+        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
+        walk_away, domains, ready.get("agent", "claude"))
     if standards_status == "idle":
         raise AttemptIdle(f"standards reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
                           f"see {standards_log}")
@@ -405,8 +417,10 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     record_prepare_outputs(contract_folder, before, before_dirs)
     contract_log = logs / f"piece-{n}-contract-review.log"
     contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
-        "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
+        "CONTRACT": contract, "RESEARCH": contract_research(body),
+        "DIFF": final_diff}), contract_log, denied,
+        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
+        walk_away, domains, ready.get("agent", "claude"))
     if contract_status == "idle":
         raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
                           f"see {contract_log}")

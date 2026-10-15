@@ -14,6 +14,7 @@ from pathlib import Path
 from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 
 import gate
+import review
 import run
 from loopkit import Refused, changed_check_settings, command_env, parse_spec, records, run_judge
 
@@ -64,6 +65,66 @@ class SpecTest(unittest.TestCase):
         self.assertEqual(parse_spec(SPEC + "Large file: src/generated.py\n").large_files,
                          ("src/generated.py",))
 
+    def test_research_section_parses_findings_with_source_and_date(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout argument "
+                       "(source: https://example.test/api, read: 2026-10-15)\n")
+        research = parse_spec(body).research
+        self.assertEqual(len(research), 1)
+        self.assertEqual(research[0]["id"], "R1")
+        self.assertEqual(research[0]["finding"], "The API accepts a timeout argument")
+        self.assertEqual(research[0]["source"], "https://example.test/api")
+        self.assertEqual(research[0]["read"], "2026-10-15")
+
+    def test_research_line_requires_a_source_and_read_date(self):
+        cases = (
+            "- R1: Finding (read: 2026-10-15)",
+            "- R1: Finding (source: https://example.test/api)",
+            "- R1: Finding (source: not-a-url, read: 2026-10-15)",
+            "- R1: Finding (source: https://example.test/api, read: 2026-02-30)",
+            "- R1: Finding (source: https://example.test/api, read: 2999-01-01)",
+        )
+        for line in cases:
+            with self.subTest(line=line), self.assertRaises(Refused):
+                parse_spec(SPEC + "\n## Research\n" + line + "\n")
+
+    def test_research_ids_must_be_unique_and_lines_well_formed(self):
+        finding = "- R1: A fact (source: https://example.test, read: 2026-10-15)"
+        with self.assertRaises(Refused) as refusal:
+            parse_spec(SPEC + "\n## Research\n" + finding + "\n" + finding + "\n")
+        self.assertIn("used twice", refusal.exception.reason)
+        with self.assertRaises(Refused) as refusal:
+            parse_spec(SPEC + "\n## Research\nA fact with no citation\n")
+        self.assertIn("Research", refusal.exception.reason)
+
+    def test_stale_findings_use_claim_date_and_thirty_day_limit(self):
+        from datetime import date
+        from research import stale_findings
+        findings = [
+            {"id": "R1", "read": "2026-09-01"},
+            {"id": "R2", "read": "2026-09-16"},
+        ]
+        self.assertEqual(stale_findings(findings, today=date(2026, 10, 15)), ["R1"])
+
+    def test_builder_brief_includes_research_and_stale_warning(self):
+        ready = {
+            "approach": "Use the public API.", "command": "pytest", "files": [],
+            "research": [{"id": "R1", "finding": "The API accepts a timeout.",
+                          "source": "https://example.test/api", "read": "2026-08-01"}],
+            "stale_research": ["R1"],
+        }
+        brief = run.brief(4, "## Research\n- R1: The API accepts a timeout.", ready, "")
+        self.assertIn("R1: The API accepts a timeout.", brief)
+        self.assertIn("[possibly stale]", brief)
+
+    def test_contract_reviewer_receives_the_research_section(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout "
+                       "(source: https://example.test/api, read: 2026-10-15)\n")
+        research = review.contract_research(body)
+        self.assertIn("R1: The API accepts a timeout", research)
+        self.assertIn("source: https://example.test/api", research)
+
     def test_gate_records_round_trip_embedded_end_marker(self):
         from loopkit import record_text
         reason = "first --> fake record --> last"
@@ -97,13 +158,40 @@ class GateTest(unittest.TestCase):
         self.assertEqual(len(rec["bar"]), 64)
         self.assertEqual(rec["command"], "python3 judge_add.py")
 
+    def test_ready_rejects_research_without_a_source_and_date(self):
+        body = SPEC + "\n## Research\n- R1: The API uses cursors\n"
+        n = self.p.piece(spec=body)
+        with self.assertRaises(Refused) as refusal:
+            self.ready(n)
+        self.assertIn("Research", refusal.exception.reason)
+
+    def test_ready_record_freezes_research_findings(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout argument "
+                       "(source: https://example.test/api, read: 2026-10-15)\n")
+        n = self.p.piece(spec=body)
+        self.ready(n)
+        rec = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertEqual(rec["research"][0]["source"], "https://example.test/api")
+
+    def test_claim_marks_old_research_as_possibly_stale(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout argument "
+                       "(source: https://example.test/api, read: 2026-08-01)\n")
+        n = self.p.piece(spec=body)
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        claim = gate.last_record(self.p.gh.comments(n), "claim")
+        self.assertEqual(claim["stale_research"], ["R1"])
+        self.assertIn("possibly stale", self.p.gh.comments(n)[-1])
+
     def test_ready_freezes_every_gate_input_and_rejects_edits_to_them(self):
         self.p.loop_section("printf baseline", "printf prepared")
         agents = self.p.root / "AGENTS.md"
         agents.write_text(agents.read_text() +
                           "Keep: printf kept\nQuality: printf quality\n"
                           "Standards: STANDARDS.md\nProtected paths: src/private\n"
-                          "Idle limit: 7\nWaiting limit: 4\n")
+                          "Idle limit: 7\nWaiting limit: 4\nAgent: codex\n")
         (self.p.root / "STANDARDS.md").write_text("Use clear names.\n")
         git(self.p.root, "add", "AGENTS.md", "STANDARDS.md")
         git(self.p.root, "commit", "--quiet", "-m", "Add gate settings")
@@ -118,6 +206,7 @@ class GateTest(unittest.TestCase):
         self.assertEqual(ready["standards"], "STANDARDS.md")
         self.assertEqual(ready["protected_paths"], ["src/private"])
         self.assertEqual((ready["idle_limit"], ready["waiting_limit"]), ("7", "4"))
+        self.assertEqual(ready["agent"], "codex")
         folder = run.worktree(self.p.root, n)
         (folder / "AGENTS.md").write_text((folder / "AGENTS.md").read_text()
                                            .replace("Quality: printf quality\n", "")
@@ -535,20 +624,41 @@ class GateTest(unittest.TestCase):
         quality = [item for item in checks if "Quality command" in item[1]]
         self.assertTrue(quality and all(item[0] for item in quality), checks)
 
+    def test_doctor_applies_proposed_quality_to_fresh_main(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true")
+        proposal = "grep -q '^Quality: ' AGENTS.md"
+        checks = gate.doctor(self.p.gh, self.p.root, extra_quality=[proposal])
+        proposed = [item for item in checks if "Proposed Quality command" in item[1]]
+        self.assertEqual(len(proposed), 1, checks)
+        self.assertTrue(proposed[0][0], proposed[0])
+
     def test_failed_quality_probe_runs_test_before_quality_on_main(self):
         self.p.loop_section("touch .coverage")
         failed = gate.quality_fails_on_main(
             self.p.root, "test -f .coverage", "touch .coverage")
         self.assertFalse(failed)
 
-    def test_doctor_says_when_mutation_check_has_no_changed_functions_on_main(self):
+    def test_doctor_fails_mutation_check_without_source_paths(self):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("true")
         helper = Path(gate.__file__).resolve().parents[1] / "quality" / "mutmut-changed.py"
         checks = gate.doctor(self.p.gh, self.p.root,
                              extra_quality=[f"python3 {helper} origin/main"])
-        self.assertTrue(any("could not be exercised on main" in what for _, what, _ in checks),
-                        checks)
+        quality = [item for item in checks if "Quality command" in item[1]]
+        self.assertTrue(quality and not quality[-1][0], checks)
+        self.assertIn("no mutmut source paths configured", quality[-1][2])
+
+    def test_doctor_uses_proposed_prepare_and_test_for_quality_probe(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true", prepare="touch old-prepare")
+        proposed_quality = "printf proposed"
+        with patch.object(gate, "quality_on_fresh_main", return_value=(True, "")) as probe:
+            gate.doctor(self.p.gh, self.p.root, extra_quality=[proposed_quality],
+                        proposed_prepare="touch new-prepare", proposed_test="test -f new-test")
+        probe.assert_called_once()
+        self.assertEqual(probe.call_args.args[2:4], (proposed_quality, "test -f new-test"))
+        self.assertEqual(probe.call_args.kwargs["prepare_command"], "touch new-prepare")
 
     def test_doctor_warns_about_old_in_project_worktrees(self):
         (self.p.root / ".loop" / "worktrees" / "old").mkdir(parents=True)
