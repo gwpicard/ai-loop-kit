@@ -483,6 +483,28 @@ class GateTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("differ", why)
 
+    def test_flaky_keep_is_rerun_before_the_gate_blames_the_bar(self):
+        self.p.loop_section("true")
+        spec = SPEC.replace("## Judge", "## Judge\nKeep: `true`")
+        n = self.p.piece(spec=spec)
+        self.ready(n)
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "habits.py").write_text(GOOD_CODE)
+        keep_runs = iter([(1, "FAIL test_flaky_keep"), (0, "PASS test_flaky_keep")])
+
+        def run_flaky_keep(folder, command, protected_paths=None):
+            if command == ready["command"]:
+                return 0, "ok test_D1_add_appends\\nok test_D2_add_skips_duplicates"
+            return next(keep_runs)
+
+        with patch.object(gate, "run_judge", side_effect=run_flaky_keep):
+            passed, output = gate.judge(self.p.root, ready)
+
+        self.assertTrue(passed, output)
+        self.assertIn("keep-flaky", output)
+        self.assertIn("test_flaky_keep", output)
+
     def test_submit_runs_the_judge_itself(self):
         n = self.p.piece()
         self.ready(n)
