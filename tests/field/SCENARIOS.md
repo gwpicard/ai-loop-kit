@@ -25,7 +25,7 @@ repositories. They answer four questions after every change to the kit:
    It checks the rules on GitHub and scores each piece. It changes nothing.
 5. Add one row to `RESULTS.md`.
 6. A broken rule, a hand repair or a false statement from the kit goes into
-   the maintainer's ledger the same day. If it is the second time for one cause, it
+   the maintainer's open questions file the same day. If it is the second time for one cause, it
    earns a fix: a test that shows the failure, then the fix.
 
 ## What the audit checks

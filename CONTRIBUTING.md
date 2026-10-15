@@ -1,7 +1,8 @@
 # Contributing
 
 AI Loop Kit is being built, and its maintainer sets the order of the work. Read
-`docs/design/v1/build-plan.md` to see what comes next.
+`docs/DESIGN.md` to see how the kit works. A feature joins the kit only when a
+real run shows it is needed.
 
 ## Report a problem
 

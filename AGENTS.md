@@ -5,7 +5,8 @@ Standing instructions for agents working in this repository.
 ## What this repository is
 
 AI Loop Kit: a thin, checked loop for building software with Claude Code.
-Read `docs/ANGLE.md` first. It says what the kit is for and how it grows.
+Read `docs/DESIGN.md` first. It is the one description of what the kit is,
+how it works and why.
 
 ## Where things live
 
@@ -13,9 +14,10 @@ Read `docs/ANGLE.md` first. It says what the kit is for and how it grows.
   builds them, `kit/hooks/guard.py` refuses the hard rules, and
   `kit/skills/` holds setup, shape and run.
 - `tests/`: the checks for `kit/` and for the house rules.
-- Maintainer notes (the ledger of ideas and evidence, lessons from the first
-  build, the first kit and its design, build records) are kept outside the
-  public repository.
+- `docs/OPEN.md`: the maintainer's open questions, decisions to make and ideas
+  waiting for evidence. It is git-ignored and private.
+- History (the old ledger, lessons, build notes, the first kit and its design)
+  is kept outside the repository. Do not treat it as current.
 - `.agents/maintainer-skills/`: `humanizer`, `review-issues` and
   `stack-research`, for the maintainer.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
@@ -24,8 +26,8 @@ Read `docs/ANGLE.md` first. It says what the kit is for and how it grows.
 ## How the kit grows
 
 A feature enters `kit/` only when a real run shows it is needed. Write the
-failure in the maintainer's ledger first, add a test that reproduces it, then add
-the feature. Keep the kit small enough to read in one sitting.
+failure in `docs/OPEN.md` first, add a test that reproduces it, then add the
+feature. Keep the kit small enough to read in one sitting.
 
 ## Commands
 
@@ -75,4 +77,4 @@ decides when it is ready; a label written by hand means nothing.
 
 ## Where to read next
 
-Read `docs/ANGLE.md`, then `kit/spec-format.md`.
+Read `docs/DESIGN.md`, then `kit/spec-format.md`.
