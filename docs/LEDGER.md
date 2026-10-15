@@ -940,3 +940,10 @@ reasons, not features. They guide the restart.
 - **In-process forgery by arbitrary script** cannot be stopped by text guards; the sandbox and an inaccessible App key must hold that boundary.
 - **A distribution choice is needed** for the separate private kit checkout in hosted checks.
 - **Some Proposed items were never placed**: memory-pressure back-off, per-builder ports and data, walk-through with sample data, branch removal on merge, parent closing with last part, unreachable-GitHub semantics, the first upload. They stay LATER until a run needs them.
+
+## v1.1 plan entries
+
+| Source | What the plan adds | Entry |
+| --- | --- | --- |
+| v1.1 plan | Goal pieces need a repeated measurement, a fixed target, a recorded baseline and an attempt hypothesis before code changes. | Add goal judges with a median measurement and show each hypothesis with the result. |
+| v1.1 plan | Work that tests cannot judge needs a blind comparison against a reference, with criteria and repeatable verdicts. | Add gauntlet judges with three shuffled critics and require two wins. |

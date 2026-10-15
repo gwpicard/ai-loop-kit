@@ -32,10 +32,13 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
-                     clean_quality_outputs, loop_settings, parse_spec, prepare,
+                     clean_quality_outputs, loop_settings, prepare,
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
 from testlint import lint_files  # noqa: E402
+import measure  # noqa: E402
+from measure import run_measure, target_met  # noqa: E402
+import critic  # noqa: E402
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -67,6 +70,21 @@ FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
 
+
+def _package_spec(body: str):
+    """Named hook for the P3 parser, kept beside the gate entry points."""
+    return measure.parse_spec(body)
+
+
+def _capture(folder: Path, command: str) -> Path:
+    """Named hook for the gauntlet capture step."""
+    return critic.capture(folder, command)
+
+
+def _reference_path(root: Path, reference: str) -> str:
+    """Named hook for checking a gauntlet reference."""
+    return critic.reference_path(root, reference)
+
 LABEL_COLOURS = {"shaping": "c5def5", "ready": "0e8a16", "building": "fbca04",
                  "approval": "5319e7", "done": "006b75", "dropped": "cccccc"}
 
@@ -86,7 +104,7 @@ def state_of(issue: dict) -> str:
 def check_ready(root: Path, issue: dict) -> dict:
     """The ready gate. Returns the record to write. Refuses on any gap."""
     n = issue["number"]
-    spec = parse_spec(issue["body"] or "")
+    spec, kind_fields = _package_spec(issue["body"] or "")
     branch = branch_name(n)
     head = rev(root, branch)
     if head is None:
@@ -100,6 +118,7 @@ def check_ready(root: Path, issue: dict) -> dict:
     # Run the judge on today's main, with only the judge files added.
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
     folder = tmp / "main"
+    kind_evidence = {}
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         ok, poutput = (True, "") if spec.kind == "scaffold" else prepare(folder)
@@ -115,18 +134,45 @@ def check_ready(root: Path, issue: dict) -> dict:
                               "fix main first, or correct the Keep: command")
         if bar_files:
             sh(["git", "checkout", head, "--", *bar_files], folder)
-        lint = lint_files([folder / f for f in spec.files], folder,
-                          " ".join(spec.done_when.values()))
-        if lint:
-            raise Refused("the judge has quality problems:\n" + "\n".join(lint),
-                          "fix the judge files, then run gate.py check again")
-        code, output = run_judge(folder, spec.command)
+        if spec.kind not in ("goal", "gauntlet"):
+            lint = lint_files([folder / f for f in spec.files], folder,
+                              " ".join(spec.done_when.values()))
+            if lint:
+                raise Refused("the judge has quality problems:\n" + "\n".join(lint),
+                              "fix the judge files, then run gate.py check again")
+            code, output = run_judge(folder, spec.command)
+        else:
+            code, output = 0, ""
+        if spec.kind == "goal":
+            try:
+                baseline, report = run_measure(kind_fields["measure"], folder)
+            except ValueError as error:
+                raise Refused(f"Measure failed on main:\n{error}",
+                              "fix Measure: so it prints one finite number on its last line")
+            if target_met(baseline, kind_fields["target"]):
+                raise Refused(f"Measure already meets Target on main: {baseline:g}",
+                              "write a goal whose target is not met on today's main")
+            kind_evidence = {"measure": kind_fields["measure"], "target": kind_fields["target"],
+                             "main_value": baseline, "main_measure": report}
+        elif spec.kind == "gauntlet":
+            capture = _capture(folder, kind_fields["capture"])
+            reference = _reference_path(root, kind_fields["reference"])
+            try:
+                passed, report = critic.judge(capture, reference, kind_fields["criteria"], folder)
+            except (ValueError, OSError) as error:
+                raise Refused(f"critics failed on main:\n{error}",
+                              "fix Capture, Reference or the critic verdict format")
+            if passed:
+                raise Refused("main already wins the gauntlet against Reference",
+                              "write criteria that describe a change still to make")
+            kind_evidence = {"capture": kind_fields["capture"], "reference": reference,
+                             "criteria": kind_fields["criteria"], "main_critics": report}
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
 
     tail = output.strip()[-1500:]
-    if spec.kind == "scaffold":
+    if spec.kind in ("scaffold", "goal", "gauntlet"):
         # The first piece of an empty project: its judge is that the test
         # command runs, so there is nothing that must fail on main.
         pass
@@ -170,7 +216,8 @@ def check_ready(root: Path, issue: dict) -> dict:
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
             "files": spec.files, "command": spec.command,
-            "kind": spec.kind, "keep": spec.keep or loop_settings(root).get("keep", ""),
+            "kind": spec.kind, **kind_evidence,
+            "keep": spec.keep or loop_settings(root).get("keep", ""),
             "test": loop_settings(root).get("test", ""),
             "prepare": loop_settings(root).get("prepare", ""),
             "quality": loop_settings(root).get("quality", []),
@@ -207,7 +254,8 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
                       "move the piece back to shaping and run the ready gate again")
 
 
-def judge(folder: Path, ready: dict) -> tuple[bool, str]:
+def judge(folder: Path, ready: dict, attempt: Optional[int] = None,
+          attempt_started: Optional[float] = None) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
         settings_changed = sh(["git", "diff", "--no-renames", "--name-only",
@@ -278,28 +326,88 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
     protected_paths = ready.get("protected_paths", [])
-    code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
+    kind = ready.get("kind", "feature")
+    if kind in ("goal", "gauntlet"):
+        code, output = 0, ""
+    else:
+        code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
     if skipped_tests(output):
         return False, f"the judge reported skipped tests:\n{output.strip()[-1500:]}"
     if code != 0:
         return False, output
+    kind_passed = None
+    kind_output = ""
+    if kind == "goal":
+        hypothesis_path = folder / ".loop" / "hypothesis"
+        try:
+            hypothesis = hypothesis_path.read_text().strip()
+        except OSError:
+            hypothesis = ""
+        lines = [line.strip() for line in hypothesis.splitlines() if line.strip()]
+        expected = f"Attempt {attempt}:" if attempt else ""
+        selected = next((line for line in reversed(lines)
+                         if not expected or line.lower().startswith(expected.lower())), "")
+        hypothesis_first = bool(selected)
+        if attempt_started is not None and hypothesis_first:
+            try:
+                hypothesis_time = hypothesis_path.stat().st_mtime
+                hypothesis_first = hypothesis_time >= attempt_started
+                changed = sh(["git", "diff", "--no-renames", "--name-only",
+                              f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
+                for name in changed:
+                    if name.startswith(".loop/") or not (folder / name).is_file():
+                        continue
+                    changed_time = (folder / name).stat().st_mtime
+                    if changed_time >= attempt_started and changed_time < hypothesis_time:
+                        hypothesis_first = False
+                        break
+            except OSError:
+                hypothesis_first = False
+        try:
+            value, report = run_measure(ready["measure"], folder)
+            target = ready["target"]
+            kind_passed = target_met(value, target) and hypothesis_first
+            hypothesis_note = f"Hypothesis: {selected}" if hypothesis_first else \
+                "Hypothesis missing or late: write 'Attempt N: ...' before changing code"
+            kind_output = (f"Goal baseline on main: {ready['main_value']:g}\n"
+                           f"Goal after attempt: {value:g}\nTarget: {target}\n"
+                           f"{hypothesis_note}\n{report}")
+        except ValueError as error:
+            kind_passed = False
+            kind_output = f"Measure failed after the attempt:\n{error}"
+    elif kind == "gauntlet":
+        try:
+            captured = _capture(folder, ready["capture"])
+            kind_passed, report = critic.judge(captured, ready["reference"],
+                                               ready["criteria"], folder)
+            kind_output = (f"Gauntlet baseline on main:\n{ready.get('main_critics', '')}\n"
+                           f"Gauntlet after attempt:\n{report}")
+        except (Refused, ValueError, OSError) as error:
+            kind_passed = False
+            kind_output = f"Gauntlet judge failed:\n{error}"
     if ready.get("keep"):
         kcode, koutput = run_judge(folder, ready["keep"], protected_paths=protected_paths)
         if skipped_tests(koutput):
-            return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
+            result = f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
+            return False, result + (("\n\n" + kind_output) if kind_output else "")
         if kcode != 0:
             if ready["files"] and keep_passes_without_judge(folder, ready):
-                return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
-            return False, f"the judge passes, but the keep check now fails:\n{koutput}"
+                result = f"{BAR_WRONG}. Without them it passes:\n{koutput}"
+                return False, result + (("\n\n" + kind_output) if kind_output else "")
+            result = f"the judge passes, but the keep check now fails:\n{koutput}"
+            return False, result + (("\n\n" + kind_output) if kind_output else "")
         output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
     for command in ready.get("quality", []):
         qcode, qoutput = run_judge(folder, command, protected_paths=protected_paths)
         quality_results.append(f"Quality: {command}\nExit: {qcode}\n{qoutput.strip()}")
         if qcode != 0:
-            return False, "a Quality command failed:\n" + "\n\n".join(quality_results)
+            result = "a Quality command failed:\n" + "\n\n".join(quality_results)
+            return False, result + (("\n\n" + kind_output) if kind_output else "")
     if quality_results:
         output += "\n\n" + "\n\n".join(quality_results)
+    if kind_output:
+        return bool(kind_passed), (output + "\n\n" if output else "") + kind_output
     return True, output
 
 
@@ -385,6 +493,11 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         record = {**check_ready(root, issue), "from": frm, "to": to}
         if record["kind"] == "scaffold":
             note += " Scaffold piece: the fails-on-main check does not apply."
+        elif record["kind"] == "goal":
+            note += (f" Goal baseline is {record['main_value']:g}; target is "
+                     f"{record['target']}, which main does not meet.")
+        elif record["kind"] == "gauntlet":
+            note += " Main does not win the gauntlet against the reference."
         else:
             note += " The judge fails on main as it should, naming every spec ID to build."
             if record["stays"]:
@@ -613,7 +726,7 @@ def replace_spec(gh: GitHub, n: int, body: str) -> None:
     if state_of(issue) != "shaping":
         raise Refused("the spec can only change while a piece is shaping",
                       "move the piece back to shaping, then edit its spec")
-    parse_spec(body)
+    _package_spec(body)
     gh.edit_body(n, body)
 
 

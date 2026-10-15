@@ -187,6 +187,13 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
                            folder or Path.cwd(), ready.get("approach", ""), [], ready.get("files"))) or "- (none found)",
                        "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
+    if ready.get("kind") == "goal":
+        text += ("\n\nGoal attempt rule: before changing code, add one falsifiable line to "
+                 "`.loop/hypothesis` in the form `Attempt N: ...`, where N is this attempt "
+                 "number. The gate records the hypothesis and the measured value.\n")
+    elif ready.get("kind") == "gauntlet":
+        text += ("\n\nGauntlet: the gate captures the result and sends it to three fresh blind "
+                 "critics after each attempt. Keep the captured output under `.loop/capture/`.\n")
     return text
 
 
@@ -397,6 +404,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
     main_quality_results: dict[tuple[str, str], bool] = {}
+    kind_attempt_evidence = []
     for k in range(1, attempts + 1):
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
@@ -439,7 +447,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
         try:
-            passed, output = gate.judge(folder, ready)
+            passed, output = gate.judge(folder, ready, attempt=k,
+                                       attempt_started=started_at.timestamp())
         finally:
             clean_quality_outputs(folder, record_quality_outputs(folder))
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
@@ -479,10 +488,15 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             gh.comment(n, f"**Run:** attempt {k} failed a Quality check; retrying.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             continue
+        if ready.get("kind") in ("goal", "gauntlet"):
+            kind_attempt_evidence.append(f"Attempt {k}:\n{output}")
         if passed:
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
+            if kind_attempt_evidence:
+                output = "All loop-kind attempt evidence:\n" + \
+                    "\n\n".join(kind_attempt_evidence)
             review = review_piece(root, folder, n, k, issue, ready)
             if review["contract_findings"]:
                 reason = "; ".join(review["contract_findings"])
