@@ -181,6 +181,7 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
                    f"reasons no longer apply.\n\n{earlier}")
     for key, value in {"PIECE": str(n), "SPEC": body.strip(),
                        "APPROACH": ready.get("approach", "") or "No approach was supplied.",
+                       "RESEARCH": research_brief(ready),
                        "COMMAND": ready["command"],
                        "FILES": files,
                        "DEPENDENTS": "\n".join(f"- `{f}`" for f in dependent_files(
@@ -188,6 +189,15 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
                        "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
     return text
+
+
+def research_brief(ready: dict) -> str:
+    """Format frozen findings and claim-time stale flags for the builder."""
+    stale = set(ready.get("stale_research", []))
+    lines = [f"- {item['id']}: {item['finding']} (source: {item['source']}, read: {item['read']})"
+             + (" [possibly stale]" if item["id"] in stale else "")
+             for item in ready.get("research", [])]
+    return "\n".join(lines) or "- No outside facts were used."
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict) -> dict:
@@ -345,6 +355,8 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) -> str:
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
+    claim = last_record(gh.comments(n), "claim") or {}
+    ready = {**ready, "stale_research": claim.get("stale_research", [])}
     folder = worktree(root, n)
     dirty = dirty_folder_reason(folder)
     if dirty:

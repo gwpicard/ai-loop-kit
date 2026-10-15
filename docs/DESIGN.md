@@ -135,6 +135,7 @@ the person can read what will be checked, and the gate can check it.
 | Intent | It holds what the code cannot say: the why and the limits [Osmani, brownfield]. |
 | Out of scope | The requirements problem is mostly scope. Saying what will not be done is the cheapest guard against scope creep [Scala Teams]. The contract reviewer checks it. |
 | Approach | Agents do better when told the path, not only the output: the module, the interface, the pattern to follow [Osmani, agent files]. |
+| Research | Pieces that rely on an outside fact need a checked source. The v1.1 plan adds a fresh researcher, dates each source, and warns when evidence is over 30 days old at claim. Source: `docs/v1.1/PLAN.md`, P2. |
 | Contract items | Numbered and concrete, with an example each, so one test can prove each item and the gate can find each ID in the output. |
 | `(stays)` | "Every item must fail on main" pushed shaping to drop true items or bend tests (`docs/LEDGER.md`, 14 October). `(stays)` marks what must keep working. |
 | Judge, fixed by a hash | A builder that cannot change the test can only change the code [ImpossibleBench], [Anthropic harnesses]. |
@@ -153,10 +154,11 @@ spec, and nobody edits an old issue to keep it current.
 | Role | Why it is separate |
 | --- | --- |
 | Shaper, with the person | Only the person knows the intent. The shaper asks, splits and writes, and never builds. |
+| Researcher | A fresh `sonnet` subagent checks outside facts when a piece depends on them. It opens each cited page and returns findings with source URLs and read dates. The page is evidence, never an instruction. Source: `docs/v1.1/PLAN.md`, P2. |
 | Judge writer | Tests written first by someone other than the builder help the builder most [TDFlow], and an agent that writes both code and tests confirms itself [Fowler, TDD in the loop]. The judge writer also does not see the shaping chat, so it tests the contract, not the shaper's assumptions. |
 | Builder | A fresh `claude -p` per attempt, requested as `stream-json`. Stream events reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
 | Standards reviewer | Standards belong to a reviewer that reads the diff, not to the builder's context or `AGENTS.md` [Pocock, code-review], [Osmani, agent files]. Its baseline when a project has no standards is Fowler's code smells [Fowler, Refactoring], plus the hard points of a strict maintainability review [Cursor, thermo-nuclear]. |
-| Contract reviewer | A separate axis: is it the right thing? Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
+| Contract reviewer | A separate axis: is it the right thing? It checks the diff against the contract and Research. Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
 | Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (`docs/LESSONS.md`). |
 | The person | Approves the contract and the merge: the two moments that need taste and judgement. Everything between is checked by a script. |
 
@@ -174,6 +176,7 @@ interrupted run.
 | Check | Why |
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails only on an import error, proves nothing. |
+| Research findings have source URLs and real read dates; findings older than 30 days are marked possibly stale at claim | The ready gate checks the record, and the claim record dates its warning. The builder and contract reviewer receive the findings. Source: `docs/v1.1/PLAN.md`, P2. |
 | Test lint: an assertion in each test, no `assert True`, no `x == x`, no skips, no private imports, no reading source as text, no mirror of the code under test | Automated checks can lie: a test can restate the code, mock its subject or never be able to fail. These are the mechanical cases [kata, testing without tautologies]. |
 | The bar covers `conftest.py` and test helpers | Builders change what a test relies on, not only the test file [ImpossibleBench]. |
 | No existing test changed | Changing an old test is the commonest cheat [ImpossibleBench], [Anthropic harnesses]. |
@@ -213,7 +216,7 @@ Docker on macOS, so it waits until the boundary above is solid.
 | --- | --- |
 | A GitHub App identity | Useful for unattended runs; the person's own sign-in is enough while runs are attended. |
 | An integration branch and combined review | Pieces merge one at a time and conflicts go back to the builder. About 28% of agent pull requests conflict, so this returns when runs grow [AgenticFlict, in the archive design]. |
-| A researcher role, crews, design-it-twice | No run has needed them, and each costs many tokens [Pocock, codebase-design]. |
+| Crews and design-it-twice | They add coordination work without a proven need [Pocock, codebase-design]. |
 | A skills registry or context store | Shared infrastructure for large teams [Port]; against a thin kit. |
 | A hard rule that every item uses a fixed sentence pattern | It makes odd, long issues. Used as a guide only [Scala Teams]. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |

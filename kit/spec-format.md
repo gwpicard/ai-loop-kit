@@ -13,7 +13,7 @@ Out of scope:
 Optional. Name the files, interface, tools and constraints when they help.
 
 ## Research
-- R1: The API supports cursor pagination (source: https://example.com/api, read: 2026-10-15)
+- R1: The API accepts a timeout argument (source: https://example.test/api, read: 2026-10-15)
 
 ## Contract
 - D1: When I run `habits add read`, then `habits list` shows read.
@@ -33,10 +33,11 @@ Large file: src/generated.py
 optional. Contract items start with a unique ID such as `D1`. An item already
 true on main can use `(stays)`; its judge test must pass on main.
 
-`Research` is optional. Use it when a piece depends on an outside fact. Add
-one `R` item per finding, with an HTTP or HTTPS source URL and the date it was
-read in `YYYY-MM-DD` form. The gate rejects malformed findings. At claim time,
-findings older than 30 days are marked as possibly stale in the build brief.
+`Research` is optional. Use one line per outside finding, with a unique `R`
+ID, an HTTP or HTTPS source URL and the date read in `YYYY-MM-DD` form. The
+gate refuses a malformed finding. At claim, it reports findings older than
+30 days as possibly stale. The builder and contract reviewer receive the
+findings.
 
 Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, and
 `Kind: scaffold` for the first piece in an empty project. A fix starts with
@@ -70,6 +71,7 @@ Files:
   passes on main and has a test.
 - `Keep:` passes on main and after the build.
 - `Files:` names judge files inside the project.
+- Each Research line has a source URL and a real read date.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
   unless its path is named with `Large file:`.
 

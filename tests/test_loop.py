@@ -14,6 +14,7 @@ from pathlib import Path
 from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 
 import gate
+import review
 import run
 from loopkit import Refused, changed_check_settings, command_env, parse_spec, records, run_judge
 
@@ -64,29 +65,31 @@ class SpecTest(unittest.TestCase):
         self.assertEqual(parse_spec(SPEC + "Large file: src/generated.py\n").large_files,
                          ("src/generated.py",))
 
-    def test_reads_research_findings_with_source_and_read_date(self):
+    def test_research_section_parses_findings_with_source_and_date(self):
         body = SPEC + ("\n## Research\n"
-                       "- R1: The API supports cursors (source: https://example.com/api, "
-                       "read: 2026-10-15)\n")
-        finding = parse_spec(body).research[0]
-        self.assertEqual((finding.id, finding.text, finding.source, finding.read),
-                         ("R1", "The API supports cursors", "https://example.com/api",
-                          "2026-10-15"))
+                       "- R1: The API accepts a timeout argument "
+                       "(source: https://example.test/api, read: 2026-10-15)\n")
+        research = parse_spec(body).research
+        self.assertEqual(len(research), 1)
+        self.assertEqual(research[0]["id"], "R1")
+        self.assertEqual(research[0]["finding"], "The API accepts a timeout argument")
+        self.assertEqual(research[0]["source"], "https://example.test/api")
+        self.assertEqual(research[0]["read"], "2026-10-15")
 
-    def test_research_lines_need_a_source_and_valid_read_date(self):
-        malformed = (
-            "- R1: The API supports cursors (read: 2026-10-15)",
-            "- R1: The API supports cursors (source: https://example.com/api)",
-            "- R1: The API supports cursors (source: file:///tmp/api, read: 2026-10-15)",
-            "- R1: The API supports cursors (source: https://example.com/api, read: 2026-02-30)",
+    def test_research_line_requires_a_source_and_read_date(self):
+        cases = (
+            "- R1: Finding (read: 2026-10-15)",
+            "- R1: Finding (source: https://example.test/api)",
+            "- R1: Finding (source: not-a-url, read: 2026-10-15)",
+            "- R1: Finding (source: https://example.test/api, read: 2026-02-30)",
+            "- R1: Finding (source: https://example.test/api, read: 2999-01-01)",
         )
-        for line in malformed:
-            with self.subTest(line=line), self.assertRaises(Refused) as refusal:
+        for line in cases:
+            with self.subTest(line=line), self.assertRaises(Refused):
                 parse_spec(SPEC + "\n## Research\n" + line + "\n")
-            self.assertIn("Research", refusal.exception.reason)
 
     def test_research_ids_must_be_unique_and_lines_well_formed(self):
-        finding = "- R1: A fact (source: https://example.com, read: 2026-10-15)"
+        finding = "- R1: A fact (source: https://example.test, read: 2026-10-15)"
         with self.assertRaises(Refused) as refusal:
             parse_spec(SPEC + "\n## Research\n" + finding + "\n" + finding + "\n")
         self.assertIn("used twice", refusal.exception.reason)
@@ -94,13 +97,33 @@ class SpecTest(unittest.TestCase):
             parse_spec(SPEC + "\n## Research\nA fact with no citation\n")
         self.assertIn("Research", refusal.exception.reason)
 
-    def test_reports_research_older_than_thirty_days(self):
-        from loopkit import stale_research
-        body = (SPEC + "\n## Research\n"
-                "- R1: Old fact (source: https://example.com/old, read: 2026-09-01)\n"
-                "- R2: Recent fact (source: https://example.com/new, read: 2026-09-16)\n")
-        stale = stale_research(parse_spec(body), on_date="2026-10-15")
-        self.assertEqual([finding.id for finding in stale], ["R1"])
+    def test_stale_findings_use_claim_date_and_thirty_day_limit(self):
+        from datetime import date
+        from research import stale_findings
+        findings = [
+            {"id": "R1", "read": "2026-09-01"},
+            {"id": "R2", "read": "2026-09-16"},
+        ]
+        self.assertEqual(stale_findings(findings, today=date(2026, 10, 15)), ["R1"])
+
+    def test_builder_brief_includes_research_and_stale_warning(self):
+        ready = {
+            "approach": "Use the public API.", "command": "pytest", "files": [],
+            "research": [{"id": "R1", "finding": "The API accepts a timeout.",
+                          "source": "https://example.test/api", "read": "2026-08-01"}],
+            "stale_research": ["R1"],
+        }
+        brief = run.brief(4, "## Research\n- R1: The API accepts a timeout.", ready, "")
+        self.assertIn("R1: The API accepts a timeout.", brief)
+        self.assertIn("[possibly stale]", brief)
+
+    def test_contract_reviewer_receives_the_research_section(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout "
+                       "(source: https://example.test/api, read: 2026-10-15)\n")
+        research = review.contract_research(body)
+        self.assertIn("R1: The API accepts a timeout", research)
+        self.assertIn("source: https://example.test/api", research)
 
     def test_gate_records_round_trip_embedded_end_marker(self):
         from loopkit import record_text
@@ -141,6 +164,26 @@ class GateTest(unittest.TestCase):
         with self.assertRaises(Refused) as refusal:
             self.ready(n)
         self.assertIn("Research", refusal.exception.reason)
+
+    def test_ready_record_freezes_research_findings(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout argument "
+                       "(source: https://example.test/api, read: 2026-10-15)\n")
+        n = self.p.piece(spec=body)
+        self.ready(n)
+        rec = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertEqual(rec["research"][0]["source"], "https://example.test/api")
+
+    def test_claim_marks_old_research_as_possibly_stale(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API accepts a timeout argument "
+                       "(source: https://example.test/api, read: 2026-08-01)\n")
+        n = self.p.piece(spec=body)
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        claim = gate.last_record(self.p.gh.comments(n), "claim")
+        self.assertEqual(claim["stale_research"], ["R1"])
+        self.assertIn("possibly stale", self.p.gh.comments(n)[-1])
 
     def test_ready_freezes_every_gate_input_and_rejects_edits_to_them(self):
         self.p.loop_section("printf baseline", "printf prepared")

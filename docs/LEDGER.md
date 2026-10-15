@@ -941,3 +941,6 @@ reasons, not features. They guide the restart.
 - **In-process forgery by arbitrary script** cannot be stopped by text guards; the sandbox and an inaccessible App key must hold that boundary.
 - **A distribution choice is needed** for the separate private kit checkout in hosted checks.
 - **Some Proposed items were never placed**: memory-pressure back-off, per-builder ports and data, walk-through with sample data, branch removal on merge, parent closing with last part, unreachable-GitHub semantics, the first upload. They stay LATER until a run needs them.
+
+- **Researcher role and dated evidence**
+  What: when a piece depends on an outside fact, a fresh researcher returns findings with source URLs and read dates; the gate validates each line and marks findings over 30 days old at claim as possibly stale. Why: outside facts need evidence the builder and reviewer can check. Tier: CORE (v1.1 plan). Source: v1.1 plan.
