@@ -59,6 +59,11 @@ test('return value', () => expect(doWork()).toBe('done'));
         self.assertIn("test only checks that a call does not throw", rules)
         self.assertEqual(rules.count("test only checks that a call does not throw"), 1)
 
+    def test_javascript_rejects_node_no_throw_without_an_outcome(self):
+        text = "test('no throw', () => assert.doesNotThrow(doWork));\n"
+        rules = [rule for _, rule in javascript_findings(Path("test.js"), text)]
+        self.assertIn("test only checks that a call does not throw", rules)
+
     def test_javascript_accepts_node_assertions_with_a_result_check(self):
         text = """test('result', () => {
     assert.doesNotThrow(work);
