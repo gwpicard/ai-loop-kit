@@ -136,4 +136,7 @@ v1 merges when all seven pass and both suites and CI are green.
 
 | # | Repository | Scenario | Passes when |
 | --- | --- | --- | --- |
-| 1 | loop-test-install | A fake builder streams progress events for longer than the idle limit, then completes a piece. | The attempt stays active, the piece passes, and the pull request opens. |
+| 1 | loop-test-install | Set `Idle limit: 2` in the loop section, then run a real piece whose attempt lasts more than two minutes. Restore the default afterwards. | The attempt is not killed as idle, streams activity and passes. |
+| 2 | loop-test-install | Run setup and doctor again, then build a fix to an existing function with real coverage, CRAP and mutmut Quality commands. | The branch's own mutation and CRAP checks report true results; any surviving mutant is fixed on a later attempt. |
+| 3 | loop-test-node | Kill only `run.py` with SIGTERM while a `claude -p` reviewer is running, then start another run. | The piece is recovered and no reviewer process, review worktree or `review/*` branch remains. |
+| 4 | loop-test-install | Run doctor on a fresh main without manual edits. | The Quality dry-run passes and doctor says plainly when mutation testing cannot be exercised. |
