@@ -37,6 +37,8 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
 from proposed_quality import apply as apply_proposed_quality  # noqa: E402
+import critic  # noqa: E402
+import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 
@@ -84,6 +86,26 @@ def state_of(issue: dict) -> str:
     return states[0]
 
 
+def _kind_ready_judge(folder: Path, spec) -> tuple[bool, str, dict]:
+    """Run the goal or gauntlet baseline while checking a piece for ready."""
+    if spec.kind == "goal":
+        output, record = measure.ready(folder, spec.measure, spec.target)
+        return True, output, record
+    if spec.kind == "gauntlet":
+        output, record = critic.ready(folder, spec.capture, spec.reference, list(spec.criteria))
+        return True, output, record
+    return False, "", {}
+
+
+def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
+    """Run the measurement or blind critic for one completed attempt."""
+    if ready.get("kind") == "goal":
+        return measure.judge_attempt(folder, ready)
+    if ready.get("kind") == "gauntlet":
+        return critic.judge_attempt(folder, ready)
+    return -1, ""
+
+
 # ---------------------------------------------------------------- checks
 
 def check_ready(root: Path, issue: dict) -> dict:
@@ -123,13 +145,20 @@ def check_ready(root: Path, issue: dict) -> dict:
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
-        code, output = run_judge(folder, spec.command)
+        kind_record = {}
+        if spec.kind in ("goal", "gauntlet"):
+            _, output, kind_record = _kind_ready_judge(folder, spec)
+            code = 1
+        else:
+            code, output = run_judge(folder, spec.command)
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
 
     tail = output.strip()[-1500:]
-    if spec.kind == "scaffold":
+    if spec.kind in ("goal", "gauntlet"):
+        pass
+    elif spec.kind == "scaffold":
         # The first piece of an empty project: its judge is that the test
         # command runs, so there is nothing that must fail on main.
         pass
@@ -174,6 +203,7 @@ def check_ready(root: Path, issue: dict) -> dict:
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
             "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": spec.keep or loop_settings(root).get("keep", ""),
+            **kind_record,
             "test": loop_settings(root).get("test", ""),
             "prepare": loop_settings(root).get("prepare", ""),
             "quality": loop_settings(root).get("quality", []),
@@ -287,8 +317,12 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
     protected_paths = ready.get("protected_paths", [])
-    code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
-    if skipped_tests(output):
+    kind_code, kind_output = _kind_attempt_judge(folder, ready)
+    if kind_code >= 0:
+        code, output = kind_code, kind_output
+    else:
+        code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
+    if kind_code < 0 and skipped_tests(output):
         return False, f"the judge reported skipped tests:\n{output.strip()[-1500:]}"
     if code != 0:
         return False, output
@@ -299,14 +333,20 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         if kcode != 0:
             if ready["files"] and keep_passes_without_judge(folder, ready):
                 return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
-            return False, f"the judge passes, but the keep check now fails:\n{koutput}"
+            failure = f"the judge passes, but the keep check now fails:\n{koutput}"
+            if kind_code >= 0:
+                failure += f"\n\n{output}"
+            return False, failure
         output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
     for command in ready.get("quality", []):
         qcode, qoutput = run_judge(folder, command, protected_paths=protected_paths)
         quality_results.append(f"Quality: {command}\nExit: {qcode}\n{qoutput.strip()}")
         if qcode != 0:
-            return False, "a Quality command failed:\n" + "\n\n".join(quality_results)
+            failure = "a Quality command failed:\n" + "\n\n".join(quality_results)
+            if kind_code >= 0:
+                failure += f"\n\n{output}"
+            return False, failure
     if quality_results:
         output += "\n\n" + "\n\n".join(quality_results)
     return True, output

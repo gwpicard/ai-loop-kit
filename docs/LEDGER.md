@@ -945,3 +945,11 @@ reasons, not features. They guide the restart.
 
 - **Researcher role and dated evidence**
   What: when a piece depends on an outside fact, a fresh researcher returns findings with source URLs and read dates; the gate validates each line and marks findings over 30 days old at claim as possibly stale. Why: outside facts need evidence the builder and reviewer can check. Tier: CORE (v1.1 plan). Source: v1.1 plan.
+
+## v1.1 plan additions
+
+- **Goal and gauntlet loop kinds**
+  What: judge goal work with a repeated measurement and target; judge work a
+  test cannot score with blind comparisons against a reference. Why: the v1.1
+  plan calls for both kinds and names their ready and attempt checks. Tier:
+  CORE (source: v1.1 plan).

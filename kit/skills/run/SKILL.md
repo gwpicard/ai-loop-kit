@@ -30,6 +30,7 @@ description: Builds the ready pieces. Each attempt is a fresh Claude session; th
 
 ## Rules
 - Never build a piece yourself in this session. The run builds; the gate judges.
+- For a goal piece, each attempt needs a fresh hypothesis in `.loop/hypothesis`; report the main and attempt measurements and every hypothesis tried. For a gauntlet piece, report the three blind verdicts and the order each critic saw. The gate includes this evidence in the pull request.
 - Never merge a pull request. The person merges.
 - Never move a state label by hand.
 - Never reset, rewrite or force-push a piece branch. The run refuses a branch whose pushed commits are missing locally.

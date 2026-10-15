@@ -48,7 +48,7 @@ class Spec:
     done_when: dict[str, str]
     command: str
     files: list[str]
-    kind: str  # feature, fix, or scaffold
+    kind: str  # feature, fix, scaffold, goal, or gauntlet
     intent: str = ""
     out_of_scope: tuple = ()
     approach: str = ""
@@ -57,10 +57,16 @@ class Spec:
     settings: bool = False  # True when the piece may change the project's check settings
     large_files: tuple = ()  # Explicit files allowed to cross the 1,000-line mark
     research: tuple = ()  # Sourced findings used to shape and review the piece
+    measure: str = ""
+    target: str = ""
+    capture: str = ""
+    reference: str = ""
+    criteria: tuple = ()
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
-_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file)\s*:\s*(.*)$", re.IGNORECASE)
+_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file|Measure|Target|"
+                    r"Capture|Reference|Criteria)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -130,20 +136,33 @@ def parse_spec(body: str) -> Spec:
             gaps.append("'## Contract' has no item like '- D1: ...'")
 
     command, kind, keep, files, settings, large_files = "", "feature", "", [], False, []
+    measure, target, capture, reference, criteria = "", "", "", "", []
     judge = _section(body, "Judge")
     if judge is None:
         gaps.append("no '## Judge' section")
     else:
         in_files = False
+        in_criteria = False
         for line in judge:
             m = _FIELD.match(line)
             if m:
                 key, value = m.group(1).lower(), m.group(2).strip()
                 in_files = key == "files"
+                in_criteria = key == "criteria"
                 if key == "command":
                     command = value.strip("`").strip()
                 elif key == "kind":
                     kind = value.strip("`").strip().lower()
+                elif key == "measure":
+                    measure = value.strip("`").strip()
+                elif key == "target":
+                    target = value.strip("`").strip()
+                elif key == "capture":
+                    capture = value.strip("`").strip()
+                elif key == "reference":
+                    reference = value.strip("`").strip()
+                elif key == "criteria":
+                    criteria.extend([item.strip() for item in value.split(",") if item.strip()])
                 elif key == "keep":
                     keep = value.strip("`").strip()
                 elif key == "settings":
@@ -151,21 +170,27 @@ def parse_spec(body: str) -> Spec:
                     if not settings:
                         gaps.append(f"'Settings: {value}' is unknown; use 'Settings: may change'")
                 elif key == "large file":
-                    target = value.strip("`").strip()
-                    if not target or target.startswith("/") or ".." in Path(target).parts:
+                    target_path = value.strip("`").strip()
+                    if not target_path or target_path.startswith("/") or ".." in Path(target_path).parts:
                         gaps.append("'Large file:' must name a path inside the project")
                     else:
-                        large_files.append(target)
+                        large_files.append(target_path)
                 elif value:
                     files += [f.strip().strip("`") for f in value.split(",") if f.strip()]
             elif in_files and re.match(r"^\s*[-*]\s+\S", line):
                 files.append(line.strip()[1:].strip().strip("`"))
-        if not command:
+            elif in_criteria and re.match(r"^\s*[-*]\s+\S", line):
+                criteria.append(line.strip()[1:].strip())
+        if kind not in ("feature", "fix", "scaffold", "goal", "gauntlet"):
+            gaps.append(f"'Kind: {kind}' is unknown; use feature, fix, scaffold, goal or gauntlet")
+        if kind in ("feature", "fix", "scaffold") and not command:
             gaps.append("'## Judge' has no 'Command:' line")
-        if kind not in ("feature", "fix", "scaffold"):
-            gaps.append(f"'Kind: {kind}' is unknown; use feature, fix or scaffold")
-        if kind != "scaffold" and not files:
+        if kind in ("feature", "fix") and not files:
             gaps.append("'## Judge' lists no judge files under 'Files:'")
+        if kind == "goal" and (not measure or not target):
+            gaps.append("goal judges need 'Measure:' and 'Target:' lines")
+        if kind == "gauntlet" and (not capture or not reference or not criteria):
+            gaps.append("gauntlet judges need 'Capture:', 'Reference:' and non-empty 'Criteria:'")
         for f in files:
             if f.startswith("/") or ".." in Path(f).parts:
                 gaps.append(f"judge file '{f}' must be a path inside the project")
@@ -175,7 +200,8 @@ def parse_spec(body: str) -> Spec:
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
     return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
-                keep, tuple(stays), settings, tuple(large_files), tuple(research))
+                keep, tuple(stays), settings, tuple(large_files), tuple(research),
+                measure, target, capture, reference, tuple(criteria))
 # ---------------------------------------------------------------- check settings
 
 # Files that set how the project checks itself. A pattern with no slash

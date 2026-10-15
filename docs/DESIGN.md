@@ -116,8 +116,15 @@ This came from the first design, which had four separate loop modules
 | feature | acceptance tests that fail today | new behaviour must be shown to be new |
 | fix | a test that reproduces the bug | most real work is in existing code [Martinelli], and a bug fixed without a reproducing test comes back |
 | scaffold | the test runner runs | an empty project has nothing that can fail, so the record says the check was skipped |
-| goal (later) | a measurement against a threshold | goal-driven agents are the next step [Port], but they need a measurement harness first |
-| gauntlet (later) | a blind critic against a reference | for work a test cannot judge, like design; it needs a critic role first |
+| goal | three measurements compared by their median with a numeric target | work with a measurable outcome needs a gate the run can repeat |
+| gauntlet | three blind critics compare captured work with a reference | design and writing need a judge that can inspect the artefact |
+
+The v1.1 plan adds both judges to the shared attempt loop. Goal readiness
+requires main to miss its target; each attempt records a hypothesis and passes
+when the median meets the target. Gauntlet readiness requires main to win
+fewer than two of three blind comparisons; an attempt passes with at least two
+wins. The plan is the source for these rules. No outside source was used for
+this addition.
 
 ## 6. The contract
 
@@ -231,6 +238,10 @@ rehearsals at the end, so v1 could be used sooner. The current build notes and
 rehearsal findings are in `docs/v1/`; the earlier package plans remain in git
 history. After v1 merges, the earn rule applies again: a failure in
 `docs/LEDGER.md` first, then a test, then the feature.
+
+The v1.1 P3 rules for goal and gauntlet judges are in
+`docs/v1.1/PLAN.md`; the implementation choices are recorded in
+`docs/v1.1/choices-P3.md`.
 
 ## Sources
 
