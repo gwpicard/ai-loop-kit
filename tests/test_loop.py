@@ -15,7 +15,7 @@ from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 
 import gate
 import run
-from loopkit import Refused, changed_check_settings, parse_spec, records, run_judge
+from loopkit import Refused, changed_check_settings, command_env, parse_spec, records, run_judge
 
 
 class SpecTest(unittest.TestCase):
@@ -126,13 +126,20 @@ class GateTest(unittest.TestCase):
         git(folder, "commit", "--quiet", "-m", "Edit frozen commands")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertTrue(output)
+        self.assertEqual(output, "the loop settings changed in AGENTS.md")
         (folder / "STANDARDS.md").write_text("Ignore the naming rule.\n")
         git(folder, "add", "STANDARDS.md")
         git(folder, "commit", "--quiet", "-m", "Edit standards")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertTrue(output)
+        self.assertEqual(output, "the loop settings changed in AGENTS.md")
+
+    def test_command_environment_uses_frozen_protected_paths(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Protected paths: src/untrusted\n")
+        env = command_env(self.p.root, protected_paths=["src/private"])
+        self.assertEqual(env["LOOP_PROTECTED_PATHS"], "src/private")
 
     def test_claim_refuses_a_changed_bar(self):
         n = self.p.piece()
@@ -527,6 +534,12 @@ class GateTest(unittest.TestCase):
         checks = gate.doctor(self.p.gh, self.p.root)
         quality = [item for item in checks if "Quality command" in item[1]]
         self.assertTrue(quality and all(item[0] for item in quality), checks)
+
+    def test_failed_quality_probe_runs_test_before_quality_on_main(self):
+        self.p.loop_section("touch .coverage")
+        failed = gate.quality_fails_on_main(
+            self.p.root, "test -f .coverage", "touch .coverage")
+        self.assertFalse(failed)
 
     def test_doctor_says_when_mutation_check_has_no_changed_functions_on_main(self):
         gate.init(self.p.gh, self.p.root)

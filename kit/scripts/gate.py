@@ -16,6 +16,7 @@ record on the issue for every move it makes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import shutil
 import sys
@@ -273,13 +274,14 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
             return False, ("the build changes the project's check settings: "
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
-    code, output = run_judge(folder, ready["command"])
+    protected_paths = ready.get("protected_paths", [])
+    code, output = run_judge(folder, ready["command"], protected_paths=protected_paths)
     if skipped_tests(output):
         return False, f"the judge reported skipped tests:\n{output.strip()[-1500:]}"
     if code != 0:
         return False, output
     if ready.get("keep"):
-        kcode, koutput = run_judge(folder, ready["keep"])
+        kcode, koutput = run_judge(folder, ready["keep"], protected_paths=protected_paths)
         if skipped_tests(koutput):
             return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
         if kcode != 0:
@@ -289,7 +291,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
     for command in ready.get("quality", []):
-        qcode, qoutput = run_judge(folder, command)
+        qcode, qoutput = run_judge(folder, command, protected_paths=protected_paths)
         quality_results.append(f"Quality: {command}\nExit: {qcode}\n{qoutput.strip()}")
         if qcode != 0:
             return False, "a Quality command failed:\n" + "\n\n".join(quality_results)
@@ -334,7 +336,8 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
             if (folder / f).is_file():
                 shutil.move(str(folder / f), str(aside / str(i)))
                 moved.append((aside / str(i), folder / f))
-        code, _ = run_judge(folder, ready["keep"])
+        code, _ = run_judge(folder, ready["keep"],
+                            protected_paths=ready.get("protected_paths", []))
         return code == 0
     finally:
         for held, home in moved:
@@ -342,12 +345,18 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
         shutil.rmtree(aside, ignore_errors=True)
 
 
-def quality_fails_on_main(folder: Path, command: str) -> bool:
+def quality_fails_on_main(folder: Path, command: str, test_command: str = "",
+                          protected_paths: Optional[list[str]] = None) -> bool:
     """Check a failed Quality command in a fresh main worktree."""
     root = repo_root(folder)
     main = main_ref(folder)
-    ok, _ = quality_on_fresh_main(root, main, command)
+    ok, _ = quality_on_fresh_main(root, main, command, test_command, protected_paths)
     return not ok
+
+
+def quality_probe_path(root: Path, piece: int, command: str, main_commit: str) -> Path:
+    key = hashlib.sha256((command + "\0" + main_commit).encode()).hexdigest()[:16]
+    return root / ".loop" / f"main-quality-{piece}-{key}.json"
 
 
 # ---------------------------------------------------------------- moves
@@ -448,20 +457,22 @@ def init(gh: GitHub, root: Path) -> None:
 
 
 def quality_on_fresh_main(root: Path, main: str, command: str,
-                          test_command: str = "") -> tuple[bool, str]:
+                          test_command: str = "",
+                          protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
     """Run Test, then one Quality command in its own prepared copy of main."""
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        ok, output = prepare(folder)
+        ok, output = prepare(folder, protected_paths=protected_paths)
         if not ok:
             return False, "Prepare failed:\n" + output.strip()[-800:]
         if test_command:
-            code, test_output = run_judge(folder, test_command)
+            code, test_output = run_judge(folder, test_command,
+                                          protected_paths=protected_paths)
             if code:
                 return False, "Test command failed before Quality:\n" + test_output.strip()[-800:]
-        code, output = run_judge(folder, command)
+        code, output = run_judge(folder, command, protected_paths=protected_paths)
         clean_quality_outputs(folder, record_quality_outputs(folder))
         return code == 0, output
     finally:

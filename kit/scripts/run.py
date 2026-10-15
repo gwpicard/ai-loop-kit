@@ -35,16 +35,15 @@ from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  #
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
 from run_start import cleanup_interrupted_reviews, ready_pieces  # noqa: E402
+from procs import (AttemptIdle, _ACTIVE_GROUPS, _untrack_process, acquire_lock,
+                   cache_main_ref_for_piece as _cache_main_for_piece,
+                   clear_main_ref_for_piece as _clear_main_piece_cache,
+                   kill_active_processes, lock_path, process_alive,
+                   process_group_alive, release_lock, track_process)
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
 DEFAULT_IDLE_LIMIT = 10 * 60
-_ACTIVE_GROUPS: set[int] = set()
-_RUN_LOCK_PATH: Optional[Path] = None
-
-
-class AttemptIdle(Exception):
-    pass
 
 
 def log(msg: str) -> None:
@@ -60,112 +59,6 @@ def record_attempt_timing(logfile: Path, started_at: datetime,
     }
     with logfile.open("a") as output:
         output.write("\nAttempt timing: " + json.dumps(timing, sort_keys=True) + "\n")
-
-
-def lock_path(root: Path) -> Path:
-    return root / ".loop" / "run.lock"
-
-
-def process_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
-def process_group_alive(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
-def _write_lock_groups() -> None:
-    if not _RUN_LOCK_PATH or not _RUN_LOCK_PATH.is_file():
-        return
-    try:
-        data = json.loads(_RUN_LOCK_PATH.read_text())
-    except (ValueError, OSError):
-        return
-    data["children"] = sorted(_ACTIVE_GROUPS)
-    _RUN_LOCK_PATH.write_text(json.dumps(data) + "\n")
-
-
-def track_process(proc: subprocess.Popen, root: Optional[Path] = None) -> None:
-    global _RUN_LOCK_PATH
-    if root is not None:
-        _RUN_LOCK_PATH = lock_path(root)
-    _ACTIVE_GROUPS.add(proc.pid)
-    _write_lock_groups()
-
-
-def _untrack_process(proc: subprocess.Popen) -> None:
-    _ACTIVE_GROUPS.discard(proc.pid)
-    _write_lock_groups()
-
-
-def kill_active_processes() -> bool:
-    groups = list(_ACTIVE_GROUPS)
-    for pgid in groups:
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-    deadline = time.monotonic() + 0.5
-    while time.monotonic() < deadline and any(process_group_alive(pgid) for pgid in groups):
-        time.sleep(0.02)
-    for pgid in groups:
-        if process_group_alive(pgid):
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-        _ACTIVE_GROUPS.discard(pgid)
-    _write_lock_groups()
-    return bool(groups)
-
-
-def acquire_lock(root: Path) -> Path:
-    """Create the run lock, taking over only when its recorded process is dead."""
-    path = lock_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    global _RUN_LOCK_PATH
-    data = json.dumps({"pid": os.getpid(), "started_at": time.time(), "children": []}) + "\n"
-    for _ in range(2):
-        try:
-            with path.open("x") as f:
-                f.write(data)
-            _RUN_LOCK_PATH = path
-            return path
-        except FileExistsError:
-            try:
-                current = json.loads(path.read_text())
-                pid = int(current["pid"])
-            except (ValueError, KeyError, TypeError, OSError):
-                current = {}
-                pid = 0
-            if pid and process_alive(pid):
-                raise Refused(f"another run is live (pid {pid})", "wait for it to finish")
-            groups = [int(value) for value in current.get("children", [])
-                      if str(value).isdigit()]
-            if any(process_group_alive(group) for group in groups):
-                raise Refused("an orphan builder or reviewer from the previous run is still alive",
-                              "stop that process group, then run again")
-            path.unlink(missing_ok=True)
-    raise Refused("could not take the run lock", "check .loop/run.lock and try again")
-
-
-def release_lock(path: Path) -> None:
-    path.unlink(missing_ok=True)
-    global _RUN_LOCK_PATH
-    if _RUN_LOCK_PATH == path:
-        _RUN_LOCK_PATH = None
 
 
 def recover_building(gh: GitHub, root: Path) -> list[str]:
@@ -198,19 +91,6 @@ def idle_limit_seconds(folder: Path, frozen_value: Optional[str] = None) -> int:
         return max(1, int(value)) * 60
     except ValueError:
         return DEFAULT_IDLE_LIMIT
-
-
-_MAIN_REF_CACHE: Optional[dict[str, str]] = None
-
-
-def _cache_main_for_piece() -> None:
-    global _MAIN_REF_CACHE
-    _MAIN_REF_CACHE = {}
-
-
-def _clear_main_piece_cache() -> None:
-    global _MAIN_REF_CACHE
-    _MAIN_REF_CACHE = None
 
 
 def stop_path(root: Path) -> Path:
@@ -324,7 +204,8 @@ def builder_settings() -> str:
 
 
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
-               settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT) -> str:
+               settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT,
+               protected_paths: Optional[list[str]] = None) -> str:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     # Claude Code applies Edit(path) deny rules to every file-editing tool.
     # The gate checks the same files again, since Bash can still write them.
@@ -337,7 +218,7 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
             "--settings", builder_settings()]
     if denied:
         args += ["--disallowedTools", *denied]
-    env = {**command_env(folder), "LOOP_BUILDER": "1"}
+    env = {**command_env(folder, protected_paths=protected_paths), "LOOP_BUILDER": "1"}
     with logfile.open("w") as out:
         proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
@@ -503,7 +384,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
 
     before = untracked_paths(folder)
     before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
-    ok, poutput = prepare(folder, ready.get("prepare", ""))
+    ok, poutput = prepare(folder, ready.get("prepare", ""), ready.get("protected_paths", []))
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
@@ -515,14 +396,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     logs.mkdir(parents=True, exist_ok=True)
     last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
-    quality_probe = root / ".loop" / f"main-quality-{n}.json"
-    try:
-        saved_probe = json.loads(quality_probe.read_text())
-        main_quality_checked = saved_probe.get("checked") is True
-        main_quality_failed = saved_probe.get("failed") is True
-    except (OSError, ValueError, AttributeError):
-        main_quality_checked = False
-        main_quality_failed = False
+    main_quality_results: dict[tuple[str, str], bool] = {}
     for k in range(1, attempts + 1):
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
@@ -543,7 +417,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
                                  ready["files"], logfile, ready.get("settings", False),
-                                 idle_limit_seconds(folder, ready.get("idle_limit")))
+                                 idle_limit_seconds(folder, ready.get("idle_limit")),
+                                 ready.get("protected_paths", []))
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
@@ -571,12 +446,29 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)
-            if not main_quality_checked:
-                main_quality_failed = gate.quality_fails_on_main(folder, command)
-                main_quality_checked = True
-                quality_probe.write_text(json.dumps({"checked": True,
-                                                     "failed": main_quality_failed,
-                                                     "command": command}, sort_keys=True) + "\n")
+            main_commit = rev(folder, main_ref(folder)) or ""
+            cache_key = (command, main_commit)
+            if cache_key not in main_quality_results:
+                quality_probe = gate.quality_probe_path(root, n, command, main_commit)
+                try:
+                    saved_probe = json.loads(quality_probe.read_text())
+                    if (saved_probe.get("checked") is True
+                            and saved_probe.get("command") == command
+                            and saved_probe.get("main") == main_commit):
+                        main_quality_results[cache_key] = saved_probe.get("failed") is True
+                except (OSError, ValueError, AttributeError):
+                    pass
+                if cache_key not in main_quality_results:
+                    main_quality_results[cache_key] = gate.quality_fails_on_main(
+                        folder, command, ready.get("test", ""),
+                        ready.get("protected_paths", []))
+                    quality_probe.write_text(json.dumps({
+                        "checked": True,
+                        "failed": main_quality_results[cache_key],
+                        "command": command,
+                        "main": main_commit,
+                    }, sort_keys=True) + "\n")
+            main_quality_failed = main_quality_results[cache_key]
             if main_quality_failed:
                 reason = f"Quality check also fails on main: {command}"
                 gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")

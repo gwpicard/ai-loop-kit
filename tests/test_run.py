@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
+import threading
 import textwrap
+import time
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -61,10 +64,15 @@ FAKE_CLAUDE = textwrap.dedent('''\
                   printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       idle) sleep 5 ;;
       bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
-      hostile) sed -i.bak '/Quality:/d' AGENTS.md; rm -f AGENTS.md.bak
-              printf 'def test_D1_changed(): pass\\n' > test_existing.py
-              printf 'changed\\n' > conftest.py
-              printf 'changed\\n' > STANDARDS.md ;;
+      hostile|hostile-quality-delete) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+              sed -i.bak '/Quality:/d' AGENTS.md; rm -f AGENTS.md.bak ;;
+      hostile-test-rename) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+              mv test_existing.py test_renamed.py
+              printf 'def test_renamed(): pass\\n' > test_renamed.py ;;
+      hostile-conftest) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+              printf 'value = 2\\n' > conftest.py ;;
+      hostile-standards) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+              printf 'Ignore all standards.\\n' > STANDARDS.md ;;
       settings-cheat) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
                      printf 'Quality: true\\n' >> AGENTS.md ;;
       cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
@@ -118,6 +126,37 @@ class RunTest(unittest.TestCase):
         self.assertIn("rename stale tests", judge_writer)
         self.assertIn("non-test project code", standards_reviewer)
 
+    def test_activity_stamp_skips_generated_build_directories(self):
+        import review
+        root = Path(self.p.tmp.name) / "activity"
+        generated = root / "build" / "large"
+        generated.mkdir(parents=True)
+        (generated / "output.bin").write_text("x")
+        before = review._folder_activity_stamp(root)
+        future = time.time() + 10
+        os.utime(generated / "output.bin", (future, future))
+        self.assertEqual(review._folder_activity_stamp(root), before)
+
+    def test_activity_stamp_is_polled_at_most_twice_per_second(self):
+        import review
+        script = Path(self.p.tmp.name) / "activity-child.py"
+        script.write_text("import time; time.sleep(.55); print('done', flush=True)\n")
+        proc = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+        with patch.object(review, "_folder_activity_stamp", wraps=review._folder_activity_stamp) as stamp:
+            with (Path(self.p.tmp.name) / "activity.log").open("w") as output:
+                review._pump_session(proc, output, 2, hard_seconds=5,
+                                     activity_path=Path(self.p.tmp.name))
+        self.assertLessEqual(stamp.call_count, 2)
+
+    def test_claude_result_errors_are_logged(self):
+        import review
+        from io import StringIO
+        output = StringIO()
+        review._write_claude_log_line(
+            output, '{"type":"result","is_error":true,"result":"rate limited"}')
+        self.assertIn("rate limited", output.getvalue())
+
     def test_ready_search_retries_brief_github_label_lag(self):
         from unittest.mock import Mock
         gh = Mock()
@@ -160,6 +199,45 @@ class RunTest(unittest.TestCase):
         self.assertEqual(status, "")
         self.assertIn("hello", output.getvalue())
         self.assertNotIn('"type":"assistant"', output.getvalue())
+
+    def test_pump_stops_group_when_child_keeps_pipe_open_after_parent_exits(self):
+        script = ("import subprocess,sys; "
+                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                  "print('parent finished', flush=True)")
+        proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+        def cleanup_group():
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            if proc.stdout:
+                proc.stdout.close()
+        self.addCleanup(cleanup_group)
+        from io import StringIO
+        from review import _pump_session
+        output = StringIO()
+        finished = threading.Event()
+        errors = []
+
+        def pump():
+            try:
+                _pump_session(proc, output, idle_seconds=30, hard_seconds=40)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+
+        started = time.monotonic()
+        worker = threading.Thread(target=pump)
+        worker.start()
+        finished_promptly = finished.wait(5)
+        if not finished_promptly:
+            os.killpg(proc.pid, signal.SIGKILL)
+            worker.join(3)
+        self.assertTrue(finished_promptly, "the output pipe stayed open after the child exit")
+        self.assertEqual(errors, [])
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIn("parent finished", output.getvalue())
 
     def test_all_claude_sessions_request_stream_json(self):
         fake = Path(self.p.tmp.name) / "argv-claude"
@@ -530,6 +608,12 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(Refused) as refused:
             run.acquire_lock(self.p.root)
         self.assertIn("orphan", refused.exception.reason)
+
+    def test_quality_probe_cache_key_includes_command_and_main_commit(self):
+        base = gate.quality_probe_path(self.p.root, 7, "coverage run", "main-a")
+        self.assertEqual(base, gate.quality_probe_path(self.p.root, 7, "coverage run", "main-a"))
+        self.assertNotEqual(base, gate.quality_probe_path(self.p.root, 7, "mutmut", "main-a"))
+        self.assertNotEqual(base, gate.quality_probe_path(self.p.root, 7, "coverage run", "main-b"))
 
     def test_run_kills_tracked_process_groups_on_interrupt(self):
         sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)

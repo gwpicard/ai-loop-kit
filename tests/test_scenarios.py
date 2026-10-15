@@ -3,21 +3,24 @@ from __future__ import annotations
 
 import os
 import json
+import signal
 import subprocess
 import sys
+import textwrap
 import time
 import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from helpers import git
+from helpers import KIT, git
 import test_run as run_test_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 import gate
 import review
 import run
+from loopkit import main_ref, rev
 
 
 class ScenarioTest(unittest.TestCase):
@@ -32,6 +35,28 @@ class ScenarioTest(unittest.TestCase):
         self.assertEqual(self.p.gh.prs, {})
         comment = "\n".join(self.p.gh.comments(n))
         self.assertIn("the loop settings changed in AGENTS.md", comment)
+
+    def test_hostile_builder_changes_are_each_refused(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Quality: true\nStandards: STANDARDS.md\n")
+        (self.p.root / "STANDARDS.md").write_text("Use clear names.\n")
+        (self.p.root / "test_existing.py").write_text("def test_original(): pass\n")
+        (self.p.root / "conftest.py").write_text("value = 1\n")
+        git(self.p.root, "add", "AGENTS.md", "STANDARDS.md", "test_existing.py", "conftest.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Add loop settings and test support")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        expected = {
+            "hostile-quality-delete": "the loop settings changed in AGENTS.md",
+            "hostile-test-rename": "existing test files not named in the Contract or Files",
+            "hostile-conftest": "the judge files differ from the ones fixed at ready",
+            "hostile-standards": "the judge files differ from the ones fixed at ready",
+        }
+        for mode, reason in expected.items():
+            with self.subTest(mode=mode):
+                n, _ = self.build(mode, attempts=1)
+                self.assertNotIn(n, self.p.gh.prs)
+                self.assertIn(reason, "\n".join(self.p.gh.comments(n)))
 
     def test_idle_events_keep_a_session_alive_and_silence_stops_it(self):
         script = self.p.tmp.name + "/stream.py"
@@ -78,6 +103,95 @@ class ScenarioTest(unittest.TestCase):
         self.assertAlmostEqual((finished - started).total_seconds(),
                                timing["elapsed_seconds"], delta=2)
 
+    def test_real_run_sigterm_stops_a_child_during_review(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        state = self.p.tmp.name + "/github.json"
+        Path(state).write_text(json.dumps({
+            "issues": self.p.gh.issues,
+            "notes": {str(key): value for key, value in self.p.gh.notes.items()},
+        }))
+        inject = Path(self.p.tmp.name) / "inject"
+        inject.mkdir()
+        (inject / "sitecustomize.py").write_text(textwrap.dedent("""\
+            import json
+            import os
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, os.environ["LOOP_TEST_HELPERS"])
+            from helpers import FakeGitHub
+            import loopkit
+            class ChildGitHub(FakeGitHub):
+                def __init__(self, root):
+                    super().__init__()
+                    state = json.loads(Path(os.environ["LOOP_GH_STATE"]).read_text())
+                    self.issues = {int(k): v for k, v in state["issues"].items()}
+                    self.notes = {int(k): [tuple(note) for note in v]
+                                  for k, v in state["notes"].items()}
+            loopkit.GitHub = ChildGitHub
+            """))
+        child_pid_file = Path(self.p.tmp.name) / "review-child.pid"
+        fake = Path(self.p.tmp.name) / "review-claude"
+        fake.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import os, pathlib, subprocess, sys, time
+            prompt = " ".join(sys.argv)
+            if os.environ.get("LOOP_REVIEWER") == "1":
+                if "Standards reviewer brief" in prompt:
+                    child_code = (
+                        "import time; time.sleep(60)"
+                    )
+                    child = subprocess.Popen([sys.executable, "-c", child_code])
+                    pathlib.Path(os.environ["CHILD_PID_FILE"]).write_text(str(child.pid))
+                    while child.poll() is None:
+                        time.sleep(.05)
+                    print('<verdict>{"findings":[],"follow_ups":[],"changes":"none"}</verdict>')
+                else:
+                    print('<verdict>{"findings":[]}</verdict>')
+            else:
+                pathlib.Path("habits.py").write_text(
+                    'def add(items, name):\\n    return items if name in items else items + [name]\\n')
+                subprocess.run(["git", "add", "habits.py"], check=True)
+                subprocess.run(["git", "commit", "--quiet", "-m", "Build"], check=True)
+                print("built")
+            """))
+        fake.chmod(0o755)
+        env = dict(os.environ)
+        env.update({
+            "LOOP_CLAUDE": str(fake),
+            "LOOP_TEST_HELPERS": str(Path(__file__).resolve().parent),
+            "LOOP_GH_STATE": state,
+            "PYTHONPATH": os.pathsep.join((str(inject), str(KIT / "scripts"))),
+            "CHILD_PID_FILE": str(child_pid_file),
+        })
+        process = subprocess.Popen([sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
+                                   cwd=self.p.root, env=env, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        def cleanup_run():
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            if process.stdout:
+                process.stdout.close()
+        self.addCleanup(cleanup_run)
+        deadline = time.monotonic() + 20
+        while not child_pid_file.is_file() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(.05)
+        self.assertTrue(child_pid_file.is_file(), process.stdout.read() if process.poll() is not None else "review child did not start")
+        child_pid = int(child_pid_file.read_text())
+        process.send_signal(signal.SIGTERM)
+        process.wait(timeout=10)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(.05)
+        else:
+            os.kill(child_pid, signal.SIGKILL)
+            self.fail("review child survived SIGTERM to the real run process")
+
     def test_bar_wrong_stops_on_attempt_one(self):
         n, result = self.build("bar-wrong", attempts=3)
         self.assertIn("back to shaping", result)
@@ -103,8 +217,14 @@ class ScenarioTest(unittest.TestCase):
             result = run.build_piece(self.p.gh, self.p.root, n, 2)
         self.assertIn("pull request ready", result)
         self.assertTrue(any("failed a Quality check; retrying" in c for c in self.p.gh.comments(n)))
-        main_check.assert_called_once()
-        self.assertTrue((self.p.root / ".loop" / f"main-quality-{n}.json").is_file())
+        quality_command = next(line.removeprefix("Quality: ")
+                               for line in agents.read_text().splitlines()
+                               if line.startswith("Quality: "))
+        main_commit = rev(self.p.root, main_ref(self.p.root))
+        main_check.assert_called_once_with(self.p.folder(n), quality_command, "true", [])
+        probe = gate.quality_probe_path(self.p.root, n, quality_command, main_commit)
+        self.assertTrue(probe.is_file())
+        self.assertEqual(json.loads(probe.read_text())["main"], main_commit)
 
     def test_node_review_fix_survives_the_recheck(self):
         source = self.p.root / "src" / "app.js"

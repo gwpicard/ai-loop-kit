@@ -12,7 +12,6 @@ import os
 import re
 import signal
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -271,10 +270,8 @@ def rev(root: Path, ref: str) -> Optional[str]:
 
 def main_ref(root: Path) -> str:
     """The freshest main we can see. Fetch it when there is a remote."""
-    cache = None
-    run_module = sys.modules.get("run")
-    if run_module is not None:
-        cache = getattr(run_module, "_MAIN_REF_CACHE", None)
+    from procs import main_ref_cache
+    cache = main_ref_cache()
     key = sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root).stdout.strip()
     if cache is not None and key in cache:
         return cache[key]
@@ -347,12 +344,14 @@ def project_root(folder: Path) -> Path:
     return Path(common).parent
 
 
-def command_env(folder: Path) -> dict:
+def command_env(folder: Path, protected_paths: Optional[list[str]] = None) -> dict:
     """The environment for judge, prepare and builder commands. Use the folder's
     own .venv when Prepare made one, else the person's checkout's .venv."""
     env = dict(os.environ)
     env["AI_LOOP_KIT_ROOT"] = str(Path(__file__).resolve().parent.parent)
-    env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(loop_settings(folder).get("protected paths", []))
+    frozen_paths = (loop_settings(folder).get("protected paths", [])
+                    if protected_paths is None else protected_paths)
+    env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
     for venv_bin in (folder / ".venv" / "bin", project_root(folder) / ".venv" / "bin"):
         if venv_bin.is_dir():
             env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
@@ -389,13 +388,15 @@ def loop_settings(folder: Path) -> dict:
     return out
 
 
-def prepare(folder: Path, command: Optional[str] = None) -> tuple[bool, str]:
+def prepare(folder: Path, command: Optional[str] = None,
+            protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
     """Run the project's Prepare command in a fresh folder, if it has one.
     It makes a fresh copy runnable: npm ci, uv sync, docker compose build."""
     command = command if command is not None else loop_settings(folder).get("prepare")
     if not command:
         return True, ""
-    code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT)
+    code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT,
+                             protected_paths=protected_paths)
     return code == 0, output
 
 
@@ -436,15 +437,17 @@ def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]
     return sorted(recorded)
 
 
-def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple[int, str]:
+def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT,
+              protected_paths: Optional[list[str]] = None) -> tuple[int, str]:
     """Run the judge command. The gate calls this; it never trusts a report."""
     proc = None
     try:
         proc = subprocess.Popen(command, shell=True, cwd=folder, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, env=command_env(folder),
+                                stderr=subprocess.PIPE, text=True,
+                                env=command_env(folder, protected_paths=protected_paths),
                                 start_new_session=True)
         try:
-            from run import track_process, _untrack_process
+            from procs import track_process, _untrack_process
             track_process(proc)
         except ImportError:
             _untrack_process = None

@@ -16,8 +16,8 @@ from typing import Optional
 import gate
 from loopkit import (CHECK_FILES, Refused, command_env, loop_settings, main_ref, prepare,
                      record_prepare_outputs, rev, sh, untracked_paths)
-from run import (AttemptIdle, _untrack_process, commit_leftovers, idle_limit_seconds,
-                 track_process)
+from procs import AttemptIdle, _untrack_process, track_process
+from run import commit_leftovers, idle_limit_seconds
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -170,13 +170,27 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
     selector.register(stream, selectors.EVENT_READ)
     started = last_output = time.monotonic()
     last_stamp = _folder_activity_stamp(activity_path) if activity_path else 0.0
+    next_activity_check = started + 2
     pending = ""
     eof = False
     reason = ""
+    parent_exit_deadline: Optional[float] = None
+    orphaned_child = False
     while not eof or proc.poll() is None:
         now = time.monotonic()
-        if activity_path:
+        if proc.poll() is not None and not eof:
+            if parent_exit_deadline is None:
+                parent_exit_deadline = now + 3
+            elif now >= parent_exit_deadline:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                orphaned_child = True
+                break
+        if activity_path and now >= next_activity_check:
             stamp = _folder_activity_stamp(activity_path)
+            next_activity_check = now + 2
             if stamp > last_stamp:
                 last_stamp = stamp
                 last_output = now
@@ -194,6 +208,8 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
         if proc.poll() is None and not reason:
             timeout = min(timeout, max(0.0, min(hard_seconds - (now - started),
                                                 idle_seconds - (now - last_output))))
+        elif parent_exit_deadline is not None and not eof:
+            timeout = min(timeout, max(0.0, parent_exit_deadline - now))
         events = selector.select(timeout)
         for key, _ in events:
             try:
@@ -220,6 +236,8 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
     if reason:
         out.write("\nAttempt stopped after idle limit with no output.\n" if reason == "idle"
                   else f"\nThe attempt ran past {hard_seconds // 60} minutes and was stopped.\n")
+    if orphaned_child:
+        out.write("\nStopped a child process that kept the session pipe open after its parent exited.\n")
     return reason
 
 
@@ -229,7 +247,8 @@ def _folder_activity_stamp(folder: Optional[Path]) -> float:
         return 0.0
     newest = folder.stat().st_mtime if folder.exists() else 0.0
     for current, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if d not in {".git", ".venv", "node_modules"}]
+        dirs[:] = [d for d in dirs if d not in {
+            ".git", ".venv", "node_modules", "dist", "build", "__pycache__"}]
         for name in (*dirs, *files):
             try:
                 newest = max(newest, (Path(current) / name).stat().st_mtime)
@@ -245,7 +264,13 @@ def _write_claude_log_line(out, line: str) -> None:
     except ValueError:
         out.write(line + "\n")
         return
-    message = event.get("message", {}) if isinstance(event, dict) else {}
+    if not isinstance(event, dict):
+        return
+    if event.get("type") == "result" and (event.get("is_error") or event.get("error")):
+        error = event.get("result") or event.get("error") or "Claude reported an error"
+        out.write(f"Claude result error: {error}\n")
+        return
+    message = event.get("message", {})
     if event.get("type") != "assistant" or not isinstance(message, dict):
         return
     content = message.get("content", [])
@@ -256,7 +281,7 @@ def _write_claude_log_line(out, line: str) -> None:
 
 
 def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
-                    idle_seconds: int) -> str:
+                    idle_seconds: int, protected_paths: Optional[list[str]] = None) -> str:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
     settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
@@ -267,7 +292,8 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
             "--settings", settings]
     if disallowed:
         args += ["--disallowedTools", *[f"Edit({path})" for path in disallowed]]
-    env = {**command_env(folder), "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
+    env = {**command_env(folder, protected_paths=protected_paths),
+           "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
     with logfile.open("w") as out:
         proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
@@ -315,7 +341,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
         str(standards_folder), judged], root)
     before = untracked_paths(standards_folder)
     before_dirs = {child.name for child in standards_folder.iterdir() if child.is_dir()}
-    prepared, prepare_output = prepare(standards_folder, ready.get("prepare", ""))
+    prepared, prepare_output = prepare(standards_folder, ready.get("prepare", ""),
+                                      ready.get("protected_paths", []))
     if not prepared:
         raise Refused(f"Prepare failed in the standards review folder:\n{prepare_output[-1200:]}")
     record_prepare_outputs(standards_folder, before, before_dirs)
@@ -328,7 +355,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     denied += ready.get("protected_paths", [])
     standards_status = _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
         "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")))
+        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
     if standards_status == "idle":
         raise AttemptIdle(f"standards reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
                           f"see {standards_log}")
@@ -371,14 +398,15 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
         str(contract_folder), rev(folder, "HEAD")], root)
     before = untracked_paths(contract_folder)
     before_dirs = {child.name for child in contract_folder.iterdir() if child.is_dir()}
-    prepared, prepare_output = prepare(contract_folder, ready.get("prepare", ""))
+    prepared, prepare_output = prepare(contract_folder, ready.get("prepare", ""),
+                                       ready.get("protected_paths", []))
     if not prepared:
         raise Refused(f"Prepare failed in the contract review folder:\n{prepare_output[-1200:]}")
     record_prepare_outputs(contract_folder, before, before_dirs)
     contract_log = logs / f"piece-{n}-contract-review.log"
     contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
         "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")))
+        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
     if contract_status == "idle":
         raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
                           f"see {contract_log}")
