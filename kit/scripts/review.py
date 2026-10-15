@@ -13,8 +13,9 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-import gate
 import agents
+import gate
+import sandbox
 from loopkit import (CHECK_FILES, Refused, main_ref, prepare,
                      record_prepare_outputs, rev, sh, untracked_paths)
 from procs import AttemptIdle, _untrack_process, track_process
