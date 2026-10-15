@@ -187,14 +187,14 @@ class RunTest(unittest.TestCase):
                   "for _ in range(5):\n"
                   " print('{\"type\":\"assistant\",\"message\":{\"content\":["
                   "{\"type\":\"text\",\"text\":\"hello\"}]}}', flush=True)\n"
-                  " time.sleep(1.25)\n")
+                  " time.sleep(.12)\n")
         proc = subprocess.Popen([sys.executable, "-c", script], cwd=folder,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 start_new_session=True)
         from io import StringIO
         output = StringIO()
         from review import _pump_session
-        status = _pump_session(proc, output, idle_seconds=3, hard_seconds=10,
+        status = _pump_session(proc, output, idle_seconds=.2, hard_seconds=3,
                                activity_path=folder)
         self.assertEqual(status, "")
         self.assertIn("hello", output.getvalue())
