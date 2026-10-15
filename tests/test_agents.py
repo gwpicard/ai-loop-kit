@@ -52,9 +52,15 @@ class AgentSessionTest(unittest.TestCase):
             called = json.loads(result.read_text())
             self.assertEqual(called["gh"], None)
             self.assertEqual(called["github"], None)
-            self.assertIn("--json", called["argv"])
-            self.assertIn("workspace-write", called["argv"])
-            self.assertNotIn("--add-dir", called["argv"])
+            self.assertEqual(called["argv"], [
+                "exec", "--json", "--sandbox", "workspace-write",
+                "--config", 'approval_policy="never"', "--cd", str(root.resolve()),
+                "--ignore-user-config", "--ephemeral", "--config",
+                "sandbox_workspace_write.network_access=false", "--config",
+                "sandbox_workspace_write.writable_roots=[]", "--config",
+                "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
+                "sandbox_workspace_write.exclude_tmpdir_env_var=true", "brief",
+            ])
             self.assertEqual(agents.event_text(output.decode()), "<verdict>{}</verdict>")
 
     def test_claude_keeps_stream_json_and_loop_override(self):

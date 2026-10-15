@@ -80,7 +80,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     else:
         cli = os.environ.get("LOOP_CODEX", "codex")
         args = [cli, "exec", "--json", "--sandbox", "workspace-write",
-                "--ask-for-approval", "never", "--cd", str(work),
+                "--config", 'approval_policy="never"', "--cd", str(work),
                 "--ignore-user-config", "--ephemeral", "--config",
                 "sandbox_workspace_write.network_access=false", "--config",
                 "sandbox_workspace_write.writable_roots=[]", "--config",
