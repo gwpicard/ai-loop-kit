@@ -550,21 +550,26 @@ class GateTest(unittest.TestCase):
             self.p.root, "test -f .coverage", "touch .coverage")
         self.assertFalse(failed)
 
-    def test_doctor_says_when_mutation_check_has_no_changed_functions_on_main(self):
+    def test_doctor_fails_mutation_check_without_source_paths(self):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("true")
-        (self.p.root / "pyproject.toml").write_text(
-            '[tool.mutmut]\nsource_paths = ["src/"]\n')
-        (self.p.root / "src").mkdir()
-        (self.p.root / "src" / "module.py").write_text("def value():\n    return 1\n")
-        git(self.p.root, "add", "AGENTS.md", "pyproject.toml", "src/module.py")
-        git(self.p.root, "commit", "--quiet", "-m", "Add mutation config")
-        git(self.p.root, "push", "--quiet", "origin", "main")
         helper = Path(gate.__file__).resolve().parents[1] / "quality" / "mutmut-changed.py"
         checks = gate.doctor(self.p.gh, self.p.root,
                              extra_quality=[f"python3 {helper} origin/main"])
-        self.assertTrue(any("could not be exercised on main" in what for _, what, _ in checks),
-                        checks)
+        quality = [item for item in checks if "Quality command" in item[1]]
+        self.assertTrue(quality and not quality[-1][0], checks)
+        self.assertIn("no mutmut source paths configured", quality[-1][2])
+
+    def test_doctor_uses_proposed_prepare_and_test_for_quality_probe(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true", prepare="touch old-prepare")
+        proposed_quality = "printf proposed"
+        with patch.object(gate, "quality_on_fresh_main", return_value=(True, "")) as probe:
+            gate.doctor(self.p.gh, self.p.root, extra_quality=[proposed_quality],
+                        proposed_prepare="touch new-prepare", proposed_test="test -f new-test")
+        probe.assert_called_once()
+        self.assertEqual(probe.call_args.args[2:4], (proposed_quality, "test -f new-test"))
+        self.assertEqual(probe.call_args.kwargs["prepare_command"], "touch new-prepare")
 
     def test_doctor_warns_about_old_in_project_worktrees(self):
         (self.p.root / ".loop" / "worktrees" / "old").mkdir(parents=True)

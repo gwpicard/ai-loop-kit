@@ -173,14 +173,15 @@ class QualityHelperTest(unittest.TestCase):
         (self.root / "setup.cfg").write_text("[mutmut]\nsource_paths = src/\n")
         self.assertEqual(helper.source_paths(self.root), ["src/"])
 
-    def test_proposed_quality_replaces_old_loop_quality_in_fresh_copy(self):
+    def test_proposed_quality_adds_a_line_to_existing_loop_settings(self):
         helper = load("proposed_quality.py")
         agents = self.root / "AGENTS.md"
         agents.write_text("# Project\n\n## The loop\nTest command: pytest\n"
                           "Quality: old-check\nPrepare command: setup\n")
         helper.apply(agents, "new-check")
         self.assertEqual(agents.read_text(), "# Project\n\n## The loop\n"
-                         "Test command: pytest\nQuality: new-check\nPrepare command: setup\n")
+                         "Test command: pytest\nQuality: old-check\nPrepare command: setup\n"
+                         "Quality: new-check\n")
 
     def test_proposed_quality_adds_a_loop_section_when_missing(self):
         helper = load("proposed_quality.py")
@@ -188,6 +189,16 @@ class QualityHelperTest(unittest.TestCase):
         agents.write_text("# Project\n")
         helper.apply(agents, "new-check")
         self.assertIn("## The loop\nQuality: new-check\n", agents.read_text())
+
+    def test_proposed_loop_commands_replace_old_values_and_can_clear_prepare(self):
+        helper = load("proposed_quality.py")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("## The loop\nPrepare command: old-prepare\n"
+                          "Test command: old-test\nQuality: old-quality\n")
+        helper.apply(agents, "new-quality", "", "new-test")
+        self.assertEqual(agents.read_text(), "## The loop\n"
+                         "Test command: new-test\nQuality: old-quality\n"
+                         "Quality: new-quality\n")
 
 
 if __name__ == "__main__":
