@@ -55,7 +55,7 @@ Use the KIT path above in every command. Write it out in full. Read
 - Never change a `state:` label by hand. Only the gate moves a piece.
 - Never write the code the piece asks for. Shaping writes the spec and the judge only.
 - Use `Kind: scaffold` only when the judge cannot fail on main, such as a test runner that does not exist yet. If the judge can fail on main, leave Kind out so the gate checks it.
-- Use `Kind: goal` when a repeatable numeric measurement decides the result. Specify `Measure:`, `Target:` and `Files:` with the measure script and its support files. Use `Kind: gauntlet` when tests cannot judge the result. Specify `Capture:`, `Reference:`, at least one `Criteria:` item and `Files:` with the capture script, its support files and any local reference. Follow the examples and ready rules in `<KIT>/spec-format.md`.
+- Use `Kind: goal` when a repeatable numeric measurement decides the result. Specify `Measure:` and `Target:` instead of test files. Use `Kind: gauntlet` when tests cannot judge the result, and specify `Capture:`, `Reference:` and at least one `Criteria:` item. Follow the examples and ready rules in `<KIT>/spec-format.md`.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.
 - After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --type spec-unclear --reason "<why>"`, then shape it again.
 - If the gate refuses, report the refusal in plain words and take the `next:` step. Never reach the same result another way.
