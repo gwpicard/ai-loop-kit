@@ -1,57 +1,55 @@
 # Blocked commands
 
-Never run these. Each one can destroy work, or cross a boundary this project
-has agreed to keep, in a way the people on this project cannot see coming or
-recover from alone.
+This file records the rules for commands and changes that can lose work or
+cross a boundary. Read it before changing the kit or running a command that
+could cause lasting harm.
 
-This file is the portable instruction, and the source of truth. It holds in
-any harness, including one with no mechanical enforcement at all: a missing
-deny list reduces automation, it does not remove the rule. Where a tool
-supports a command deny list, this list is also mirrored there as stronger,
-mechanical enforcement:
+`kit/hooks/guard.py` is the command hook. It refuses the forms it recognises.
+It checks words and common shell wrappers, not every possible shell program.
+The hook is a guard, not a sandbox. Do not try another spelling, tool or
+sequence to get the same blocked result.
 
-- Claude Code: `.claude/settings.json` → `permissions.deny` (shipped, mirrors this list).
-- Codex: set `approval_policy`/sandbox in `~/.codex/config.toml` so shell writes need approval.
-- Cursor: add the same patterns under Cursor's command allow/deny settings.
+## Commands the hook refuses
 
-When you change this file, update `.claude/settings.json` to match. Two
-entries below are left out of the mechanical deny on purpose: `git checkout .`
-/ `git restore .` are allowed inside the fix loop's announced reset step, and database
-drops are too varied to pattern-match, so they remain instruction-only along
-with the standing-restriction entries below, none of which reduce to a single
-shell pattern.
+- Recursive deletion through `rm`, `find`, `xargs rm`, or recognised Python
+  or Node commands that call recursive removal.
+- `git clean`, forced pushes, and pushes to `main` or `master`.
+- `eval` in a builder session, and `eval` that wraps another refused command.
+- `gh pr merge` and attempts to change a `state:` label by hand.
+- A command in a builder session that the hook cannot read safely.
 
-When the coding agent refuses a command, or this list forbids it, stop. Then
-tell the person in one line which command was refused and what it was for,
-and let them decide. Never reach the same result another way: another
-spelling, another tool such as `find -delete` or a script, or the same work
-split into steps.
+In a builder session (`LOOP_BUILDER=1`), the hook also refuses every push,
+every `gh` command, Perl or Ruby code passed with `-e`, and writes to
+`.claude/`, `.githooks/` or a protected path. It refuses file-tool edits to
+those paths as well. The gate checks state changes; only the gate may move a
+piece between states.
 
-## Commands
+## Other protections
 
-- git reset --hard (throws away unsaved work)
-- git checkout . and git restore . (the same thing wearing different clothes; allowed only inside fix's reset step, announced out loud first)
-- git push --force (rewrites shared history under teammates' feet)
-- git clean -fd (deletes files git never saved)
-- a recursive delete in any spelling, such as rm -rf, rm -r or rm --recursive (deletes anything, recursively, with no undo)
-- git reflog expire (throws away the history Git uses to recover lost work)
-- git gc with --prune (the same, for work nothing points at any more)
-- any command that drops or empties a database table
-- gh pr merge, a write to a pull request's merge endpoint, python3 -m loop.run.pull_request merge, and gate.py move to done (an agent never merges; the person merges, or a run the person pre-approved)
+Claude Code's `.claude/settings.json` has a separate command deny list. It
+also denies commands that the hook does not cover, including `git reset
+--hard`, some secret and credential access, release and repository changes,
+and some commit options. It does not mirror every rule in this file. Do not
+edit that settings file as part of this list's maintenance.
 
-## Standing restrictions
+The hook and settings file do not cover every restriction below. These remain
+rules for every build path:
 
-These hold regardless of build path, and regardless of whether a mechanical
-guard can express them:
+- Do not drop or empty a database table.
+- Do not run a production database migration without a backup and a rehearsal
+  on a copy.
+- Do not delete production data or make a bulk update without the person's
+  explicit approval for that action.
+- Do not print, commit or otherwise expose a secret.
+- Do not disable authentication or access control to pass a check.
+- Do not bypass a failed project check to ship or merge.
+- Do not force-merge or auto-merge over a required review.
+- Do not activate a flagged capability before its recorded condition is met
+  or the person accepts the risk on the record.
+- Do not withdraw, soften or redefine a risk notice already given. Do not
+  treat your own work as an independent review.
 
-- no production database migration without a backup and a rehearsal on a copy;
-- no production deletion or bulk update without the human's explicit approval, named to the specific action;
-- no printing, committing, or otherwise outputting a secret, anywhere;
-- no disabling authentication or an access control to make a test or a check pass;
-- no bypassing a red project check to ship or merge anyway;
-- no force-merging or auto-merging over a review the build path requires;
-- no activating a flagged capability before its recorded condition is met or the person has accepted the risk on the record;
-- no withdrawing, softening, or redefining a risk notice already given, and no treating your own work as the independent review a build path names.
-
-Commit before anything sweeping. If one of these ever looks necessary,
-stop, say why, and let the human decide with the reason in front of them.
+If a command is refused, stop. Report the command and what it was meant to
+do, then let the person decide. Never use another spelling, tool or sequence
+to reach the same result. If a restricted action seems necessary, explain
+why and wait for the person's decision.
