@@ -326,6 +326,20 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
         _cleanup_review_worktrees(root, n, k)
 
 
+def contract_research(body: str) -> str:
+    """Return the approved Research section for the contract reviewer."""
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == "## research":
+            section = [line]
+            for rest in lines[index + 1:]:
+                if rest.startswith("## "):
+                    break
+                section.append(rest)
+            return "\n".join(section)
+    return "No outside findings."
+
+
 def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                   ready: dict) -> dict:
     """Run one standards review and one contract review in fresh sessions."""
@@ -405,7 +419,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     record_prepare_outputs(contract_folder, before, before_dirs)
     contract_log = logs / f"piece-{n}-contract-review.log"
     contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
-        "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied,
+        "CONTRACT": contract, "RESEARCH": contract_research(body),
+        "DIFF": final_diff}), contract_log, denied,
         idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
     if contract_status == "idle":
         raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "

@@ -38,6 +38,7 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      run_judge, sh, skipped_tests, spec_hash)
 from proposed_quality import apply as apply_proposed_quality  # noqa: E402
 from testlint import lint_files  # noqa: E402
+from research import stale_findings  # noqa: E402
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -180,6 +181,7 @@ def check_ready(root: Path, issue: dict) -> dict:
             "idle_limit": loop_settings(root).get("idle limit", "10"),
             "waiting_limit": loop_settings(root).get("waiting limit", "3"),
             "stays": list(spec.stays),
+            "research": list(spec.research),
             "settings": spec.settings,
             "protected_paths": loop_settings(root).get("protected paths", []),
             "large_files": list(spec.large_files),
@@ -207,6 +209,11 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
                         != ready["bar"]):
         raise Refused("the judge bar changed after the piece became ready",
                       "move the piece back to shaping and run the ready gate again")
+
+
+def claim_stale_research(ready: dict) -> list[str]:
+    """Name findings that are more than 30 days old at claim time."""
+    return stale_findings(ready.get("research", []))
 
 
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
@@ -397,6 +404,10 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     elif name == "claim":
         ready = check_frozen(issue, comments)
         check_claim_bar(root, n, ready)
+        stale = claim_stale_research(ready)
+        if stale:
+            record["stale_research"] = stale
+            note += f" Research findings {', '.join(stale)} are possibly stale; check them before building."
     elif name == "submit":
         ready = check_frozen(issue, comments)
         if folder is None:

@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from research import parse_research
+
 STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
@@ -54,6 +56,7 @@ class Spec:
     stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
     settings: bool = False  # True when the piece may change the project's check settings
     large_files: tuple = ()  # Explicit files allowed to cross the 1,000-line mark
+    research: tuple = ()  # Sourced findings used to shape and review the piece
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
@@ -71,6 +74,11 @@ def _section(body: str, name: str) -> Optional[list[str]]:
                 out.append(rest)
             return out
     return None
+
+
+def parse_research_section(body: str) -> tuple[list[dict[str, str]], list[str]]:
+    """Parse the optional Research section through its focused module."""
+    return parse_research(_section(body, "Research") or [])
 
 
 def parse_spec(body: str) -> Spec:
@@ -100,6 +108,8 @@ def parse_spec(body: str) -> Spec:
             gaps.append("'## Intent' has no non-empty 'Out of scope:' list")
     approach_lines = _section(body, "Approach")
     approach = "\n".join(line.strip() for line in (approach_lines or []) if line.strip())
+    research, research_gaps = parse_research_section(body)
+    gaps.extend(research_gaps)
     done_when: dict[str, str] = {}
     stays: list[str] = []
     done = _section(body, "Contract")
@@ -165,9 +175,7 @@ def parse_spec(body: str) -> Spec:
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
     return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
-                keep, tuple(stays), settings, tuple(large_files))
-
-
+                keep, tuple(stays), settings, tuple(large_files), tuple(research))
 # ---------------------------------------------------------------- check settings
 
 # Files that set how the project checks itself. A pattern with no slash

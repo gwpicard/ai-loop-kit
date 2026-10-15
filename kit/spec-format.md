@@ -12,6 +12,9 @@ Out of scope:
 ## Approach
 Optional. Name the files, interface, tools and constraints when they help.
 
+## Research
+- R1: The API accepts a timeout argument (source: https://example.test/api, read: 2026-10-15)
+
 ## Contract
 - D1: When I run `habits add read`, then `habits list` shows read.
 - D2 (stays): Without `--title`, the output is unchanged.
@@ -29,6 +32,12 @@ Large file: src/generated.py
 `Intent` and a non-empty `Out of scope:` list are required. `Approach` is
 optional. Contract items start with a unique ID such as `D1`. An item already
 true on main can use `(stays)`; its judge test must pass on main.
+
+`Research` is optional. Use one line per outside finding, with a unique `R`
+ID, an HTTP or HTTPS source URL and the date read in `YYYY-MM-DD` form. The
+gate refuses a malformed finding. At claim, it reports findings older than
+30 days as possibly stale. The builder and contract reviewer receive the
+findings.
 
 Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, and
 `Kind: scaffold` for the first piece in an empty project. A fix starts with
@@ -62,6 +71,7 @@ Files:
   passes on main and has a test.
 - `Keep:` passes on main and after the build.
 - `Files:` names judge files inside the project.
+- Each Research line has a source URL and a real read date.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
   unless its path is named with `Large file:`.
 

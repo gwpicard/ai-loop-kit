@@ -95,6 +95,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 15 Oct 2026 | v1 code review | The changed-function mutmut check used broad name prefixes, included files outside the configured source paths, missed mutmut 3.8 statuses, and rejected functions with no mutants. | Match exact changed functions under mutmut source paths, fail every non-killed mutant status, skip nested functions, and pass with a "nothing to mutate" report when a function has no mutants. |
 | 15 Oct 2026 | v1 code review | The guard refused harmless eval commands, treated every xargs rm as recursive, and missed an origin push without a refspec from main. | Inspect eval contents, refuse xargs rm only with -r, -R or -f, and detect an origin push without a refspec from main, including when git -C selects the repository. |
 | 15 Oct 2026 | v1.1 plan, P4 | Mutation checks could use an unsupported mutmut version or empty source paths, and setup tested a proposed Quality command with the old loop settings. Subprocess-only tests gave no mutation evidence. | Require mutmut 3.8 or later and configured source paths, apply proposed Quality, Prepare and Test settings in doctor, and document an in-process test adapter for subprocess-only suites. Source: v1.1 plan. |
+| 15 Oct 2026 | v1.1 plan | A piece that depends on an outside fact had no place to record where the fact came from or when it was checked. | Add the optional Research section, validate each source and read date, and report findings older than 30 days at claim time (source: v1.1 plan). |
 
 ## Evidence collected, not yet enough to earn a feature
 
@@ -941,3 +942,6 @@ reasons, not features. They guide the restart.
 - **In-process forgery by arbitrary script** cannot be stopped by text guards; the sandbox and an inaccessible App key must hold that boundary.
 - **A distribution choice is needed** for the separate private kit checkout in hosted checks.
 - **Some Proposed items were never placed**: memory-pressure back-off, per-builder ports and data, walk-through with sample data, branch removal on merge, parent closing with last part, unreachable-GitHub semantics, the first upload. They stay LATER until a run needs them.
+
+- **Researcher role and dated evidence**
+  What: when a piece depends on an outside fact, a fresh researcher returns findings with source URLs and read dates; the gate validates each line and marks findings over 30 days old at claim as possibly stale. Why: outside facts need evidence the builder and reviewer can check. Tier: CORE (v1.1 plan). Source: v1.1 plan.
