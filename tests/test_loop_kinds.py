@@ -5,14 +5,13 @@ import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import critic
 import gate
 import measure
 import run
-from helpers import KIT, SPEC, Project
+from helpers import KIT, SPEC, Project, git
 from loopkit import Refused, parse_spec
 
 
@@ -68,20 +67,25 @@ class LoopKindSpecTest(unittest.TestCase):
         self.assertEqual(spec.files, ["render.py", "docs/example.png"])
 
     def test_editing_goal_measure_script_fails_attempt_with_bar_changed(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            measure_file = folder / "bench.py"
-            measure_file.write_text("print(100)\n")
-            ready = {
-                "files": ["bench.py"],
-                "bar_files": ["bench.py"],
-                "bar": gate.bar_hash_in(folder, ["bench.py"]),
-                "commit": "main",
-                "contract": {},
-            }
-            measure_file.write_text("print(1)\n")
-            with patch.object(gate, "sh", return_value=SimpleNamespace(stdout="")):
-                passed, reason = gate.judge(folder, ready)
+        project = Project()
+        self.addCleanup(project.close)
+        body = SPEC.replace(
+            "Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
+            "Kind: goal\nMeasure: `python3 bench.py`\nTarget: `< 10`\nFiles:\n- bench.py\n")
+        number = project.piece(spec=body)
+        git(project.root, "switch", "--quiet", f"piece/{number}")
+        (project.root / "bench.py").write_text("print(100)\n")
+        git(project.root, "add", "bench.py")
+        git(project.root, "commit", "--quiet", "-m", "Add goal measure")
+        git(project.root, "switch", "--quiet", "main")
+
+        gate.move(project.gh, project.root, number, "ready")
+        ready = gate.last_record(project.gh.comments(number), "ready")
+        self.assertIn("bench.py", ready["bar_files"])
+
+        git(project.root, "switch", "--quiet", f"piece/{number}")
+        (project.root / "bench.py").write_text("print(1)\n")
+        passed, reason = gate.judge(project.root, ready)
         self.assertFalse(passed)
         self.assertIn("judge files differ from the ones fixed at ready", reason)
 
