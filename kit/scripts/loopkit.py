@@ -390,7 +390,7 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None) -> di
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
     project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
-    path_entries = [entry for entry in env.get("PATH", "").split(os.pathsep)
+    path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
                     if Path(entry or ".").resolve() != project_venv_bin]
     fresh_venv = folder / ".venv"
     fresh_venv_bin = fresh_venv / "bin"

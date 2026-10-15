@@ -579,6 +579,15 @@ class GateTest(unittest.TestCase):
         self.assertNotIn(str(project_bin), env["PATH"].split(os.pathsep))
         self.assertNotIn("VIRTUAL_ENV", env)
 
+    def test_fresh_worktree_uses_system_path_when_caller_path_is_empty(self):
+        worktree = Path(self.p.tmp.name) / "wt"
+        git(self.p.root, "worktree", "add", "--quiet", "--detach", str(worktree), "main")
+        with patch("loopkit.project_root", return_value=self.p.root), \
+                patch.dict(os.environ, {"PATH": "", "VIRTUAL_ENV": "/project/.venv"}):
+            env = command_env(worktree)
+        self.assertEqual(env["PATH"], os.defpath)
+        self.assertNotIn("VIRTUAL_ENV", env)
+
     def test_fresh_worktree_venv_precedes_project_venv(self):
         project_bin = self.p.root / ".venv" / "bin"
         project_bin.mkdir(parents=True)
