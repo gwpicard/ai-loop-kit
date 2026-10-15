@@ -71,7 +71,7 @@ DATA>>>
 
 You may add new test files for your change. Do not edit or delete an existing
 test unless the Contract names it. Keep new branches in new small functions.
-Changed functions must not score above 30 on CRAP. If a
+When a CRAP command is configured, changed functions must score below 30. If a
 compound shell command is refused, retry its parts as simple commands or use
 the Edit tool. If the judge or project checks show that the bar is wrong,
 write `.loop/outcome` with `bar-wrong` on its first line and a short reason
