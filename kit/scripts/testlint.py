@@ -19,8 +19,15 @@ def _is_project_module(root: Path, module: str, source: Path) -> bool:
     parts = [part for part in module.split(".") if part]
     if not parts:
         return False
-    base = root.joinpath(*parts)
-    return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
+    bases = [root.joinpath(*parts), root / Path("src").joinpath(*parts)]
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file():
+        text = pyproject.read_text(errors="replace")
+        for match in re.finditer(r"(?m)^\s*where\s*=\s*\[([^]]*)\]", text):
+            for location in re.findall(r"['\"]([^'\"]+)['\"]", match.group(1)):
+                bases.append(root / location)
+    return any(base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
+               for base in bases)
 
 
 def _project_source_path(root: Path, value: str) -> Optional[str]:
@@ -119,7 +126,8 @@ def python_findings(path: Path, text: str,
                             findings.append((call.lineno, "test reads project source as text: " + source))
         for call in calls:
             name = _name(call.func)
-            if name == "pytest.mark.skip" or name == "pytest.mark.skipif" or name == "pytest.mark.xfail":
+            if name in ("pytest.mark.skip", "pytest.mark.skipif", "pytest.mark.xfail",
+                        "pytest.skip", "pytest.importorskip"):
                 findings.append((call.lineno, "pytest skip or xfail marker"))
         for decorator in node.decorator_list:
             name = _name(decorator.func if isinstance(decorator, ast.Call) else decorator)
@@ -141,9 +149,9 @@ def javascript_findings(path: Path, text: str,
                         project_root: Optional[Path] = None,
                         contract: str = "") -> list[tuple[int, str]]:
     findings = []
-    for match in re.finditer(r"\.(only|skip)\s*\(|\b(xit|xdescribe)\s*\(", text):
+    for match in re.finditer(r"\.(only|skip|todo)\s*\(|\b(xit|xdescribe)\s*\(", text):
         findings.append((text.count("\n", 0, match.start()) + 1, "disabled or skipped test"))
-    for match in re.finditer(r"\btest\s*\(|\bit\s*\(", text):
+    for match in re.finditer(r"(?<![\w$.])test\s*\(|(?<![\w$.])it\s*\(", text):
         start = match.end()
         depth = 1
         end = start

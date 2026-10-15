@@ -12,6 +12,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -176,7 +177,7 @@ CHECK_FILES = [".gitignore", ".github/*", ".eslintrc*", "eslint.config.*", ".xo-
                ".prettierrc*", "prettier.config.*", "tsconfig*.json", "jest.config.*",
                "vitest.config.*", ".mocharc*", "ava.config.*", "ruff.toml", ".ruff.toml",
                ".flake8", "setup.cfg", "tox.ini", "pytest.ini", "mypy.ini", ".mypy.ini",
-               ".pylintrc", ".coveragerc", ".pre-commit-config.yaml"]
+               ".pylintrc", ".coveragerc", ".pre-commit-config.yaml", "AGENTS.md"]
 # Check settings inside files that also hold other things.
 PACKAGE_KEYS = ("xo", "eslintConfig", "prettier", "jest", "ava", "mocha", "c8", "nyc", "tsd")
 PACKAGE_SCRIPTS = ("test", "pretest", "posttest", "lint")
@@ -204,7 +205,7 @@ def _pyproject_checks(text: str) -> dict:
 def _changed_files(folder: Path) -> tuple[str, list[str]]:
     """Where this branch left main, and the files it changes since."""
     base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
-    return base, sh(["git", "diff", "--name-only", base], folder).stdout.split()
+    return base, sh(["git", "diff", "--no-renames", "--name-only", base], folder).stdout.split()
 
 
 def conflict_markers(folder: Path) -> list[str]:
@@ -218,13 +219,14 @@ def conflict_markers(folder: Path) -> list[str]:
     return res.stdout.split()
 
 
-def changed_check_settings(folder: Path) -> list[str]:
+def changed_check_settings(folder: Path, extra_paths: tuple[str, ...] | list[str] = ()) -> list[str]:
     """The check settings this branch changes, compared with where it left main."""
     base, names = _changed_files(folder)
     changed = []
     for name in names:
         short = name.rsplit("/", 1)[-1]
-        if any(fnmatch.fnmatch(name if "/" in p else short, p) for p in CHECK_FILES):
+        if any(fnmatch.fnmatch(name if "/" in p else short, p)
+               for p in (*CHECK_FILES, *extra_paths)):
             changed.append(name)
         elif short in ("package.json", "pyproject.toml"):
             old = sh(["git", "show", f"{base}:{name}"], folder, check=False).stdout
@@ -269,12 +271,25 @@ def rev(root: Path, ref: str) -> Optional[str]:
 
 def main_ref(root: Path) -> str:
     """The freshest main we can see. Fetch it when there is a remote."""
+    cache = None
+    run_module = sys.modules.get("run")
+    if run_module is not None:
+        cache = getattr(run_module, "_MAIN_REF_CACHE", None)
+    key = sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root).stdout.strip()
+    if cache is not None and key in cache:
+        return cache[key]
     if sh(["git", "remote"], root).stdout.strip():
         sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False)
         if rev(root, "origin/main"):
-            return "origin/main"
+            result = "origin/main"
+            if cache is not None:
+                cache[key] = result
+            return result
     if rev(root, "main"):
-        return "main"
+        result = "main"
+        if cache is not None:
+            cache[key] = result
+        return result
     raise Refused("there is no main branch with a commit",
                   "make a first commit on main and push it")
 
@@ -357,7 +372,7 @@ def loop_settings(folder: Path) -> dict:
         if m and m.group(2).strip().strip("`").strip():
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
             continue
-        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit)\s*:\s*(.*)$",
+        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep)\s*:\s*(.*)$",
                      line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
@@ -374,10 +389,10 @@ def loop_settings(folder: Path) -> dict:
     return out
 
 
-def prepare(folder: Path) -> tuple[bool, str]:
+def prepare(folder: Path, command: Optional[str] = None) -> tuple[bool, str]:
     """Run the project's Prepare command in a fresh folder, if it has one.
     It makes a fresh copy runnable: npm ci, uv sync, docker compose build."""
-    command = loop_settings(folder).get("prepare")
+    command = command if command is not None else loop_settings(folder).get("prepare")
     if not command:
         return True, ""
     code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT)
@@ -428,7 +443,14 @@ def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple
         proc = subprocess.Popen(command, shell=True, cwd=folder, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, env=command_env(folder),
                                 start_new_session=True)
+        try:
+            from run import track_process, _untrack_process
+            track_process(proc)
+        except ImportError:
+            _untrack_process = None
         stdout, stderr = proc.communicate(timeout=timeout)
+        if _untrack_process:
+            _untrack_process(proc)
         return proc.returncode, _TERMINAL_CODES.sub("", stdout + stderr)
     except subprocess.TimeoutExpired:
         if proc is not None:
@@ -437,6 +459,8 @@ def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple
             except ProcessLookupError:
                 pass
             proc.communicate()
+            if "_untrack_process" in locals() and _untrack_process:
+                _untrack_process(proc)
         return 124, f"the judge ran past {timeout} seconds"
 
 
@@ -491,7 +515,8 @@ def clean_quality_outputs(folder: Path, recorded: list[str]) -> None:
 
 def skipped_tests(output: str) -> bool:
     """Recognise skipped counts in pytest, vitest and jest summaries."""
-    patterns = (r"\b[1-9]\d*\s+skipped\b", r"\bskipped\s*:\s*[1-9]\d*\b")
+    patterns = (r"\b[1-9]\d*\s+skipped\b", r"\bskipped\s*:\s*[1-9]\d*\b",
+                r"\bOK\s*\(skipped\s*=\s*[1-9]\d*\)", r"^\s*#\s*skipped\s+[1-9]\d*\b")
     return any(re.search(pattern, line, re.IGNORECASE)
                for line in output.splitlines() for pattern in patterns)
 
@@ -598,7 +623,8 @@ class GitHub:
 
 def record_text(record: dict, note: str) -> str:
     """A gate record is a comment with a machine line and a plain line."""
-    return f"<!-- {RECORD_TAG} {json.dumps(record, sort_keys=True)} -->\n**Gate:** {note}"
+    encoded = json.dumps(record, sort_keys=True).replace("-->", "\\u002d\\u002d>")
+    return f"<!-- {RECORD_TAG} {encoded} -->\n**Gate:** {note}"
 
 
 def records(comments: list[str]) -> list[dict]:

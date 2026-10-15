@@ -50,6 +50,12 @@ test('true', () => expect(true).toBe(true));
         self.assertIn("disabled or skipped test", rules)
         self.assertIn("expect(true)", rules)
 
+    def test_javascript_todo_is_flagged_without_matching_regex_test_calls(self):
+        text = "test.todo('later');\nconst ok = /re/.test(value);\n"
+        findings = javascript_findings(Path("test.js"), text)
+        self.assertTrue(any("disabled or skipped" in rule for _, rule in findings))
+        self.assertFalse(any("no expect" in rule for _, rule in findings))
+
     def test_python_refuses_private_imports_from_project_code(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -59,6 +65,22 @@ test('true', () => expect(true).toBe(true));
             findings = python_findings(root / "judge.py", private, root)
             self.assertTrue(any("private project name" in rule for _, rule in findings))
             self.assertEqual(python_findings(root / "judge.py", public, root), [])
+
+    def test_python_flags_skip_calls_and_private_imports_from_src_packages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            package = root / "src" / "sample"
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("")
+            (package / "_private.py").write_text("value = 1\n")
+            (root / "pyproject.toml").write_text(
+                '[tool.setuptools.packages.find]\nwhere = ["src"]\n')
+            text = ("import pytest\nfrom sample._private import value\n"
+                    "def test_skip():\n    pytest.skip('later')\n"
+                    "def test_optional():\n    pytest.importorskip('sample')\n    assert value\n")
+            rules = [rule for _, rule in python_findings(root / "judge.py", text, root)]
+            self.assertIn("pytest skip or xfail marker", rules)
+            self.assertTrue(any("sample._private" in rule for rule in rules))
 
     def test_javascript_refuses_private_named_imports_from_project_code(self):
         with tempfile.TemporaryDirectory() as temp:

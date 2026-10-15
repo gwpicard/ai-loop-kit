@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from helpers import Project, git
-from test_loop import FAKE_CLAUDE
+from test_run import FAKE_CLAUDE
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "field"))
 import audit  # noqa: E402

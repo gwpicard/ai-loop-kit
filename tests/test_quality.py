@@ -33,18 +33,6 @@ class QualityHelperTest(unittest.TestCase):
         git(self.root, "config", "user.email", "test@example.invalid")
         git(self.root, "config", "user.name", "Test")
 
-    def test_changed_line_helper_reports_paths_and_ranges(self):
-        path = self.root / "src" / "module.py"
-        path.parent.mkdir()
-        path.write_text("a = 1\nb = 2\n")
-        git(self.root, "add", "src/module.py")
-        git(self.root, "commit", "--quiet", "-m", "base")
-        base = git(self.root, "rev-parse", "HEAD")
-        path.write_text("a = 1\nb = 3\nc = 4\n")
-        git(self.root, "commit", "--quiet", "-am", "change")
-        helper = load("changed-lines.py")
-        self.assertEqual(helper.changed_lines(base, self.root), {"src/module.py": [[2, 3]]})
-
     def test_mutmut_helper_selects_changed_functions(self):
         path = self.root / "src" / "module.py"
         path.parent.mkdir()
@@ -74,7 +62,7 @@ class QualityHelperTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("CRAP: module.py:1 choose", result.stdout)
 
-    def test_crap_helper_catches_a_score_rise_above_main(self):
+    def test_crap_does_not_reject_a_changed_function_just_for_rising_above_main(self):
         path = self.root / "module.py"
         path.write_text("def choose(x):\n    return x\n")
         git(self.root, "add", "module.py")
@@ -88,8 +76,16 @@ class QualityHelperTest(unittest.TestCase):
         script = KIT / "quality" / "crap.py"
         result = subprocess.run(["python3", str(script), "--coverage", "coverage.json",
                                  "--base", "main"], cwd=self.root, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("main=1.00", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_mutmut_results_require_changed_function_coverage_and_no_survivors(self):
+        helper = load("mutmut-changed.py")
+        pattern = ["pkg.module.count*"]
+        self.assertFalse(helper.results_pass("Killed mutants: 0\nSurvived mutants: 0\n", pattern))
+        self.assertFalse(helper.results_pass(
+            "Killed mutants: 1\nSurvived mutants: 1\npkg.module_count__mutmut_2 survived\n", pattern))
+        self.assertTrue(helper.results_pass(
+            "Killed mutants: 1\nSurvived mutants: 0\npkg_module_count__mutmut_1 killed\n", pattern))
 
     def test_crap_diff_ranges_keep_the_site_of_a_deleted_line(self):
         helper = load("crap.py")

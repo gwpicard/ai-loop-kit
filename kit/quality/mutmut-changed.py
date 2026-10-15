@@ -57,6 +57,21 @@ def patterns(base: str, cwd: Path = Path.cwd()) -> list[str]:
     return sorted(out)
 
 
+def results_pass(output: str, selected: list[str]) -> bool:
+    """Require named mutants for selected functions and no surviving mutants."""
+    if not selected:
+        return True
+    if re.search(r"Survived mutants:\s*[1-9]\d*", output, re.IGNORECASE):
+        return False
+    mutants = re.findall(r"([\w.ǁ]+__mutmut_\d+)", output)
+    if not mutants:
+        return False
+    targets = [pattern.rstrip("*").replace(".", "_").replace("ǁ", "_")
+               for pattern in selected]
+    named = [name.replace("ǁ", "_") for name in mutants]
+    return all(any(name.startswith(target) for name in named) for target in targets)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base", nargs="?", default="origin/main")
@@ -69,6 +84,15 @@ def main() -> int:
         result = subprocess.run(["mutmut", "run", pattern])
         if result.returncode:
             return result.returncode
+    results = subprocess.run(["mutmut", "results"], capture_output=True, text=True)
+    print(results.stdout, end="")
+    if results.returncode:
+        print(results.stderr, file=sys.stderr, end="")
+        return results.returncode
+    if not results_pass(results.stdout, selected):
+        print("mutmut: changed functions have no tested mutants or a mutant survived",
+              file=sys.stderr)
+        return 1
     return 0
 
 

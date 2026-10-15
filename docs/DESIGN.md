@@ -154,7 +154,7 @@ spec, and nobody edits an old issue to keep it current.
 | --- | --- |
 | Shaper, with the person | Only the person knows the intent. The shaper asks, splits and writes, and never builds. |
 | Judge writer | Tests written first by someone other than the builder help the builder most [TDFlow], and an agent that writes both code and tests confirms itself [Fowler, TDD in the loop]. The judge writer also does not see the shaping chat, so it tests the contract, not the shaper's assumptions. |
-| Builder | A fresh `claude -p` per attempt. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
+| Builder | A fresh `claude -p` per attempt, requested as `stream-json`. Stream events and changes under the build folder reset the idle clock; logs keep readable assistant text. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
 | Standards reviewer | Standards belong to a reviewer that reads the diff, not to the builder's context or `AGENTS.md` [Pocock, code-review], [Osmani, agent files]. Its baseline when a project has no standards is Fowler's code smells [Fowler, Refactoring], plus the hard points of a strict maintainability review [Cursor, thermo-nuclear]. |
 | Contract reviewer | A separate axis: is it the right thing? Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
 | Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (`docs/LESSONS.md`). |
@@ -163,6 +163,9 @@ spec, and nobody edits an old issue to keep it current.
 Every finding a reviewer makes must cite a rule, a smell or a contract line,
 or it is dropped. Reviewers print one tagged JSON verdict that the run reads;
 the run never guesses a verdict from free text [Sandcastle].
+The standards reviewer gets the frozen standards path from the ready record,
+runs Prepare in its own folder, and may keep a non-test fix only after the
+judge passes again. Review folders and branches are removed on every exit.
 
 ## 8. The checks
 
@@ -172,16 +175,17 @@ the run never guesses a verdict from free text [Sandcastle].
 | Test lint: an assertion in each test, no `assert True`, no `x == x`, no skips, no private imports, no reading source as text, no mirror of the code under test | Automated checks can lie: a test can restate the code, mock its subject or never be able to fail. These are the mechanical cases [kata, testing without tautologies]. |
 | The bar covers `conftest.py` and test helpers | Builders change what a test relies on, not only the test file [ImpossibleBench]. |
 | No existing test changed | Changing an old test is the commonest cheat [ImpossibleBench], [Anthropic harnesses]. |
-| No check setting changed | A builder in our field runs turned off a lint rule to pass (`docs/LEDGER.md`, 14 October). |
+| No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (`docs/LEDGER.md`, 14 October). |
 | Protected paths | Some code (auth, billing, CI) needs a person. Zone the code [Osmani, brownfield]. |
 | No file grows past 1,000 lines | A file that sprawls is a design smell agents create quickly [Cursor, thermo-nuclear]. |
-| Quality commands: CRAP and mutation testing | CRAP punishes complex code that is not tested, which is what agents often write [CRAP]. Mutation testing proves the tests notice when the code breaks [mutmut], [Stryker], [Meta ACH]. They are the project's commands, not the kit's, so the kit works for any stack. Checked on changed code only, because a whole-repository score would block every existing project on day one [CodeScene]. |
+| Quality commands: CRAP and mutation testing | CRAP limits changed functions to a score of 30. Mutation testing reads `mutmut results`, requires mutants for changed functions and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that result is stored and checked once per piece. |
 | Secret shapes | A secret in git history stays for ever. |
 | Nothing skipped | A skipped test passes silently. |
 
 ## 9. The pull request
 
-The script writes the facts: what changed, the risk, the evidence. The
+The script writes the facts: what changed, the risk, the evidence. It lists
+renames as a delete and an add, so moved tests remain visible. The
 builder writes only why, and what could go wrong. A person should understand
 the change and its danger in two minutes [HumanLayer], [Port, change review].
 A waiting limit stops the run when three pull requests wait, so building never
@@ -190,11 +194,11 @@ outruns review [Osmani, quality].
 ## 10. The boundary
 
 The guard hook refuses the hard rules: no push to `main`, no force push, no
-agent merge, no recursive delete. It is a seatbelt, not a sandbox: a text
-parser cannot read every shell form, and the first kit's 1,864-line parser
-still missed forms (`docs/LESSONS.md`). So the guard refuses what it cannot
-read in a build session, branch protection on GitHub is offered as a second
-layer, and runs are attended.
+agent merge, no recursive delete. In build sessions it also refuses `eval`,
+`xargs` with `rm`, Perl and Ruby code execution, unreadable shell wrappers,
+and redirects into `.claude/`, `.githooks/` or protected paths. It refuses a
+plain push from `main`. It is a seatbelt, not a sandbox: branch protection on
+GitHub is a second layer, and runs are attended.
 
 A sandbox is later. The likely shape is a container with an `agent` user that
 has the person's user id, the worktree mounted inside, and the token passed in

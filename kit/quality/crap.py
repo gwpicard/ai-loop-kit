@@ -140,37 +140,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             current_source = (root / path).read_text(errors="replace")
             current_functions = functions(current_source)
             executed, missing = coverage_data(coverage, path, root)
-            old_result = subprocess.run(["git", "show", f"{args.base}:{path}"], cwd=root,
-                                        capture_output=True, text=True)
-            base_functions = functions(old_result.stdout) if old_result.returncode == 0 else []
-            baseline: dict[tuple[str, int], dict] = {}
-            counts: dict[str, int] = {}
-            for item in base_functions:
-                occurrence = counts.get(item["name"], 0)
-                counts[item["name"]] = occurrence + 1
-                baseline[(item["name"], occurrence)] = item
-            counts = {}
             for item in current_functions:
-                occurrence = counts.get(item["name"], 0)
-                counts[item["name"]] = occurrence + 1
                 if not overlap(item, changed):
                     continue
                 cover = coverage_for(item, executed, missing)
                 current = score(item["complexity"], cover)
-                old = baseline.get((item["name"], occurrence))
-                old_score = None
-                if old:
-                    old_cover = coverage_for(old, executed, missing)
-                    old_score = score(old["complexity"], old_cover)
-                if current >= 30 or old_score is not None and current > old_score:
-                    suffix = f", main={old_score:.2f}" if old_score is not None else ""
+                if current > 30:
                     failures.append(f"CRAP: {path}:{item['start']} {item['name']} "
                                     f"complexity={item['complexity']} coverage={cover:.0%} "
-                                    f"score={current:.2f}{suffix}")
+                                    f"score={current:.2f}")
         if failures:
             print("\n".join(failures))
             return 1
-        print("CRAP: changed functions are below 30 and do not exceed main.")
+        print("CRAP: changed functions are at or below 30.")
         return 0
     except (OSError, ValueError, RuntimeError, SyntaxError, KeyError) as error:
         print(f"CRAP: {error}", file=sys.stderr)

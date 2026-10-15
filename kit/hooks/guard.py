@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from typing import Optional
 
@@ -44,7 +45,30 @@ def strip_prefix(w: list[str]) -> list[str]:
     return w
 
 
+def current_branch() -> str:
+    result = subprocess.run(["git", "branch", "--show-current"], capture_output=True,
+                            text=True)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def redirect_to_protected(command: str) -> bool:
+    protected = [item.strip().strip("`").replace("\\", "/") for item in
+                 os.environ.get("LOOP_PROTECTED_PATHS", "").split(os.pathsep) if item.strip()]
+    for match in re.finditer(r"(?:^|\s)(?:\d*>>?)\s*(['\"]?)([^\s'\"]+)\1", command):
+        target = match.group(2).replace("\\", "/")
+        parts = target.strip("/").split("/")
+        if ".claude" in parts or ".githooks" in parts:
+            return True
+        if any(target == item.rstrip("/") or target.startswith(item.rstrip("/") + "/")
+               or ("/" + item.rstrip("/") + "/") in ("/" + target.strip("/") + "/")
+               for item in protected):
+            return True
+    return False
+
+
 def check_command(cmd: str, builder: bool) -> Optional[str]:
+    if builder and redirect_to_protected(cmd):
+        return "builders never redirect into .claude/, .githooks/ or a protected path."
     if re.search(r"\bpython(?:3)?\b[^\n]*\s-c\s", cmd) and re.search(
             r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", cmd):
         return "recursive delete is not allowed. Ask the person."
@@ -64,12 +88,25 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
         if not w:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
-        if prog in ("bash", "sh", "zsh") and "-c" in rest:
-            index = rest.index("-c")
-            if index + 1 < len(rest):
-                refused = check_command(rest[index + 1], builder)
-                if refused:
-                    return refused
+        if builder and prog == "eval":
+            return "eval is not allowed in a build session. Run a plain command."
+        if builder and prog == "xargs" and any(os.path.basename(arg) == "rm" for arg in rest):
+            return "xargs rm is not allowed in a build session."
+        if builder and prog in ("perl", "ruby") and "-e" in rest:
+            return f"{prog} -e is not allowed in a build session."
+        if prog in ("bash", "sh", "zsh"):
+            option = next((arg for arg in rest if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", arg)), None)
+            if option:
+                index = rest.index(option)
+                if builder and option != "-c":
+                    return "combined shell flags are not allowed in a build session. Use plain `bash -c`."
+                if index + 1 >= len(rest):
+                    if builder:
+                        return "the shell command form could not be unwrapped safely."
+                else:
+                    refused = check_command(rest[index + 1], builder)
+                    if refused:
+                        return refused
         if prog in ("python", "python3", "node"):
             flag = "-c" if prog.startswith("python") else "-e"
             if flag in rest:
@@ -116,6 +153,8 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
                        or a.startswith("--force") for a in flags):
                     return "force push and remote delete are not allowed."
                 targets = [a for a in rest[1:] if not a.startswith("-")]
+                if not targets and current_branch() in ("main", "master"):
+                    return "an unqualified push from main is not allowed. Push a named piece branch."
                 if any(re.search(r"(^|:)(refs/heads/)?(main|master)$", t) or t.startswith("+")
                        for t in targets[1:]):
                     return "pushing to main is not allowed. Open a pull request."

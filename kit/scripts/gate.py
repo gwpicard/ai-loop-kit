@@ -166,7 +166,14 @@ def check_ready(root: Path, issue: dict) -> dict:
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
             "files": spec.files, "command": spec.command,
-            "kind": spec.kind, "keep": spec.keep, "stays": list(spec.stays),
+            "kind": spec.kind, "keep": spec.keep or loop_settings(root).get("keep", ""),
+            "test": loop_settings(root).get("test", ""),
+            "prepare": loop_settings(root).get("prepare", ""),
+            "quality": loop_settings(root).get("quality", []),
+            "standards": loop_settings(root).get("standards", ""),
+            "idle_limit": loop_settings(root).get("idle limit", "10"),
+            "waiting_limit": loop_settings(root).get("waiting limit", "3"),
+            "stays": list(spec.stays),
             "settings": spec.settings,
             "protected_paths": loop_settings(root).get("protected paths", []),
             "large_files": list(spec.large_files),
@@ -186,6 +193,16 @@ def check_frozen(issue: dict, comments: list[str]) -> dict:
     return ready
 
 
+def check_claim_bar(root: Path, n: int, ready: dict) -> None:
+    """Claim is valid only while the judge bar still matches ready."""
+    head = rev(root, branch_name(n))
+    if head is None or (ready["files"] and
+                        bar_hash_at(root, head, ready.get("bar_files", ready["files"]))
+                        != ready["bar"]):
+        raise Refused("the judge bar changed after the piece became ready",
+                      "move the piece back to shaping and run the ready gate again")
+
+
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
@@ -195,7 +212,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         return False, ("the build changes existing test files not named in the Contract or Files: "
                        + ", ".join(changed_tests))
     main = main_ref(folder)
-    changed_paths = sh(["git", "diff", "--name-only", f"{main}...HEAD"], folder).stdout.splitlines()
+    changed_paths = sh(["git", "diff", "--no-renames", "--name-only",
+                        f"{main}...HEAD"], folder).stdout.splitlines()
     contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
         " ".join(ready.get("files", []))
     protected = [p for p in changed_paths for target in ready.get("protected_paths", [])
@@ -234,7 +252,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if prepare_paths.is_file():
         roots = prepare_paths.read_text().splitlines()
         if roots:
-            added = sh(["git", "diff", "--name-only", "--diff-filter=A",
+            added = sh(["git", "diff", "--no-renames", "--name-only", "--diff-filter=A",
                         f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
             leaked = [path for path in added if any(
                 path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/")
@@ -243,7 +261,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                 return False, ("the piece adds files under paths Prepare created: "
                                + ", ".join(leaked))
     if not ready.get("settings"):
-        changed = changed_check_settings(folder)
+        changed = changed_check_settings(folder, (ready.get("standards", ""),)
+                                        if ready.get("standards") else ())
         if changed:
             return False, ("the build changes the project's check settings: "
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
@@ -263,7 +282,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
             return False, f"the judge passes, but the keep check now fails:\n{koutput}"
         output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
-    for command in loop_settings(folder).get("quality", []):
+    for command in ready.get("quality", []):
         qcode, qoutput = run_judge(folder, command)
         quality_results.append(f"Quality: {command}\nExit: {qcode}\n{qoutput.strip()}")
         if qcode != 0:
@@ -276,7 +295,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
 def changed_existing_tests(folder: Path, ready: dict) -> list[str]:
     """Find edits to existing tests, fixtures or conftest files outside scope."""
     base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
-    changed = sh(["git", "diff", "--name-only", base], folder).stdout.splitlines()
+    changed = sh(["git", "diff", "--no-renames", "--name-only", base], folder).stdout.splitlines()
     contract_text = "\n".join(str(v) for v in ready.get("contract", {}).values())
     allowed = list(ready.get("files", []))
     return sorted(name for name in changed if _is_test_support(name) and
@@ -356,16 +375,18 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
     elif name == "claim":
-        check_frozen(issue, comments)
+        ready = check_frozen(issue, comments)
+        check_claim_bar(root, n, ready)
     elif name == "submit":
         ready = check_frozen(issue, comments)
-        if folder is None or not pr:
-            raise Refused("submit needs the build folder and the pull request",
+        if folder is None:
+            raise Refused("submit needs the build folder",
                           "the run makes this move, not a person")
         passed, output = judge(folder, ready)
         if not passed:
             raise Refused(f"the judge does not pass:\n{output.strip()[-1500:]}")
-        record["pr"] = pr
+        if pr:
+            record["pr"] = pr
         record["commit"] = rev(folder, "HEAD")
         note += f" The gate ran the judge and it passed. Pull request: {pr}"
     elif name == "merged":

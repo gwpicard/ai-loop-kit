@@ -166,8 +166,8 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
     return recovered
 
 
-def waiting_limit_note(gh: GitHub, root: Path) -> str:
-    value = loop_settings(root).get("waiting limit", "3")
+def waiting_limit_note(gh: GitHub, root: Path, ready: Optional[dict] = None) -> str:
+    value = (ready or {}).get("waiting_limit", loop_settings(root).get("waiting limit", "3"))
     try:
         limit = max(1, int(value))
     except ValueError:
@@ -179,12 +179,25 @@ def waiting_limit_note(gh: GitHub, root: Path) -> str:
     return ""
 
 
-def idle_limit_seconds(folder: Path) -> int:
-    value = loop_settings(folder).get("idle limit", "10")
+def idle_limit_seconds(folder: Path, frozen_value: Optional[str] = None) -> int:
+    value = frozen_value if frozen_value is not None else loop_settings(folder).get("idle limit", "10")
     try:
         return max(1, int(value)) * 60
     except ValueError:
         return DEFAULT_IDLE_LIMIT
+
+
+_MAIN_REF_CACHE: Optional[dict[str, str]] = None
+
+
+def _cache_main_for_piece() -> None:
+    global _MAIN_REF_CACHE
+    _MAIN_REF_CACHE = {}
+
+
+def _clear_main_piece_cache() -> None:
+    global _MAIN_REF_CACHE
+    _MAIN_REF_CACHE = None
 
 
 def stop_path(root: Path) -> Path:
@@ -284,283 +297,9 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
     return text
 
 
-BASELINE_SMELLS = (
-    "Mysterious Name", "Duplicated Code", "Feature Envy", "Data Clumps",
-    "Primitive Obsession", "Repeated Switches", "Shotgun Surgery", "Divergent Change",
-    "Speculative Generality", "Message Chains", "Middle Man", "Refused Bequest",
-)
-
-
-def _diff_hunks(diff: str) -> dict[str, list[tuple[int, int]]]:
-    hunks: dict[str, list[tuple[int, int]]] = {}
-    path = ""
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            path = line[6:]
-            hunks.setdefault(path, [])
-        elif path and line.startswith("@@"):
-            match = re.search(r"\+(\d+)(?:,(\d+))?", line)
-            if match:
-                start, count = int(match.group(1)), int(match.group(2) or "1")
-                hunks[path].append((start, start + max(count, 1) - 1))
-    return hunks
-
-
-def _valid_hunk(citation: str, hunks: dict[str, list[tuple[int, int]]]) -> bool:
-    match = re.search(r"([^\s|]+):(\d+)(?:-(\d+))?", citation)
-    if not match:
-        return False
-    path, start = match.group(1), int(match.group(2))
-    end = int(match.group(3) or start)
-    return any(start <= hi and end >= lo for lo, hi in hunks.get(path, []))
-
-
-def _last_verdict(output: str, reviewer: str) -> dict:
-    matches = re.findall(r"<verdict>\s*(.*?)\s*</verdict>", output, flags=re.I | re.S)
-    if not matches:
-        raise ValueError("missing <verdict> block")
-    payload = matches[-1].strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*([\s\S]*?)\s*```", payload, flags=re.I)
-    if fenced:
-        payload = fenced.group(1).strip()
-    try:
-        data = json.loads(payload)
-    except ValueError as error:
-        raise ValueError(f"bad verdict JSON: {error}") from error
-    if not isinstance(data, dict):
-        raise ValueError("verdict must be a JSON object")
-    if reviewer == "standards":
-        if not isinstance(data.get("findings"), list) or not isinstance(data.get("follow_ups"), list) \
-                or not isinstance(data.get("changes"), str):
-            raise ValueError("standards verdict needs findings, follow_ups and changes")
-        for finding in data["findings"]:
-            if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
-                                                    for key in ("rule", "hunk", "finding")):
-                raise ValueError("each standards finding needs rule, hunk and finding strings")
-        if any(not isinstance(item, str) for item in data["follow_ups"]):
-            raise ValueError("standards follow_ups must be strings")
-    elif reviewer == "contract":
-        if not isinstance(data.get("findings"), list):
-            raise ValueError("contract verdict needs a findings list")
-        for finding in data["findings"]:
-            if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
-                                                    for key in ("citation", "hunk", "finding")):
-                raise ValueError("each contract finding needs citation, hunk and finding strings")
-    return data
-
-
-def _logged_verdict(logfile: Path, reviewer: str) -> dict:
-    output = logfile.read_text(errors="replace") if logfile.exists() else ""
-    try:
-        return _last_verdict(output, reviewer)
-    except ValueError as error:
-        with logfile.open("a") as out:
-            out.write(f"\nInvalid {reviewer} verdict: {error}\nRaw tail:\n{output[-2000:]}\n")
-        raise Refused(f"{reviewer} returned an invalid verdict: {error}",
-                      f"read {logfile} and correct the review output")
-
-
-def parse_standards_findings(output: str, standards: str, diff: str) -> list[str]:
-    """Keep only findings that cite a rule or smell and a changed hunk."""
-    hunks = _diff_hunks(diff)
-    allowed = [name.lower() for name in BASELINE_SMELLS]
-    allowed += ["unrelated special-case branches", "pass-through wrappers",
-                "logic in the owning layer", "reuse existing helpers"]
-    verdict = _last_verdict(output, "standards")
-    findings = []
-    for finding in verdict["findings"]:
-        rule, hunk, description = (finding["rule"].strip(), finding["hunk"].strip(),
-                                   finding["finding"].strip())
-        if not any(rule.lower() == label for label in allowed) and rule.lower() not in standards.lower():
-            continue
-        if _valid_hunk(hunk, hunks):
-            findings.append(f"{rule} at {hunk}: {description}")
-    return findings
-
-
-def parse_contract_findings(output: str, body: str, diff: str) -> list[str]:
-    """Keep contract findings that cite an approved line and a changed hunk."""
-    data = _last_verdict(output, "contract")
-    ids = set(re.findall(r"\b(D\d+)\b", body))
-    out_of_scope = []
-    in_scope = False
-    for line in body.splitlines():
-        if line.strip().lower().startswith("out of scope:"):
-            in_scope = True
-        elif line.startswith("## "):
-            in_scope = False
-        elif in_scope and re.match(r"^\s*[-*]\s+\S", line):
-            out_of_scope.append(line.strip()[1:].strip())
-    findings = []
-    hunks = _diff_hunks(diff)
-    for finding in data.get("findings", []):
-        citation = str(finding.get("citation", ""))
-        hunk = str(finding.get("hunk", ""))
-        detail = str(finding.get("finding", "")).strip()
-        cited_id = re.search(r"\b(D\d+)\b", citation)
-        cites_scope = any(item and item in citation for item in out_of_scope)
-        if not detail or not _valid_hunk(hunk, hunks):
-            continue
-        if not (cited_id and cited_id.group(1) in ids) and not cites_scope:
-            continue
-        findings.append(f"{citation} at {hunk}: {detail}")
-    return findings
-
-
-def _review_prompt(name: str, values: dict[str, str]) -> str:
-    prompt = (KIT / "briefs" / name).read_text()
-    for key, value in values.items():
-        prompt = prompt.replace("{{" + key + "}}", value)
-    return prompt
-
-
-def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
-                  hard_seconds: int = ATTEMPT_TIMEOUT) -> str:
-    """Copy output to a log and stop a silent or overlong process group."""
-    assert proc.stdout is not None
-    stream = proc.stdout
-    os.set_blocking(stream.fileno(), False)
-    selector = selectors.DefaultSelector()
-    selector.register(stream, selectors.EVENT_READ)
-    started = last_output = time.monotonic()
-    eof = False
-    reason = ""
-    while not eof or proc.poll() is None:
-        now = time.monotonic()
-        if proc.poll() is None and not reason:
-            if now - started >= hard_seconds:
-                reason = "hard"
-            elif now - last_output >= idle_seconds:
-                reason = "idle"
-            if reason:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-        timeout = 0.1
-        if proc.poll() is None and not reason:
-            timeout = min(timeout, max(0.0, min(hard_seconds - (now - started),
-                                                idle_seconds - (now - last_output))))
-        events = selector.select(timeout)
-        for key, _ in events:
-            try:
-                chunk = os.read(key.fd, 4096)
-            except BlockingIOError:
-                continue
-            if not chunk:
-                eof = True
-                selector.unregister(stream)
-                continue
-            out.write(chunk.decode(errors="replace"))
-            out.flush()
-            last_output = time.monotonic()
-    proc.wait()
-    _untrack_process(proc)
-    selector.close()
-    stream.close()
-    if reason:
-        out.write("\nAttempt stopped after idle limit with no output.\n" if reason == "idle"
-                  else f"\nThe attempt ran past {hard_seconds // 60} minutes and was stopped.\n")
-    return reason
-
-
-def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
-                    idle_seconds: int) -> str:
-    claude = os.environ.get("LOOP_CLAUDE", "claude")
-    guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
-    settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{"type": "command", "command": guard}]}]}})
-    args = [claude, "-p", prompt, "--permission-mode", "acceptEdits", "--allowedTools",
-            "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
-            "--settings", settings]
-    if disallowed:
-        args += ["--disallowedTools", *[f"Edit({path})" for path in disallowed]]
-    env = {**command_env(folder), "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
-    with logfile.open("w") as out:
-        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                env=env, start_new_session=True)
-        track_process(proc)
-        return _pump_session(proc, out, idle_seconds)
-
-
-def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
-                 ready: dict) -> dict:
-    """Run one standards review and one contract review in fresh sessions."""
-    settings = loop_settings(folder)
-    main = main_ref(folder)
-    diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
-    standards_path = settings.get("standards", "")
-    standards = (folder / standards_path).read_text(errors="replace") if standards_path else ""
-    standards_context = standards or "No project standards file is named. Use the built-in baseline."
-    standards_folder = folder.parent / f"review-standards-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    standards_branch = f"review/standards-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    judged = rev(folder, "HEAD")
-    sh(["git", "worktree", "add", "--quiet", "-b", standards_branch,
-        str(standards_folder), judged], root)
-    logs = root / ".loop" / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    standards_log = logs / f"piece-{n}-standards-review.log"
-    denied = list(ready.get("files", [])) + ["tests/**", "**/test_*", "**/*_test.py",
-               "**/*.test.*", "**/*.spec.*", "**/conftest.py"]
-    denied += CHECK_FILES
-    denied += settings.get("protected paths", [])
-    standards_status = _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
-        "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied,
-        idle_limit_seconds(folder))
-    if standards_status == "idle":
-        raise AttemptIdle(f"standards reviewer idle for {idle_limit_seconds(folder) // 60} minutes; "
-                          f"see {standards_log}")
-    commit_leftovers(standards_folder, n, k)
-    standard_output = standards_log.read_text(errors="replace")
-    standards_verdict = _logged_verdict(standards_log, "standards")
-    standard_findings = parse_standards_findings(standard_output, standards_context, diff)
-    standard_head = rev(standards_folder, "HEAD")
-    reviewer_note = "Standards review ran once."
-    if standard_head != judged:
-        passed, output = gate.judge(standards_folder, ready)
-        if passed:
-            sh(["git", "merge", "--ff-only", "--quiet", standards_branch], folder)
-            passed, output = gate.judge(folder, ready)
-        if passed:
-            commits = sh(["git", "log", "--oneline", f"{judged}..HEAD"], folder).stdout.strip()
-            reviewer_note += " Reviewer fixes kept:\n" + (commits or "none")
-        else:
-            reviewer_note += " Reviewer fixes were dropped because a submit check failed:\n" + output[-1200:]
-    follow_ups = standards_verdict["follow_ups"]
-
-    final_diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
-    contract_parts = []
-    body = issue["body"] or ""
-    for section in ("Intent", "Approach", "Contract", "Done when"):
-        lines = body.splitlines()
-        for index, line in enumerate(lines):
-            if line.strip().lower() == f"## {section}".lower():
-                part = [line]
-                for rest in lines[index + 1:]:
-                    if rest.startswith("## "):
-                        break
-                    part.append(rest)
-                contract_parts.extend(part)
-                break
-    contract = "\n".join(contract_parts)
-    contract_folder = folder.parent / f"review-contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    contract_branch = f"review/contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    sh(["git", "worktree", "add", "--quiet", "-b", contract_branch,
-        str(contract_folder), rev(folder, "HEAD")], root)
-    contract_log = logs / f"piece-{n}-contract-review.log"
-    contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
-        "CONTRACT": contract, "DIFF": final_diff}), contract_log, denied,
-        idle_limit_seconds(folder))
-    if contract_status == "idle":
-        raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder) // 60} minutes; "
-                          f"see {contract_log}")
-    contract_output = contract_log.read_text(errors="replace")
-    _logged_verdict(contract_log, "contract")
-    contract_findings = parse_contract_findings(contract_output, issue["body"], final_diff)
-    # Contract reviewers are read-only. Their branch is never merged.
-    return {"standards_findings": standard_findings,
-            "contract_findings": contract_findings,
-            "follow_ups": follow_ups, "reviewer_note": reviewer_note}
+def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict) -> dict:
+    import review
+    return review.review_piece(root, folder, n, k, issue, ready)
 
 
 def builder_settings() -> str:
@@ -579,7 +318,8 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
     denied = [f"Edit({f})" for f in files]
     if not settings:
         denied += [f"Edit({p.replace('/*', '/**')})" for p in CHECK_FILES]
-    args = [claude, "-p", prompt, "--permission-mode", "acceptEdits",
+    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
+            "--permission-mode", "acceptEdits",
             "--allowedTools", "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
             "--settings", builder_settings()]
     if denied:
@@ -589,7 +329,8 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
         proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
         track_process(proc)
-        return _pump_session(proc, out, idle_seconds)
+        from review import _pump_session
+        return _pump_session(proc, out, idle_seconds, activity_path=folder)
 
 
 def builder_words(logfile: Path) -> str:
@@ -606,8 +347,9 @@ def commit_leftovers(folder: Path, n: int, k: int) -> None:
 
 
 def restore_bar(folder: Path, ready: dict) -> None:
-    if ready["files"]:
-        sh(["git", "checkout", ready["commit"], "--", *ready["files"]], folder)
+    files = ready.get("bar_files", ready["files"])
+    if files:
+        sh(["git", "checkout", ready["commit"], "--", *files], folder)
         commit_leftovers(folder, 0, 0)
 
 
@@ -677,6 +419,14 @@ def check_pushed_branch(root: Path, n: int) -> None:
 
 
 def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
+    _cache_main_for_piece()
+    try:
+        return _build_piece(gh, root, n, attempts)
+    finally:
+        _clear_main_piece_cache()
+
+
+def _build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     check_pushed_branch(root, n)
@@ -727,9 +477,20 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
                       "them: keep what main added and what this piece adds. Remove every "
                       "conflict marker and commit the merge. Then make the judge pass.")
 
+    frozen_bar = ready.get("bar_files", ready.get("files", []))
+    current_bar = gate.bar_file_list(folder, "HEAD", ready.get("files", []))
+    added_bar = sorted(set(current_bar) - set(frozen_bar))
+    if frozen_bar and (added_bar or gate.bar_hash_in(folder, frozen_bar) != ready["bar"]):
+        changed_bar = sh(["git", "diff", "--no-renames", "--name-only",
+                          f"{ready['commit']}..HEAD", "--", *sorted(set(frozen_bar) | set(added_bar))],
+                         folder).stdout.splitlines()
+        reason = "main changed the frozen judge bar: " + ", ".join(changed_bar or added_bar or frozen_bar)
+        gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+        return f"piece {n}: back to shaping, {reason}"
+
     before = untracked_paths(folder)
     before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
-    ok, poutput = prepare(folder)
+    ok, poutput = prepare(folder, ready.get("prepare", ""))
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
@@ -741,6 +502,14 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     logs.mkdir(parents=True, exist_ok=True)
     last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
+    quality_probe = root / ".loop" / f"main-quality-{n}.json"
+    try:
+        saved_probe = json.loads(quality_probe.read_text())
+        main_quality_checked = saved_probe.get("checked") is True
+        main_quality_failed = saved_probe.get("failed") is True
+    except (OSError, ValueError, AttributeError):
+        main_quality_checked = False
+        main_quality_failed = False
     for k in range(1, attempts + 1):
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
@@ -756,12 +525,13 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
             return f"piece {n}: back to shaping, {reason}"
         started = time.monotonic()
+        (folder / ".loop" / "outcome").unlink(missing_ok=True)
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
                                  ready["files"], logfile, ready.get("settings", False),
-                                 idle_limit_seconds(folder))
+                                 idle_limit_seconds(folder, ready.get("idle_limit")))
         if idle_status == "idle":
-            reason = f"builder attempt idle for {idle_limit_seconds(folder) // 60} minutes; see {logfile}"
+            reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
             gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
             return f"piece {n}: back to shaping, {reason}"
@@ -784,11 +554,22 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)
-            kind = "environment" if gate.quality_fails_on_main(folder, command) else "builder-failed"
-            reason = f"Quality check failed: {command}"
-            gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type=kind)
-            return f"piece {n}: back to shaping, {reason}"
+            if not main_quality_checked:
+                main_quality_failed = gate.quality_fails_on_main(folder, command)
+                main_quality_checked = True
+                quality_probe.write_text(json.dumps({"checked": True,
+                                                     "failed": main_quality_failed,
+                                                     "command": command}, sort_keys=True) + "\n")
+            if main_quality_failed:
+                reason = f"Quality check also fails on main: {command}"
+                gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+                return f"piece {n}: back to shaping, {reason}"
+            last_failure = (f"Attempt {k} failed Quality command `{command}`. Fix this in the next "
+                            f"attempt.\n\n{output.strip()[-2500:]}")
+            gh.comment(n, f"**Run:** attempt {k} failed a Quality check; retrying.\n\n"
+                          f"```\n{output.strip()[-1500:]}\n```")
+            continue
         if passed:
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
@@ -832,105 +613,34 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
 
 
 def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str]:
-    main = main_ref(folder)
-    paths = sh(["git", "diff", "--name-only", f"{main}...HEAD"], folder).stdout.splitlines()
-    grouped: dict[str, list[str]] = {}
-    for path in paths:
-        area = Path(path).parts[0] if len(Path(path).parts) > 1 else "root"
-        grouped.setdefault(area, []).append(path)
-    areas = "\n".join(f"- **{area}:** " + ", ".join(f"`{p}`" for p in sorted(files))
-                      for area, files in sorted(grouped.items())) or "- No tracked files changed."
-    added = sh(["git", "diff", "--name-only", "--diff-filter=A", f"{main}...HEAD"],
-               folder).stdout.splitlines()
-    tests = [p for p in added if "test" in p.lower() or Path(p).name.startswith("test_")
-             or p in ready.get("files", [])]
-    tests_text = ", ".join(f"`{p}`" for p in tests) if tests else "none added"
-    manifests = [p for p in paths if Path(p).name in
-                 {"package.json", "pyproject.toml", "requirements.txt", "requirements-dev.txt"}
-                 or Path(p).name.startswith("requirements") and p.endswith(".txt")]
-    dependencies = []
-    for manifest in manifests:
-        diff = sh(["git", "diff", "--no-ext-diff", "--unified=0", f"{main}...HEAD", "--", manifest],
-                  folder).stdout
-        additions = [line[1:].strip() for line in diff.splitlines()
-                     if line.startswith("+") and not line.startswith("+++")]
-        dependencies.append(f"`{manifest}`: " + (", ".join(additions) if additions else "changed"))
-    dependency_text = "; ".join(dependencies) if dependencies else "none"
-    settings = loop_settings(folder)
-    protected = settings.get("protected paths", [])
-    risk = []
-    if any(any(path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/") for p in protected)
-           for path in paths):
-        risk.append("protected paths touched")
-    if any(re.search(r"(^|/)(migrations?|alembic)(/|$)", p, re.I) for p in paths):
-        risk.append("migration files touched")
-    if any(re.search(r"(^|/)(config|\.github)(/|$)|(^|/)[^/]*config[^/]*$", p, re.I)
-           or p.startswith(".github/") for p in paths):
-        risk.append("configuration or CI files touched")
-    changed_settings = changed_check_settings(folder)
-    if changed_settings:
-        risk.append("check settings touched: " + ", ".join(changed_settings))
-    importers = dependent_files(folder, ready.get("approach", ""), paths, ready.get("files"))
-    risk.append(f"{len(importers)} project file(s) import a named or changed module")
-    large = []
-    for path in paths:
-        candidate = folder / path
-        if candidate.is_file():
-            count = len(candidate.read_text(errors="replace").splitlines())
-            if count > 1000:
-                large.append(f"`{path}` ({count} lines)")
-    if large:
-        risk.append("files over 1,000 lines: " + ", ".join(large))
-    migration_count = sum(bool(re.search(r"(^|/)(migrations?|alembic)(/|$)", p, re.I)) for p in paths)
-    revert = f"Revert {len(paths)} changed file(s)" + (
-        f" and account for {migration_count} migration file(s)" if migration_count else "") + "."
-    risk_text = "\n".join(f"- {line}" for line in risk) if risk else "- No flagged paths."
-    risk_text += "\n- Importers: " + (", ".join(f"`{p}`" for p in importers) if importers else "none found")
-    why_path = folder / ".loop" / "why.md"
-    why = why_path.read_text(errors="replace").strip() if why_path.is_file() else "Why: not supplied.\n\nWhat could go wrong: not supplied."
-    evidence = (f"- Judge, Keep and Quality output:\n\n```text\n{output.strip()[-5000:]}\n```\n"
-                f"- Bar hash: `{ready['bar']}`\n- Judged commit: `{rev(folder, 'HEAD')}`\n"
-                f"- Tests added: {tests_text}\n- New dependencies: {dependency_text}\n- {revert}")
-    facts = ("## What changed\n\n" + areas + "\n\n## Risk\n\n" + risk_text +
-             "\n\n## Why and what could go wrong\n\n" + why + "\n")
-    return facts, evidence
+    import pr
+    return pr.pull_request_facts(folder, ready, output)
 
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                       k: int, output: str, review: Optional[dict] = None) -> str:
-    sh(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
-    facts, evidence = pull_request_facts(folder, last_record(gh.comments(n), "ready") or {}, output)
-    body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
-            f"The gate ran the frozen judge itself after attempt {k}, and it passed.\n\n"
-            f"{facts}\n## Evidence\n\n{evidence}\n")
-    review = review or {}
-    if review.get("contract_findings"):
-        body = ("## Contract review findings\n\n" + "\n".join(
-            f"- {finding}" for finding in review["contract_findings"]) + "\n\n" + body)
-    if review.get("reviewer_note"):
-        body += f"\n## Review\n\n{review['reviewer_note']}\n"
-    if review.get("standards_findings"):
-        body += "\nStandards findings:\n" + "\n".join(
-            f"- {finding}" for finding in review["standards_findings"]) + "\n"
-    if review.get("follow_ups"):
-        body += "\n## Follow-up pieces\n\n" + "\n".join(
-            f"- {finding}" for finding in review["follow_ups"]) + "\n"
-    changed = changed_check_settings(folder)
-    if changed:
-        body += ("\n**Check settings changed** (the spec allows it). Read these first:\n"
-                 + "".join(f"- `{c}`\n" for c in changed))
-    existing = gh.pr_for_branch(branch_name(n))
-    url = existing["url"] if existing and existing["state"] == "OPEN" else \
-        gh.create_pr(branch_name(n), issue["title"], body)
-    gate.move(gh, root, n, "approval", folder=folder, pr=url)
-    return f"piece {n}: pull request ready for you: {url}"
+    import pr
+    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="run.py", description=__doc__.split("\n\n")[0])
     p.add_argument("pieces", nargs="*", type=int)
     p.add_argument("--attempts", type=int, default=3)
+    p.add_argument("--verdict-kind", choices=("judge-writer",))
+    p.add_argument("--verdict-file")
     args = p.parse_args(argv)
+    if args.verdict_kind or args.verdict_file:
+        try:
+            if not args.verdict_kind or not args.verdict_file:
+                raise Refused("verdict check needs both kind and file", "pass --verdict-kind and --verdict-file")
+            from review import _logged_verdict
+            print(json.dumps(_logged_verdict(Path(args.verdict_file), args.verdict_kind), sort_keys=True))
+            return 0
+        except Refused as error:
+            print(f"refused: {error.reason}", file=sys.stderr)
+            print(f"next: {error.next_step}", file=sys.stderr)
+            return 2
     root = repo_root(Path.cwd())
     gh = GitHub(root)
     try:
@@ -954,7 +664,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             if stop_requested(root):
                 log("stop requested; ending before the next piece")
                 break
-            waiting = waiting_limit_note(gh, root)
+            first_ready = last_record(gh.comments(n), "ready")
+            waiting = waiting_limit_note(gh, root, first_ready)
             if waiting:
                 print(waiting)
                 results.append(waiting)
