@@ -16,7 +16,7 @@ from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
 import gate
 import review
 import run
-from loopkit import (Refused, changed_check_settings, command_env, loop_settings,
+from loopkit import (Refused, command_env, loop_settings,
                      parse_spec, records, run_judge)
 
 
