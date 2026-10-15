@@ -2,8 +2,8 @@
 
 This file describes how the kit works and gives the reason for each part.
 `docs/V1.md` says what v1 does, in short. This file says why. Each reason
-names its evidence: a run of the kit (in `docs/LESSONS.md`,
-`docs/LEDGER.md` or `tests/field/RESULTS.md`), or an outside source (listed
+names its evidence: a run of the kit (in the maintainer's build notes or
+`tests/field/RESULTS.md`), or an outside source (listed
 at the end, and in `docs/SOURCES.md`).
 
 ## 1. What the kit is
@@ -19,23 +19,23 @@ Four failures come back again and again when agents build software.
 
 | Failure | Evidence |
 | --- | --- |
-| The agent says the work is done when it is not | The first kit's own build: agents reported checks that had not run (`docs/LESSONS.md`). METR found that telling a model not to cheat did not change how often it did [METR]. |
-| The agent changes the test, not the code | ImpossibleBench: models edit or delete tests to pass impossible tasks [ImpossibleBench]. In our field runs a builder turned off a lint rule project-wide to pass (`docs/LEDGER.md`, 14 October). |
+| The agent says the work is done when it is not | The first kit's own build: agents reported checks that had not run (the maintainer's build notes). METR found that telling a model not to cheat did not change how often it did [METR]. |
+| The agent changes the test, not the code | ImpossibleBench: models edit or delete tests to pass impossible tasks [ImpossibleBench]. In our field runs a builder turned off a lint rule project-wide to pass (field runs, 14 October). |
 | The spec drifts away from the code | Spec-driven development moves the requirements problem and adds a document that drifts [Scala Teams], [Martinelli], [DevGenius]. |
 | The person cannot keep up with review | Agents can write faster than a person can check; quality depends on the constraints set around them [Osmani, quality]. |
 
 The kit answers each with a mechanism, not an instruction. Words alone did
-not hold in the first kit; scripts did (`docs/LESSONS.md`, section 2).
+not hold in the first kit; scripts did (the maintainer's build notes, section 2).
 
 ## 3. The five principles
 
 | Principle | Why | Source |
 | --- | --- | --- |
-| **Agents produce, scripts decide, the person approves** | An agent's report of its own work is not evidence. A script that runs the check is. | [METR], [Anthropic harnesses], first kit (`docs/LESSONS.md`) |
+| **Agents produce, scripts decide, the person approves** | An agent's report of its own work is not evidence. A script that runs the check is. | [METR], [Anthropic harnesses], first kit (the maintainer's build notes) |
 | **A piece is a contract** | A test written before the build, that fails today, is the only proof that the build changed something. | [TDFlow], [Anthropic harnesses] |
-| **Every state is a loop** | Work fails. A failure that goes back with a reason can be fixed; one that goes forward is merged. | The first kit's kickback design (`docs/archive/v1-design/design.md`) |
+| **Every state is a loop** | Work fails. A failure that goes back with a reason can be fixed; one that goes forward is merged. | The first kit's kickback design (the maintainer's build notes) |
 | **Hold rules in code, and label what is only words** | Hard constraints belong somewhere stronger than prose. Prose is read once and forgotten. | [Osmani, agent files], [ETH AGENTS.md] |
-| **Grow from evidence** | The first kit was designed in full before it ran, grew to about 35,000 lines and built no piece. | `docs/ANGLE.md`, `docs/LESSONS.md` |
+| **Grow from evidence** | The first kit was designed in full before it ran, grew to about 35,000 lines and built no piece. | `docs/ANGLE.md`, the maintainer's build notes |
 
 ## 4. Why a state machine
 
@@ -46,7 +46,7 @@ It is a state machine instead, for four reasons.
    script, `gate.py`, may change it. An agent cannot skip a step, because the
    step is a move the gate refuses. In the first kit, a coordinator agent that
    decided the next step forgot decisions after a restart and once ran as two
-   coordinators at once (`docs/LESSONS.md`, section 1.4).
+   coordinators at once (the maintainer's build notes, section 1.4).
 2. **Every move is checked where it happens.** Each move has its own checks.
    A piece cannot reach `ready` without a judge that fails, and cannot reach
    `approval` without passing it. The checks live on the edges, so nothing
@@ -82,7 +82,7 @@ or `stopped`. A free-text reason helps the next attempt. A type can be
 counted. `gate.py report` counts them, which shows where the system fails:
 weak judges, unclear specs or a broken environment. The first kit used one
 "parked" word for three meanings and could not tell them apart
-(`docs/LESSONS.md`, section 2.2).
+(the maintainer's build notes, section 2.2).
 
 ## 5. The loops
 
@@ -99,7 +99,7 @@ check and a way back.
 
 | Loop | What turns | Stops when | Why it is a loop |
 | --- | --- | --- | --- |
-| Shaping | questions, the contract, the judge | the gate accepts ready | A judge that breaks the project's lint, or names an ID that never fails, sends shaping round again. Field runs showed this three times (`docs/LEDGER.md`). |
+| Shaping | questions, the contract, the judge | the gate accepts ready | A judge that breaks the project's lint, or names an ID that never fails, sends shaping round again. Field runs showed this three times (the maintainer's build notes). |
 | Build | fresh builder attempts | the gate passes, or 3 attempts fail | A fresh session per attempt does not carry a failed idea forward. This is the Ralph technique: change the input and run again [Ralph]. |
 | Review | two reviewers | once, always | A review asked for gaps always finds some, so it never converges. One pass with cited findings is the honest form [Pocock, code-review]. |
 | Meta | typed reasons | the person changes the kit or the project | The same failure should not happen a third time. A lesson becomes a check, not a sentence [Osmani, skill decay]. |
@@ -109,7 +109,7 @@ check and a way back.
 The build loop is the same for every kind of work. Only the judge changes.
 This came from the first design, which had four separate loop modules
 (build, fix, goal, gauntlet) and found they were one loop with four judges
-(`docs/archive/v1-design/design.md`).
+(the maintainer's build notes).
 
 | Kind | Judge | Why |
 | --- | --- | --- |
@@ -136,9 +136,9 @@ the person can read what will be checked, and the gate can check it.
 | Out of scope | The requirements problem is mostly scope. Saying what will not be done is the cheapest guard against scope creep [Scala Teams]. The contract reviewer checks it. |
 | Approach | Agents do better when told the path, not only the output: the module, the interface, the pattern to follow [Osmani, agent files]. |
 | Contract items | Numbered and concrete, with an example each, so one test can prove each item and the gate can find each ID in the output. |
-| `(stays)` | "Every item must fail on main" pushed shaping to drop true items or bend tests (`docs/LEDGER.md`, 14 October). `(stays)` marks what must keep working. |
+| `(stays)` | "Every item must fail on main" pushed shaping to drop true items or bend tests (field runs, 14 October). `(stays)` marks what must keep working. |
 | Judge, fixed by a hash | A builder that cannot change the test can only change the code [ImpossibleBench], [Anthropic harnesses]. |
-| Keep | The judge proves the new work. Keep proves that old work still works. A field run lost old behaviour when only the judge ran (`docs/LEDGER.md`, 13 October). |
+| Keep | The judge proves the new work. Keep proves that old work still works. A field run lost old behaviour when only the judge ran (field runs, 13 October). |
 
 ### Why it is not waterfall
 
@@ -157,7 +157,7 @@ spec, and nobody edits an old issue to keep it current.
 | Builder | A fresh `claude -p` per attempt, requested as `stream-json`. Stream events reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
 | Standards reviewer | Standards belong to a reviewer that reads the diff, not to the builder's context or `AGENTS.md` [Pocock, code-review], [Osmani, agent files]. Its baseline when a project has no standards is Fowler's code smells [Fowler, Refactoring], plus the hard points of a strict maintainability review [Cursor, thermo-nuclear]. |
 | Contract reviewer | A separate axis: is it the right thing? Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
-| Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (`docs/LESSONS.md`). |
+| Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (the maintainer's build notes). |
 | The person | Approves the contract and the merge: the two moments that need taste and judgement. Everything between is checked by a script. |
 
 Every finding a reviewer makes must cite a rule, a smell or a contract line,
@@ -177,7 +177,7 @@ interrupted run.
 | Test lint: an assertion in each test, no `assert True`, no `x == x`, no skips, no private imports, no reading source as text, no mirror of the code under test | Automated checks can lie: a test can restate the code, mock its subject or never be able to fail. These are the mechanical cases [kata, testing without tautologies]. |
 | The bar covers `conftest.py` and test helpers | Builders change what a test relies on, not only the test file [ImpossibleBench]. |
 | No existing test changed | Changing an old test is the commonest cheat [ImpossibleBench], [Anthropic harnesses]. |
-| No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (`docs/LEDGER.md`, 14 October). |
+| No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (field runs, 14 October). |
 | Protected paths | Some code (auth, billing, CI) needs a person. Zone the code [Osmani, brownfield]. |
 | No file grows past 1,000 lines | A file that sprawls is a design smell agents create quickly [Cursor, thermo-nuclear]. |
 | Quality commands: CRAP and experimental mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. Mutation testing remains experimental and setup offers it only when project tests call changed code in-process and the project uses mutmut 3.8 or later. Subprocess-only tests do not score mutants, and earlier mutmut versions do not read the supported configuration keys. Doctor runs Test before Quality in the same fresh copy of main. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that check uses the frozen Test command, and its cache key includes the Quality command and main commit. |
@@ -224,10 +224,9 @@ Docker on macOS, so it waits until the boundary above is solid.
 
 The thin kit grew one earned feature at a time from 13 October 2026. For v1
 the maintainer chose to build from a plan in one pass, with tests and
-rehearsals at the end, so v1 could be used sooner. The current build notes and
-rehearsal findings are in `docs/v1/`; the earlier package plans remain in git
-history. After v1 merges, the earn rule applies again: a failure in
-`docs/LEDGER.md` first, then a test, then the feature.
+rehearsals at the end, so v1 could be used sooner. The maintainer keeps the
+build and rehearsal records. After v1 merges, the earn rule applies again: a
+failure in the maintainer's ledger first, then a test, then the feature.
 
 ## Sources
 
@@ -259,4 +258,4 @@ Outside sources named above. `docs/SOURCES.md` lists the earlier ones.
 - [Scala Teams] [spec-driven development: the requirements problem](https://www.scalateams.com/blog/spec-driven-development-requirements-problem).
 - [DevGenius] [the spec is the code](https://blog.devgenius.io/the-spec-is-the-code-why-i-dont-buy-spec-driven-design-f75c784f7b46) (read from a summary; the page refused access).
 - [HumanLayer] HumanLayer's "show me" review approach (read from a secondary description only).
-- [AgenticFlict] cited in `docs/archive/v1-design/design.md`.
+- [AgenticFlict] cited in the maintainer's design notes.

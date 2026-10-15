@@ -13,10 +13,9 @@ Read `docs/ANGLE.md` first. It says what the kit is for and how it grows.
   builds them, `kit/hooks/guard.py` refuses the hard rules, and
   `kit/skills/` holds setup, shape and run.
 - `tests/`: the checks for `kit/` and for the house rules.
-- `docs/LEDGER.md`: every idea from the first design, with the failure that
-  would earn it a place. `docs/LESSONS.md`: what the first build taught us.
-- `legacy/` and `docs/archive/`: the first kit and its design. Read them for
-  reasons and for code to copy. Do not build on them.
+- Maintainer notes (the ledger of ideas and evidence, lessons from the first
+  build, the first kit and its design, build records) are kept outside the
+  public repository.
 - `.agents/maintainer-skills/`: `humanizer`, `review-issues` and
   `stack-research`, for the maintainer.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
@@ -25,7 +24,7 @@ Read `docs/ANGLE.md` first. It says what the kit is for and how it grows.
 ## How the kit grows
 
 A feature enters `kit/` only when a real run shows it is needed. Write the
-failure in `docs/LEDGER.md` first, add a test that reproduces it, then add
+failure in the maintainer's ledger first, add a test that reproduces it, then add
 the feature. Keep the kit small enough to read in one sitting.
 
 ## Commands
@@ -76,4 +75,4 @@ decides when it is ready; a label written by hand means nothing.
 
 ## Where to read next
 
-Read `docs/ANGLE.md`, then `kit/spec-format.md`, then `docs/LEDGER.md`.
+Read `docs/ANGLE.md`, then `kit/spec-format.md`.
