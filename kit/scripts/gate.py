@@ -461,13 +461,15 @@ def init(gh: GitHub, root: Path) -> None:
 
 def quality_on_fresh_main(root: Path, main: str, command: str,
                           test_command: str = "",
-                          protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
+                          protected_paths: Optional[list[str]] = None,
+                          prepare_command: Optional[str] = None) -> tuple[bool, str]:
     """Run Test, then one Quality command in its own prepared copy of main."""
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        ok, output = prepare(folder, protected_paths=protected_paths)
+        ok, output = prepare(folder, command=prepare_command,
+                             protected_paths=protected_paths)
         if not ok:
             return False, "Prepare failed:\n" + output.strip()[-800:]
         if test_command:
@@ -507,7 +509,9 @@ def ignore_loop_folder(root: Path) -> None:
                            + "\n".join(missing) + "\n")
 
 
-def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) -> list[tuple[bool, str, str]]:
+def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
+           proposed_prepare: Optional[str] = None,
+           proposed_test: Optional[str] = None) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -557,9 +561,12 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) ->
             "every piece's keep check needs a green main. Fix the tests or the environment, "
             "or add a Prepare command:\n" + output.strip()[-800:])
         for command in [*settings.get("quality", []), *(extra_quality or [])]:
-            qok, qoutput = quality_on_fresh_main(root, main, command, settings["test"])
-            if ("no changed Python functions found" in qoutput or
-                    "no mutmut source paths configured" in qoutput):
+            qprepare = (proposed_prepare if proposed_prepare is not None
+                        else settings.get("prepare", ""))
+            qtest = proposed_test if proposed_test is not None else settings["test"]
+            qok, qoutput = quality_on_fresh_main(
+                root, main, command, qtest, prepare_command=qprepare)
+            if "no changed Python functions found" in qoutput:
                 add(True, f"Quality mutation check could not be exercised on main ({command})", "")
             else:
                 add(qok, f"Quality command passes on a fresh copy of main ({command})",
@@ -649,6 +656,10 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor")
     d.add_argument("--quality-command", action="append", default=[],
                    help="also dry-run this proposed Quality command on fresh main")
+    d.add_argument("--prepare-command",
+                   help="use this proposed Prepare command for doctor dry-runs")
+    d.add_argument("--test-command",
+                   help="use this proposed Test command for doctor dry-runs")
     sub.add_parser("report")
     sub.add_parser("stop")
     return p
@@ -681,7 +692,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif args.cmd == "status":
             print(status(gh))
         elif args.cmd == "doctor":
-            checks = doctor(gh, root, args.quality_command)
+            checks = doctor(gh, root, args.quality_command,
+                            args.prepare_command, args.test_command)
             for ok, what, fix in checks:
                 print(f"{'ok  ' if ok else 'FAIL'} {what}")
                 if fix:

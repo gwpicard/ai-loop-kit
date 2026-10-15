@@ -104,12 +104,30 @@ def results_pass(output: str, selected: list[str]) -> bool:
     return True
 
 
+def mutmut_version_supported(output: str) -> bool:
+    """Return whether mutmut reports version 3.8 or later."""
+    match = re.search(r"\bversion\s+(\d+)\.(\d+)(?:\.(\d+))?", output,
+                      re.IGNORECASE)
+    return bool(match and (int(match[1]), int(match[2])) >= (3, 8))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base", nargs="?", default="origin/main")
     base = parser.parse_args().base
     if not source_paths(Path.cwd()):
         print("mutmut: no mutmut source paths configured", file=sys.stderr)
+        return 2
+    try:
+        version = subprocess.run(["mutmut", "--version"], capture_output=True, text=True)
+    except OSError as error:
+        print(f"mutmut: version 3.8 or later is required; could not run mutmut: {error}",
+              file=sys.stderr)
+        return 2
+    version_output = version.stdout + version.stderr
+    if version.returncode or not mutmut_version_supported(version_output):
+        print("mutmut: version 3.8 or later is required; got "
+              + (version_output.strip() or "no version output"), file=sys.stderr)
         return 2
     selected = patterns(base)
     if not selected:

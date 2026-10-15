@@ -96,14 +96,32 @@ class MutmutChangedTest(unittest.TestCase):
         self.assertTrue(helper.results_pass("Killed mutants: 0\n", [
             "module.x_foo__mutmut_*"]))
 
+    def test_mutmut_version_requires_38_or_later(self):
+        helper = load_helper()
+        self.assertFalse(helper.mutmut_version_supported("mutmut, version 3.7.0"))
+        self.assertTrue(helper.mutmut_version_supported("mutmut, version 3.8.0"))
+        self.assertTrue(helper.mutmut_version_supported("mutmut, version 4.0.0"))
+        self.assertFalse(helper.mutmut_version_supported("mutmut unknown version"))
+
+    def test_main_fails_when_mutmut_version_is_too_old(self):
+        helper = load_helper()
+        version = SimpleNamespace(returncode=0, stdout="mutmut, version 3.7.0\n", stderr="")
+        output = io.StringIO()
+        with patch.object(helper, "source_paths", return_value=[Path("src")]), \
+             patch.object(helper.subprocess, "run", return_value=version), \
+             patch("sys.argv", [str(SCRIPT)]), redirect_stderr(output):
+            self.assertEqual(helper.main(), 2)
+        self.assertIn("version 3.8 or later is required", output.getvalue())
+
     def test_main_reports_nothing_to_mutate_and_passes(self):
         helper = load_helper()
+        version = SimpleNamespace(returncode=0, stdout="mutmut, version 3.8.0\n", stderr="")
         run = SimpleNamespace(returncode=0, stdout="", stderr="")
         results = SimpleNamespace(returncode=0, stdout="Killed mutants: 0\n", stderr="")
         output = io.StringIO()
         with patch.object(helper, "source_paths", return_value=[Path("src")]), \
              patch.object(helper, "patterns", return_value=["module.x_foo__mutmut_*"]), \
-             patch.object(helper.subprocess, "run", side_effect=[run, results]), \
+             patch.object(helper.subprocess, "run", side_effect=[version, run, results]), \
              patch("sys.argv", [str(SCRIPT)]), redirect_stdout(output):
             self.assertEqual(helper.main(), 0)
         self.assertIn("module.x_foo nothing to mutate", output.getvalue())
