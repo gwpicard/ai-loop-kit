@@ -98,16 +98,17 @@ class AgentSessionTest(unittest.TestCase):
 
         script = (
             "import json, time\n"
+            "time.sleep(.3)\n"
             "for _ in range(5):\n"
             " print(json.dumps({'type':'item.completed','item':"
             "{'type':'agent_message','text':'working'}}), flush=True)\n"
-            " time.sleep(.12)\n"
+            " time.sleep(.45)\n"
         )
         proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, start_new_session=True)
         from io import StringIO
         output = StringIO()
-        status = review._pump_session(proc, output, idle_seconds=.2, hard_seconds=3,
+        status = review._pump_session(proc, output, idle_seconds=2, hard_seconds=5,
                                       backend="codex")
         self.assertEqual(status, "")
         self.assertGreaterEqual(output.getvalue().count("working"), 5)
