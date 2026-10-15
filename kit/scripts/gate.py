@@ -199,6 +199,10 @@ def check_ready(root: Path, issue: dict) -> dict:
         if untested:
             raise Refused(f"no judge test names {', '.join(untested)}",
                           "give every (stays) item a test with its ID in the name")
+    agent = loop_settings(root).get("agent", "claude")
+    if agent not in {"claude", "codex"}:
+        raise Refused(f"Agent must be claude or codex, not {agent!r}",
+                      "set `Agent: claude` or `Agent: codex` in the loop section of AGENTS.md")
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
             "files": spec.files, "command": spec.command,
@@ -210,6 +214,7 @@ def check_ready(root: Path, issue: dict) -> dict:
             "standards": loop_settings(root).get("standards", ""),
             "idle_limit": loop_settings(root).get("idle limit", "10"),
             "waiting_limit": loop_settings(root).get("waiting limit", "3"),
+            "agent": agent,
             "stays": list(spec.stays),
             "research": list(spec.research),
             "settings": spec.settings,
@@ -572,7 +577,8 @@ def ignore_loop_folder(root: Path) -> None:
 def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
            proposed_prepare: Optional[str] = None,
            proposed_test: Optional[str] = None,
-           walk_away: bool = False) -> list[tuple[bool, str, str]]:
+           walk_away: bool = False,
+           agent: Optional[str] = None) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -647,7 +653,7 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
         shutil.rmtree(tmp, ignore_errors=True)
     if walk_away and all(ok for ok, _, _ in checks):
         import walkaway
-        checks.extend(walkaway.preflight(gh, root, baseline_checked=True))
+        checks.extend(walkaway.preflight(gh, root, baseline_checked=True, agent=agent))
     return checks
 
 

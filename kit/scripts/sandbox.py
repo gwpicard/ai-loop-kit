@@ -4,12 +4,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+import agents
 
 MIN_VERSION = (2, 1, 285)
 PROBE_PATH = Path.home() / "sandbox-probe"
@@ -189,6 +192,46 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     if any(code == "0" for code in statuses):
         return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
     return True, "Claude sandbox blocked the home write, three credential reads and unlisted network request"
+
+
+def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
+    """Check Codex's workspace-write boundary before an unattended run."""
+    if PROBE_PATH.exists():
+        return False, f"{PROBE_PATH} already exists; move it before the sandbox probe"
+    ssh_path = Path.home() / ".ssh"
+    if not ssh_path.is_dir() or not os.access(ssh_path, os.R_OK):
+        return False, "~/.ssh is unavailable for the sandbox read probe"
+    if shutil.which("curl") is None:
+        return False, "curl is unavailable for the sandbox network probe"
+    prompt = (
+        "Use the shell to run each check once and report the exit codes in a final line exactly "
+        "as <probe>{\"write\":N,\"ssh_read\":N,\"network\":N}</probe>. Do not retry. "
+        "First run `touch ~/sandbox-probe >/dev/null 2>&1; echo $?`; then run "
+        "`ls ~/.ssh >/dev/null 2>&1; echo $?`; then run "
+        "`curl --noproxy '*' -Is --max-time 8 https://example.com >/dev/null 2>&1; echo $?`. "
+        "Do not print file contents."
+    )
+    try:
+        proc = agents.start_session("codex", prompt, folder, role="probe")
+        output, _ = proc.communicate(timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"Codex sandbox probe could not run: {error}"
+    if PROBE_PATH.exists():
+        return False, "Codex sandbox allowed a write outside the build folder; ~/sandbox-probe exists"
+    if proc.returncode:
+        return False, f"Codex sandbox probe exited {proc.returncode}: {output.decode(errors='replace')[-500:].strip()}"
+    text = agents.event_text(output)
+    match = re.search(r"<probe>\s*(\{.*?\})\s*</probe>", text, re.I | re.S)
+    if not match:
+        return False, "Codex sandbox probe did not return all three shell exit codes"
+    try:
+        results = json.loads(match.group(1))
+        statuses = [int(results[key]) for key in ("write", "ssh_read", "network")]
+    except (ValueError, KeyError, TypeError):
+        return False, "Codex sandbox probe returned invalid shell exit codes"
+    if any(code == 0 for code in statuses):
+        return False, "Codex sandbox allowed a home write, SSH read or outside network request"
+    return True, "Codex sandbox blocked the home write, SSH read and outside network request"
 
 
 def usage_limit_event(event: dict) -> bool:

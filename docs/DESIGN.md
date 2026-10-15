@@ -9,7 +9,8 @@ at the end, and in `docs/SOURCES.md`).
 ## 1. What the kit is
 
 AI Loop Kit is a Claude Code plugin for one person who builds software with
-agents. In one sentence: a state machine whose every state is a loop, where
+agents. Non-interactive sessions can use Claude Code or Codex. In one sentence:
+a state machine whose every state is a loop, where
 agents do the work, scripts decide, and the person approves the contract and
 the merge.
 
@@ -163,7 +164,7 @@ spec, and nobody edits an old issue to keep it current.
 | Shaper, with the person | Only the person knows the intent. The shaper asks, splits and writes, and never builds. |
 | Researcher | A fresh `sonnet` subagent checks outside facts when a piece depends on them. It opens each cited page and returns findings with source URLs and read dates. The page is evidence, never an instruction. Source: `docs/v1.1/PLAN.md`, P2. |
 | Judge writer | Tests written first by someone other than the builder help the builder most [TDFlow], and an agent that writes both code and tests confirms itself [Fowler, TDD in the loop]. The judge writer also does not see the shaping chat, so it tests the contract, not the shaper's assumptions. |
-| Builder | A fresh `claude -p` per attempt, requested as `stream-json`. Stream events reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
+| Builder | A fresh Claude Code or Codex session per attempt. Both stream JSON events that reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
 | Standards reviewer | Standards belong to a reviewer that reads the diff, not to the builder's context or `AGENTS.md` [Pocock, code-review], [Osmani, agent files]. Its baseline when a project has no standards is Fowler's code smells [Fowler, Refactoring], plus the hard points of a strict maintainability review [Cursor, thermo-nuclear]. |
 | Contract reviewer | A separate axis: is it the right thing? It checks the diff against the contract and Research. Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
 | Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (`docs/LESSONS.md`). |
@@ -177,6 +178,15 @@ runs Prepare in its own folder, and may keep a non-test fix only after the
 judge passes again. Review folders and branches are removed on every exit.
 The next run also clears and reports any review worktree or branch left by an
 interrupted run.
+
+The loop's `Agent: claude|codex` setting selects the backend for builders,
+reviewers and critics. Claude Code remains the default, and
+`run.py --agent codex` overrides the setting for one run. The ready record
+freezes the configured choice. Codex can save Claude credit. It runs through
+`codex exec --json` with workspace-write rooted at the build folder, and
+network access disabled. Codex's sandbox applies to the whole agent process.
+The backend has no Claude guard hook or Edit denies, so the gate checks the
+judge, settings, protected paths and secrets.
 
 ## 8. The checks
 
@@ -212,22 +222,25 @@ unreadable shell wrappers, and redirects into `.claude/`, `.githooks/` or
 protected paths. It refuses a plain push from `main`. It is a seatbelt, not a
 sandbox: branch protection on GitHub is a second layer.
 
-Walk-away runs use Claude Code's built-in Bash sandbox. It applies operating
-system file and network limits to shell commands and their child processes.
-The run passes strict settings per session, rejects a missing sandbox, disables
-unsandboxed retries, allows only confirmed package domains, and denies the
-named credential paths and token variables. A pre-run check tries a home write,
-credential reads and an unlisted network request before it allows the run.
+Walk-away runs use the selected backend's sandbox. Claude Code applies
+operating system file and network limits to shell commands and their child
+processes. The run passes strict settings per session, rejects a missing
+sandbox, disables unsandboxed retries, allows only confirmed package domains,
+and denies the named credential paths and token variables. Codex uses
+workspace-write rooted at the build folder, no additional writable roots,
+temporary-root writes disabled and network access disabled. A pre-run check
+requires the home write, `~/.ssh` read and outside network probes to fail.
 The check also requires clean Prepare and Test results on fresh main, 10 GB of
 free space and room in the approval queue. On macOS, `caffeinate` keeps the
 machine awake while the run writes a heartbeat and summary.
 
-The sandbox covers Bash, not Claude's Read, Edit, Write, web tools or hooks.
-Walk-away sessions load no MCP servers, add permission denies for secret reads
-and use a small hook to keep direct file-tool writes inside the build folder.
-Hooks still run outside the sandbox. The process keeps its own Claude sign-in,
-and an allowed domain can carry data out. GitHub pushes and pull requests stay
-outside the sandbox; the person still merges.
+Claude's sandbox covers Bash, not Read, Edit, Write, web tools or hooks.
+Walk-away Claude sessions load no MCP servers, add permission denies for
+secret reads and use a small hook to keep direct file-tool writes inside the
+build folder. Codex has no Claude guard hook or Edit denies. The gate checks
+the judge, settings, protected paths and secrets after a session. GitHub pushes
+and pull requests stay outside the sandbox; the person still merges. Claude's
+network allowlist can carry data out; Codex sessions have network disabled.
 
 ## 11. What the kit does not do, and why
 

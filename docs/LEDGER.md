@@ -14,6 +14,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 
 | Date | Seen in | What went wrong | Entry it earned |
 | --- | --- | --- | --- |
+| 15 Oct 2026 | v1.1 plan, P5, maintainer decision | Non-interactive sessions only used Claude Code, even when a Codex backend would save Claude credit and provide a whole-process sandbox with network disabled by default. | Let the project choose Claude Code or Codex for non-interactive sessions, freeze the choice at ready, and check Codex sandbox boundaries before walk-away runs. |
 | 15 Oct 2026 | v1 code review, item 8 | The hostile-builder scenario did not exercise Quality deletion, test renames, `conftest.py` edits or standards-file edits. | Give each change a separate fake-builder case and check that the gate refuses it. |
 | 15 Oct 2026 | v1 code review, item 7 | The H1 check only asserted non-empty output, and commands could take protected paths from an edited `AGENTS.md`. | Assert the specific refusal and pass the frozen protected paths to every build and gate command. |
 | 15 Oct 2026 | v1 code review, item 6 | Folder activity checks walked generated build trees every tenth of a second, and Claude `result` errors were dropped from the log. | Check folder activity every two seconds, skip generated build directories, and log result errors. |
@@ -949,6 +950,12 @@ reasons, not features. They guide the restart.
 
 ## v1.1 plan additions
 
+- **Non-interactive agent backend choice**
+  What: select Claude Code or Codex for builders, reviewers and critics, freeze
+  the choice at ready, and probe Codex's walk-away sandbox before a run. Why:
+  the maintainer chose Codex to save Claude credit and use a whole-process
+  sandbox with network disabled. Tier: CORE (source: v1.1 plan, P5, maintainer
+  decision).
 - **Goal and gauntlet loop kinds**
   What: judge goal work with a repeated measurement and target; judge work a
   test cannot score with blind comparisons against a reference. Why: the v1.1

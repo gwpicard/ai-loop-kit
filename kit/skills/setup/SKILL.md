@@ -18,6 +18,7 @@ and fix what it names; you do not judge the ground by eye.
 2. Find how the project already builds and tests. Read its files: `package.json` and its lockfile, `pyproject.toml`, `uv.lock`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Makefile`, `Dockerfile`, `docker-compose.yml` or `compose.yaml`, and the CI workflow if there is one. The CI workflow usually shows the exact install and test steps.
    Done when: you can say in one sentence how a fresh clone gets ready and runs its tests.
 3. Agree the commands with the person. Offer the way the project already works as the recommended answer, and the other real options beside it. Never impose a tool the project does not use.
+   - **Agent backend**: offer Claude Code as the default and Codex as an alternative for builders, standards reviewers, contract reviewers and critics. Explain that Codex can save Claude credit and uses a whole-process sandbox with network disabled. It has no kit guard hook or Claude Edit denies, so the gate still checks settings, protected paths and secrets. Record `Agent: claude` or `Agent: codex` only after the person chooses. Interactive skills stay in Claude Code.
    - **Prepare command**: makes a fresh clone runnable. Examples: `npm ci` (with a lockfile) or `npm install`; `uv sync`; `python3 -m venv .venv && .venv/bin/pip install -e '.[test]'`; `docker compose build`. Leave it out when a fresh clone needs nothing.
    - **Test command**: runs every test. Examples: `npm test`; `python -m pytest`; `go test ./...`; `docker compose run --rm app npm test`.
    - **Quality commands**: optional checks that run after the judge and Test command pass. For Python, mutation testing with mutmut is experimental. Offer `python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-check.py" origin/main` only when mutmut 3.8 or later is installed and `source_paths` is configured. The command checks both requirements and fails if either is missing. Mutmut scores code called in the same Python process. If acceptance tests only launch a separate process, keep those tests in the Test command and add a focused test that calls the entry point or changed function in-process; set `pytest_add_cli_args_test_selection` to select that test for mutmut. This is the fallback for subprocess-only suites. You may also offer `coverage json -o coverage.json && python3 "$AI_LOOP_KIT_ROOT/quality/crap.py" --coverage coverage.json --base origin/main`; the project must collect coverage data during its Test command. For Node, offer `npx eslint --rule 'complexity: ["error", 10]' .`. These can take much longer than the regular tests. Say what each command runs and ask before adding it. Before recording a proposed Quality command, run `python3 "<KIT>/scripts/gate.py" doctor --quality-command '<command>'`. Doctor applies the proposed Quality line to a fresh copy of main before running Prepare, Test and Quality. Do not record a command that fails there; show its named failure and offer a correction.
@@ -28,7 +29,7 @@ and fix what it names; you do not judge the ground by eye.
    - **Branch protection**: ask whether the person wants protection on `main`. Offer it only for a public repository or a plan that supports it. If they say yes, use `gh api` to require pull requests. Do not change repository settings before that yes. Doctor reports whether protection is enabled.
    For an empty project, recommend a plain stack for the language the person wants, and ask.
    The gate runs both in a fresh copy of main for every piece, and the run runs Prepare before every build, so both must work from a fresh clone. A project `.venv` made by Prepare is put first on `PATH`.
-   Done when: the person has confirmed both commands, or confirmed that Prepare is not needed, and has accepted or declined the offered standards file and protected paths.
+   Done when: the person has confirmed both commands, or confirmed that Prepare is not needed, chosen an agent backend, and accepted or declined the offered standards file and protected paths.
 4. Add the loop section to the project's `AGENTS.md` (make the file if it is missing), commit it on a branch, and open a pull request for the person:
    ```
    ## The loop
@@ -36,6 +37,7 @@ and fix what it names; you do not judge the ground by eye.
    Only the gate (gate.py) changes a state label. The person merges every pull request.
    Prepare command: `<the confirmed command>`
    Test command: `<the confirmed command>`
+   Agent: claude
    Quality: `<each confirmed optional command>`
    Standards: `<confirmed path>`
    Protected paths: `<paths builders and reviewers must not edit>`

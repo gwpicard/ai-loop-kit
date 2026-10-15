@@ -191,7 +191,7 @@ class GateTest(unittest.TestCase):
         agents.write_text(agents.read_text() +
                           "Keep: printf kept\nQuality: printf quality\n"
                           "Standards: STANDARDS.md\nProtected paths: src/private\n"
-                          "Idle limit: 7\nWaiting limit: 4\n")
+                          "Idle limit: 7\nWaiting limit: 4\nAgent: codex\n")
         (self.p.root / "STANDARDS.md").write_text("Use clear names.\n")
         git(self.p.root, "add", "AGENTS.md", "STANDARDS.md")
         git(self.p.root, "commit", "--quiet", "-m", "Add gate settings")
@@ -206,6 +206,7 @@ class GateTest(unittest.TestCase):
         self.assertEqual(ready["standards"], "STANDARDS.md")
         self.assertEqual(ready["protected_paths"], ["src/private"])
         self.assertEqual((ready["idle_limit"], ready["waiting_limit"]), ("7", "4"))
+        self.assertEqual(ready["agent"], "codex")
         folder = run.worktree(self.p.root, n)
         (folder / "AGENTS.md").write_text((folder / "AGENTS.md").read_text()
                                            .replace("Quality: printf quality\n", "")

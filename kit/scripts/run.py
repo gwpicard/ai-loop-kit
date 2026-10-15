@@ -16,22 +16,20 @@ import hashlib
 import json
 import os
 import re
-import selectors
 import signal
-import subprocess
 import sys
 import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
+import agents  # noqa: E402
 import sandbox  # noqa: E402
 import walkaway  # noqa: E402
-from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
-                     changed_check_settings, command_env,
+from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
+                     changed_check_settings,
                      clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
@@ -222,46 +220,21 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: d
     return review.review_piece(root, folder, n, k, issue, ready, walk_away, domains)
 
 
-def builder_settings() -> str:
-    """Wire the guard into the builder session, whether or not the plugin loads."""
-    guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
-    return json.dumps({"hooks": {"PreToolUse": [{
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{"type": "command", "command": guard}]}]}})
-
-
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT,
                protected_paths: Optional[list[str]] = None,
                walk_away: bool = False, domains: Optional[list[str]] = None,
                result_event: Optional[dict] = None,
-               append_log: bool = False) -> str:
-    claude = os.environ.get("LOOP_CLAUDE", "claude")
-    # Claude Code applies Edit(path) deny rules to every file-editing tool.
-    # The gate checks the same files again, since Bash can still write them.
-    denied = [f"Edit({f})" for f in files]
-    if not settings:
-        denied += [f"Edit({p.replace('/*', '/**')})" for p in CHECK_FILES]
-    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--permission-mode", "acceptEdits",
-            "--allowedTools", "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
-            "--settings", builder_settings()]
-    if walk_away:
-        args[args.index(builder_settings())] = json.dumps(
-            sandbox.session_settings(folder, domains), separators=(",", ":"))
-        args += ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
-    if denied:
-        args += ["--disallowedTools", *denied]
-    env = {**command_env(folder, protected_paths=protected_paths), "LOOP_BUILDER": "1"}
-    if walk_away:
-        env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(folder.resolve())})
+               append_log: bool = False, backend: str = "claude") -> str:
     with logfile.open("a" if append_log else "w") as out:
-        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                env=env, start_new_session=True)
+        proc = agents.start_session(
+            backend, prompt, folder, role="builder", disallowed=files,
+            settings_allowed=settings, protected_paths=protected_paths,
+            walk_away=walk_away, domains=domains)
         track_process(proc)
         from review import _pump_session
         status = _pump_session(proc, out, idle_seconds, activity_path=folder,
-                               result_event=result_event)
+                               result_event=result_event, backend=backend)
         if walk_away and result_event is not None and sandbox.usage_limit_event(result_event):
             return "usage-limit"
         return status
@@ -353,22 +326,22 @@ def check_pushed_branch(root: Path, n: int) -> None:
 
 
 def build_piece(gh: GitHub, root: Path, n: int, attempts: int,
-                walk_away: bool = False) -> str:
+                walk_away: bool = False, agent_override: Optional[str] = None) -> str:
     _cache_main_for_piece()
     try:
-        return _build_piece(gh, root, n, attempts, walk_away)
+        return _build_piece(gh, root, n, attempts, walk_away, agent_override)
     finally:
         _clear_main_piece_cache()
 
 
 def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
-                 walk_away: bool = False) -> str:
+                 walk_away: bool = False, agent_override: Optional[str] = None) -> str:
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     check_pushed_branch(root, n)
     gate.move(gh, root, n, "building")
     try:
-        result = build_claimed(gh, root, n, issue, attempts, walk_away)
+        result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override)
     except AttemptIdle as e:
         reason = str(e)
         if gate.state_of(gh.issue(n)) == "building":
@@ -385,9 +358,10 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
-                  walk_away: bool = False) -> str:
+                  walk_away: bool = False, agent_override: Optional[str] = None) -> str:
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
+    ready = {**ready, "agent": agents.selected(root, agent_override or ready.get("agent"))}
     claim = last_record(gh.comments(n), "claim") or {}
     ready = {**ready, "stale_research": claim.get("stale_research", [])}
     folder = worktree(root, n)
@@ -472,7 +446,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                                  ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
                                  ready.get("protected_paths", []), walk_away, domains,
-                                 result_event)
+                                 result_event, backend=ready["agent"])
         if idle_status == "usage-limit":
             wait_seconds = sandbox.reset_wait_seconds(result_event)
             log(f"piece {n}: usage limit; waiting {wait_seconds} seconds before one retry")
@@ -482,7 +456,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                                      ready.get("settings", False),
                                      idle_limit_seconds(folder, ready.get("idle_limit")),
                                      ready.get("protected_paths", []), walk_away, domains,
-                                     result_event, append_log=True)
+                                     result_event, append_log=True, backend=ready["agent"])
             if idle_status == "usage-limit":
                 reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
                 gh.comment(n, f"**Run:** {reason}")
