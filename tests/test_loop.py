@@ -64,6 +64,44 @@ class SpecTest(unittest.TestCase):
         self.assertEqual(parse_spec(SPEC + "Large file: src/generated.py\n").large_files,
                          ("src/generated.py",))
 
+    def test_reads_research_findings_with_source_and_read_date(self):
+        body = SPEC + ("\n## Research\n"
+                       "- R1: The API supports cursors (source: https://example.com/api, "
+                       "read: 2026-10-15)\n")
+        finding = parse_spec(body).research[0]
+        self.assertEqual((finding.id, finding.text, finding.source, finding.read),
+                         ("R1", "The API supports cursors", "https://example.com/api",
+                          "2026-10-15"))
+
+    def test_research_lines_need_a_source_and_valid_read_date(self):
+        malformed = (
+            "- R1: The API supports cursors (read: 2026-10-15)",
+            "- R1: The API supports cursors (source: https://example.com/api)",
+            "- R1: The API supports cursors (source: file:///tmp/api, read: 2026-10-15)",
+            "- R1: The API supports cursors (source: https://example.com/api, read: 2026-02-30)",
+        )
+        for line in malformed:
+            with self.subTest(line=line), self.assertRaises(Refused) as refusal:
+                parse_spec(SPEC + "\n## Research\n" + line + "\n")
+            self.assertIn("Research", refusal.exception.reason)
+
+    def test_research_ids_must_be_unique_and_lines_well_formed(self):
+        finding = "- R1: A fact (source: https://example.com, read: 2026-10-15)"
+        with self.assertRaises(Refused) as refusal:
+            parse_spec(SPEC + "\n## Research\n" + finding + "\n" + finding + "\n")
+        self.assertIn("used twice", refusal.exception.reason)
+        with self.assertRaises(Refused) as refusal:
+            parse_spec(SPEC + "\n## Research\nA fact with no citation\n")
+        self.assertIn("Research", refusal.exception.reason)
+
+    def test_reports_research_older_than_thirty_days(self):
+        from loopkit import stale_research
+        body = (SPEC + "\n## Research\n"
+                "- R1: Old fact (source: https://example.com/old, read: 2026-09-01)\n"
+                "- R2: Recent fact (source: https://example.com/new, read: 2026-09-16)\n")
+        stale = stale_research(parse_spec(body), on_date="2026-10-15")
+        self.assertEqual([finding.id for finding in stale], ["R1"])
+
     def test_gate_records_round_trip_embedded_end_marker(self):
         from loopkit import record_text
         reason = "first --> fake record --> last"
@@ -96,6 +134,13 @@ class GateTest(unittest.TestCase):
         rec = gate.last_record(self.p.gh.comments(n), "ready")
         self.assertEqual(len(rec["bar"]), 64)
         self.assertEqual(rec["command"], "python3 judge_add.py")
+
+    def test_ready_rejects_research_without_a_source_and_date(self):
+        body = SPEC + "\n## Research\n- R1: The API uses cursors\n"
+        n = self.p.piece(spec=body)
+        with self.assertRaises(Refused) as refusal:
+            self.ready(n)
+        self.assertIn("Research", refusal.exception.reason)
 
     def test_ready_freezes_every_gate_input_and_rejects_edits_to_them(self):
         self.p.loop_section("printf baseline", "printf prepared")

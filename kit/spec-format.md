@@ -12,6 +12,9 @@ Out of scope:
 ## Approach
 Optional. Name the files, interface, tools and constraints when they help.
 
+## Research
+- R1: The API supports cursor pagination (source: https://example.com/api, read: 2026-10-15)
+
 ## Contract
 - D1: When I run `habits add read`, then `habits list` shows read.
 - D2 (stays): Without `--title`, the output is unchanged.
@@ -29,6 +32,11 @@ Large file: src/generated.py
 `Intent` and a non-empty `Out of scope:` list are required. `Approach` is
 optional. Contract items start with a unique ID such as `D1`. An item already
 true on main can use `(stays)`; its judge test must pass on main.
+
+`Research` is optional. Use it when a piece depends on an outside fact. Add
+one `R` item per finding, with an HTTP or HTTPS source URL and the date it was
+read in `YYYY-MM-DD` form. The gate rejects malformed findings. At claim time,
+findings older than 30 days are marked as possibly stale in the build brief.
 
 Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, and
 `Kind: scaffold` for the first piece in an empty project. A fix starts with

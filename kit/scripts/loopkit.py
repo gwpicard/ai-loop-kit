@@ -12,9 +12,11 @@ import os
 import re
 import signal
 import subprocess
+from datetime import date
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
@@ -54,9 +56,21 @@ class Spec:
     stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
     settings: bool = False  # True when the piece may change the project's check settings
     large_files: tuple = ()  # Explicit files allowed to cross the 1,000-line mark
+    research: tuple = ()  # Outside findings with their source and read date
+
+
+@dataclass(frozen=True)
+class ResearchFinding:
+    id: str
+    text: str
+    source: str
+    read: str
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
+_RESEARCH_ITEM = re.compile(
+    r"^\s*[-*]\s*(R\d+)\s*:\s*(\S.*?)\s+\(source:\s*(https?://[^\s,]+),\s*"
+    r"read:\s*(\d{4}-\d{2}-\d{2})\)\s*$", re.IGNORECASE)
 _FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file)\s*:\s*(.*)$", re.IGNORECASE)
 
 
@@ -119,6 +133,30 @@ def parse_spec(body: str) -> Spec:
         if not done_when:
             gaps.append("'## Contract' has no item like '- D1: ...'")
 
+    research: list[ResearchFinding] = []
+    research_ids: set[str] = set()
+    research_lines = _section(body, "Research")
+    for line in research_lines or []:
+        if not line.strip():
+            continue
+        match = _RESEARCH_ITEM.match(line)
+        if not match:
+            gaps.append("each '## Research' line must have an ID, source URL and read date")
+            continue
+        finding_id, text, source, read = match.groups()
+        finding_id = finding_id.upper()
+        if finding_id in research_ids:
+            gaps.append(f"Research ID {finding_id} is used twice")
+        research_ids.add(finding_id)
+        try:
+            date.fromisoformat(read)
+        except ValueError:
+            gaps.append(f"Research item {finding_id} has an invalid read date")
+        parsed_source = urlsplit(source)
+        if parsed_source.scheme not in ("http", "https") or not parsed_source.netloc:
+            gaps.append(f"Research item {finding_id} needs an HTTP or HTTPS source URL")
+        research.append(ResearchFinding(finding_id, text.strip(), source, read))
+
     command, kind, keep, files, settings, large_files = "", "feature", "", [], False, []
     judge = _section(body, "Judge")
     if judge is None:
@@ -165,7 +203,15 @@ def parse_spec(body: str) -> Spec:
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
     return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
-                keep, tuple(stays), settings, tuple(large_files))
+                keep, tuple(stays), settings, tuple(large_files), tuple(research))
+
+
+def stale_research(spec: Spec, on_date: Optional[str] = None,
+                   max_age_days: int = 30) -> tuple[ResearchFinding, ...]:
+    """Return findings older than the permitted age on the claim date."""
+    today = date.fromisoformat(on_date) if on_date else date.today()
+    return tuple(finding for finding in spec.research
+                 if (today - date.fromisoformat(finding.read)).days > max_age_days)
 
 
 # ---------------------------------------------------------------- check settings
