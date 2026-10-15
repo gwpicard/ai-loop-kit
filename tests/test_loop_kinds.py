@@ -26,7 +26,7 @@ class LoopKindSpecTest(unittest.TestCase):
         self.assertEqual(spec.measure, "python3 bench.py")
         self.assertEqual(spec.research[0]["id"], "R1")
         brief = run.brief(7, body, {
-            "kind": "goal", "measure": spec.measure, "target": spec.target,
+            "kind": "goal", "measure": spec.measure, "target": spec.target, "files": [],
             "research": list(spec.research),
         }, "")
         self.assertIn("Measure: python3 bench.py", brief)

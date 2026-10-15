@@ -244,16 +244,14 @@ outside the sandbox; the person still merges.
 
 ## 12. How v1 was built, and how the kit grows
 
-The thin kit grew one earned feature at a time from 13 October 2026. For v1
-the maintainer chose to build from a plan in one pass, with tests and
-rehearsals at the end, so v1 could be used sooner. The current build notes and
-rehearsal findings are in `docs/v1/`; the earlier package plans remain in git
-history. After v1 merges, the earn rule applies again: a failure in
-`docs/LEDGER.md` first, then a test, then the feature.
+The thin kit grew one earned feature at a time from 13 October 2026. The
+maintainer built v1 and v1.1 from plans in one pass, with tests and rehearsals
+at the end. The build notes and rehearsal findings are in `docs/v1/` and
+`docs/v1.1/`. After v1.1 merges, the earn rule applies again: record a failure
+in `docs/LEDGER.md`, add a test, then add the feature.
 
-The v1.1 P3 rules for goal and gauntlet judges are in
-`docs/v1.1/PLAN.md`; the implementation choices are recorded in
-`docs/v1.1/choices-P3.md`.
+The v1.1 plan and package choices are in `docs/v1.1/`. They record the
+researcher role, goal and gauntlet judges, walk-away runs and rehearsal fixes.
 
 ## Sources
 

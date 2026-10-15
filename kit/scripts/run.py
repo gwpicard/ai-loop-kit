@@ -11,7 +11,6 @@ person to merge. Three failures send the piece back to shaping with the reason.
 """
 from __future__ import annotations
 
-import argparse
 import ast
 import hashlib
 import json
@@ -23,7 +22,6 @@ import subprocess
 import sys
 import time
 import uuid
-from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -612,117 +610,9 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="run.py", description=__doc__.split("\n\n")[0])
-    p.add_argument("pieces", nargs="*", type=int)
-    p.add_argument("--attempts", type=int, default=3)
-    p.add_argument("--verdict-kind", choices=("judge-writer",))
-    p.add_argument("--verdict-file")
-    p.add_argument("--walk-away", action="store_true",
-                   help="run only after the unattended sandbox checks pass")
-    args = p.parse_args(argv)
-    if args.verdict_kind or args.verdict_file:
-        try:
-            if not args.verdict_kind or not args.verdict_file:
-                raise Refused("verdict check needs both kind and file", "pass --verdict-kind and --verdict-file")
-            from review import _logged_verdict
-            print(json.dumps(_logged_verdict(Path(args.verdict_file), args.verdict_kind), sort_keys=True))
-            return 0
-        except Refused as error:
-            print(f"refused: {error.reason}", file=sys.stderr)
-            print(f"next: {error.next_step}", file=sys.stderr)
-            return 2
-    root = repo_root(Path.cwd())
-    gh = GitHub(root)
-    if args.walk_away:
-        checks = gate.doctor(gh, root, walk_away=True)
-        for ok, what, fix in checks:
-            print(f"{'ok  ' if ok else 'FAIL'} {what}")
-            if fix:
-                print(f"     next: {fix}")
-        if not all(ok for ok, _, _ in checks):
-            print("refused: walk-away pre-run check failed", file=sys.stderr)
-            return 2
-    started_at = datetime.now(timezone.utc)
-    try:
-        lock = acquire_lock(root)
-        signal.signal(signal.SIGTERM, _interrupt_handler)
-        signal.signal(signal.SIGINT, _interrupt_handler)
-    except Refused as r:
-        print(f"refused: {r.reason}", file=sys.stderr)
-        print(f"next: {r.next_step}", file=sys.stderr)
-        return 2
-    results = []
-    summary_results = []
-    awake = walkaway.keep_awake(root) if args.walk_away else nullcontext()
-    awake.__enter__()
-    try:
-        gate.ignore_loop_folder(root)
-        removed_reviews = cleanup_interrupted_reviews(root)
-        if removed_reviews:
-            log("removed abandoned review " + "; ".join(removed_reviews))
-        results.extend(recover_building(gh, root))
-        gate.sync(gh, root)
-        pieces = args.pieces or ready_pieces(gh, log)
-        if not pieces:
-            print("Nothing is ready. Shape a piece first.")
-            return 0
-        for n in pieces:
-            if stop_requested(root):
-                log("stop requested; ending before the next piece")
-                break
-            first_ready = last_record(gh.comments(n), "ready")
-            waiting = waiting_limit_note(gh, root, first_ready)
-            if waiting:
-                print(waiting)
-                results.append(waiting)
-                break
-            try:
-                result = build_piece(gh, root, n, args.attempts, args.walk_away)
-                results.append(result)
-                if args.walk_away:
-                    try:
-                        state = gate.state_of(gh.issue(n))
-                    except Exception:
-                        state = "unknown"
-                    summary_results.append(walkaway.piece_summary(root, n, result, state,
-                                                                  started_at))
-            except Refused as r:
-                result = f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else "")
-                results.append(result)
-                if args.walk_away:
-                    summary_results.append(walkaway.piece_summary(root, n, result, "unchanged",
-                                                                  started_at))
-            except Exception as e:  # keep going with the other pieces
-                result = f"piece {n}: stopped by an error: {e}"
-                results.append(result)
-                if args.walk_away:
-                    summary_results.append(walkaway.piece_summary(root, n, result, "unknown",
-                                                                  started_at))
-        print("\nRun finished.")
-        print("\n".join(results))
-        return 0
-    finally:
-        if stop_requested(root):
-            clear_stop(root)
-        if args.walk_away:
-            finished_at = datetime.now(timezone.utc)
-            try:
-                path = walkaway.write_summary(root, summary_results + [
-                    result for result in results if not result.startswith("piece ")
-                ], started_at, finished_at)
-                summary = path.read_text()
-                walkaway.post_summary(gh, summary,
-                                      mention=any(marker in result for result in results
-                                                  for marker in ("back to shaping", "Run paused",
-                                                                 "refused", "stopped by an error")))
-            except Exception as error:
-                log(f"could not save or post the run summary: {error}")
-        try:
-            if args.walk_away:
-                awake.__exit__(None, None, None)
-        finally:
-            release_lock(lock)
-
+    """Run the command-line orchestration from its focused module."""
+    from run_cli import main as cli_main
+    return cli_main(argv, sys.modules[__name__])
 
 if __name__ == "__main__":
     sys.exit(main())
