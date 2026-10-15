@@ -14,8 +14,58 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 
 | Date | Seen in | What went wrong | Entry it earned |
 | --- | --- | --- | --- |
+| 15 Oct 2026 | v1 code review, item 8 | The hostile-builder scenario did not exercise Quality deletion, test renames, `conftest.py` edits or standards-file edits. | Give each change a separate fake-builder case and check that the gate refuses it. |
+| 15 Oct 2026 | v1 code review, item 7 | The H1 check only asserted non-empty output, and commands could take protected paths from an edited `AGENTS.md`. | Assert the specific refusal and pass the frozen protected paths to every build and gate command. |
+| 15 Oct 2026 | v1 code review, item 6 | Folder activity checks walked generated build trees every tenth of a second, and Claude `result` errors were dropped from the log. | Check folder activity every two seconds, skip generated build directories, and log result errors. |
+| 15 Oct 2026 | v1 finish review, review-2 item 6 | The code fix and unit test landed, but the round 3 field run did not separately prove the idle reset from a streamed file change. | v1.1: add field evidence that a build-folder change resets the idle clock. |
+| 15 Oct 2026 | v1 finish review, review-2 item 7 | The frozen protected paths and refusal test landed, but the finish pass did not repeat the field check against a hostile edited `AGENTS.md`. | v1.1: confirm the frozen protected-path check in a field run. |
+| 15 Oct 2026 | v1 finish review, review-2 item 8 | The hostile-builder cases landed, but the finish pass did not run each added case in a live project. | v1.1: confirm the Quality deletion, test rename, `conftest.py` and standards-file cases in a field run. |
+| 15 Oct 2026 | loop-test-install, long-build rehearsal | The standards reviewer passed the piece but left four follow-up suggestions about report logic, wrapper `exit_code`, tuple names and a circular import. | v1.1: review those suggestions as separate pieces if they still apply. |
+| 15 Oct 2026 | v1 merge check, item 1 | The shape skill's move-back command omitted the required `--type`, so it would be refused. | Add the type and parse every documented gate command from the skills in a test. |
+| 15 Oct 2026 | v1 merge check, item 6 | The missing verdict-file path needed an explicit check because an absent file must give a `next:` step, not a traceback. | Keep a regression test for the refusal and its `next:` step. |
+| 15 Oct 2026 | v1 finish review, M2 | The automated test sends real SIGTERM to a real `python3 run.py` during review. | v1.1: the field run remains open; the unit test is the v1 merge proof. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, setup | Doctor could not exercise coverage-based CRAP on fresh `main` when its Test command produced no coverage. A later setup check hit a refused recursive-delete command, so the rehearsal stopped there. | v1.1: make the setup Quality dry-run work on fresh main, and keep setup checks clear of recursive deletion. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, mutation | The later Q run on a fix could not provide valid evidence: an empty source configuration passed, and the configured subprocess tests scored no mutants. | v1.1: complete mutation scenario Q with supported configuration and in-process tests before treating results as evidence. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, subprocess tests | Mutation testing generated no scored mutants because project tests call the changed CLI only in subprocesses; the coverage report also recorded 0% for the CLI module. | v1.1: offer mutation testing only when project tests exercise changed code in-process, and do not treat subprocess-only mutation or coverage results as evidence. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, mutmut version | Mutmut 3.3.1 ignored the 3.8 configuration keys and could not locate mutation sources. | v1.1: offer mutation testing only with mutmut 3.8 or later, and use configuration keys supported by that version. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, setup again | Doctor's CRAP dry-run failed on the configured project because fresh main produced no coverage data. | v1.1: setup reports the missing coverage evidence clearly and does not accept a failing Quality dry-run on a configured project. |
+| 15 Oct 2026 | v1 code review, item 3 | The Quality check against main skipped the frozen Test command, so checks that need test-created coverage looked broken on main; its result cache was not tied to a command or commit. | Run Test before Quality and key the cached result by the command and main commit. |
+| 15 Oct 2026 | v1 code review, item 2 | When a Claude parent exited but its child kept the output pipe open, `_pump_session` never saw EOF and no longer checked its timers. | Give child processes three seconds to close after the parent exits, then stop the group and finish reading. |
+| 15 Oct 2026 | v1 code review, item 1 | A real `python3 run.py` process and its imported `run` module held separate process-group state, so SIGTERM could miss reviewer children and leave them running. | Store process groups, the main-ref cache and `AttemptIdle` in one shared module. |
+| 15 Oct 2026 | v1 rehearsal round 3, scenario 1 | Attempt durations appeared in terminal output, not the `.loop/logs` files, so the requested evidence was not available from those logs. | Record each attempt's UTC start and finish times, plus its elapsed seconds, in its log. |
+| 15 Oct 2026 | loop-test-install, long-build rehearsal | The first two versions of the report contract disagreed with existing sort expectations. The next attempt took only 88 seconds because most of the requested work already existed on its piece branch. | Check existing behaviour before ready and measure the idle limit with a fresh-main piece that requires enough new work; the existing bar-wrong scenario test covers the refusal path. |
+| 15 Oct 2026 | v1 rehearsal round 2, A | The changed-function mutmut filter did not match mutmut 3.8 names, treated tests as targets, and could pass without checking killed mutants; doctor also implied an empty mutation run had been exercised. | Match only changed source functions to mutmut 3.8 names, require recorded changed-function mutants and zero survivors, and report when main has no functions to exercise. |
+| 15 Oct 2026 | v1 rehearsal round 2, B | Killing a run during review could leave kit-created review worktrees and branches behind. | At run start, remove abandoned worktrees and branches whose names match the kit's review branch format, and report each removal. |
+| 15 Oct 2026 | v1 rehearsal round 2, C | Doctor ran Quality in a fresh main copy without first creating `.coverage`, so coverage-based CRAP checks failed even when the Test command created coverage successfully. | Doctor runs Test before each Quality command in the same fresh main copy. |
+| 15 Oct 2026 | v1 rehearsal round 2, D1 | The command guard allowed eval-wrapped force pushes and xargs recursive deletes when no builder session was active. | Refuse eval, xargs recursive deletion, and force pushes in every session. |
+| 15 Oct 2026 | v1 rehearsal round 2, D2 | The hostile-builder scenario failed its judge regardless of the attempted cheat, and its check matched a comment instead of the refusal reason; edited `AGENTS.md` was reported as changed judge files. | Make the fake builder pass the judge while changing loop settings, and report the loop-settings refusal. |
+| 15 Oct 2026 | v1 rehearsal round 2, D3 | GitHub's ready label search briefly returned no pieces after the gate had moved one to ready. | Retry the ready search for about 20 seconds before reporting that nothing is ready. |
+| 15 Oct 2026 | v1 rehearsal round 2, D4 | Old in-project `.loop/worktrees/` folders still break lint in the project root, and doctor did not name the folders. | Doctor names each old folder and says the person may remove it. |
+| 15 Oct 2026 | v1 rehearsal round 2, E | The field scenario did not prove that a builder which streams progress beyond the idle limit can still complete and pass. | Add a full fake-builder scenario that streams beyond the idle limit, finishes the piece, and passes the judge. |
+| 15 Oct 2026 | v1 code review, H1 | The ready record did not freeze all gate inputs, so builders could change Quality, Keep, standards or boundaries after the gate had accepted the piece. | Ready records freeze Test, Prepare, Keep, Quality, Standards, protected paths and time limits; claim checks both the spec and judge bar. |
+| 15 Oct 2026 | v1 code review, H2 | The idle timer treated raw output as the only sign of progress and the logs stored Claude's stream protocol instead of readable assistant text. | Claude sessions use stream-json events as activity and write assistant text to plain logs; build-folder changes also reset the idle clock. |
+| 15 Oct 2026 | v1 code review, H3 | CRAP compared against an unreliable baseline, mutmut did not verify that changed functions were exercised, and a fixable Quality failure ended the piece immediately. | CRAP keeps its hard changed-function limit; mutmut results must cover changed functions with no survivors; project Quality failures retry unless the same check fails on main. |
+| 15 Oct 2026 | v1 code review, H4 | Renames hid test edits from the gate, some test runners' skipped summaries and lint bypasses were missed, and src-layout private imports were not found. | Bar and changed-file checks disable rename detection; skip summaries and test lint cover unittest, node:test, Python bypasses, JavaScript todo, and src/package imports. |
+| 15 Oct 2026 | v1 code review, H5 | Reviewers had no prepared environment, review worktrees could be left behind, and weak citations could make prose look like a valid finding. | Prepare each review folder and record its outputs; clean review folders and branches on every exit; accept only exact standards lines or listed smells. |
+| 15 Oct 2026 | v1 code review, H6 | Interrupted child jobs and stale attempt markers could affect later runs, and delimiter text in a reason could truncate a gate record. | Track run children as process groups, clear attempt outcomes, reuse the main reference once per piece, and escape record delimiters. |
+| 15 Oct 2026 | v1 code review, H7 | The command guard missed shell wrappers, eval-style interpreters, xargs deletion and protected-path redirects. | In build sessions, refuse unreadable shell forms, eval, xargs rm, Perl/Ruby code execution and redirects into protected locations; refuse an unqualified push from main. |
+| 15 Oct 2026 | v1 code review, H8 | The run and loop test files were too large to review in one sitting, and the changed-lines helper had no production caller. | Split review and PR code into focused modules, split run tests by area, and remove the unused changed-lines helper. |
+| 15 Oct 2026 | v1 code review, H9 | Unit tests did not exercise the loop's field failure paths together. | Add a fake-Claude scenario harness for hostile builders, idle sessions, bar changes, retries, review fixes, cleanup and recovery. |
+| 15 Oct 2026 | v1 rehearsals, setup | Setup did not offer a standards file or protected paths unless asked. | Setup offers a standards file and protected paths, then records them on the person's yes. |
+| 15 Oct 2026 | v1 rehearsals, mutmut | Mutmut left `mutants/` in the build folder and broke later pytest runs. | Each run records and clears known Quality output between attempts, and setup sets pytest `testpaths` with mutmut. |
+| 15 Oct 2026 | v1 rehearsals, setup and doctor | A Quality command that could not pass on the project was accepted. | Setup and doctor dry-run Quality commands on fresh main; failures name the check and distinguish environment failures. |
+| 15 Oct 2026 | v1 rehearsals, builder | CRAP guidance, command retry advice and permission for new tests were missing or unclear. | The builder brief explains the CRAP bar, simple command retries, and that only edits to existing tests need Contract names. |
+| 15 Oct 2026 | v1 rehearsals, builder | A builder could not report that the judge was wrong. | The builder reports `.loop/outcome`; a bar-wrong result ends the attempt loop at once. |
+| 15 Oct 2026 | v1 rehearsals, stop | Stop recorded a false bar-wrong failure. | Stop records `stopped` and preserves any earlier failure reason. |
+| 15 Oct 2026 | v1 rehearsals, interrupted run | Killing the run left a builder process alive. | The run tracks builder and reviewer process groups, kills them on interruption, and detects an orphan at startup. |
+| 15 Oct 2026 | v1 rehearsals, gate | A judge assertion containing “No such file or directory” was misclassified by its message text. | Wrong-reason checks use the process error type, not assertion text. |
+| 15 Oct 2026 | v1 rehearsals, judge writer | Judge-writer IDs could clash when it edited an existing judge file. | The brief requires unique IDs and renaming stale tests when editing judge files. |
+| 15 Oct 2026 | v1 rehearsals, setup | Setup wrote mutmut configuration keys removed in mutmut 3.8. | Setup writes the current mutmut configuration keys. |
+| 15 Oct 2026 | v1 rehearsals, doctor | An old `.loop/worktrees/` folder made `npm test` fail in the project root. | Doctor warns about old in-project worktrees and tells the person how to remove them. |
+| 15 Oct 2026 | v1 rehearsals, standards review | A reviewer brief seemed to block all fixes, including non-test fixes. | A reviewer can commit a non-test fix, and the gate retains it after checks pass. |
 | 14 Oct 2026 | new public project, scaffold piece | Prepare failed on fresh main because `pyproject.toml` did not exist, so the scaffold could not become ready. | A scaffold piece skips Prepare on main at ready (IN THE KIT, with a test) |
 | 14 Oct 2026 | new public Python project, first build | Prepare made `.venv/` in the build folder. With no `.gitignore`, `git add -A` committed its files to the piece branch. | Prepare-created untracked paths are excluded in the build worktree and the gate rejects additions under them (IN THE KIT, with tests) |
+| 15 Oct 2026 | final suite, rebuild and audit cases | A root-level judge snapshot copied the whole piece tree into temporary `main`, including the implementation. The judge then passed before the build, and the audit bar changed. | Root-level judge bars do not include source files as judge support (in the kit, with tests) |
 | 13 Oct 2026 | the thin kit's own tests | A spec ID inside a test name (`test_D1_adds`) was not found, because `\b` treats `_` as a letter. | Ready gate: judge names a spec ID (fixed in the core) |
 | 13 Oct 2026 | loop-test-thin, scaffold piece | The ready note said "the judge fails on main" for a scaffold piece, where the gate skips that check. The kit claimed a check it did not run. | Gate notes state only what the gate checked (fixed, with a test) |
 | 13 Oct 2026 | loop-test-thin, first run | Claude Code warned that `Write(path)` and `MultiEdit(path)` deny rules match nothing; only `Edit(path)` rules count, and they cover every file tool. | Builder judge-file block uses `Edit(path)` only (fixed) |
@@ -42,6 +92,8 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 14 Oct 2026 | loop-test-node, piece 10 | After shaping fixed the judge in a new commit, two builders saw it in git history, took it for a forbidden edit, and restored the old judge. The gate put it back each time. Two attempts were lost. | The brief says the judge files as they are now are the bar, and older versions never count (brief text) |
 | 14 Oct 2026 | loop-test-node, pieces 9 and 10 (third time) | Shaping again wrote judges that break the project's lint. The early stop caught both after one attempt each, with no check weakened. | The shape skill runs the project's Test command on the judge files before the gate check (skill text) |
 | 14 Oct 2026 | release review | The run took the judge command from the last ready record in the issue comments. On a public repository anyone can comment, so a stranger could post a forged record and the run would execute their command. Found by reading the code, before any harm. | The kit reads only comments from people who can push to the repository (owner, member, collaborator) (in the kit, with tests) |
+| 15 Oct 2026 | v1 code review | The changed-function mutmut check used broad name prefixes, included files outside the configured source paths, missed mutmut 3.8 statuses, and rejected functions with no mutants. | Match exact changed functions under mutmut source paths, fail every non-killed mutant status, skip nested functions, and pass with a "nothing to mutate" report when a function has no mutants. |
+| 15 Oct 2026 | v1 code review | The guard refused harmless eval commands, treated every xargs rm as recursive, and missed an origin push without a refspec from main. | Inspect eval contents, refuse xargs rm only with -r, -R or -f, and detect an origin push without a refspec from main, including when git -C selects the repository. |
 
 ## Evidence collected, not yet enough to earn a feature
 
@@ -58,23 +110,43 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 14 Oct 2026 | loop-test-node, piece 6 | Just after a move to ready, `gate.py status` still showed the piece in shaping. GitHub's issue list lagged. The session checked again and went on. | Status reads each piece directly, not the search list. Seen twice on 14 Oct (pieces 6 and 10); no harm yet, as the session checked again. Next candidate |
 | 14 Oct 2026 | loop-test-node, pieces 9 and 10 | Shaping wrote the rule for using both options together under Notes, so no judge tested it. The run's report reminded the person, who checked it by hand (it held). | A piece that depends on another piece's option gets a Done when item once both exist |
 
-## What is in the thin kit today
+## In the kit from the v1 plan
 
-- The shape skill, the spec format, and the judge written during shaping.
-- Six states and ten moves, held by the gate. Labels change only through it.
-- The ready gate: the spec parses, the judge fails on main on an assertion,
-  every spec ID shows in the failing output, the bar and the spec are hashed.
-- The claim check: the spec has not changed since ready.
-- The run: a worktree per piece, up to three fresh `claude -p` attempts, the
-  gate runs the judge, a changed judge fails and is put back, a pass pushes
-  the branch and opens a pull request, three failures send it back with
-  `needs-you`.
-- The person merges. `gate.py sync` moves merged pieces to done.
-- The guard: no push to main, no force push, no recursive delete, no
-  hand-written state label, no agent merge; builders never push, never run
-  `gh` and never touch `.claude/` or `.githooks/`.
-- Two layers already: the judge files are blocked from edits in the builder
-  session, and the gate compares their hash.
+The earn rule was suspended for this planned build. These entries are held
+in v1 by the named code and checks; the source is the corresponding package
+in the v1 notes under `docs/v1/` and git history.
+
+| Idea now held | Where it is held | Status and source |
+| --- | --- | --- |
+| Intent, scope, approach and numbered contract items | `kit/scripts/loopkit.py`, `kit/spec-format.md` | IN THE KIT; v1 package plan in git history |
+| Typed hand-backs, a report and a gate-controlled spec edit | `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Run lock, recovery, stop, elapsed time and process timeouts | `kit/scripts/run.py`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Judge test lint, frozen support files and skipped-test refusal | `kit/scripts/testlint.py`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Project quality commands and changed-scope helpers | `kit/quality/`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Judge writer, standards review and separate contract review | `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 package plan in git history |
+| Pull request facts, evidence, importer count and builder rationale | `kit/scripts/run.py`, `kit/briefs/builder.md` | IN THE KIT; v1 package plan in git history |
+| Command guard, protected paths, secret scan and protection status | `kit/hooks/guard.py`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Shape, run and setup guidance | `kit/skills/` | IN THE KIT; v1 package plan in git history |
+| Product definition, overview and release changelog | `docs/V1.md`, `README.md`, `CHANGELOG.md` | IN THE KIT; v1 package plan in git history |
+| File-size limit, changed-function CRAP, public-interface judges, approval waiting limit and importer context | `kit/scripts/gate.py`, `kit/scripts/testlint.py`, `kit/quality/crap.py`, `kit/scripts/run.py` | IN THE KIT; v1 package plan in git history |
+| Test quality lint, module-interface reviews, tagged verdicts, idle limits and dirty-folder refusal | `kit/scripts/testlint.py`, `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 package plan in git history |
+
+## What is in v1
+
+- v1 is defined in `docs/V1.md`; its build notes and rehearsal evidence are
+  in `docs/v1/` and git history.
+- Every piece has a checked contract and a judge fixed at ready.
+- The run has one lock, recovers interrupted pieces and checks stop requests
+  at attempt boundaries.
+- Every passing build gets a fresh standards review and a separate contract
+  review. The gate checks the judge, Keep and Quality commands again after
+  any accepted reviewer fix.
+- Pull requests include checked change facts, risks and test evidence. The
+  person still approves and merges.
+- Submit checks include the file-size rule, secret scan, protected paths and
+  changed-function CRAP when the project has its coverage JSON.
+- The earn rule resumes after v1 merges. The rehearsal table in the plan is
+  still required before v1 merges.
 
 ## Known gaps, written down now so they are not forgotten
 
@@ -398,6 +470,8 @@ possible.
   What: started by `/run`; starts each builder as a separate non-interactive `claude -p` session. Why: the earlier coordinator stood still because it asked a question and waited. Tier: CORE.
 - **Fresh session per attempt**
   What: each attempt starts clean and receives only the frozen spec, the gate-kept attempt log and, for metrics, the next hypothesis; never past session history. Why: long sessions full of failed approaches get worse; clean restarts win. Tier: CORE.
+- **Attempt timing in logs**
+  What: write each attempt's UTC start and finish times, plus elapsed seconds, into its `.loop/logs` file. Why: timing evidence should survive the terminal session. Tier: CORE (earned in rehearsal round 3).
 - **Gate-kept attempt log**
   What: each attempt's result and findings recorded by the gate and given to the next builder. Why: the next attempt learns without inheriting a poisoned context. Tier: CORE.
 - **Three attempts per piece**

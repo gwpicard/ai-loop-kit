@@ -23,16 +23,18 @@ Use the KIT path above in every command. Write it out in full. Read
    Done when: each answer is in your notes, or written down as an assumption you made.
 3. If the idea holds more than one piece, split it. One piece is one change a builder can finish in about an hour, with three to six Done when items.
    Done when: the person agrees to the split.
-4. Write the spec in the format of `<KIT>/spec-format.md`, with a test name per Done when item, and show it to the person. If the project already has tests, add `Keep:` with the Test command from the project's AGENTS.md, exactly, so what works today must still work. Mark a Done when item that already holds today as `(stays)`; never bend a test so it fails on main. Never write a rule under Notes that you expect the gate to enforce; the gate reads only Done when and Judge. Add `Settings: may change` only when the piece is about the project's lint, test or CI settings.
+4. Write the spec in the format of `<KIT>/spec-format.md`, with a test name per Contract item, and show it to the person. When a piece adds or changes a module, Approach names that module and the interface a caller uses. If the project already has tests, add `Keep:` with the Test command from the project's AGENTS.md, exactly, so what works today must still work. Mark a Contract item that already holds today as `(stays)`; never bend a test so it fails on main. Never write a rule under Notes that you expect the gate to enforce; the gate reads only Contract and Judge. Add `Settings: may change` only when the piece is about the project's lint, test or CI settings.
    Done when: the person says yes to the spec.
+   Once the person approves the Intent, Out of scope, Approach and Contract, do not change those words without asking for approval again. For a `fix`, first reproduce the bug and make the first Contract item say what fails now and what should happen.
 5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
    Done when: the gate prints the piece number.
-6. Write the judge. Run `git fetch origin main`, then `git switch -c piece/<n> origin/main`. Write the judge test files named in the spec. Each test name holds its spec ID, like `test_D2_streak_resets`. Each test fails today on an assertion, not on an import or syntax error: import new code inside the test. Commit the judge files alone. Then `git switch main`.
+6. Ask the `judge-writer` subagent to write the judge from the approved Intent, Approach and Contract, with the project code. It does not see the shaping conversation. Run `git fetch origin main`, then `git switch -c piece/<n> origin/main`. Each test name holds its spec ID, like `test_D2_streak_resets`. Each test fails today on an assertion, not on an import or syntax error: import new code inside the test. Commit the judge files alone. Then `git switch main`.
    If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`, change the judge files, and commit the change on top.
    Done when: `git log main..piece/<n>` shows one commit holding only the judge files (for a piece that came back, the newest commit holds only the judge change), and you are back on main.
+   Save the judge-writer response, including its `<verdict>` block, to a temporary file and run `python3 "<KIT>/scripts/run.py" --verdict-kind judge-writer --verdict-file <file>`. If the verdict is missing or invalid, stop shaping and report the printed `next:` line.
 7. Run the project's Test command on the piece branch. It fails, because the judge fails; read the output and fix every other error that names a judge file, such as lint, type or format errors. Then check it with `python3 "<KIT>/scripts/gate.py" check <n>`. Fix what it names, on the piece branch.
    Done when: it prints `ok`.
-8. Move it with `python3 "<KIT>/scripts/gate.py" move <n> ready`.
+8. If the approved spec needs an edit while shaping, write the full revised body to a temporary file and use `python3 "<KIT>/scripts/gate.py" spec <n> --body-file <file>`. Get the person's approval before replacing an approved contract. Move it with `python3 "<KIT>/scripts/gate.py" move <n> ready`.
    Done when: the piece is in ready, or you have reported the refusal and its `next:` line.
 
 ## Rules
@@ -40,5 +42,5 @@ Use the KIT path above in every command. Write it out in full. Read
 - Never write the code the piece asks for. Shaping writes the spec and the judge only.
 - Use `Kind: scaffold` only when the judge cannot fail on main, such as a test runner that does not exist yet. If the judge can fail on main, leave Kind out so the gate checks it.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.
-- After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --reason "<why>"`, then shape it again.
+- After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --type spec-unclear --reason "<why>"`, then shape it again.
 - If the gate refuses, report the refusal in plain words and take the `next:` step. Never reach the same result another way.

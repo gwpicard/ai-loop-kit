@@ -90,7 +90,8 @@ def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str],
             broken.append(f"generated: the pull request holds {', '.join(bad[:5])}")
         ready = [r for r in recs if r.get("move") == "ready"]
         if ready and ready[-1].get("files") and pr.get("head") and pr["state"] != "CLOSED":
-            if bar_hash_at(root, pr["head"], ready[-1]["files"]) != ready[-1]["bar"]:
+            if bar_hash_at(root, pr["head"], ready[-1]["files"],
+                           ready[-1].get("bar_files")) != ready[-1]["bar"]:
                 broken.append("bar: the judge files in the pull request differ from ready")
         if submits and submits[-1].get("commit") and pr.get("head"):
             score["changed_after_gate"] = pr["head"] != submits[-1]["commit"]

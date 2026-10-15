@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,8 @@ STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
 NEEDS_YOU = "needs-you"
 RECORD_TAG = "loop-gate"
+REASON_TYPES = ("spec-unclear", "bar-wrong", "stopped", "environment", "builder-failed",
+                "person-rejected", "conflict", "judge-gap")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
@@ -43,14 +46,18 @@ class Spec:
     done_when: dict[str, str]
     command: str
     files: list[str]
-    kind: str  # "test", or "scaffold" for the first piece of an empty project
+    kind: str  # feature, fix, or scaffold
+    intent: str = ""
+    out_of_scope: tuple = ()
+    approach: str = ""
     keep: str = ""  # a command that passes on main and must still pass after the build
     stays: tuple = ()  # Done when IDs that already hold on main and must keep holding
     settings: bool = False  # True when the piece may change the project's check settings
+    large_files: tuple = ()  # Explicit files allowed to cross the 1,000-line mark
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
-_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings)\s*:\s*(.*)$", re.IGNORECASE)
+_FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -69,11 +76,37 @@ def _section(body: str, name: str) -> Optional[list[str]]:
 def parse_spec(body: str) -> Spec:
     """Read the spec from an issue body. Refuse with every gap at once."""
     gaps: list[str] = []
+    intent_lines = _section(body, "Intent")
+    intent = ""
+    out_of_scope: list[str] = []
+    if intent_lines is None:
+        gaps.append("no '## Intent' section")
+    else:
+        in_scope = False
+        for line in intent_lines:
+            if re.match(r"^\s*Out of scope\s*:", line, re.IGNORECASE):
+                in_scope = True
+                continue
+            if line.startswith("## "):
+                in_scope = False
+            elif in_scope:
+                if re.match(r"^\s*[-*]\s+\S", line):
+                    out_of_scope.append(line.strip()[1:].strip())
+            elif line.strip():
+                intent += ("\n" if intent else "") + line.strip()
+        if not intent:
+            gaps.append("'## Intent' is empty")
+        if not out_of_scope:
+            gaps.append("'## Intent' has no non-empty 'Out of scope:' list")
+    approach_lines = _section(body, "Approach")
+    approach = "\n".join(line.strip() for line in (approach_lines or []) if line.strip())
     done_when: dict[str, str] = {}
     stays: list[str] = []
-    done = _section(body, "Done when")
+    done = _section(body, "Contract")
     if done is None:
-        gaps.append("no '## Done when' section")
+        done = _section(body, "Done when")
+    if done is None:
+        gaps.append("no '## Contract' section")
     else:
         for line in done:
             m = _ITEM.match(line)
@@ -84,9 +117,9 @@ def parse_spec(body: str) -> Spec:
                 if m.group(2):
                     stays.append(m.group(1))
         if not done_when:
-            gaps.append("'## Done when' has no item like '- D1: ...'")
+            gaps.append("'## Contract' has no item like '- D1: ...'")
 
-    command, kind, keep, files, settings = "", "test", "", [], False
+    command, kind, keep, files, settings, large_files = "", "feature", "", [], False, []
     judge = _section(body, "Judge")
     if judge is None:
         gaps.append("no '## Judge' section")
@@ -107,15 +140,21 @@ def parse_spec(body: str) -> Spec:
                     settings = value.strip("`").strip().lower() == "may change"
                     if not settings:
                         gaps.append(f"'Settings: {value}' is unknown; use 'Settings: may change'")
+                elif key == "large file":
+                    target = value.strip("`").strip()
+                    if not target or target.startswith("/") or ".." in Path(target).parts:
+                        gaps.append("'Large file:' must name a path inside the project")
+                    else:
+                        large_files.append(target)
                 elif value:
                     files += [f.strip().strip("`") for f in value.split(",") if f.strip()]
             elif in_files and re.match(r"^\s*[-*]\s+\S", line):
                 files.append(line.strip()[1:].strip().strip("`"))
         if not command:
             gaps.append("'## Judge' has no 'Command:' line")
-        if kind not in ("test", "scaffold"):
-            gaps.append(f"'Kind: {kind}' is unknown; use test or scaffold")
-        if kind == "test" and not files:
+        if kind not in ("feature", "fix", "scaffold"):
+            gaps.append(f"'Kind: {kind}' is unknown; use feature, fix or scaffold")
+        if kind != "scaffold" and not files:
             gaps.append("'## Judge' lists no judge files under 'Files:'")
         for f in files:
             if f.startswith("/") or ".." in Path(f).parts:
@@ -125,7 +164,8 @@ def parse_spec(body: str) -> Spec:
                       "fix the issue body to match kit/spec-format.md")
     if done_when and len(stays) == len(done_when):
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
-    return Spec(done_when, command, files, kind, keep, tuple(stays), settings)
+    return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
+                keep, tuple(stays), settings, tuple(large_files))
 
 
 # ---------------------------------------------------------------- check settings
@@ -136,7 +176,7 @@ CHECK_FILES = [".gitignore", ".github/*", ".eslintrc*", "eslint.config.*", ".xo-
                ".prettierrc*", "prettier.config.*", "tsconfig*.json", "jest.config.*",
                "vitest.config.*", ".mocharc*", "ava.config.*", "ruff.toml", ".ruff.toml",
                ".flake8", "setup.cfg", "tox.ini", "pytest.ini", "mypy.ini", ".mypy.ini",
-               ".pylintrc", ".coveragerc", ".pre-commit-config.yaml"]
+               ".pylintrc", ".coveragerc", ".pre-commit-config.yaml", "AGENTS.md"]
 # Check settings inside files that also hold other things.
 PACKAGE_KEYS = ("xo", "eslintConfig", "prettier", "jest", "ava", "mocha", "c8", "nyc", "tsd")
 PACKAGE_SCRIPTS = ("test", "pretest", "posttest", "lint")
@@ -164,7 +204,7 @@ def _pyproject_checks(text: str) -> dict:
 def _changed_files(folder: Path) -> tuple[str, list[str]]:
     """Where this branch left main, and the files it changes since."""
     base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
-    return base, sh(["git", "diff", "--name-only", base], folder).stdout.split()
+    return base, sh(["git", "diff", "--no-renames", "--name-only", base], folder).stdout.split()
 
 
 def conflict_markers(folder: Path) -> list[str]:
@@ -178,13 +218,14 @@ def conflict_markers(folder: Path) -> list[str]:
     return res.stdout.split()
 
 
-def changed_check_settings(folder: Path) -> list[str]:
+def changed_check_settings(folder: Path, extra_paths: tuple[str, ...] | list[str] = ()) -> list[str]:
     """The check settings this branch changes, compared with where it left main."""
     base, names = _changed_files(folder)
     changed = []
     for name in names:
         short = name.rsplit("/", 1)[-1]
-        if any(fnmatch.fnmatch(name if "/" in p else short, p) for p in CHECK_FILES):
+        if any(fnmatch.fnmatch(name if "/" in p else short, p)
+               for p in (*CHECK_FILES, *extra_paths)):
             changed.append(name)
         elif short in ("package.json", "pyproject.toml"):
             old = sh(["git", "show", f"{base}:{name}"], folder, check=False).stdout
@@ -229,36 +270,72 @@ def rev(root: Path, ref: str) -> Optional[str]:
 
 def main_ref(root: Path) -> str:
     """The freshest main we can see. Fetch it when there is a remote."""
+    from procs import main_ref_cache
+    cache = main_ref_cache()
+    key = sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root).stdout.strip()
+    if cache is not None and key in cache:
+        return cache[key]
     if sh(["git", "remote"], root).stdout.strip():
         sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False)
         if rev(root, "origin/main"):
-            return "origin/main"
+            result = "origin/main"
+            if cache is not None:
+                cache[key] = result
+            return result
     if rev(root, "main"):
-        return "main"
+        result = "main"
+        if cache is not None:
+            cache[key] = result
+        return result
     raise Refused("there is no main branch with a commit",
                   "make a first commit on main and push it")
 
 
-def bar_hash_at(root: Path, ref: str, files: list[str]) -> str:
-    """Hash the judge files as they are in a commit."""
+def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
+    """Judge files, test support files beside them, and every conftest."""
+    if not files:
+        return []
+    tracked = sh(["git", "ls-tree", "-r", "--name-only", ref], root).stdout.splitlines()
+    folders = {str(Path(name).parent) for name in files}
+    source_suffixes = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+                       ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php", ".cs"}
+    out = set(files)
+    for name in tracked:
+        if Path(name).name == "conftest.py" or any(
+                (folder != "." and name.startswith(folder.rstrip("/") + "/")) or
+                (folder == "." and Path(name).suffix.lower() not in source_suffixes)
+                for folder in folders):
+            out.add(name)
+    return sorted(out)
+
+
+def _hash_paths(read, files: list[str]) -> str:
     h = hashlib.sha256()
     for f in sorted(files):
-        res = subprocess.run(["git", "show", f"{ref}:{f}"], cwd=root, capture_output=True)
-        if res.returncode != 0:
-            raise Refused(f"judge file '{f}' is not in {ref}",
-                          f"commit the judge files on {ref} first")
-        h.update(f.encode() + b"\0" + res.stdout + b"\0")
+        h.update(f.encode() + b"\0" + read(f) + b"\0")
     return h.hexdigest()
+
+
+def bar_hash_at(root: Path, ref: str, files: list[str], frozen: Optional[list[str]] = None) -> str:
+    """Hash the complete judge bar as it is in a commit."""
+    paths = frozen if frozen is not None else bar_file_list(root, ref, files)
+
+    def read(path: str) -> bytes:
+        res = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True)
+        if res.returncode != 0:
+            raise Refused(f"judge support file '{path}' is not in {ref}",
+                          f"commit the judge files and support files on {ref} first")
+        return res.stdout
+
+    return _hash_paths(read, paths)
 
 
 def bar_hash_in(folder: Path, files: list[str]) -> str:
     """Hash the judge files as they are on disk."""
-    h = hashlib.sha256()
-    for f in sorted(files):
-        p = folder / f
-        data = p.read_bytes() if p.is_file() else b"<missing>"
-        h.update(f.encode() + b"\0" + data + b"\0")
-    return h.hexdigest()
+    def read(path: str) -> bytes:
+        p = folder / path
+        return p.read_bytes() if p.is_file() else b"<missing>"
+    return _hash_paths(read, files)
 
 
 def project_root(folder: Path) -> Path:
@@ -267,10 +344,14 @@ def project_root(folder: Path) -> Path:
     return Path(common).parent
 
 
-def command_env(folder: Path) -> dict:
+def command_env(folder: Path, protected_paths: Optional[list[str]] = None) -> dict:
     """The environment for judge, prepare and builder commands. Use the folder's
     own .venv when Prepare made one, else the person's checkout's .venv."""
     env = dict(os.environ)
+    env["AI_LOOP_KIT_ROOT"] = str(Path(__file__).resolve().parent.parent)
+    frozen_paths = (loop_settings(folder).get("protected paths", [])
+                    if protected_paths is None else protected_paths)
+    env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
     for venv_bin in (folder / ".venv" / "bin", project_root(folder) / ".venv" / "bin"):
         if venv_bin.is_dir():
             env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
@@ -280,8 +361,7 @@ def command_env(folder: Path) -> dict:
 
 
 def loop_settings(folder: Path) -> dict:
-    """The project's loop settings: the lines 'Test command:' and 'Prepare
-    command:' in the '## The loop' section of AGENTS.md, as committed."""
+    """Read test, prepare, quality and boundary settings from AGENTS.md."""
     agents = folder / "AGENTS.md"
     text = agents.read_text(errors="replace") if agents.is_file() else ""
     section = _section(text, "The loop") or []
@@ -290,16 +370,33 @@ def loop_settings(folder: Path) -> dict:
         m = re.match(r"^\s*[-*]?\s*(Test|Prepare) command\s*:\s*(.*)$", line, re.IGNORECASE)
         if m and m.group(2).strip().strip("`").strip():
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
+            continue
+        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep)\s*:\s*(.*)$",
+                     line, re.IGNORECASE)
+        if m:
+            key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
+            if key == "quality":
+                out.setdefault(key, []).append(value) if value else None
+            elif key == "protected paths":
+                out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
+            elif key == "waiting limit":
+                out[key] = value
+            elif key == "idle limit":
+                out[key] = value
+            else:
+                out[key] = value
     return out
 
 
-def prepare(folder: Path) -> tuple[bool, str]:
+def prepare(folder: Path, command: Optional[str] = None,
+            protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
     """Run the project's Prepare command in a fresh folder, if it has one.
     It makes a fresh copy runnable: npm ci, uv sync, docker compose build."""
-    command = loop_settings(folder).get("prepare")
+    command = command if command is not None else loop_settings(folder).get("prepare")
     if not command:
         return True, ""
-    code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT)
+    code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT,
+                             protected_paths=protected_paths)
     return code == 0, output
 
 
@@ -340,14 +437,91 @@ def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]
     return sorted(recorded)
 
 
-def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT) -> tuple[int, str]:
+def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT,
+              protected_paths: Optional[list[str]] = None) -> tuple[int, str]:
     """Run the judge command. The gate calls this; it never trusts a report."""
+    proc = None
     try:
-        res = subprocess.run(command, shell=True, cwd=folder, capture_output=True,
-                             text=True, timeout=timeout, env=command_env(folder))
-        return res.returncode, _TERMINAL_CODES.sub("", res.stdout + res.stderr)
+        proc = subprocess.Popen(command, shell=True, cwd=folder, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True,
+                                env=command_env(folder, protected_paths=protected_paths),
+                                start_new_session=True)
+        try:
+            from procs import track_process, _untrack_process
+            track_process(proc)
+        except ImportError:
+            _untrack_process = None
+        stdout, stderr = proc.communicate(timeout=timeout)
+        if _untrack_process:
+            _untrack_process(proc)
+        return proc.returncode, _TERMINAL_CODES.sub("", stdout + stderr)
     except subprocess.TimeoutExpired:
+        if proc is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.communicate()
+            if "_untrack_process" in locals() and _untrack_process:
+                _untrack_process(proc)
         return 124, f"the judge ran past {timeout} seconds"
+
+
+QUALITY_OUTPUTS = ("mutants", ".stryker-tmp", ".coverage", "coverage.json",
+                   "coverage.xml", "coverage.lcov", ".coverage.*")
+
+
+def record_quality_outputs(folder: Path) -> list[str]:
+    """List files and directories made under the known Quality output names."""
+    found: set[str] = set()
+    tracked = set(sh(["git", "ls-files"], folder, check=False).stdout.splitlines())
+    for name in QUALITY_OUTPUTS:
+        if "*" in name:
+            for root in folder.glob(name):
+                rel = root.relative_to(folder).as_posix()
+                if rel in tracked:
+                    continue
+                found.add(rel)
+                if root.is_dir() and not root.is_symlink():
+                    found.update(path.relative_to(folder).as_posix() for path in root.rglob("*"))
+            continue
+        root = folder / name
+        if root.is_symlink() or root.is_file():
+            if name not in tracked:
+                found.add(name)
+        elif root.is_dir():
+            found.add(name)
+            found.update(path.relative_to(folder).as_posix() for path in root.rglob("*")
+                         if path.relative_to(folder).as_posix() not in tracked)
+    return sorted(found)
+
+
+def clean_quality_outputs(folder: Path, recorded: list[str]) -> None:
+    """Remove only recorded paths under known Quality output names, one path at a time."""
+    allowed = set(QUALITY_OUTPUTS)
+    paths = []
+    for name in recorded:
+        rel = Path(name)
+        if not rel.parts or rel.is_absolute() or not any(
+                fnmatch.fnmatchcase(rel.parts[0], pattern) for pattern in allowed) or ".." in rel.parts:
+            continue
+        paths.append(folder / rel)
+    for path in sorted(paths, key=lambda item: len(item.parts), reverse=True):
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
+
+
+def skipped_tests(output: str) -> bool:
+    """Recognise skipped counts in pytest, vitest and jest summaries."""
+    patterns = (r"\b[1-9]\d*\s+skipped\b", r"\bskipped\s*:\s*[1-9]\d*\b",
+                r"\bOK\s*\(skipped\s*=\s*[1-9]\d*\)", r"^\s*#\s*skipped\s+[1-9]\d*\b")
+    return any(re.search(pattern, line, re.IGNORECASE)
+               for line in output.splitlines() for pattern in patterns)
 
 
 # ---------------------------------------------------------------- GitHub
@@ -398,6 +572,9 @@ class GitHub:
     def comment(self, n: int, text: str) -> None:
         self._gh("issue", "comment", str(n), "--body-file", "-", stdin=text)
 
+    def edit_body(self, n: int, body: str) -> None:
+        self._gh("issue", "edit", str(n), "--body-file", "-", stdin=body)
+
     def comments(self, n: int) -> list[str]:
         """Comments from people who can push to the repository. On a public
         repository anyone can comment, so a gate record from anyone else is
@@ -415,6 +592,21 @@ class GitHub:
     def signed_in(self) -> bool:
         return subprocess.run(["gh", "auth", "status"], cwd=self.root,
                               capture_output=True).returncode == 0
+
+    def main_protection(self) -> str:
+        """Report main's protection without turning a missing rule into a doctor failure."""
+        try:
+            repo = self._gh("repo", "view", "--json", "nameWithOwner", "--jq",
+                            ".nameWithOwner").strip()
+        except (RuntimeError, AttributeError):
+            return "unknown"
+        result = subprocess.run(["gh", "api", f"repos/{repo}/branches/main/protection"],
+                                cwd=self.root, capture_output=True, text=True)
+        if result.returncode == 0:
+            return "enabled"
+        if "404" in result.stderr or "Not Found" in result.stderr:
+            return "disabled"
+        return "unknown"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
         self._gh("label", "create", name, "--color", color, "--description",
@@ -434,7 +626,8 @@ class GitHub:
 
 def record_text(record: dict, note: str) -> str:
     """A gate record is a comment with a machine line and a plain line."""
-    return f"<!-- {RECORD_TAG} {json.dumps(record, sort_keys=True)} -->\n**Gate:** {note}"
+    encoded = json.dumps(record, sort_keys=True).replace("-->", "\\u002d\\u002d>")
+    return f"<!-- {RECORD_TAG} {encoded} -->\n**Gate:** {note}"
 
 
 def records(comments: list[str]) -> list[dict]:

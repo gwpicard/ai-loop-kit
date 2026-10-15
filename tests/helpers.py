@@ -25,6 +25,9 @@ class FakeGitHub:
         i = self.issues[n]
         return {**i, "labels": list(i["labels"])}
 
+    def edit_body(self, n: int, body: str) -> None:
+        self.issues[n]["body"] = body
+
     def issues_with_label(self, label: str, closed_too: bool = False) -> list[dict]:
         return [self.issue(n) for n, i in sorted(self.issues.items())
                 if label in i["labels"] and (closed_too or i["state"] == "OPEN")]
@@ -106,7 +109,16 @@ GOOD_CODE = '''def add(items, name):
 SPEC = """## Goal
 Add a habit.
 
-## Done when
+## Intent
+Add a habit to the list.
+
+Out of scope:
+- Editing or deleting habits.
+
+## Approach
+Keep the public add function.
+
+## Contract
 - D1: adding a habit appends it.
 - D2: adding a habit twice keeps one.
 
