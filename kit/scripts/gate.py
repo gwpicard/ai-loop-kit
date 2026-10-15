@@ -558,7 +558,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) ->
             "or add a Prepare command:\n" + output.strip()[-800:])
         for command in [*settings.get("quality", []), *(extra_quality or [])]:
             qok, qoutput = quality_on_fresh_main(root, main, command, settings["test"])
-            if "no changed Python functions found" in qoutput:
+            if ("no changed Python functions found" in qoutput or
+                    "no mutmut source paths configured" in qoutput):
                 add(True, f"Quality mutation check could not be exercised on main ({command})", "")
             else:
                 add(qok, f"Quality command passes on a fresh copy of main ({command})",
