@@ -108,6 +108,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base", nargs="?", default="origin/main")
     base = parser.parse_args().base
+    if not source_paths(Path.cwd()):
+        print("mutmut: no mutmut source paths configured", file=sys.stderr)
+        return 2
     selected = patterns(base)
     if not selected:
         print("no changed Python functions found")

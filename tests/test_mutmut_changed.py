@@ -6,7 +6,7 @@ import io
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
@@ -101,11 +101,20 @@ class MutmutChangedTest(unittest.TestCase):
         run = SimpleNamespace(returncode=0, stdout="", stderr="")
         results = SimpleNamespace(returncode=0, stdout="Killed mutants: 0\n", stderr="")
         output = io.StringIO()
-        with patch.object(helper, "patterns", return_value=["module.x_foo__mutmut_*"]), \
+        with patch.object(helper, "source_paths", return_value=[Path("src")]), \
+             patch.object(helper, "patterns", return_value=["module.x_foo__mutmut_*"]), \
              patch.object(helper.subprocess, "run", side_effect=[run, results]), \
              patch("sys.argv", [str(SCRIPT)]), redirect_stdout(output):
             self.assertEqual(helper.main(), 0)
         self.assertIn("module.x_foo nothing to mutate", output.getvalue())
+
+    def test_main_fails_when_no_source_paths_are_configured(self):
+        helper = load_helper()
+        output = io.StringIO()
+        with patch.object(helper, "source_paths", return_value=[]), \
+             patch("sys.argv", [str(SCRIPT)]), redirect_stderr(output):
+            self.assertNotEqual(helper.main(), 0)
+        self.assertIn("no mutmut source paths configured", output.getvalue())
 
 
 if __name__ == "__main__":

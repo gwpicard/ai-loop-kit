@@ -48,7 +48,11 @@ commands, protected paths, and whether to enable branch protection.
 
 Runs need your attention. The guard is not a sandbox. Docker and team use
 have not been tested. A weak judge can let a weak build pass, so review the
-contract and the pull request yourself.
+contract and the pull request yourself. Mutation testing is experimental:
+setup offers it only when the project's tests call changed code in-process
+and the project uses mutmut 3.8 or later. Subprocess-only tests do not score
+mutants, and older mutmut versions do not read the supported configuration
+keys.
 
 ## Where things live
 

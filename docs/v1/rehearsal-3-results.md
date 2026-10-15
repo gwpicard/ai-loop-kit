@@ -8,8 +8,14 @@ Date: 15 October 2026
 | 2 | loop-test-install | PASS, with a scope choice | The kit's mutmut and CRAP commands ran against real coverage and mutmut. Four surviving mutants were reported after attempt 1. Attempt 2 changed the affected code, added tests, killed the survivors and passed both Quality checks. The work began as a feature piece, not a separately shaped fix piece. |
 | 3 | loop-test-node | PASS | Field run open, unit test is the proof. The automated test runs `python3 run.py` as a subprocess, sends real SIGTERM during a standards review, and checks that the reviewer child exits. The maintainer accepts this as the v1 merge proof; the field run remains open as v1.1 work. |
 | 4 | loop-test-install | PASS | Doctor passed on fresh main and reported that mutation testing could not be exercised there. The explicit idle override was removed from `setup/idle-limit`; the branch and main now resolve to the ten-minute default. The setup branch is clean. |
-| S | loop-test-thin | FAIL | Setup found the existing Test command but the fresh-main CRAP dry-run had no coverage data. A follow-up check hit a guard refusal for `rm -rf`, so the rehearsal stopped there. No setup pull request was completed or merged. |
-| Q | loop-test-thin | NOT RUN | The real mutation check on a fix was not started after scenario S stopped at the refused command. Mutation testing remains experimental. |
+| S | loop-test-thin | FAIL | Setup-again's doctor CRAP dry-run failed on the configured project because fresh main's Test command produced no coverage data. No setup pull request was completed or merged. |
+| Q | loop-test-thin | FAIL | The real mutation check on a fix did not yield valid evidence. The details are recorded in the side rows below. Mutation testing remains experimental. |
+| Q1 | loop-test-thin | FAIL | `mutmut-changed.py origin/main` printed `no changed Python functions found` and exited 0 with no source paths configured, a vacuous pass. |
+| Q2 | loop-test-thin | FAIL | With source paths configured, mutmut 3.3.1 did not read the 3.8 configuration keys. Changing to its older key generated mutants but the run crashed before scoring. |
+| Q3 | loop-test-thin | FAIL | The CLI tests call changed code in subprocesses, so mutmut scored no mutants. Coverage also recorded 0% for `habits/cli.py`, while CRAP exited 0 based on complexity alone. |
+| Q4 | loop-test-thin | CORRECTED | The first review identified an out-of-scope `cmd_add` refactor after a PR was opened. The piece was returned; the second run removed the refactor, and the final contract review found no scope issue. |
+
+See `rehearsal-3-side-results.md` for the complete recorded evidence.
 
 ## Review findings fixed
 
