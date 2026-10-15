@@ -56,6 +56,16 @@ FAKE_CLAUDE = textwrap.dedent('''\
       esac
     fi
     case "$FAKE_MODE" in
+      protected) mkdir -p src
+                 python3 "$AI_LOOP_KIT_ROOT/hooks/guard.py" <<EOF
+    {"tool_name":"Edit","tool_input":{"file_path":"src/auth.py"}}
+    EOF
+                 status=$?
+                 if [ "$status" -ne 0 ]; then exit "$status"; fi
+                 printf 'protected change\\n' > src/auth.py
+                 printf '%s\\n' 'def add(items, name):' \
+                   '    return items if name in items else items + [name]' > habits.py
+                 git add src/auth.py habits.py && git commit --quiet -m "Build protected path" ;;
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
                     printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
@@ -483,6 +493,38 @@ class RunTest(unittest.TestCase):
         self.assertIn("pull request ready", result)
         self.assertIn("state:approval", self.p.gh.issue(n)["labels"])
         self.assertIn(f"piece/{n}", git(self.p.remote, "branch"))
+
+    def test_builder_can_edit_a_protected_path_named_in_the_contract(self):
+        self.p.loop_section("true")
+        agents_file = self.p.root / "AGENTS.md"
+        agents_file.write_text(agents_file.read_text() + "Protected paths: src/auth.py\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Protect auth route")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        spec = SPEC.replace("- D1: adding a habit appends it.",
+                            "- D1: update src/auth.py to add the auth route control.")
+        os.environ["FAKE_MODE"] = "protected"
+        n = self.p.piece(spec=spec)
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("pull request ready", result)
+        self.assertEqual((self.p.folder(n) / "src/auth.py").read_text(),
+                         "protected change\n")
+
+    def test_builder_cannot_edit_a_protected_path_missing_from_the_contract(self):
+        self.p.loop_section("true")
+        agents_file = self.p.root / "AGENTS.md"
+        agents_file.write_text(agents_file.read_text() + "Protected paths: src/auth.py\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Protect auth route")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        os.environ["FAKE_MODE"] = "protected"
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("back to shaping", result)
+        self.assertFalse((self.p.folder(n) / "src/auth.py").exists())
+        self.assertEqual(self.p.gh.prs, {})
 
     def test_submit_evidence_includes_a_passing_keep_result(self):
         self.p.loop_section("true")
