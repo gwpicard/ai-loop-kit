@@ -67,13 +67,18 @@ class CriticTest(unittest.TestCase):
                     "returncode": 0,
                     "stdout": "<verdict>" + json.dumps(verdict) + "</verdict>",
                     "stderr": ""})())
-            with patch("critic.subprocess.run", side_effect=results) as invoke:
+            visible_files = []
+            def fake_run(args, **kwargs):
+                visible_files.append(sorted(path.name for path in Path(kwargs["cwd"]).iterdir()))
+                return results.pop(0)
+            with patch("critic.subprocess.run", side_effect=fake_run) as invoke:
                 passed, evidence = critic.judge(capture, str(reference), ["clarity"], folder,
                                                 orders=[True, False, True])
             self.assertTrue(passed)
             self.assertEqual(invoke.call_count, 3)
             self.assertEqual([call.args[0][-2:] for call in invoke.call_args_list],
-                             [["--tools", ""]] * 3)
+                             [["--tools", "Read"]] * 3)
+            self.assertEqual(visible_files, [["ours.txt", "reference.txt"]] * 3)
             self.assertEqual(json.loads(evidence)["critics"][1]["ours"], "B")
 
 
