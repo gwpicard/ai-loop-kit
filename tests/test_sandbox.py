@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from helpers import git
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 
 import agents
@@ -83,6 +85,30 @@ class SandboxTest(unittest.TestCase):
         self.assertIn(str((root / ".env.local").resolve()), denied)
         self.assertNotIn(str((root / ".env.example").resolve()), denied)
         self.assertIn(str((root / "private" / "keys.json").resolve()), denied)
+
+    def test_codex_walkaway_session_applies_secret_path_denials(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git(root, "init", "--quiet")
+            (root / "AGENTS.md").write_text(
+                "## The loop\nSecret paths: private/keys.json\n")
+            with patch.object(loopkit, "project_root", return_value=root), \
+                 patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True), \
+                 patch.object(agents.subprocess, "Popen") as popen:
+                agents.start_session("codex", "brief", root, role="builder",
+                                     walk_away=True)
+
+        args = popen.call_args.args[0]
+        self.assertNotIn("--sandbox", args)
+        configs = [args[index + 1] for index, value in enumerate(args[:-1])
+                   if value == "--config"]
+        profile = " ".join(configs)
+        self.assertIn('default_permissions="ai-loop"', profile)
+        self.assertIn('permissions.ai-loop.extends=":workspace"', profile)
+        self.assertIn('".env*"="deny"', profile)
+        self.assertIn('".env.example"="read"', profile)
+        self.assertIn('"private/keys.json"="deny"', profile)
+        self.assertIn("permissions.ai-loop.network.enabled=false", profile)
 
     def test_builder_environment_drops_secret_shaped_variables(self):
         with tempfile.TemporaryDirectory() as temp:

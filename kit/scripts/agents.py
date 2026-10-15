@@ -84,13 +84,23 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
             env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     else:
         cli = os.environ.get("LOOP_CODEX", "codex")
-        args = [cli, "exec", "--json", "--sandbox", "workspace-write",
-                "--config", 'approval_policy="never"', "--cd", str(work),
-                "--ignore-user-config", "--ephemeral", "--config",
-                "sandbox_workspace_write.network_access=false", "--config",
-                "sandbox_workspace_write.writable_roots=[]", "--config",
-                "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
-                "sandbox_workspace_write.exclude_tmpdir_env_var=true", prompt]
+        args = [cli, "exec", "--json"]
+        if walk_away:
+            import sandbox
+            args += sandbox.codex_permission_args(work)
+            args += ["--config", 'approval_policy="never"']
+        else:
+            args += ["--sandbox", "workspace-write", "--config",
+                     'approval_policy="never"', "--cd", str(work),
+                     "--ignore-user-config", "--ephemeral", "--config",
+                     'sandbox_workspace_write.network_access=false', "--config",
+                     "sandbox_workspace_write.writable_roots=[]", "--config",
+                     "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
+                     "sandbox_workspace_write.exclude_tmpdir_env_var=true"]
+        if walk_away:
+            args += ["--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
+        else:
+            args += [prompt]
         env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True),
                "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
                "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}

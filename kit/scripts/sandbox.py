@@ -93,6 +93,44 @@ def session_settings(folder: Path, domains: Optional[list[str]] = None) -> dict:
     return settings
 
 
+def codex_permission_args(folder: Path) -> list[str]:
+    """Build Codex CLI overrides that deny project secrets in walk-away runs."""
+    from loopkit import loop_settings
+
+    work = folder.resolve()
+    workspace_rules = {".": "write", ".env*": "deny", ".env.example": "read"}
+    absolute_rules = {}
+    for raw in loop_settings(work).get("secret paths", []):
+        path = Path(raw)
+        target = (path if path.is_absolute() else work / path).resolve()
+        try:
+            relative = target.relative_to(work).as_posix()
+        except ValueError:
+            absolute_rules[str(target)] = "deny"
+        else:
+            workspace_rules[relative] = "deny"
+
+    filesystem = {
+        ":tmpdir": "deny",
+        ":slash_tmp": "deny",
+        ":workspace_roots": workspace_rules,
+        **absolute_rules,
+    }
+
+    def toml_value(value):
+        if isinstance(value, dict):
+            return "{" + ",".join(f"{json.dumps(key)}={toml_value(item)}"
+                                  for key, item in value.items()) + "}"
+        return json.dumps(value)
+
+    return [
+        "--config", 'default_permissions="ai-loop"',
+        "--config", 'permissions.ai-loop.extends=":workspace"',
+        "--config", f"permissions.ai-loop.filesystem={toml_value(filesystem)}",
+        "--config", "permissions.ai-loop.network.enabled=false",
+    ]
+
+
 def guard_tool_input(tool: str, data: dict, folder: Path) -> Optional[str]:
     """Limit Claude file tools to the active build worktree."""
     if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
@@ -220,7 +258,8 @@ def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
         "Do not print file contents."
     )
     try:
-        proc = agents.start_session("codex", prompt, folder, role="probe")
+        proc = agents.start_session("codex", prompt, folder, role="probe",
+                                    walk_away=True)
         output, _ = proc.communicate(timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
         return False, f"Codex sandbox probe could not run: {error}"
