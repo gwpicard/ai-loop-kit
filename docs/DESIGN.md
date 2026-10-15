@@ -508,7 +508,9 @@ run.py
 - Claude Code 2.1.285 or later, or a working Codex.
 - A live probe: a real session must fail to write to the home folder, read
   `~/.ssh` and reach an outside host.
-- Confirmed `Sandbox domains:` (package registries only).
+- Confirmed `Sandbox domains:` (package registries only). The gate reads the
+  list from the loop section of `AGENTS.md` and passes it to Claude's strict
+  network allowlist.
 - No GitHub or npm token in the environment.
 - Green Prepare and Test on a fresh `main`, 10 GB free, room in the approval
   queue.
