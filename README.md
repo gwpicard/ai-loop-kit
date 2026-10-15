@@ -73,5 +73,4 @@ Docker and team use are untested.
 - [How it works](docs/V1.md)
 - [Why it works this way](docs/DESIGN.md)
 - [Changelog](CHANGELOG.md)
-- [How the kit grows](docs/LEDGER.md)
 - [MIT licence](LICENSE)

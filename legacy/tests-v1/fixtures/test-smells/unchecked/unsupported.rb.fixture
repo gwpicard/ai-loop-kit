@@ -1,5 +1,0 @@
-describe 'result' do
-  it 'has no automated checker here' do
-    expect(result).to eq(2)
-  end
-end
