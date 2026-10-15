@@ -174,6 +174,19 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
           folder: Optional[Path] = None) -> str:
     text = (KIT / "briefs" / "builder.md").read_text()
     files = "\n".join(f"- `{f}`" for f in ready["files"]) or "- (none: the command is the judge)"
+    command = ready.get("command", "")
+    kind_rules = ""
+    if ready.get("kind") == "goal":
+        command = "Measure: " + ready["measure"]
+        kind_rules = ("Before changing code in every attempt, write one testable hypothesis to "
+                      "`.loop/hypothesis`. The gate measures the result three times and uses "
+                      "the median. Meet Target and Keep to pass.\n")
+        files = "- (the measured value is the judge)"
+    elif ready.get("kind") == "gauntlet":
+        command = "Capture: " + ready["capture"]
+        kind_rules = ("The gate captures your result and runs three fresh blind critics against "
+                      "the named reference. Do not change the reference or criteria.\n")
+        files = "- (the captured artefact is the judge)"
     earlier = last_failure or "This is the first attempt."
     if came_back:
         earlier = ("This piece was built before and came back for these reasons:\n"
@@ -181,12 +194,14 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
                    f"reasons no longer apply.\n\n{earlier}")
     for key, value in {"PIECE": str(n), "SPEC": body.strip(),
                        "APPROACH": ready.get("approach", "") or "No approach was supplied.",
-                       "COMMAND": ready["command"],
+                       "COMMAND": command,
                        "FILES": files,
                        "DEPENDENTS": "\n".join(f"- `{f}`" for f in dependent_files(
                            folder or Path.cwd(), ready.get("approach", ""), [], ready.get("files"))) or "- (none found)",
                        "LAST_FAILURE": earlier}.items():
         text = text.replace("{{" + key + "}}", value)
+    if kind_rules:
+        text += "\n## Loop kind instructions\n\n" + kind_rules
     return text
 
 
@@ -397,6 +412,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
     last_failure = merge_note
     came_back = came_back_reason(gh.comments(n))
     main_quality_results: dict[tuple[str, str], bool] = {}
+    kind_history: list[str] = []
     for k in range(1, attempts + 1):
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
@@ -414,6 +430,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         started = time.monotonic()
         started_at = datetime.now(timezone.utc)
         (folder / ".loop" / "outcome").unlink(missing_ok=True)
+        if ready.get("kind") == "goal":
+            (folder / ".loop" / "hypothesis").unlink(missing_ok=True)
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
                                  ready["files"], logfile, ready.get("settings", False),
@@ -439,10 +457,17 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
         try:
-            passed, output = gate.judge(folder, ready)
+            attempt_ready = {**ready, "attempt": k}
+            passed, output = gate.judge(folder, attempt_ready)
         finally:
             clean_quality_outputs(folder, record_quality_outputs(folder))
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
+        if ready.get("kind") in ("goal", "gauntlet"):
+            kind_history.append(f"Attempt {k}: {output.strip()}")
+            baseline = (f"Main measurement: {ready['main_measurements']}; median "
+                        f"{ready['main_median']}\n" if ready.get("kind") == "goal" else
+                        f"Main gauntlet: {ready['main_verdicts']}\n")
+            output += "\n\n" + baseline + "Attempt history:\n" + "\n".join(kind_history)
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)

@@ -35,6 +35,39 @@ Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, and
 the bug in its first Contract item. `Done when` remains accepted as the old
 name for `Contract`.
 
+Use `Kind: goal` when one numeric measurement decides whether the work passes.
+Replace `Command:` and `Files:` with:
+
+```markdown
+Kind: goal
+Measure: `python3 bench.py`
+Target: `< 200`
+```
+
+The Measure command must print one finite number on its last line. The gate
+runs it three times and compares the median. At ready, the median on main must
+miss the target. Each attempt must first write its hypothesis to
+`.loop/hypothesis`; the pull request records the main and attempt values and
+the hypotheses tried. Targets use `<`, `<=`, `>` or `>=` followed by a number.
+
+Use `Kind: gauntlet` when tests cannot judge the result, such as a design or
+piece of writing. Replace `Command:` and `Files:` with:
+
+```markdown
+Kind: gauntlet
+Capture: `python3 render.py`
+Reference: `docs/example.png`
+Criteria:
+- Readable labels
+- Clear hierarchy
+```
+
+Capture writes one or more artefact files under `.loop/capture/`. Reference
+names a project path or URL. Criteria must have at least one item. At ready,
+three fresh blind critics must find that main does not win at least two
+comparisons. Each attempt uses three fresh critics, and ours must win at least
+two. The pull request records each verdict and the order shown to each critic.
+
 ## Fix example
 
 ```markdown
