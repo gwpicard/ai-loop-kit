@@ -180,7 +180,7 @@ interrupted run.
 | No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (`docs/LEDGER.md`, 14 October). |
 | Protected paths | Some code (auth, billing, CI) needs a person. Zone the code [Osmani, brownfield]. |
 | No file grows past 1,000 lines | A file that sprawls is a design smell agents create quickly [Cursor, thermo-nuclear]. |
-| Quality commands: CRAP and mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. Doctor runs Test before Quality in the same fresh copy of main. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that check uses the frozen Test command, and its cache key includes the Quality command and main commit. |
+| Quality commands: CRAP and experimental mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. Treat mutation testing as experimental until field scenario Q passes. Doctor runs Test before Quality in the same fresh copy of main. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that check uses the frozen Test command, and its cache key includes the Quality command and main commit. |
 | Secret shapes | A secret in git history stays for ever. |
 | Nothing skipped | A skipped test passes silently. |
 
@@ -223,11 +223,11 @@ Docker on macOS, so it waits until the boundary above is solid.
 ## 12. How v1 was built, and how the kit grows
 
 The thin kit grew one earned feature at a time from 13 October 2026. For v1
-the maintainer chose to build from a plan in one pass (`docs/V1-PLAN.md`),
-with tests and rehearsals at the end, so v1 could be used sooner. The
-amendments from review and the rehearsal findings are in `docs/v1/`. After v1
-merges, the earn rule applies again: a failure in `docs/LEDGER.md` first, then
-a test, then the feature.
+the maintainer chose to build from a plan in one pass, with tests and
+rehearsals at the end, so v1 could be used sooner. The current build notes and
+rehearsal findings are in `docs/v1/`; the earlier package plans remain in git
+history. After v1 merges, the earn rule applies again: a failure in
+`docs/LEDGER.md` first, then a test, then the feature.
 
 ## Sources
 

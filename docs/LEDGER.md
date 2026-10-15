@@ -17,6 +17,15 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 | 15 Oct 2026 | v1 code review, item 8 | The hostile-builder scenario did not exercise Quality deletion, test renames, `conftest.py` edits or standards-file edits. | Give each change a separate fake-builder case and check that the gate refuses it. |
 | 15 Oct 2026 | v1 code review, item 7 | The H1 check only asserted non-empty output, and commands could take protected paths from an edited `AGENTS.md`. | Assert the specific refusal and pass the frozen protected paths to every build and gate command. |
 | 15 Oct 2026 | v1 code review, item 6 | Folder activity checks walked generated build trees every tenth of a second, and Claude `result` errors were dropped from the log. | Check folder activity every two seconds, skip generated build directories, and log result errors. |
+| 15 Oct 2026 | v1 finish review, review-2 item 6 | The code fix and unit test landed, but the round 3 field run did not separately prove the idle reset from a streamed file change. | v1.1: add field evidence that a build-folder change resets the idle clock. |
+| 15 Oct 2026 | v1 finish review, review-2 item 7 | The frozen protected paths and refusal test landed, but the finish pass did not repeat the field check against a hostile edited `AGENTS.md`. | v1.1: confirm the frozen protected-path check in a field run. |
+| 15 Oct 2026 | v1 finish review, review-2 item 8 | The hostile-builder cases landed, but the finish pass did not run each added case in a live project. | v1.1: confirm the Quality deletion, test rename, `conftest.py` and standards-file cases in a field run. |
+| 15 Oct 2026 | loop-test-install, long-build rehearsal | The standards reviewer passed the piece but left four follow-up suggestions about report logic, wrapper `exit_code`, tuple names and a circular import. | v1.1: review those suggestions as separate pieces if they still apply. |
+| 15 Oct 2026 | v1 merge check, item 1 | The shape skill's move-back command omitted the required `--type`, so it would be refused. | Add the type and parse every documented gate command from the skills in a test. |
+| 15 Oct 2026 | v1 merge check, item 6 | The missing verdict-file path needed an explicit check because an absent file must give a `next:` step, not a traceback. | Keep a regression test for the refusal and its `next:` step. |
+| 15 Oct 2026 | v1 finish review, M2 | The automated test sends real SIGTERM to a real `python3 run.py` during review. | v1.1: the field run remains open; the unit test is the v1 merge proof. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, setup | Doctor could not exercise coverage-based CRAP on fresh `main` when its Test command produced no coverage. A later setup check hit a refused recursive-delete command, so the rehearsal stopped there. | v1.1: make the setup Quality dry-run work on fresh main, and keep setup checks clear of recursive deletion. |
+| 15 Oct 2026 | loop-test-thin, rehearsal round 3, mutation | Real mutation testing on a fix was not run after setup stopped at the refused command. | v1.1: complete scenario Q before calling mutation testing established. |
 | 15 Oct 2026 | v1 code review, item 3 | The Quality check against main skipped the frozen Test command, so checks that need test-created coverage looked broken on main; its result cache was not tied to a command or commit. | Run Test before Quality and key the cached result by the command and main commit. |
 | 15 Oct 2026 | v1 code review, item 2 | When a Claude parent exited but its child kept the output pipe open, `_pump_session` never saw EOF and no longer checked its timers. | Give child processes three seconds to close after the parent exits, then stop the group and finish reading. |
 | 15 Oct 2026 | v1 code review, item 1 | A real `python3 run.py` process and its imported `run` module held separate process-group state, so SIGTERM could miss reviewer children and leave them running. | Store process groups, the main-ref cache and `AttemptIdle` in one shared module. |
@@ -102,27 +111,27 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 
 The earn rule was suspended for this planned build. These entries are held
 in v1 by the named code and checks; the source is the corresponding package
-in `docs/V1-PLAN.md`.
+in the v1 notes under `docs/v1/` and git history.
 
 | Idea now held | Where it is held | Status and source |
 | --- | --- | --- |
-| Intent, scope, approach and numbered contract items | `kit/scripts/loopkit.py`, `kit/spec-format.md` | IN THE KIT; v1 plan W1 |
-| Typed hand-backs, a report and a gate-controlled spec edit | `kit/scripts/gate.py` | IN THE KIT; v1 plan W2 |
-| Run lock, recovery, stop, elapsed time and process timeouts | `kit/scripts/run.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W3 |
-| Judge test lint, frozen support files and skipped-test refusal | `kit/scripts/testlint.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W4 |
-| Project quality commands and changed-scope helpers | `kit/quality/`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W5 |
-| Judge writer, standards review and separate contract review | `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 plan W6 |
-| Pull request facts, evidence, importer count and builder rationale | `kit/scripts/run.py`, `kit/briefs/builder.md` | IN THE KIT; v1 plan W7 |
-| Command guard, protected paths, secret scan and protection status | `kit/hooks/guard.py`, `kit/scripts/gate.py` | IN THE KIT; v1 plan W8 |
-| Shape, run and setup guidance | `kit/skills/` | IN THE KIT; v1 plan W9 |
-| Product definition, overview and in-progress changelog | `docs/V1.md`, `README.md`, `CHANGELOG.md` | IN THE KIT; v1 plan W10 |
-| File-size limit, changed-function CRAP, public-interface judges, approval waiting limit and importer context | `kit/scripts/gate.py`, `kit/scripts/testlint.py`, `kit/quality/crap.py`, `kit/scripts/run.py` | IN THE KIT; v1 plan W11 |
-| Test quality lint, module-interface reviews, tagged verdicts, idle limits and dirty-folder refusal | `kit/scripts/testlint.py`, `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 plan W12 |
+| Intent, scope, approach and numbered contract items | `kit/scripts/loopkit.py`, `kit/spec-format.md` | IN THE KIT; v1 package plan in git history |
+| Typed hand-backs, a report and a gate-controlled spec edit | `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Run lock, recovery, stop, elapsed time and process timeouts | `kit/scripts/run.py`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Judge test lint, frozen support files and skipped-test refusal | `kit/scripts/testlint.py`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Project quality commands and changed-scope helpers | `kit/quality/`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Judge writer, standards review and separate contract review | `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 package plan in git history |
+| Pull request facts, evidence, importer count and builder rationale | `kit/scripts/run.py`, `kit/briefs/builder.md` | IN THE KIT; v1 package plan in git history |
+| Command guard, protected paths, secret scan and protection status | `kit/hooks/guard.py`, `kit/scripts/gate.py` | IN THE KIT; v1 package plan in git history |
+| Shape, run and setup guidance | `kit/skills/` | IN THE KIT; v1 package plan in git history |
+| Product definition, overview and release changelog | `docs/V1.md`, `README.md`, `CHANGELOG.md` | IN THE KIT; v1 package plan in git history |
+| File-size limit, changed-function CRAP, public-interface judges, approval waiting limit and importer context | `kit/scripts/gate.py`, `kit/scripts/testlint.py`, `kit/quality/crap.py`, `kit/scripts/run.py` | IN THE KIT; v1 package plan in git history |
+| Test quality lint, module-interface reviews, tagged verdicts, idle limits and dirty-folder refusal | `kit/scripts/testlint.py`, `kit/agents/`, `kit/briefs/`, `kit/scripts/run.py` | IN THE KIT; v1 package plan in git history |
 
 ## What is in v1
 
-- v1 is defined in `docs/V1.md`; its build order and evidence are in
-  `docs/V1-PLAN.md`.
+- v1 is defined in `docs/V1.md`; its build notes and rehearsal evidence are
+  in `docs/v1/` and git history.
 - Every piece has a checked contract and a judge fixed at ready.
 - The run has one lock, recovers interrupted pieces and checks stop requests
   at attempt boundaries.

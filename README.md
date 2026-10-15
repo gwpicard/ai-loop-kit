@@ -17,8 +17,8 @@ Read [docs/ANGLE.md](docs/ANGLE.md) for why it works this way.
 
 ## Status
 
-Version 1.0.0 is in progress. The plan defines this build. After v1, a new
-feature must answer a failure seen in a real run. Use the kit with you nearby.
+Version 1.0.0 is the current release target. After v1, a new feature must
+answer a failure seen in a real run. Use the kit with you nearby.
 
 ## Install
 
@@ -53,11 +53,13 @@ contract and the pull request yourself.
 ## Where things live
 
 - `kit/`: the plugin. Skills, the gate, the run, the guard, the builder brief.
-- `tests/`: the checks. `tests/run-all.sh` runs them in seconds.
+- `tests/`: the checks. `tests/run-all.sh` takes about two to four minutes.
 - `docs/ANGLE.md`: what the kit is for.
 - `docs/LEDGER.md`: every idea from the first design, and what would earn it
   a place.
 - `docs/LESSONS.md`: what the first build taught us.
+- `docs/v1/`: the v1 findings, results and build notes; earlier plan files
+  remain in git history.
 - `legacy/` and `docs/archive/`: the first kit and its design, kept as a
   parts bin and as reasoning.
 

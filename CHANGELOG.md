@@ -1,11 +1,14 @@
 # Changelog
 
-## 1.0.0 (in progress)
+## 1.0.0 (15 October 2026)
 
 V1 adds an Intent and Contract format, typed hand-backs, safer runs, judge
 quality checks, project Quality commands, two independent reviews, and
 pull requests written from checked facts. The gate now checks protected paths
 and secret shapes. See [the v1 definition](docs/V1.md).
+
+Upgrade from 0.10.0: add a non-empty `## Intent` and `Out of scope:` to each
+spec. The existing `## Done when` section is read as `## Contract`.
 
 ## 0.10.0
 

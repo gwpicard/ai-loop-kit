@@ -256,6 +256,19 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             _last_verdict("<verdict>{bad}</verdict>", "contract")
 
+    def test_missing_judge_writer_verdict_file_prints_next_step(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        missing = Path(self.p.tmp.name) / "missing-verdict.txt"
+        errors = StringIO()
+        with redirect_stderr(errors):
+            status = run.main(["--verdict-kind", "judge-writer",
+                               "--verdict-file", str(missing)])
+        self.assertEqual(status, 2)
+        self.assertIn("next:", errors.getvalue())
+        self.assertNotIn("Traceback", errors.getvalue())
+
     def test_run_lock_refuses_live_runs_and_takes_over_dead_ones(self):
         lock = run.acquire_lock(self.p.root)
         with self.assertRaises(Refused) as r:

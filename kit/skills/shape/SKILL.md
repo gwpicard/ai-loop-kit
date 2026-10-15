@@ -42,5 +42,5 @@ Use the KIT path above in every command. Write it out in full. Read
 - Never write the code the piece asks for. Shaping writes the spec and the judge only.
 - Use `Kind: scaffold` only when the judge cannot fail on main, such as a test runner that does not exist yet. If the judge can fail on main, leave Kind out so the gate checks it.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.
-- After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --reason "<why>"`, then shape it again.
+- After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --type spec-unclear --reason "<why>"`, then shape it again.
 - If the gate refuses, report the refusal in plain words and take the `next:` step. Never reach the same result another way.

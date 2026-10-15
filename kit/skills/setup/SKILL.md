@@ -20,7 +20,7 @@ and fix what it names; you do not judge the ground by eye.
 3. Agree the commands with the person. Offer the way the project already works as the recommended answer, and the other real options beside it. Never impose a tool the project does not use.
    - **Prepare command**: makes a fresh clone runnable. Examples: `npm ci` (with a lockfile) or `npm install`; `uv sync`; `python3 -m venv .venv && .venv/bin/pip install -e '.[test]'`; `docker compose build`. Leave it out when a fresh clone needs nothing.
    - **Test command**: runs every test. Examples: `npm test`; `python -m pytest`; `go test ./...`; `docker compose run --rm app npm test`.
-   - **Quality commands**: optional checks that run after the judge and Test command pass. For Python, offer `python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-changed.py" origin/main` and `coverage json -o coverage.json && python3 "$AI_LOOP_KIT_ROOT/quality/crap.py" --coverage coverage.json --base origin/main`. The project must collect coverage data during its Test command. For Node, offer `npx eslint --rule 'complexity: ["error", 10]' .`. These can take much longer than the regular tests. Say what each command runs and ask before adding it. Before recording a proposed Quality command, run `python3 "<KIT>/scripts/gate.py" doctor --quality-command '<command>'`. Doctor runs it on a fresh copy of main. Do not record a command that fails there; show its named failure and offer a correction.
+   - **Quality commands**: optional checks that run after the judge and Test command pass. For Python, mutation testing with mutmut is experimental until field scenario Q passes. Offer `python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-changed.py" origin/main` and `coverage json -o coverage.json && python3 "$AI_LOOP_KIT_ROOT/quality/crap.py" --coverage coverage.json --base origin/main`. The project must collect coverage data during its Test command. For Node, offer `npx eslint --rule 'complexity: ["error", 10]' .`. These can take much longer than the regular tests. Say what each command runs and ask before adding it. Before recording a proposed Quality command, run `python3 "<KIT>/scripts/gate.py" doctor --quality-command '<command>'`. Doctor runs it on a fresh copy of main. Do not record a command that fails there; show its named failure and offer a correction.
    - When adding mutmut, configure its current `source_paths` and `pytest_add_cli_args_test_selection` keys. Set pytest `testpaths` to the project's test directory so mutmut does not collect tool output.
    - **Standards and protected paths**: offer the existing standards file as the recommended standards choice. Never use `AGENTS.md` as the standards file. If none exists, offer to create `STANDARDS.md` with a short starter, or use the built-in baseline. Offer protected paths as well, recommending existing `.claude/`, `.githooks/`, secret and deployment configuration paths that must not change. Record either choice only after the person says yes. If they decline, leave it out.
    - **Branch protection**: ask whether the person wants protection on `main`. Offer it only for a public repository or a plan that supports it. If they say yes, use `gh api` to require pull requests. Do not change repository settings before that yes. Doctor reports whether protection is enabled.
@@ -35,9 +35,12 @@ and fix what it names; you do not judge the ground by eye.
    Prepare command: `<the confirmed command>`
    Test command: `<the confirmed command>`
    Quality: `<each confirmed optional command>`
+   Standards: `<confirmed path>`
    Protected paths: `<paths builders and reviewers must not edit>`
+   Idle limit: 10
+   Waiting limit: 3
    ```
-   Leave out the Prepare line if there is none, and `Protected paths:` when there are none. The gate reads these settings from the loop section.
+   Leave out Prepare if it is not needed, Standards when the built-in baseline is used, and `Protected paths:` when there are none. Ask before changing the idle or waiting defaults. The gate reads these settings from the loop section.
    Done when: the pull request is open and you have given the person its link.
 5. After the person merges, run `python3 "<KIT>/scripts/gate.py" doctor` again.
    Done when: every check says ok. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.

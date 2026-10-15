@@ -8,10 +8,13 @@ record on the issue for every move it makes.
     gate.py init                       make the labels, ignore .loop/
     gate.py capture --title T --body-file F
     gate.py check N                    run the ready checks, move nothing
-    gate.py move N STATE [--reason R]  move a piece
+    gate.py move N STATE [--reason R] [--type T]
+    gate.py spec N --body-file F       replace a shaping piece's spec
     gate.py sync                       move merged pieces to done
     gate.py status                     list the pieces by state
     gate.py doctor                     check the project is ready for the loop
+    gate.py report                     count typed hand-backs
+    gate.py stop                       stop a live run after its current attempt
 """
 from __future__ import annotations
 
@@ -623,7 +626,7 @@ def request_stop(root: Path) -> str:
     return "the run will stop after the current attempt"
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gate.py", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init")
@@ -647,7 +650,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                    help="also dry-run this proposed Quality command on fresh main")
     sub.add_parser("report")
     sub.add_parser("stop")
-    args = p.parse_args(argv)
+    return p
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
 
     root = repo_root(Path.cwd())
     gh = GitHub(root)
