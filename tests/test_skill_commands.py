@@ -4,13 +4,30 @@ from __future__ import annotations
 import re
 import shlex
 import unittest
-from pathlib import Path
 
-from helpers import KIT
 import gate
+from helpers import KIT
 
 
 class SkillCommandTest(unittest.TestCase):
+    def test_skill_and_brief_guidance_matches_the_spec_and_project(self):
+        shape = (KIT / "skills" / "shape" / "SKILL.md").read_text()
+        setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
+        standards = (KIT / "briefs" / "standards-reviewer.md").read_text()
+        builder = (KIT / "briefs" / "builder.md").read_text()
+        ruff = (KIT.parent / "ruff.toml").read_text()
+
+        self.assertIn("numbered Contract items", shape)
+        self.assertEqual(shape.count("<KIT>/agents/researcher.md"), 1)
+        self.assertNotIn("researcher subagent", shape)
+        self.assertNotIn("under Notes", shape)
+        self.assertEqual(setup.count("**Quality commands**"), 1)
+        self.assertEqual(standards.count("small fix to non-test project code"), 1)
+        self.assertIn("When a CRAP command is configured", builder)
+        self.assertIn('target-version = "py39"', ruff)
+        self.assertNotIn("tests/lint.sh", ruff)
+        self.assertNotIn("BORROWED.md", ruff)
+
     def test_every_documented_gate_command_parses(self):
         found = 0
         for skill in sorted((KIT / "skills").glob("*/SKILL.md")):
