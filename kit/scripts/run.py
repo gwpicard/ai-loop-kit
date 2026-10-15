@@ -23,12 +23,15 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
+import sandbox  # noqa: E402
+import walkaway  # noqa: E402
 from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      changed_check_settings, command_env,
                      clean_quality_outputs, record_quality_outputs,
@@ -215,9 +218,10 @@ def research_brief(ready: dict) -> str:
     return "\n".join(lines) or "- No outside facts were used."
 
 
-def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict) -> dict:
+def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict,
+                 walk_away: bool = False, domains: Optional[list[str]] = None) -> dict:
     import review
-    return review.review_piece(root, folder, n, k, issue, ready)
+    return review.review_piece(root, folder, n, k, issue, ready, walk_away, domains)
 
 
 def builder_settings() -> str:
@@ -230,7 +234,10 @@ def builder_settings() -> str:
 
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT,
-               protected_paths: Optional[list[str]] = None) -> str:
+               protected_paths: Optional[list[str]] = None,
+               walk_away: bool = False, domains: Optional[list[str]] = None,
+               result_event: Optional[dict] = None,
+               append_log: bool = False) -> str:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     # Claude Code applies Edit(path) deny rules to every file-editing tool.
     # The gate checks the same files again, since Bash can still write them.
@@ -241,15 +248,25 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
             "--permission-mode", "acceptEdits",
             "--allowedTools", "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
             "--settings", builder_settings()]
+    if walk_away:
+        args[args.index(builder_settings())] = json.dumps(
+            sandbox.session_settings(folder, domains), separators=(",", ":"))
+        args += ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
     if denied:
         args += ["--disallowedTools", *denied]
     env = {**command_env(folder, protected_paths=protected_paths), "LOOP_BUILDER": "1"}
-    with logfile.open("w") as out:
+    if walk_away:
+        env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(folder.resolve())})
+    with logfile.open("a" if append_log else "w") as out:
         proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=env, start_new_session=True)
         track_process(proc)
         from review import _pump_session
-        return _pump_session(proc, out, idle_seconds, activity_path=folder)
+        status = _pump_session(proc, out, idle_seconds, activity_path=folder,
+                               result_event=result_event)
+        if walk_away and result_event is not None and sandbox.usage_limit_event(result_event):
+            return "usage-limit"
+        return status
 
 
 def builder_words(logfile: Path) -> str:
@@ -337,21 +354,23 @@ def check_pushed_branch(root: Path, n: int) -> None:
                       "judge files, commit, run gate.py check, then run again")
 
 
-def build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
+def build_piece(gh: GitHub, root: Path, n: int, attempts: int,
+                walk_away: bool = False) -> str:
     _cache_main_for_piece()
     try:
-        return _build_piece(gh, root, n, attempts)
+        return _build_piece(gh, root, n, attempts, walk_away)
     finally:
         _clear_main_piece_cache()
 
 
-def _build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
+def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
+                 walk_away: bool = False) -> str:
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     check_pushed_branch(root, n)
     gate.move(gh, root, n, "building")
     try:
-        result = build_claimed(gh, root, n, issue, attempts)
+        result = build_claimed(gh, root, n, issue, attempts, walk_away)
     except AttemptIdle as e:
         reason = str(e)
         if gate.state_of(gh.issue(n)) == "building":
@@ -367,7 +386,8 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int) -> str:
     return result
 
 
-def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) -> str:
+def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
+                  walk_away: bool = False) -> str:
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
     claim = last_record(gh.comments(n), "claim") or {}
@@ -445,10 +465,31 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
         if ready.get("kind") == "goal":
             (folder / ".loop" / "hypothesis").unlink(missing_ok=True)
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
-        idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
-                                 ready["files"], logfile, ready.get("settings", False),
+        domains = walkaway.approved_domains(root) if walk_away else None
+        if walk_away:
+            walkaway.write_heartbeat(root, n, k)
+        result_event = {}
+        prompt = brief(n, issue["body"], ready, last_failure, came_back, folder)
+        idle_status = build_once(folder, prompt, ready["files"], logfile,
+                                 ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
-                                 ready.get("protected_paths", []))
+                                 ready.get("protected_paths", []), walk_away, domains,
+                                 result_event)
+        if idle_status == "usage-limit":
+            wait_seconds = sandbox.reset_wait_seconds(result_event)
+            log(f"piece {n}: usage limit; waiting {wait_seconds} seconds before one retry")
+            time.sleep(wait_seconds)
+            result_event = {}
+            idle_status = build_once(folder, prompt, ready["files"], logfile,
+                                     ready.get("settings", False),
+                                     idle_limit_seconds(folder, ready.get("idle_limit")),
+                                     ready.get("protected_paths", []), walk_away, domains,
+                                     result_event, append_log=True)
+            if idle_status == "usage-limit":
+                reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
+                gh.comment(n, f"**Run:** {reason}")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+                return f"piece {n}: back to shaping, {reason}"
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
@@ -520,7 +561,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
-            review = review_piece(root, folder, n, k, issue, ready)
+            review = review_piece(root, folder, n, k, issue, ready, walk_away,
+                                  walkaway.approved_domains(root) if walk_away else None)
             if review["contract_findings"]:
                 reason = "; ".join(review["contract_findings"])
                 gh.comment(n, record_text({"move": "judge-gap", "type": "judge-gap",
@@ -575,6 +617,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--attempts", type=int, default=3)
     p.add_argument("--verdict-kind", choices=("judge-writer",))
     p.add_argument("--verdict-file")
+    p.add_argument("--walk-away", action="store_true",
+                   help="run only after the unattended sandbox checks pass")
     args = p.parse_args(argv)
     if args.verdict_kind or args.verdict_file:
         try:
@@ -589,6 +633,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 2
     root = repo_root(Path.cwd())
     gh = GitHub(root)
+    if args.walk_away:
+        checks = gate.doctor(gh, root, walk_away=True)
+        for ok, what, fix in checks:
+            print(f"{'ok  ' if ok else 'FAIL'} {what}")
+            if fix:
+                print(f"     next: {fix}")
+        if not all(ok for ok, _, _ in checks):
+            print("refused: walk-away pre-run check failed", file=sys.stderr)
+            return 2
+    started_at = datetime.now(timezone.utc)
     try:
         lock = acquire_lock(root)
         signal.signal(signal.SIGTERM, _interrupt_handler)
@@ -598,6 +652,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"next: {r.next_step}", file=sys.stderr)
         return 2
     results = []
+    summary_results = []
+    awake = walkaway.keep_awake(root) if args.walk_away else nullcontext()
+    awake.__enter__()
     try:
         gate.ignore_loop_folder(root)
         removed_reviews = cleanup_interrupted_reviews(root)
@@ -620,18 +677,51 @@ def main(argv: Optional[list[str]] = None) -> int:
                 results.append(waiting)
                 break
             try:
-                results.append(build_piece(gh, root, n, args.attempts))
+                result = build_piece(gh, root, n, args.attempts, args.walk_away)
+                results.append(result)
+                if args.walk_away:
+                    try:
+                        state = gate.state_of(gh.issue(n))
+                    except Exception:
+                        state = "unknown"
+                    summary_results.append(walkaway.piece_summary(root, n, result, state,
+                                                                  started_at))
             except Refused as r:
-                results.append(f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else ""))
+                result = f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else "")
+                results.append(result)
+                if args.walk_away:
+                    summary_results.append(walkaway.piece_summary(root, n, result, "unchanged",
+                                                                  started_at))
             except Exception as e:  # keep going with the other pieces
-                results.append(f"piece {n}: stopped by an error: {e}")
+                result = f"piece {n}: stopped by an error: {e}"
+                results.append(result)
+                if args.walk_away:
+                    summary_results.append(walkaway.piece_summary(root, n, result, "unknown",
+                                                                  started_at))
         print("\nRun finished.")
         print("\n".join(results))
         return 0
     finally:
         if stop_requested(root):
             clear_stop(root)
-        release_lock(lock)
+        if args.walk_away:
+            finished_at = datetime.now(timezone.utc)
+            try:
+                path = walkaway.write_summary(root, summary_results + [
+                    result for result in results if not result.startswith("piece ")
+                ], started_at, finished_at)
+                summary = path.read_text()
+                walkaway.post_summary(gh, summary,
+                                      mention=any(marker in result for result in results
+                                                  for marker in ("back to shaping", "Run paused",
+                                                                 "refused", "stopped by an error")))
+            except Exception as error:
+                log(f"could not save or post the run summary: {error}")
+        try:
+            if args.walk_away:
+                awake.__exit__(None, None, None)
+        finally:
+            release_lock(lock)
 
 
 if __name__ == "__main__":

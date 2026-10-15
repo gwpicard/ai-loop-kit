@@ -210,12 +210,24 @@ force push, no agent merge, no recursive delete, no `eval`, and no `xargs`
 with `rm`. In build sessions it also refuses Perl and Ruby code execution,
 unreadable shell wrappers, and redirects into `.claude/`, `.githooks/` or
 protected paths. It refuses a plain push from `main`. It is a seatbelt, not a
-sandbox: branch protection on GitHub is a second layer, and runs are attended.
+sandbox: branch protection on GitHub is a second layer.
 
-A sandbox is later. The likely shape is a container with an `agent` user that
-has the person's user id, the worktree mounted inside, and the token passed in
-[Sandcastle]. Sandcastle's own notes list several kinds of permission bug with
-Docker on macOS, so it waits until the boundary above is solid.
+Walk-away runs use Claude Code's built-in Bash sandbox. It applies operating
+system file and network limits to shell commands and their child processes.
+The run passes strict settings per session, rejects a missing sandbox, disables
+unsandboxed retries, allows only confirmed package domains, and denies the
+named credential paths and token variables. A pre-run check tries a home write,
+credential reads and an unlisted network request before it allows the run.
+The check also requires clean Prepare and Test results on fresh main, 10 GB of
+free space and room in the approval queue. On macOS, `caffeinate` keeps the
+machine awake while the run writes a heartbeat and summary.
+
+The sandbox covers Bash, not Claude's Read, Edit, Write, web tools or hooks.
+Walk-away sessions load no MCP servers, add permission denies for secret reads
+and use a small hook to keep direct file-tool writes inside the build folder.
+Hooks still run outside the sandbox. The process keeps its own Claude sign-in,
+and an allowed domain can carry data out. GitHub pushes and pull requests stay
+outside the sandbox; the person still merges.
 
 ## 11. What the kit does not do, and why
 
@@ -228,7 +240,7 @@ Docker on macOS, so it waits until the boundary above is solid.
 | A hard rule that every item uses a fixed sentence pattern | It makes odd, long issues. Used as a guide only [Scala Teams]. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |
 | A paid code-health score | Proprietary [CodeScene]. CRAP covers the same ground for free. |
-| Walk-away runs | Need the sandbox first. |
+| A container around each Claude process | Revisit if a walk-away rehearsal shows a gap in the built-in sandbox. |
 
 ## 12. How v1 was built, and how the kit grows
 
@@ -261,6 +273,8 @@ Outside sources named above. `docs/SOURCES.md` lists the earlier ones.
 - [Fowler, TDD in the loop] [TDD in the agent loop](https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html).
 - [kata, testing without tautologies] [kenn-io/kata](https://github.com/kenn-io/kata), its testing skill.
 - [Sandcastle] Matt Pocock, [sandcastle](https://github.com/mattpocock/sandcastle).
+- [Claude sandboxing] Anthropic, [Configure the sandboxed Bash tool](https://code.claude.com/docs/en/sandboxing).
+- [Claude settings] Anthropic, [Settings reference](https://code.claude.com/docs/en/settings-reference).
 - [CRAP] Alberto Savoia and Bob Evans, the CRAP metric (crap4j, 2007).
 - [mutmut] [mutmut](https://mutmut.readthedocs.io/en/latest/); [Stryker] [StrykerJS](https://stryker-mutator.io/docs/stryker-js/incremental/).
 - [Osmani, agent files] Addy Osmani, [audit your agent files](https://addyosmani.com/blog/audit-your-agent-files/).

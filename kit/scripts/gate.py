@@ -571,7 +571,8 @@ def ignore_loop_folder(root: Path) -> None:
 
 def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
            proposed_prepare: Optional[str] = None,
-           proposed_test: Optional[str] = None) -> list[tuple[bool, str, str]]:
+           proposed_test: Optional[str] = None,
+           walk_away: bool = False) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -644,16 +645,24 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
+    if walk_away and all(ok for ok, _, _ in checks):
+        import walkaway
+        checks.extend(walkaway.preflight(gh, root, baseline_checked=True))
     return checks
 
 
-def status(gh: GitHub) -> str:
+def status(gh: GitHub, root: Optional[Path] = None) -> str:
     lines = []
     for s in STATES[:4]:
         items = gh.issues_with_label(STATE_PREFIX + s)
         lines.append(f"{s}: " + (", ".join(
             f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
             for i in items) or "none"))
+    if root is not None:
+        import walkaway
+        heartbeat = walkaway.heartbeat_status(root)
+        if heartbeat:
+            lines.append(heartbeat)
     return "\n".join(lines)
 
 
@@ -730,6 +739,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="use this proposed Prepare command for doctor dry-runs")
     d.add_argument("--test-command",
                    help="use this proposed Test command for doctor dry-runs")
+    d.add_argument("--walk-away", action="store_true",
+                   help="also check the active sandbox and unattended-run prerequisites")
     sub.add_parser("report")
     sub.add_parser("stop")
     return p
@@ -760,10 +771,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif args.cmd == "sync":
             print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
         elif args.cmd == "status":
-            print(status(gh))
+            print(status(gh, root))
         elif args.cmd == "doctor":
             checks = doctor(gh, root, args.quality_command,
-                            args.prepare_command, args.test_command)
+                            args.prepare_command, args.test_command, args.walk_away)
             for ok, what, fix in checks:
                 print(f"{'ok  ' if ok else 'FAIL'} {what}")
                 if fix:

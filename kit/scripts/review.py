@@ -161,7 +161,8 @@ def _review_prompt(name: str, values: dict[str, str]) -> str:
 
 def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
                   hard_seconds: int = ATTEMPT_TIMEOUT,
-                  activity_path: Optional[Path] = None) -> str:
+                  activity_path: Optional[Path] = None,
+                  result_event: Optional[dict] = None) -> str:
     """Copy output to a log and stop a silent or overlong process group."""
     assert proc.stdout is not None
     stream = proc.stdout
@@ -224,6 +225,13 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
             lines = pending.split("\n")
             pending = lines.pop()
             for line in lines:
+                if result_event is not None:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        event = None
+                    if isinstance(event, dict) and event.get("type") == "result":
+                        result_event.update(event)
                 _write_claude_log_line(out, line)
             out.flush()
             last_output = time.monotonic()
@@ -281,7 +289,8 @@ def _write_claude_log_line(out, line: str) -> None:
 
 
 def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
-                    idle_seconds: int, protected_paths: Optional[list[str]] = None) -> str:
+                    idle_seconds: int, protected_paths: Optional[list[str]] = None,
+                    walk_away: bool = False, domains: Optional[list[str]] = None) -> str:
     claude = os.environ.get("LOOP_CLAUDE", "claude")
     guard = f'python3 "{KIT / "hooks" / "guard.py"}"'
     settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
@@ -290,15 +299,34 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
             "--permission-mode", "acceptEdits", "--allowedTools",
             "Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
             "--settings", settings]
+    if walk_away:
+        import sandbox
+        args[args.index(settings)] = json.dumps(
+            sandbox.session_settings(folder, domains), separators=(",", ":"))
+        args += ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
     if disallowed:
         args += ["--disallowedTools", *[f"Edit({path})" for path in disallowed]]
     env = {**command_env(folder, protected_paths=protected_paths),
            "LOOP_BUILDER": "1", "LOOP_REVIEWER": "1"}
-    with logfile.open("w") as out:
-        proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                env=env, start_new_session=True)
-        track_process(proc)
-        return _pump_session(proc, out, idle_seconds, activity_path=folder)
+    if walk_away:
+        env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(folder.resolve())})
+    for retry in range(2 if walk_away else 1):
+        result_event = {}
+        with logfile.open("w" if retry == 0 else "a") as out:
+            proc = subprocess.Popen(args, cwd=folder, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, env=env, start_new_session=True)
+            track_process(proc)
+            status = _pump_session(proc, out, idle_seconds, activity_path=folder,
+                                   result_event=result_event)
+        if not walk_away or not sandbox.usage_limit_event(result_event):
+            return status
+        if retry:
+            return "usage-limit"
+        wait_seconds = sandbox.reset_wait_seconds(result_event)
+        with logfile.open("a") as out:
+            out.write(f"\nUsage limit; waiting {wait_seconds} seconds before one retry.\n")
+        time.sleep(wait_seconds)
+    return "usage-limit"
 
 
 def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
@@ -319,9 +347,10 @@ def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
-                 ready: dict) -> dict:
+                 ready: dict, walk_away: bool = False,
+                 domains: Optional[list[str]] = None) -> dict:
     try:
-        return _review_piece(root, folder, n, k, issue, ready)
+        return _review_piece(root, folder, n, k, issue, ready, walk_away, domains)
     finally:
         _cleanup_review_worktrees(root, n, k)
 
@@ -341,7 +370,8 @@ def contract_research(body: str) -> str:
 
 
 def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
-                  ready: dict) -> dict:
+                  ready: dict, walk_away: bool = False,
+                  domains: Optional[list[str]] = None) -> dict:
     """Run one standards review and one contract review in fresh sessions."""
     main = main_ref(folder)
     diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
@@ -369,7 +399,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     denied += ready.get("protected_paths", [])
     standards_status = _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
         "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
+        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
+        walk_away, domains)
     if standards_status == "idle":
         raise AttemptIdle(f"standards reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
                           f"see {standards_log}")
@@ -421,7 +452,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
         "CONTRACT": contract, "RESEARCH": contract_research(body),
         "DIFF": final_diff}), contract_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []))
+        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
+        walk_away, domains)
     if contract_status == "idle":
         raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
                           f"see {contract_log}")
