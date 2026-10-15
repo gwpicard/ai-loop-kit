@@ -1,301 +1,541 @@
-# AI Loop Kit: the design, and why
+# AI Loop Kit: the design
 
-This file describes how the kit works and gives the reason for each part.
-`docs/V1.md` says what v1 does, in short. This file says why. Each reason
-names its evidence: a run of the kit (the maintainer's build notes, the maintainer's
-ledger or `tests/field/RESULTS.md`), or an outside source (listed at the end
-and in `docs/SOURCES.md`).
+This is the one description of the kit: what it is, how it works, and why.
+If the code and this file disagree, the code is the truth and this file has a
+bug. Questions that are not settled live in the maintainer's `docs/OPEN.md`,
+not here.
+
+Each rule names what holds it: **code** (the gate, the run or a check),
+**hook** (the guard), **sandbox**, or **words** (a brief or a skill only).
+Features marked **preview** pass the automated tests but have not yet run on a
+real project.
 
 ## 1. What the kit is
 
 AI Loop Kit is a Claude Code plugin for one person who builds software with
-agents. Non-interactive sessions can use Claude Code or Codex. In one sentence:
-a state machine whose every state is a loop, where
-agents do the work, scripts decide, and the person approves the contract and
-the merge.
+agents in a GitHub project.
 
-## 2. The problem it solves
+> An agent cannot say a piece is done. It can only prove it, against a test
+> the person approved before the build and that the agent cannot change.
+
+The kit is a state machine. Agents do the work, scripts decide, and the
+person approves the contract and the merge.
+
+### The problem
 
 Four failures come back again and again when agents build software.
 
-| Failure | Evidence |
+| Failure | What the kit does |
 | --- | --- |
-| The agent says the work is done when it is not | The first kit's own build: agents reported checks that had not run (the maintainer's build notes). METR found that telling a model not to cheat did not change how often it did [METR]. |
-| The agent changes the test, not the code | ImpossibleBench: models edit or delete tests to pass impossible tasks [ImpossibleBench]. In our field runs a builder turned off a lint rule project-wide to pass (the maintainer's ledger, 14 October). |
-| The spec drifts away from the code | Spec-driven development moves the requirements problem and adds a document that drifts [Scala Teams], [Martinelli], [DevGenius]. |
-| The person cannot keep up with review | Agents can write faster than a person can check; quality depends on the constraints set around them [Osmani, quality]. |
+| The agent says the work is done when it is not. Telling a model not to cheat does not change how often it does [METR]. | The gate runs every check itself. An agent's report is never evidence. |
+| The agent changes the test, not the code [ImpossibleBench]. In a field run a builder turned off a project lint rule to pass. | The judge is frozen by a hash before the build. Old tests and check settings are compared after every attempt. |
+| The spec drifts away from the code [Martinelli], [DevGenius]. | A piece is shaped just in time from today's `main`. After the merge the issue is a closed record and the tests are the living spec. |
+| The person cannot keep up with review [Osmani, quality]. | The pull request carries checked facts and evidence. A waiting limit stops the run when three pull requests wait. |
 
-The kit answers each with a mechanism, not an instruction. Words alone did
-not hold in the first kit; scripts did (the maintainer's build notes, section 2).
+Words alone did not hold in the first kit. Scripts did. So the kit answers
+each failure with a mechanism, not an instruction.
 
-## 3. The five principles
+## 2. The principles
 
-| Principle | Why | Source |
-| --- | --- | --- |
-| **Agents produce, scripts decide, the person approves** | An agent's report of its own work is not evidence. A script that runs the check is. | [METR], [Anthropic harnesses], first kit (the maintainer's build notes) |
-| **A piece is a contract** | A test written before the build, that fails today, is the only proof that the build changed something. | [TDFlow], [Anthropic harnesses] |
-| **Every state is a loop** | Work fails. A failure that goes back with a reason can be fixed; one that goes forward is merged. | The first kit's kickback design (the maintainer's build notes) |
-| **Hold rules in code, and label what is only words** | Hard constraints belong somewhere stronger than prose. Prose is read once and forgotten. | [Osmani, agent files], [ETH AGENTS.md] |
-| **Grow from evidence** | The first kit was designed in full before it ran, grew to about 35,000 lines and built no piece. | `docs/ANGLE.md`, the maintainer's build notes |
+1. **Agents produce, scripts decide, the person approves.** An agent's report
+   of its own work is not evidence. A script that runs the check is
+   [Anthropic harnesses].
+2. **A piece is a contract.** Nothing is built without the person's intent
+   and a judge that fails on today's `main` for the right reason. A test
+   written before the build, by someone other than the builder, is the only
+   proof that the build changed something [TDFlow], [Fowler, TDD].
+3. **Every working state is a loop.** It has an entry check, work, an exit
+   check and a way back. A failure goes back with a typed reason, never
+   forward.
+4. **Hold rules in code, and label what is only words.** Prose is read once
+   and forgotten [Osmani, agent files]. Where it matters, hold a rule in two
+   independent layers, so that one failing does not open it.
+5. **Grow from evidence.** A feature enters `kit/` only when a real run shows
+   the need. Write the failure down, add a test that reproduces it, then add
+   the smallest fix. The first kit was designed in full before it ran, grew
+   to about 35,000 lines and never built a piece.
 
-## 4. Why a state machine
+## 3. The core and the extras
 
-The kit could have been a long prompt that tells an agent what to do next.
-It is a state machine instead, for four reasons.
+The core is the smallest set of parts that keeps the one-sentence promise.
+Each core part exists because a real failure showed it was needed.
 
-1. **One place decides.** Every piece is in exactly one state, and only one
-   script, `gate.py`, may change it. An agent cannot skip a step, because the
-   step is a move the gate refuses. In the first kit, a coordinator agent that
-   decided the next step forgot decisions after a restart and once ran as two
-   coordinators at once (the maintainer's build notes, section 1.4).
-2. **Every move is checked where it happens.** Each move has its own checks.
-   A piece cannot reach `ready` without a judge that fails, and cannot reach
-   `approval` without passing it. The checks live on the edges, so nothing
-   reaches a state it has not earned.
-3. **The state is visible and stored outside any session.** The state is a
-   GitHub label and every move writes a record comment. A new session, a
-   person on their phone, or the audit script can all read it. Nothing lives
-   only in a context window.
-4. **It can be tested.** A finite set of states and moves can be tested move
-   by move. `tests/test_loop.py` does that with a fake `claude`.
-
-### Why these six states
-
-| State | Why it exists |
+| Core part | The failure it stops |
 | --- | --- |
-| shaping | Work that is not yet clear. Most of the effort goes here, because a vague piece cannot be built well by anyone. |
-| ready | The contract is approved and the judge is fixed. The line between "deciding" and "doing". |
-| building | One run owns the piece. The lock and the state together stop two runs building the same piece. |
-| approval | The gate has passed the piece and a pull request waits for the person. |
-| done | Merged. Reached only through `gate.py sync` reading GitHub. |
-| dropped | Work that will not be done, kept with its reason. |
+| The judge fails on `main` on an assertion | A test that already passes, or fails on an import error, proves nothing |
+| The bar (judge plus its helpers) is frozen and checked byte for byte | A builder edits the test instead of the code |
+| `Keep:` passes on `main` and after every attempt | A field run lost old behaviour when only the judge ran |
+| No old test and no check setting changed | A builder rewrote `.gitignore`; another turned off a lint rule |
+| A fresh session for each attempt, three at most, given only the last failure | A failed idea carries forward in a long session [Ralph] |
+| A sanctioned `bar-wrong` outcome | A builder that cannot say the test is wrong is pushed to cheat |
+| Typed hand-backs, counted | One word ("parked") once meant three things, and nobody could count them |
+| The run is a plain script with one lock | A coordinator agent forgot decisions after a restart and once ran twice |
+| Records read only from collaborators | A stranger could post a forged ready record on a public repository |
+| The guard refuses the irreversible commands, and the person merges | A loss that no later check can repair |
 
-The first design had seven states, with a separate `review` state, and 14
-moves. The thin kit took the review state out: the person reviews each pull
-request, so a separate state added moves and no check. The field runs worked
-with six (`tests/field/RESULTS.md`).
+Everything else is an extra. Extras are useful, but the promise holds
+without them: the two reviewers, quality commands, walk-away runs, goal and
+gauntlet judges, the researcher and the Codex backend.
 
-### Why moves back carry a typed reason
+## 4. The engine: states and moves
 
-Every move back to shaping names a type: `spec-unclear`, `bar-wrong`,
-`judge-gap`, `environment`, `builder-failed`, `person-rejected`, `conflict`
-or `stopped`. A free-text reason helps the next attempt. A type can be
-counted. `gate.py report` counts them, which shows where the system fails:
-weak judges, unclear specs or a broken environment. The first kit used one
-"parked" word for three meanings and could not tell them apart
-(the maintainer's build notes, section 2.2).
+A piece is a GitHub issue with exactly one `state:` label. Only `gate.py`
+moves it (code). Every move writes a record comment that holds the evidence
+as JSON. The state lives on GitHub, so a new session, a phone or an audit
+script can read it. Nothing lives only in a context window.
+
+```text
+                capture          ready (gate checks)          claim
+  idea ───────► SHAPING ─────────────────────────────► READY ───────► BUILDING
+                 ▲  ▲  ▲                                 │                │
+                 │  │  └────── pull-back (typed) ────────┘                │
+                 │  └───────── give-back (typed, needs-you) ──────────────┤
+                 │                                                        │ submit
+                 │    reject (person-rejected, needs-you)                 │ (gate runs judge,
+                 └───────────────────────────── APPROVAL ◄────────────────┘  Keep, Quality)
+                                                    │
+                                                    │ the person merges on GitHub
+                                                    ▼ gate.py sync
+                                                   DONE
+
+  shaping, ready, building or approval ──drop──► DROPPED ──reopen──► SHAPING
+```
+
+| Move | From, to | Started by | The gate checks |
+| --- | --- | --- | --- |
+| capture | new, shaping | shape skill | nothing |
+| ready | shaping, ready | shape skill | the ready checks (section 8) |
+| pull-back | ready, shaping | person or agent | a typed reason |
+| claim | ready, building | `run.py` | spec and bar hashes unchanged; the pushed branch has nothing the local one lacks |
+| submit | building, approval | `run.py` | the submit checks (section 8), all run by the gate |
+| give-back | building, shaping | `run.py` | a typed reason; adds `needs-you` |
+| merged | approval, done | `gate.py sync` | the pull request is merged on GitHub |
+| reject | approval, shaping | the person's words, through the run skill | a typed reason; adds `needs-you` |
+| drop, reopen | to and from dropped | person | a reason |
+
+**Why six states.** `shaping` holds work that is not yet clear; most of the
+effort goes here. `ready` is the line between deciding and doing. `building`
+means one run owns the piece. `approval` means the gate passed it and a pull
+request waits. `done` is reached only by reading GitHub. `dropped` keeps
+abandoned work with its reason. The first design had a separate `review`
+state; the thin kit removed it, because the person reviews each pull request.
+
+**Typed reasons.** Every move back carries one type: `spec-unclear`,
+`bar-wrong`, `judge-gap`, `environment`, `builder-failed`, `person-rejected`,
+`conflict` or `stopped`, plus free text. `gate.py report` counts them. This
+shows where the system fails: weak judges, unclear specs or a broken
+environment. It is the seed of the meta loop.
+
+**`needs-you`** is a flag label, not a state. The gate adds it on give-back
+and reject, and removes it on ready, drop and done.
 
 ## 5. The loops
 
-The kit is loops inside loops. Each loop has an entry check, work, an exit
-check and a way back.
-
 ```text
- meta loop: typed reasons across many pieces  ─────────────────────────┐
-   shaping loop: question, write, judge, check  ──► ready              │
-     build loop: fresh attempt ──► gate judges ──► retry (up to 3)     │
-       review pass: two fresh reviewers, once ──► gate checks again    │
-   the person: merge, or reject with a reason  ──► back to shaping ◄───┘
+┌─ META: typed reasons across many pieces → the person changes the kit or project ─┐
+│                                                                                   │
+│  SHAPING: person + shaper, ≤5 questions → spec → judge writer → gate check        │
+│           (loops until the gate accepts ready)                                     │
+│                                                                                   │
+│  BUILD:  fresh builder ──► gate judges ──► pass? ──no──► retry (3 at most)        │
+│             ▲                              │ yes            │ all fail            │
+│             └── last failure only ─────────┘                ▼                     │
+│                                                       back to shaping             │
+│  REVIEW: standards reviewer + contract reviewer, once ──► gate checks again       │
+│                                                                                   │
+│  PERSON: merge, or reject with a reason ──────────────► back to shaping ──────────┘
 ```
 
-| Loop | What turns | Stops when | Why it is a loop |
+| Loop | What turns | Stops when | Why |
 | --- | --- | --- | --- |
-| Shaping | questions, the contract, the judge | the gate accepts ready | A judge that breaks the project's lint, or names an ID that never fails, sends shaping round again. Field runs showed this three times (the maintainer's ledger). |
-| Build | fresh builder attempts | the gate passes, or 3 attempts fail | A fresh session per attempt does not carry a failed idea forward. This is the Ralph technique: change the input and run again [Ralph]. |
+| Shaping | questions, the spec, the judge | the gate accepts ready | A judge that breaks the project's lint, or names an ID that never fails, sends shaping round again. |
+| Build | fresh builder attempts | the gate passes, or three attempts fail | A fresh session does not carry a failed idea forward [Ralph]. |
 | Review | two reviewers | once, always | A review asked for gaps always finds some, so it never converges. One pass with cited findings is the honest form [Pocock, code-review]. |
-| Meta | typed reasons | the person changes the kit or the project | The same failure should not happen a third time. A lesson becomes a check, not a sentence [Osmani, skill decay]. |
+| Meta | typed reasons | the person changes something | The same failure should not happen a third time. A lesson becomes a check, not a sentence. |
 
 ### One loop, many judges
 
-The build loop is the same for every kind of work. Only the judge changes.
-This came from the first design, which had four separate loop modules
-(build, fix, goal, gauntlet) and found they were one loop with four judges
-(the maintainer's build notes).
+The build loop is the same for every kind of work. The `Kind:` line chooses
+the judge. The first design had four loop modules (build, fix, goal,
+gauntlet) and found they were one loop with four judges.
 
-| Kind | Judge | Why |
+| Kind | Judge | Ready requires |
 | --- | --- | --- |
-| feature | acceptance tests that fail today | new behaviour must be shown to be new |
-| fix | a test that reproduces the bug | most real work is in existing code [Martinelli], and a bug fixed without a reproducing test comes back |
-| scaffold | the test runner runs | an empty project has nothing that can fail, so the record says the check was skipped |
-| goal | three measurements compared by their median with a numeric target | work with a measurable outcome needs a gate the run can repeat |
-| gauntlet | three blind critics compare captured work with a reference | design and writing need a judge that can inspect the artefact |
+| feature | acceptance tests for new behaviour | the tests fail on `main` |
+| fix | a test that reproduces the bug | the test fails on `main` |
+| scaffold | the test runner runs and passes | nothing can fail yet, so the check is skipped and the record says so |
+| goal (**preview**) | a `Measure:` command run three times; the median is compared with a numeric `Target:` | `main` misses the target |
+| gauntlet (**preview**) | three fresh critics compare captured work with a `Reference:` against `Criteria:`, in random order | `main` wins fewer than two of three |
 
-The v1.1 plan adds both judges to the shared attempt loop. Goal readiness
-requires main to miss its target; each attempt records a hypothesis and passes
-when the median meets the target. Gauntlet readiness requires main to win
-fewer than two of three blind comparisons; an attempt passes with at least two
-wins. The plan is the source for these rules. No outside source was used for
-this addition.
+A goal attempt writes one hypothesis to `.loop/hypothesis` first. A gauntlet
+attempt passes when ours wins at least two comparisons and `Keep:` passes. A
+capture that succeeds but writes no files is refused with a clear message.
+The critics are blind only by neutral file names: they run in the build
+folder and could find out which side is which.
 
 ## 6. The contract
 
-### Why two parts
+The issue body is the contract. The person approves it before ready.
+`kit/spec-format.md` gives the exact format.
 
-A piece has an **intent** (the person's words) and a **judge** (the machine's
-copy). Either alone fails. Intent alone is prose that nothing checks. A judge
-alone checks what the shaper thought, not what the person meant. Together,
-the person can read what will be checked, and the gate can check it.
+```markdown
+## Intent
+What the person wants and why, in their words.
 
-### Why each section
+Out of scope:
+- What this piece does not do.
+
+## Approach
+Optional. The path: files or modules to change, the interface, constraints.
+
+## Research
+- R1: The API accepts a timeout argument (source: https://example.test/api, read: 2026-10-15)
+
+## Contract
+- D1: When I run `tally --top 2 words.txt`, then it prints `b 3` then `a 2`.
+- D2 (stays): Without `--top`, the output is unchanged.
+
+## Judge
+Kind: feature
+Command: `python -m pytest tests/judge/test_piece_top.py -q`
+Files:
+- tests/judge/test_piece_top.py
+Keep: `python -m pytest`
+```
+
+**Why two parts.** The intent is the person's words; the judge is the
+machine's copy. Intent alone is prose that nothing checks. A judge alone
+checks what the shaper thought, not what the person meant. Together the
+person can read what will be checked, and the gate can check it.
 
 | Section | Why |
 | --- | --- |
-| Intent | It holds what the code cannot say: the why and the limits [Osmani, brownfield]. |
-| Out of scope | The requirements problem is mostly scope. Saying what will not be done is the cheapest guard against scope creep [Scala Teams]. The contract reviewer checks it. |
-| Approach | Agents do better when told the path, not only the output: the module, the interface, the pattern to follow [Osmani, agent files]. |
-| Research | Pieces that rely on an outside fact need a checked source. The v1.1 plan adds a fresh researcher, dates each source, and warns when evidence is over 30 days old at claim. Source: the maintainer's build notes. |
-| Contract items | Numbered and concrete, with an example each, so one test can prove each item and the gate can find each ID in the output. |
-| `(stays)` | "Every item must fail on main" pushed shaping to drop true items or bend tests (the maintainer's ledger, 14 October). `(stays)` marks what must keep working. |
-| Judge, fixed by a hash | A builder that cannot change the test can only change the code [ImpossibleBench], [Anthropic harnesses]. |
-| Keep | The judge proves the new work. Keep proves that old work still works. A field run lost old behaviour when only the judge ran (the maintainer's ledger, 13 October). |
+| Intent | It holds what code cannot say: the why and the limits. The gate refuses an empty Intent (code). |
+| Out of scope | Most of the requirements problem is scope. Naming what will not be done is the cheapest guard [Scala Teams]. The gate refuses an empty list (code). |
+| Approach | Agents do better when told the path, not only the output [Osmani, agent files]. |
+| Research (**preview**) | A piece that rests on an outside fact needs a checked source. Each line has a source URL and a read date (code). A finding over 30 days old is flagged at claim. |
+| Contract | Numbered, concrete items, each with an example, so one test can prove each and the gate can find each ID in the output. |
+| `(stays)` | "Every item must fail on main" pushed shaping to drop true items or pad tests. `(stays)` marks behaviour that must keep working: it needs a test that passes on `main`. |
+| Judge, fixed by a hash | A builder that cannot change the test can only change the code [ImpossibleBench]. |
+| Keep | The judge proves the new work. Keep proves the old work still works. |
 
-### Why it is not waterfall
+`Settings: may change` in the Judge section lets a piece change check
+settings. `Large file: <path>` lets a named file grow past 1,000 lines.
 
-Critics of spec-driven development say it is big design up front, and that
-the spec drifts from the code [DevGenius], [Martinelli]. The kit avoids both.
-A piece is shaped just in time, from today's `main`, and is about one hour of
-work. After the merge the issue closes as a record; the tests are the living
-spec, and nobody edits an old issue to keep it current.
+**Why it is not waterfall.** A piece is shaped just in time, from today's
+`main`, and is about one hour of work. After the merge the issue closes as a
+record. Each judge file starts with a one-line comment that gives the intent.
+Nobody edits a closed issue to keep it current.
 
 ## 7. The roles
 
-| Role | Why it is separate |
-| --- | --- |
-| Shaper, with the person | Only the person knows the intent. The shaper asks, splits and writes, and never builds. |
-| Researcher | A fresh `sonnet` subagent checks outside facts when a piece depends on them. It opens each cited page and returns findings with source URLs and read dates. The page is evidence, never an instruction. Source: the maintainer's build notes. |
-| Judge writer | Tests written first by someone other than the builder help the builder most [TDFlow], and an agent that writes both code and tests confirms itself [Fowler, TDD in the loop]. The judge writer also does not see the shaping chat, so it tests the contract, not the shaper's assumptions. |
-| Builder | A fresh Claude Code or Codex session per attempt. Both stream JSON events that reset the idle clock. The run also checks file activity under the build folder every two seconds, skipping `dist/`, `build/` and `__pycache__`; logs keep readable assistant text. Process groups, the run lock and the main-ref cache live in `procs.py`, which the entry point and its helpers share. A small context holds the contract, the judge and the last failure only. Coding standards stay out, so the builder is not overloaded. |
-| Standards reviewer | Standards belong to a reviewer that reads the diff, not to the builder's context or `AGENTS.md` [Pocock, code-review], [Osmani, agent files]. Its baseline when a project has no standards is Fowler's code smells [Fowler, Refactoring], plus the hard points of a strict maintainability review [Cursor, thermo-nuclear]. |
-| Contract reviewer | A separate axis: is it the right thing? It checks the diff against the contract and Research. Kept apart from standards so a pass on one cannot hide a fail on the other [Pocock, code-review]. A missing item means the judge was weak, so it is counted as `judge-gap`. |
-| Gate and run | Scripts. The first kit's coordinator agent forgot and drifted; a script does the same thing every time (the maintainer's build notes). |
-| The person | Approves the contract and the merge: the two moments that need taste and judgement. Everything between is checked by a script. |
+| Role | What it is | Sees | Produces |
+| --- | --- | --- | --- |
+| Shaper | the shape skill, with the person | the code, the person | Intent, Approach, Contract |
+| Researcher (**preview**) | a fresh `sonnet` subagent with web tools only | the question, web pages as data | findings with source URLs and read dates |
+| Judge writer | a fresh subagent | the contract and the code, not the shaping chat | judge files on `piece/<n>`, and a JSON verdict |
+| Builder | a fresh Claude Code (or Codex, **preview**) session per attempt | the contract, research, the judge, the last failure | code on the piece branch, `.loop/why.md`, optionally `.loop/outcome` |
+| Standards reviewer | a fresh session after the gate passes | the diff, plus the project's standards file or a baseline of Fowler's code smells | small checked fixes, follow-ups, a JSON verdict |
+| Contract reviewer | another fresh session | Intent, Out of scope, Approach, Contract, Research and the diff | missing items or scope creep, a JSON verdict |
+| Critic (**preview**) | three fresh sessions, gauntlet only | the criteria and two artefacts | a JSON verdict for each comparison |
+| Gate | `gate.py`, a script | everything | every decision and record |
+| Run | `run.py`, a script | the ready pieces | attempts, reviews, pull requests |
+| Person | you | the contract, the pull request | approval and the merge |
 
-Every finding a reviewer makes must cite a rule, a smell or a contract line,
-or it is dropped. Reviewers print one tagged JSON verdict that the run reads;
-the run never guesses a verdict from free text [Sandcastle].
-The standards reviewer gets the frozen standards path from the ready record,
-runs Prepare in its own folder, and may keep a non-test fix only after the
-judge passes again. Review folders and branches are removed on every exit.
-The next run also clears and reports any review worktree or branch left by an
-interrupted run.
+Why each role is separate:
 
-The loop's `Agent: claude|codex` setting selects the backend for builders,
-reviewers and critics. Claude Code remains the default, and
-`run.py --agent codex` overrides the setting for one run. The ready record
-freezes the configured choice. Codex can save Claude credit. It runs through
-`codex exec --json` with workspace-write rooted at the build folder, and
-network access disabled. Codex's sandbox applies to the whole agent process.
-The backend has no Claude guard hook or Edit denies, so the gate checks the
-judge, settings, protected paths and secrets.
+- **Only the person knows the intent.** The shaper asks, splits and writes. It
+  never builds. It asks one batch of at most five questions, each with why it
+  matters and a recommended answer (words).
+- **Tests written first by someone else help the builder most** [TDFlow]. An
+  agent that writes both code and tests confirms itself [Fowler, TDD]. The
+  judge writer does not see the shaping chat, so it tests the contract, not
+  the shaper's assumptions. The shaper may fix lint and type errors in the
+  judge files before the gate check; it does not write tests (words).
+- **The builder's context stays small.** It holds the contract, the judge and
+  the last failure. Coding standards stay out of it and out of `AGENTS.md`;
+  they belong to the reviewer [Pocock, code-review], [ETH AGENTS.md].
+- **Two reviewers, two questions.** The standards reviewer asks "is it built
+  right?". The contract reviewer asks "is it the right thing?". Kept apart, a
+  pass on one cannot hide a fail on the other. Every finding must cite a rule,
+  a smell or a contract line, and a changed hunk, or it is dropped (code). The
+  reviewers print one tagged JSON verdict; the run never guesses a verdict
+  from free text [Sandcastle].
+- **The standards reviewer may commit a non-test fix.** The fix is kept only
+  if the judge passes again; otherwise its commits are dropped and the
+  builder's judged commit goes forward (code).
+- **Contract findings are advisory.** They are recorded as `judge-gap` and put
+  at the top of the pull request. They do not stop the pull request (code). A
+  missing item means the judge was weak.
+- **The gate and the run are scripts.** A coordinator agent forgets and
+  drifts; a script does the same thing every time.
+- **The person approves the two moments that need taste:** the contract and
+  the merge. Everything in between is checked by a script.
+
+**Backend (preview).** `Agent: claude|codex` in the loop section of
+`AGENTS.md` chooses the backend for builders, reviewers and critics. Claude
+Code is the default. The ready record freezes the choice, and
+`run.py --agent codex` overrides it for one run. Interactive skills stay in
+Claude Code. Codex runs `codex exec --json` with workspace-write rooted at the
+build folder and network disabled. Codex has no guard hook and no Edit
+denies, so only the gate holds the rules after the session.
 
 ## 8. The checks
 
+### At ready (code, in a fresh copy of `main`)
+
 | Check | Why |
 | --- | --- |
-| The judge fails on `main` on an assertion | A test that already passes, or fails only on an import error, proves nothing. |
-| Research findings have source URLs and real read dates; findings older than 30 days are marked possibly stale at claim | The ready gate checks the record, and the claim record dates its warning. The builder and contract reviewer receive the findings. Source: the maintainer's build notes. |
-| Test lint: an assertion in each test, no `assert True`, no `x == x`, no skips, no private imports, no reading source as text, no mirror of the code under test | Automated checks can lie: a test can restate the code, mock its subject or never be able to fail. These are the mechanical cases [kata, testing without tautologies]. |
-| The bar covers `conftest.py` and test helpers | Builders change what a test relies on, not only the test file [ImpossibleBench]. |
-| No existing test changed | Changing an old test is the commonest cheat [ImpossibleBench], [Anthropic harnesses]. |
-| No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (the maintainer's ledger, 14 October). |
-| Protected paths | Some code (auth, billing, CI) needs a person. Zone the code [Osmani, brownfield]. |
-| No file grows past 1,000 lines | A file that sprawls is a design smell agents create quickly [Cursor, thermo-nuclear]. |
-| Quality commands: CRAP and experimental mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. The v1 rehearsal showed that an empty source configuration and subprocess-only tests could produce no mutation evidence (the maintainer's build notes, rehearsal round 3). Setup now checks for mutmut 3.8 or later and configured source paths. The fallback for subprocess acceptance tests is a selected in-process adapter test for the changed function; mutmut's official configuration docs describe test selection with `pytest_add_cli_args_test_selection` [mutmut]. Doctor applies proposed Quality, Prepare and Test values to a fresh copy of main before running those checks. The project's commands remain its own, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that check uses the frozen Test command, and its cache key includes the Quality command and main commit. |
-| Secret shapes | A secret in git history stays for ever. |
-| Nothing skipped | A skipped test passes silently. |
+| Intent, a non-empty `Out of scope` list and Contract IDs are present | The spec is complete enough to judge |
+| Research lines have a source URL and a real read date | Outside facts need evidence |
+| `Keep:` and Prepare pass on `main` (Prepare is skipped for scaffold) | A red baseline makes every attempt fail for the wrong reason |
+| The judge fails on `main`, not on a syntax, import, file-not-found or command-not-found error | A test that fails for the wrong reason proves nothing |
+| Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
+| Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-to-literal comparison; no skip, `xfail`, `.only` or `.skip`; no private imports; no reading source as text unless the Contract names it | A test can restate the code or never be able to fail [kata] |
+| The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
+| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle and waiting limits, and the backend | A builder must not change the rules after they were agreed |
 
-## 9. The pull request
+### At claim (code)
 
-The script writes the facts: what changed, the risk, the evidence. It lists
-renames as a delete and an add, so moved tests remain visible. The
-builder writes only why, and what could go wrong. A person should understand
-the change and its danger in two minutes [HumanLayer], [Port, change review].
-A waiting limit stops the run when three pull requests wait, so building never
-outruns review [Osmani, quality].
+The spec hash and the bar hash must be unchanged. The gate checks the spec
+hash again at submit, so a spec edited during the build fails. A pushed piece
+branch must hold nothing the local branch lacks; the run never rewrites a
+pushed branch.
+
+### At submit, after each attempt and again after the review (code)
+
+| Check | Why |
+| --- | --- |
+| The bar is unchanged; a changed judge is put back and the attempt fails | The commonest cheat [ImpossibleBench], [Anthropic harnesses] |
+| No existing test, `conftest.py` or fixture changed unless the Contract names it | Same cheat, one step removed. Rename detection is off, so a moved test stays visible |
+| No protected path changed unless the Contract names it | Some code (auth, billing, CI) needs a person [Osmani, brownfield] |
+| No file grows from under 1,000 to 1,000 or more lines without `Large file:` | A sprawling file is a design smell agents create quickly [Cursor] |
+| No secret shape (`.env` files, private keys, AWS, GitHub and `sk-` tokens) | Git history keeps a secret for ever |
+| No conflict markers | A half-resolved merge |
+| No file added under paths that Prepare created | `.venv` once leaked into a branch |
+| No check-setting change unless `Settings: may change`. Check settings include lint, test and CI config, `.gitignore`, `AGENTS.md`, the standards file, and the check keys of `package.json` and `pyproject.toml` | A builder turned off a lint rule to pass |
+| The judge passes, with nothing skipped | A skipped test passes silently |
+| `Keep:` passes. If it fails only with the judge files present, the bar is wrong and the piece goes back at once | A judge that breaks the project's lint can never pass |
+| Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
+
+**Quality commands** belong to the project, not the kit, so the kit works for
+any stack. Setup offers CRAP for Python (a limit of 30 on changed functions,
+from coverage.py JSON) [CRAP], and ESLint `complexity` for Node. Mutation
+testing with mutmut 3.8 or later is **experimental**: it needs configured
+source paths and in-process tests, because subprocess tests give no mutation
+or coverage evidence [mutmut]. Doctor runs Test, then each Quality command, on
+a fresh copy of `main` before setup accepts it.
+
+### After the merge (code, outside the loop)
+
+`tests/field/audit.py` checks a project after the fact: one state per piece,
+records present, `needs-you` only where valid, merged pieces done, the merged
+code equal to the judged commit, and generated files absent.
+
+## 9. The run
+
+```text
+run.py
+ ├─ take .loop/run.lock (refuse if another run or an orphan child is alive)
+ ├─ remove review folders left by a killed run; return pieces stuck in building
+ │  to shaping (environment); gate.py sync
+ └─ for each ready piece, oldest first:
+     ├─ approval queue ≥ Waiting limit (3)? → print next: and stop
+     ├─ claim
+     ├─ build folder in ~/.cache/ai-loop-kit/worktrees/ (outside the project)
+     │   dirty folder → back (environment); never cleaned by the run
+     ├─ merge main in; a conflict is left for the builder with a note
+     ├─ Prepare
+     ├─ attempt 1..3: fresh builder → gate judges
+     │     pass → review → gate checks again → push → pull request → approval
+     │     .loop/outcome says bar-wrong → back at once (bar-wrong)
+     │     idle 10 min / hard 40 min → back (builder-failed, idle)
+     │     .loop/stop present → back (stopped)
+     │     else → next attempt, given this failure
+     └─ any error after the claim → back to shaping with the reason
+```
+
+- **Idle limit.** An attempt stops after ten minutes with no output and no
+  file change in the build folder (`Idle limit:` changes it). The hard limit
+  is 40 minutes. Each judge run has a 900-second limit.
+- **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
+  attempts.
+- **Interruption.** The run tracks every child process group and kills them
+  on SIGINT or SIGTERM. The next run finds and removes what a killed run left.
+- **The pull request.** The script writes the facts: files changed by area,
+  tests added, new dependencies, risk (protected paths, migrations, config
+  and check settings, large files, importer count), the judge, Keep and
+  Quality output, the bar hash and the judged commit. It lists renames as a
+  delete and an add. The builder writes only why, and what could go wrong. A
+  person should understand the change and its danger in two minutes
+  [HumanLayer], [Port]. The run never merges.
+
+### Walk-away runs (preview)
+
+`run.py --walk-away` is for a run nobody watches. It starts only if
+`gate.py doctor --walk-away` passes:
+
+- Claude Code 2.1.285 or later, or a working Codex.
+- A live probe: a real session must fail to write to the home folder, read
+  `~/.ssh` and reach an outside host.
+- Confirmed `Sandbox domains:` (package registries only).
+- No GitHub or npm token in the environment.
+- Green Prepare and Test on a fresh `main`, 10 GB free, room in the approval
+  queue.
+
+During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
+with `caffeinate`, waits once for a reported usage limit, and at the end
+writes `.loop/summary.md` and posts it to a tracking issue. It never merges.
 
 ## 10. The boundary
 
-The guard hook refuses the hard rules in every session: no push to `main`, no
-force push, no agent merge, no recursive delete, no `eval`, and no `xargs`
-with `rm`. In build sessions it also refuses Perl and Ruby code execution,
-unreadable shell wrappers, and redirects into `.claude/`, `.githooks/` or
-protected paths. It refuses a plain push from `main`. It is a seatbelt, not a
-sandbox: branch protection on GitHub is a second layer.
+| Rule | Held by |
+| --- | --- |
+| No push to `main`, no force push, no agent merge, no recursive delete, no `eval`, no `xargs rm -r`, no `git clean` | hook (`guard.py`), in every session |
+| Builders and reviewers never push, never call `gh`, never run Perl or Ruby code, never use unreadable shell forms, never write into `.claude/`, `.githooks/` or protected paths | hook, in build sessions |
+| Builders never edit the judge files or check settings | Edit denies, then the gate at submit |
+| The gate is the only mover of state | hook refuses `state:` label edits; `audit.py` finds any it missed |
+| Only owners, members and collaborators write gate records | code |
+| `main` refuses direct pushes on GitHub | branch protection, offered by setup where the plan allows; doctor reports it |
+| No secret in a tracked file | code at submit, and words |
+| The spec says what the person meant | words: the person approves the contract |
+| The person merges every pull request | the run has no merge step; the hook refuses `gh pr merge` |
+| Walk-away shell commands stay in the build folder and reach only allowed hosts | sandbox, checked by a live probe |
 
-Walk-away runs use the selected backend's sandbox. Claude Code applies
-operating system file and network limits to shell commands and their child
-processes. The run passes strict settings per session, rejects a missing
-sandbox, disables unsandboxed retries, allows only confirmed package domains,
-and denies the named credential paths and token variables. Codex uses
-workspace-write rooted at the build folder, no additional writable roots,
-temporary-root writes disabled and network access disabled. A pre-run check
-requires the home write, `~/.ssh` read and outside network probes to fail.
-The check also requires clean Prepare and Test results on fresh main, 10 GB of
-free space and room in the approval queue. On macOS, `caffeinate` keeps the
-machine awake while the run writes a heartbeat and summary.
+The guard is a seatbelt, not a sandbox. It splits words and matches patterns.
+It reads the `git -C`, `git -c`, `gh -R`, `bash -c`, `sh -c` and `eval` forms,
+and in build sessions it refuses a form it cannot read. It is not a full shell
+parser, and a determined agent can get round it. The
+gate is the backstop, because it checks the result whatever the agent did.
 
-Claude's sandbox covers Bash, not Read, Edit, Write, web tools or hooks.
-Walk-away Claude sessions load no MCP servers, add permission denies for
-secret reads and use a small hook to keep direct file-tool writes inside the
-build folder. Codex has no Claude guard hook or Edit denies. The gate checks
-the judge, settings, protected paths and secrets after a session. GitHub pushes
-and pull requests stay outside the sandbox; the person still merges. Claude's
-network allowlist can carry data out; Codex sessions have network disabled.
+Claude Code's sandbox covers Bash and its child processes. Read, Edit, Write,
+web tools and hooks run outside it. So walk-away Claude sessions also load no
+MCP servers, deny reads of credential paths, and use a second hook that keeps
+file-tool writes in the build folder. An allowed domain can still carry data
+out. Attended runs have no sandbox: the builder runs Bash with the person's
+network, under the guard.
 
-## 11. What the kit does not do, and why
+## 11. Setup, shape and run
+
+1. **Install:** `/plugin marketplace add gwpicard/ai-loop-kit`, then
+   `/plugin install ai-loop-kit@ai-loop-kit`.
+2. **`/ai-loop-kit:setup`**, once per project. `gate.py init` makes the
+   labels. The skill agrees these with the person: the backend, Prepare,
+   Test, Quality, Standards, protected paths, sandbox domains and branch
+   protection. It writes them to a `## The loop` section in `AGENTS.md` on a
+   branch and opens a pull request. Doctor checks it all on a fresh copy of
+   `main` (code).
+3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
+   into pieces of about one hour. Write the spec, show it, capture it. The
+   judge writer writes the judge on `piece/<n>`. Run the project's Test on the
+   judge files, then `gate.py check` and `gate.py move <n> ready`. A spec
+   changes only through `gate.py spec`, and only in shaping.
+4. **`/ai-loop-kit:run`.** Build every ready piece. Each passing piece gets a
+   review and a pull request.
+5. **The person** reads each pull request and merges it, or rejects it with a
+   reason. `gate.py sync` moves merged pieces to done. `gate.py report` shows
+   where pieces came back and why.
+
+The skills hold judgement and conversation. Every rule that must hold lives
+in a script, a hook or the gate. All gate commands print one `next:` step
+when they refuse.
+
+## 12. Constraints learned from real runs
+
+These facts about the platform shaped the design. Each one cost time once.
+
+- `claude -p` cannot ask the person a question. So the run is a script, and a
+  builder that is stuck hands back; it does not wait.
+- Claude Code's auto mode refuses an agent's change to its own permissions,
+  even with the person's yes in chat. Permissions are set before a run, in
+  files agents cannot edit.
+- A `Write(path)` deny rule matches nothing. Only `Edit(path)` rules cover
+  every file tool.
+- A fresh copy of `main` has no `.venv` or `node_modules`. Every check runs
+  Prepare first. Only the fresh folder's own `.venv` goes on `PATH`; the
+  person's checkout's `.venv` and `VIRTUAL_ENV` are removed, so they never
+  choose the interpreter for a fresh folder.
+- Build folders inside the project break the person's own linters. They live
+  in `~/.cache/ai-loop-kit/worktrees/`.
+- GitHub closes an issue when "Closes" appears in any sentence. Only a
+  `Closes` line is used.
+- GitHub's label search lags after a move. The run retries the ready list for
+  about 20 seconds.
+- A free private repository has no branch protection. The local layers must
+  hold alone, and setup says so.
+- A hook wired twice runs twice. Skill paths need `${CLAUDE_PLUGIN_ROOT}`.
+- A skipped check once printed as "passed". A check that did not run is never
+  green.
+- Many parallel sessions crashed the Mac from memory pressure, and once
+  filled the disk. The run builds one piece at a time.
+
+## 13. What the kit does not do, and why
 
 | Not done | Why |
 | --- | --- |
-| A GitHub App identity | Useful for unattended runs; the person's own sign-in is enough while runs are attended. |
-| An integration branch and combined review | Pieces merge one at a time and conflicts go back to the builder. About 28% of agent pull requests conflict, so this returns when runs grow [AgenticFlict, in the archive design]. |
-| Crews and design-it-twice | They add coordination work without a proven need [Pocock, codebase-design]. |
-| A skills registry or context store | Shared infrastructure for large teams [Port]; against a thin kit. |
-| A hard rule that every item uses a fixed sentence pattern | It makes odd, long issues. Used as a guide only [Scala Teams]. |
+| A combined branch and combined review | The person reviews each pull request. About 28% of agent pull requests conflict [AgenticFlict], so this returns when runs grow. A conflict after a sibling merge goes to the builder for now. |
+| A GitHub App identity | The person's own sign-in is enough while runs are attended. |
+| Automatic merges, even pre-approved | Merging is the person's moment. |
+| Crews, design-it-twice, a skills registry or context store | Coordination cost with no proven need [Pocock, codebase-design], [Port]. |
+| A fixed sentence pattern for every item | It makes odd, long issues. "When ..., then ..." is a guide only. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |
-| A paid code-health score | Proprietary [CodeScene]. CRAP covers the same ground for free. |
-| A container around each Claude process | Revisit if a walk-away rehearsal shows a gap in the built-in sandbox. |
+| A paid code-health score | CRAP covers the same ground for free [CodeScene]. |
+| A container around each Claude process | Revisit if a walk-away run finds a gap in the built-in sandbox. |
+| Maintenance and live-feedback loops | They need projects that live for weeks. |
+| Parallel builders | They crashed the machine. One piece at a time. |
 
-## 12. How v1 was built, and how the kit grows
+## 14. Size
 
-The thin kit grew one earned feature at a time from 13 October 2026. The
-maintainer built v1 and v1.1 from plans in one pass, with tests and rehearsals
-at the end. The build and rehearsal findings are in the maintainer's build notes. After
-v1.1 is field-tested, the earn rule applies again: record a failure in the maintainer's ledger, add a test, then add the
-feature.
+The kit has about 4,900 Python lines in `kit/`. The target is about 2,500, so
+that a person can read it in one sitting. It uses the Python standard library
+only and supports Python 3.9 or later. The core (gate, spec parser, run,
+guard, test lint, pull request) is about 3,000 lines; the previews and quality
+scripts are most of the rest.
 
-The maintainer's build notes record the researcher role, goal and gauntlet
-judges, walk-away runs and rehearsal fixes.
+## Words used in this file
+
+| Word | Meaning |
+| --- | --- |
+| piece | One GitHub issue: about one hour of work, with one state label |
+| spec, contract | The issue body the person approves. `## Contract` is its numbered list of items (D1, D2) |
+| judge | The tests (or measure, or critics) that decide whether a piece is done |
+| bar | The judge files plus every helper and `conftest.py` they rely on, frozen by a hash at ready |
+| gate | `gate.py`, the only script that moves a piece and the only one that decides |
+| run | `run.py`, the script that claims, builds, reviews and opens pull requests |
+| Keep | The project's whole test command, which must keep passing |
+| Prepare | The command that installs tools in a fresh copy of `main` |
+| Quality | Extra project checks, such as CRAP or mutation testing |
+| check settings | Files that decide how the project checks itself: lint, test and CI config, `.gitignore`, `AGENTS.md`, the standards file |
+| typed reason | The one-word type on every move back, such as `bar-wrong` or `environment` |
+| protected path | A path that needs a person; a piece may change it only if its Contract names it |
+| waiting limit | How many pull requests may wait before the run stops starting pieces |
+| preview | A feature with automated tests only, not yet run on a real project |
 
 ## Sources
 
-Outside sources named above. `docs/SOURCES.md` lists the earlier ones.
+Outside work the design rests on. Nobody named here was asked first or has
+endorsed the kit.
 
-- [Anthropic harnesses] Anthropic, [effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-- [METR] METR, [recent reward hacking](https://metr.org/blog/2025-06-05-recent-reward-hacking/).
-- [ImpossibleBench] [ImpossibleBench](https://arxiv.org/abs/2510.20270), and its [repository](https://github.com/safety-research/impossiblebench).
-- [TDFlow] [TDFlow](https://arxiv.org/abs/2510.23761): tests written first by someone else.
-- [Meta ACH] [Mutation-guided test generation at Meta](https://arxiv.org/abs/2501.12862).
-- [Ralph] Geoffrey Huntley, [the Ralph technique](https://ghuntley.com/ralph/).
-- [ETH AGENTS.md] [Evaluating AGENTS.md](https://arxiv.org/abs/2602.11988).
-- [Pocock, code-review] Matt Pocock, [code-review skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md).
-- [Pocock, codebase-design] Matt Pocock, [codebase-design skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/codebase-design/SKILL.md), after John Ousterhout's deep modules.
-- [Cursor, thermo-nuclear] Cursor, [thermo-nuclear code quality review](https://github.com/cursor/plugins/blob/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md).
-- [Fowler, Refactoring] Martin Fowler, Refactoring, chapter 3, code smells.
-- [Fowler, TDD in the loop] [TDD in the agent loop](https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html).
-- [kata, testing without tautologies] [kenn-io/kata](https://github.com/kenn-io/kata), its testing skill.
-- [Sandcastle] Matt Pocock, [sandcastle](https://github.com/mattpocock/sandcastle).
-- [Claude sandboxing] Anthropic, [Configure the sandboxed Bash tool](https://code.claude.com/docs/en/sandboxing).
-- [Claude settings] Anthropic, [Settings reference](https://code.claude.com/docs/en/settings-reference).
+- [Anthropic harnesses] Anthropic, [effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents). Removing or editing a test is unacceptable; a progress file a new session reads.
+- [METR] [Recent reward hacking](https://metr.org/blog/2025-06-05-recent-reward-hacking/). Telling a model not to cheat did not change how often it did.
+- [ImpossibleBench] [ImpossibleBench](https://arxiv.org/abs/2510.20270). Models edit or delete tests to pass impossible tasks; an explicit way out reduces it.
+- [TDFlow] [TDFlow](https://arxiv.org/abs/2510.23761). Tests written first by someone else.
+- [Fowler, TDD] [TDD in the agent loop](https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html). Martin Fowler, Refactoring, chapter 3, for the code smells.
+- [Ralph] Geoffrey Huntley, [the Ralph technique](https://ghuntley.com/ralph/), and Clayton Farr's [Ralph Playbook](https://github.com/ClaytonFarr/ralph-playbook). Change the input and run again.
+- [Pocock, code-review] Matt Pocock, [skills](https://github.com/mattpocock/skills): the code-review and codebase-design skills, and a recommended answer with every interview question.
+- [Sandcastle] Matt Pocock, [sandcastle](https://github.com/mattpocock/sandcastle). Tagged verdicts.
+- [ETH AGENTS.md] [Evaluating AGENTS.md](https://arxiv.org/abs/2602.11988). Keep standing instructions to what the code cannot show.
+- [Osmani, agent files] Addy Osmani, [audit your agent files](https://addyosmani.com/blog/audit-your-agent-files/); [brownfield agentic engineering](https://addyosmani.com/blog/brownfield-agentic-engineering/); [agentic code quality](https://addyosmani.com/blog/agentic-code-quality/).
+- [Cursor] Cursor, [thermo-nuclear code quality review](https://github.com/cursor/plugins/blob/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md).
+- [kata] [kenn-io/kata](https://github.com/kenn-io/kata), its testing skill: testing without tautologies.
 - [CRAP] Alberto Savoia and Bob Evans, the CRAP metric (crap4j, 2007).
-- [mutmut] [mutmut](https://mutmut.readthedocs.io/en/latest/); [Stryker] [StrykerJS](https://stryker-mutator.io/docs/stryker-js/incremental/).
-- [Osmani, agent files] Addy Osmani, [audit your agent files](https://addyosmani.com/blog/audit-your-agent-files/).
-- [Osmani, skill decay] [agentic skill decay](https://addyosmani.com/blog/agentic-skill-decay/).
-- [Osmani, brownfield] [brownfield agentic engineering](https://addyosmani.com/blog/brownfield-agentic-engineering/).
-- [Osmani, quality] [agentic code quality](https://addyosmani.com/blog/agentic-code-quality/).
-- [CodeScene] [agentic AI coding best practice patterns](https://codescene.com/blog/agentic-ai-coding-best-practice-patterns-for-speed-with-quality).
-- [Port] [agentic engineering 2.0](https://www.port.io/blog/agentic-engineering-2-0); [Port, change review] [goodbye code review, hello change](https://newsletter.port.io/p/goodbye-code-review-hello-change).
-- [Martinelli] [why spec-driven development tools fail in the enterprise](https://martinelli.ch/why-spec-driven-development-tools-fail-in-the-enterprise/).
-- [Scala Teams] [spec-driven development: the requirements problem](https://www.scalateams.com/blog/spec-driven-development-requirements-problem).
-- [DevGenius] [the spec is the code](https://blog.devgenius.io/the-spec-is-the-code-why-i-dont-buy-spec-driven-design-f75c784f7b46) (read from a summary; the page refused access).
+- [mutmut] [mutmut](https://mutmut.readthedocs.io/en/latest/), [StrykerJS incremental](https://stryker-mutator.io/docs/stryker-js/incremental/), and [mutation-guided test generation at Meta](https://arxiv.org/abs/2501.12862).
+- [Claude sandboxing] Anthropic, [the sandboxed Bash tool](https://code.claude.com/docs/en/sandboxing), [settings](https://code.claude.com/docs/en/settings-reference) and [permissions](https://code.claude.com/docs/en/permissions).
+- [Scala Teams] [Spec-driven development: the requirements problem](https://www.scalateams.com/blog/spec-driven-development-requirements-problem).
+- [Martinelli] [Why spec-driven development tools fail in the enterprise](https://martinelli.ch/why-spec-driven-development-tools-fail-in-the-enterprise/).
+- [DevGenius] [The spec is the code](https://blog.devgenius.io/the-spec-is-the-code-why-i-dont-buy-spec-driven-design-f75c784f7b46) (read from a summary; the page refused access).
 - [HumanLayer] HumanLayer's "show me" review approach (read from a secondary description only).
-- [AgenticFlict] cited in the maintainer's build notes.
+- [Port] [Agentic engineering 2.0](https://www.port.io/blog/agentic-engineering-2-0) and [goodbye code review, hello change](https://newsletter.port.io/p/goodbye-code-review-hello-change).
+- [CodeScene] [Agentic AI coding best practice patterns](https://codescene.com/blog/agentic-ai-coding-best-practice-patterns-for-speed-with-quality).
+- [AgenticFlict] A study of merge conflicts in agent pull requests, cited in the first design's research (not re-read for this file).
+- Also borrowed: [github/spec-kit](https://github.com/github/spec-kit) (a read-only analyse pass), [OpenSpec](https://github.com/Fission-AI/OpenSpec/blob/main/docs/concepts.md) (each requirement checkable alone), [GitHub CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) (path lists for protected paths).

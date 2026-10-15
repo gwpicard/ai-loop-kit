@@ -16,7 +16,7 @@ The attended loop from 1.0 is the tested path. The v1.1 preview features have au
 V1 adds an Intent and Contract format, typed hand-backs, safer runs, judge
 quality checks, project Quality commands, two independent reviews, and
 pull requests written from checked facts. The gate now checks protected paths
-and secret shapes. See [the v1 definition](docs/V1.md).
+and secret shapes. See [the design](docs/DESIGN.md).
 
 Upgrade from 0.10.0: add a non-empty `## Intent` and `Out of scope:` to each
 spec. The existing `## Done when` section is read as `## Contract`.

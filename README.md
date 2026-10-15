@@ -89,7 +89,6 @@ The attended loop from 1.0 is the tested path. Preview features have only automa
 
 ## More to read
 
-- [How it works](docs/V1.md)
-- [Why it works this way](docs/DESIGN.md)
+- [How it works, and why](docs/DESIGN.md)
 - [Changelog](CHANGELOG.md)
 - [MIT licence](LICENSE)

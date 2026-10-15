@@ -17,10 +17,6 @@ plan.local.md
 .agents/worktrees/
 .agents/runs/
 
-# Maintainer notes, kept local and private
-legacy/
-docs/archive/
-docs/v1/
-docs/v1.1/
-docs/LEDGER.md
-docs/LESSONS.md
+# The maintainer's open questions and build notes, kept local and private
+docs/OPEN.md
+docs/v1*/
