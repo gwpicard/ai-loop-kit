@@ -14,6 +14,7 @@ This file is how the kit grows. Read `docs/ANGLE.md` first.
 
 | Date | Seen in | What went wrong | Entry it earned |
 | --- | --- | --- | --- |
+| 15 Oct 2026 | v1 rehearsal round 3, scenario 1 | Attempt durations appeared in terminal output, not the `.loop/logs` files, so the requested evidence was not available from those logs. | Record each attempt's UTC start and finish times, plus its elapsed seconds, in its log. |
 | 15 Oct 2026 | v1 rehearsal round 2, A | The changed-function mutmut filter did not match mutmut 3.8 names, treated tests as targets, and could pass without checking killed mutants; doctor also implied an empty mutation run had been exercised. | Match only changed source functions to mutmut 3.8 names, require recorded changed-function mutants and zero survivors, and report when main has no functions to exercise. |
 | 15 Oct 2026 | v1 rehearsal round 2, B | Killing a run during review could leave kit-created review worktrees and branches behind. | At run start, remove abandoned worktrees and branches whose names match the kit's review branch format, and report each removal. |
 | 15 Oct 2026 | v1 rehearsal round 2, C | Doctor ran Quality in a fresh main copy without first creating `.coverage`, so coverage-based CRAP checks failed even when the Test command created coverage successfully. | Doctor runs Test before each Quality command in the same fresh main copy. |
@@ -448,6 +449,8 @@ possible.
   What: started by `/run`; starts each builder as a separate non-interactive `claude -p` session. Why: the earlier coordinator stood still because it asked a question and waited. Tier: CORE.
 - **Fresh session per attempt**
   What: each attempt starts clean and receives only the frozen spec, the gate-kept attempt log and, for metrics, the next hypothesis; never past session history. Why: long sessions full of failed approaches get worse; clean restarts win. Tier: CORE.
+- **Attempt timing in logs**
+  What: write each attempt's UTC start and finish times, plus elapsed seconds, into its `.loop/logs` file. Why: timing evidence should survive the terminal session. Tier: CORE (earned in rehearsal round 3).
 - **Gate-kept attempt log**
   What: each attempt's result and findings recorded by the gate and given to the next builder. Why: the next attempt learns without inheriting a poisoned context. Tier: CORE.
 - **Three attempts per piece**

@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +49,17 @@ class AttemptIdle(Exception):
 
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def record_attempt_timing(logfile: Path, started_at: datetime,
+                          elapsed_seconds: float) -> None:
+    timing = {
+        "started_at": started_at.isoformat(timespec="milliseconds"),
+        "finished_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        "elapsed_seconds": round(elapsed_seconds, 3),
+    }
+    with logfile.open("a") as output:
+        output.write("\nAttempt timing: " + json.dumps(timing, sort_keys=True) + "\n")
 
 
 def lock_path(root: Path) -> Path:
@@ -526,12 +538,14 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
             return f"piece {n}: back to shaping, {reason}"
         started = time.monotonic()
+        started_at = datetime.now(timezone.utc)
         (folder / ".loop" / "outcome").unlink(missing_ok=True)
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         idle_status = build_once(folder, brief(n, issue["body"], ready, last_failure, came_back, folder),
                                  ready["files"], logfile, ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")))
         if idle_status == "idle":
+            record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
             gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
@@ -541,6 +555,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             lines = outcome.read_text(errors="replace").splitlines()
             if lines and lines[0].strip() == "bar-wrong" and "\n".join(lines[1:]).strip():
                 reason = "\n".join(lines[1:]).strip()[:500]
+                record_attempt_timing(logfile, started_at, time.monotonic() - started)
                 log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                     f"log: {logfile.relative_to(root)}")
                 gh.comment(n, f"**Run:** attempt {k} reports bar-wrong: {reason}")
@@ -552,6 +567,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int) ->
             passed, output = gate.judge(folder, ready)
         finally:
             clean_quality_outputs(folder, record_quality_outputs(folder))
+            record_attempt_timing(logfile, started_at, time.monotonic() - started)
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)

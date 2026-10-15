@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -59,6 +61,22 @@ class ScenarioTest(unittest.TestCase):
         self.assertGreaterEqual(time.monotonic() - started, 2)
         log = self.p.root / ".loop" / "logs" / f"piece-{n}-attempt-1.log"
         self.assertIn("still working", log.read_text())
+
+    def test_attempt_log_records_start_finish_and_elapsed_time(self):
+        n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        log = self.p.root / ".loop" / "logs" / f"piece-{n}-attempt-1.log"
+        line = next((line for line in log.read_text().splitlines()
+                     if line.startswith("Attempt timing: ")), None)
+        self.assertIsNotNone(line)
+        timing = json.loads(line.removeprefix("Attempt timing: "))
+        started = datetime.fromisoformat(timing["started_at"])
+        finished = datetime.fromisoformat(timing["finished_at"])
+        self.assertEqual(started.utcoffset().total_seconds(), 0)
+        self.assertEqual(finished.utcoffset().total_seconds(), 0)
+        self.assertLessEqual(started, finished)
+        self.assertAlmostEqual((finished - started).total_seconds(),
+                               timing["elapsed_seconds"], delta=2)
 
     def test_bar_wrong_stops_on_attempt_one(self):
         n, result = self.build("bar-wrong", attempts=3)
