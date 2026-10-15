@@ -418,7 +418,7 @@ pushed branch.
 | No file added under paths that Prepare created | `.venv` once leaked into a branch |
 | No check-setting change unless `Settings: may change`. Check settings include lint, test and CI config, `.gitignore`, `AGENTS.md`, the standards file, and the check keys of `package.json` and `pyproject.toml` | A builder turned off a lint rule to pass |
 | The judge passes, with nothing skipped | A skipped test passes silently |
-| `Keep:` passes. If it fails only with the judge files present, the bar is wrong and the piece goes back at once | A judge that breaks the project's lint can never pass |
+| `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names. If it fails again only with the judge files present, the bar is wrong and the piece goes back at once | A judge that breaks the project's lint can never pass |
 | Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
 
 **Quality commands** belong to the project, not the kit, so the kit works for

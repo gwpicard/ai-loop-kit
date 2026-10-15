@@ -337,13 +337,25 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         if skipped_tests(koutput):
             return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
         if kcode != 0:
-            if ready["files"] and keep_passes_without_judge(folder, ready):
-                return False, f"{BAR_WRONG}. Without them it passes:\n{koutput}"
-            failure = f"the judge passes, but the keep check now fails:\n{koutput}"
-            if kind_code >= 0:
-                failure += f"\n\n{output}"
-            return False, failure
-        output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
+            retry_code, retry_output = run_judge(
+                folder, ready["keep"], protected_paths=protected_paths)
+            if retry_code == 0 and not skipped_tests(retry_output):
+                failed_names = failing_test_names(koutput)
+                names = ", ".join(failed_names) if failed_names else "see failed Keep output"
+                output += (f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
+                           f"\n\nKeep retry: {ready['keep']}\nExit: {retry_code}\n"
+                           f"{retry_output.strip()}\nCause: keep-flaky\n"
+                           f"Failing Keep tests: {names}")
+            elif ready["files"] and keep_passes_without_judge(folder, ready):
+                return False, (f"{BAR_WRONG}. Keep retry also failed:\n"
+                               f"{retry_output}\nWithout judge files it passes:\n{koutput}")
+            else:
+                failure = f"the judge passes, but the keep check now fails:\n{koutput}"
+                if kind_code >= 0:
+                    failure += f"\n\n{output}"
+                return False, failure
+        else:
+            output += f"\n\nKeep: {ready['keep']}\nExit: {kcode}\n{koutput.strip()}"
     quality_results = []
     for command in ready.get("quality", []):
         qcode, qoutput = run_judge(folder, command, protected_paths=protected_paths)
@@ -356,6 +368,19 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if quality_results:
         output += "\n\n" + "\n\n".join(quality_results)
     return True, output
+
+
+def failing_test_names(output: str) -> list[str]:
+    """Extract reported failing test names from common test runner output."""
+    names = []
+    for line in output.splitlines():
+        match = re.search(r"\b(?:FAILED?|ERROR)\s*:?\s*(.+)$|\bnot ok\s+\d+\s+-\s*(.+)$",
+                          line, re.IGNORECASE)
+        if match:
+            name = (match.group(1) or match.group(2)).strip()
+            if name and name not in names:
+                names.append(name)
+    return names
 
 
 def changed_existing_tests(folder: Path, ready: dict) -> list[str]:
