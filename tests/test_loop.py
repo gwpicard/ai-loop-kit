@@ -200,7 +200,7 @@ class GateTest(unittest.TestCase):
         agents.write_text(agents.read_text() +
                           "Keep: printf kept\nQuality: printf quality\n"
                           "Standards: STANDARDS.md\nProtected paths: src/private\n"
-                          "Idle limit: 7\nWaiting limit: 4\nAgent: codex\n")
+                          "Idle limit: 7\nWaiting limit: 4\nKeep limit: 20\nAgent: codex\n")
         (self.p.root / "STANDARDS.md").write_text("Use clear names.\n")
         git(self.p.root, "add", "AGENTS.md", "STANDARDS.md")
         git(self.p.root, "commit", "--quiet", "-m", "Add gate settings")
@@ -215,6 +215,7 @@ class GateTest(unittest.TestCase):
         self.assertEqual(ready["standards"], "STANDARDS.md")
         self.assertEqual(ready["protected_paths"], ["src/private"])
         self.assertEqual((ready["idle_limit"], ready["waiting_limit"]), ("7", "4"))
+        self.assertEqual(ready["keep_limit"], "20")
         self.assertEqual(ready["agent"], "codex")
         folder = run.worktree(self.p.root, n)
         (folder / "AGENTS.md").write_text((folder / "AGENTS.md").read_text()
@@ -231,6 +232,28 @@ class GateTest(unittest.TestCase):
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
         self.assertEqual(output, "the loop settings changed in AGENTS.md")
+
+    def test_ready_uses_the_configured_keep_limit(self):
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Keep: slow keep\nKeep limit: 20\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Set Keep limit")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n = self.p.piece()
+        observed = []
+
+        def run_slow_keep(folder, command, timeout=900, protected_paths=None):
+            observed.append((command, timeout))
+            if command == "slow keep":
+                return (0, "passed") if timeout == 1200 else (124, "timed out")
+            return 1, "FAIL D1 D2"
+
+        with patch.object(gate, "run_judge", side_effect=run_slow_keep):
+            self.ready(n)
+        self.assertIn(("slow keep", 1200), observed)
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertEqual(ready["keep_limit"], "20")
 
     def test_command_environment_uses_frozen_protected_paths(self):
         self.p.loop_section("true")
@@ -493,7 +516,7 @@ class GateTest(unittest.TestCase):
         (self.p.root / "habits.py").write_text(GOOD_CODE)
         keep_runs = iter([(1, "FAIL test_flaky_keep"), (0, "PASS test_flaky_keep")])
 
-        def run_flaky_keep(folder, command, protected_paths=None):
+        def run_flaky_keep(folder, command, timeout=900, protected_paths=None):
             if command == ready["command"]:
                 return 0, "ok test_D1_add_appends\\nok test_D2_add_skips_duplicates"
             return next(keep_runs)
@@ -690,6 +713,28 @@ class GateTest(unittest.TestCase):
         self.assertIsNotNone(failure, checks)
         self.assertIn("quality-check-failed", failure[2])
 
+    def test_doctor_reports_a_timed_out_keep_with_next_step(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Keep: slow keep\nKeep limit: 1\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Set slow Keep")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+
+        def run_slow_keep(folder, command, timeout=900, protected_paths=None):
+            if command == "slow keep":
+                self.assertEqual(timeout, 60)
+                return 124, "the judge ran past 60 seconds"
+            return 0, ""
+
+        with patch.object(gate, "run_judge", side_effect=run_slow_keep):
+            checks = gate.doctor(self.p.gh, self.p.root)
+        failed_keep = next((check for check in checks if not check[0] and "Keep" in check[1]), None)
+        self.assertIsNotNone(failed_keep, checks)
+        self.assertTrue(failed_keep[2], failed_keep)
+        self.assertIn("Keep limit", failed_keep[2])
+
     def test_doctor_runs_test_before_quality_in_the_same_fresh_copy(self):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("touch .coverage")
@@ -756,6 +801,13 @@ class GateTest(unittest.TestCase):
     def test_judge_output_loses_terminal_colour_codes(self):
         _, output = run_judge(self.p.root, r"printf '\033[31mFAIL\033[39m \033]8;;file:///a\007a.js\033]8;;\007'")
         self.assertEqual(output, "FAIL a.js")
+
+    def test_keep_output_records_elapsed_seconds(self):
+        with patch.object(gate.time, "monotonic", side_effect=[10.0, 12.5]), \
+                patch.object(gate, "run_judge", return_value=(0, "passed")):
+            code, output = gate.run_keep(self.p.root, "true", timeout=1200)
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "passed\nKeep took: 2.500 seconds")
 
     def test_the_loop_folder_stays_ignored_whatever_gitignore_says(self):
         (self.p.root / ".gitignore").write_text("__pycache__/\n")
