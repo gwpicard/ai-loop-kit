@@ -57,16 +57,17 @@ For example, ask for `tally --top 2 words.txt` to print `b 3` and then `a 2`. Th
 - “Reject this pull request with this reason: …”
 - “Drop this piece.”
 
-To start a walk-away run, use `python3 "<KIT>/scripts/run.py" --walk-away`. Walk-away is a preview.
+To build with nobody watching, ask Claude: "Start a walk-away run." It first proves the sandbox works, then builds every ready piece and leaves a summary for the morning. Walk-away is a preview.
 
 ## Previews in 1.1
 
-- Walk-away runs: preview: not yet field-tested.
-- Researcher: preview: not yet field-tested.
-- Goal loop kind: preview: not yet field-tested.
-- Gauntlet loop kind: preview: not yet field-tested.
-- Codex backend with `Agent: codex`: preview: not yet field-tested.
-- Walk-away refuses to start unless its probe proves the sandbox blocks the forbidden actions.
+These are new in 1.1. They pass the automated tests but have not yet been tested on a real project.
+
+- **Walk-away runs:** build every ready piece while you are away. A run refuses to start unless a probe proves the sandbox blocks writes outside the build folder, reads of your secrets and outside network calls.
+- **Researcher:** looks up outside facts while shaping, and records each source with the date it was read.
+- **Goal pieces:** the test is a measurement, such as speed, that must reach a target.
+- **Gauntlet pieces:** three critics compare the result with a reference without knowing which is which. The result must win two of three.
+- **Codex backend:** with `Agent: codex` in the loop settings, Codex does the building, reviewing and judging instead of Claude.
 
 ## What you approve
 
