@@ -59,6 +59,15 @@ test('return value', () => expect(doWork()).toBe('done'));
         self.assertIn("test only checks that a call does not throw", rules)
         self.assertEqual(rules.count("test only checks that a call does not throw"), 1)
 
+    def test_javascript_accepts_node_assertions_with_a_result_check(self):
+        text = """test('result', () => {
+    assert.doesNotThrow(work);
+    assert.strictEqual(result, 42);
+});
+"""
+        findings = javascript_findings(Path("test.js"), text)
+        self.assertEqual(findings, [])
+
     def test_javascript_reports_empty_skipped_and_true_expect_tests(self):
         text = """test('empty', () => {});
 it.skip('skipped', () => expect(1).toBe(1));
