@@ -54,12 +54,19 @@ FAKE_CLAUDE = textwrap.dedent('''\
     fi
     case "$FAKE_MODE" in
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      stream-good) for i in 1 2 3 4 5 6; do
+                    printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
+                    sleep 0.08
+                  done
+                  printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       idle) sleep 5 ;;
       bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
       hostile) sed -i.bak '/Quality:/d' AGENTS.md; rm -f AGENTS.md.bak
               printf 'def test_D1_changed(): pass\\n' > test_existing.py
               printf 'changed\\n' > conftest.py
               printf 'changed\\n' > STANDARDS.md ;;
+      settings-cheat) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+                     printf 'Quality: true\\n' >> AGENTS.md ;;
       cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
       lazy) : ;;
       loosen) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
@@ -110,6 +117,16 @@ class RunTest(unittest.TestCase):
         self.assertIn("IDs unique", judge_writer)
         self.assertIn("rename stale tests", judge_writer)
         self.assertIn("non-test project code", standards_reviewer)
+
+    def test_ready_search_retries_brief_github_label_lag(self):
+        from unittest.mock import Mock
+        gh = Mock()
+        ready = [{"number": 12}]
+        gh.issues_with_label.side_effect = [[], [], ready]
+        with patch.object(run.time, "sleep") as sleep:
+            self.assertEqual(run.ready_pieces(gh), [12])
+        self.assertEqual(gh.issues_with_label.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_standard_citation_must_be_a_whole_rule_or_known_smell(self):
         diff = "diff --git a/app.js b/app.js\n+++ b/app.js\n@@ -0,0 +1 @@\n+x\n"

@@ -28,7 +28,7 @@ def patterns(base: str, cwd: Path = Path.cwd()) -> list[str]:
 
     out = set()
     for name, lines in changed.items():
-        if not name.endswith(".py") or not lines:
+        if not name.endswith(".py") or not lines or name.startswith("tests/"):
             continue
         source = cwd / name
         try:
@@ -45,7 +45,9 @@ def patterns(base: str, cwd: Path = Path.cwd()) -> list[str]:
                 scope = parents + (node.name,)
                 if any(getattr(node, "lineno", 0) <= line <= getattr(node, "end_lineno", 0)
                        for line in lines):
-                    scopes.append(".".join((module, *scope)) + "*")
+                    function = ("xǁ" + "ǁ".join(scope) if len(scope) > 1
+                                else "x_" + scope[0])
+                    scopes.append(module + "." + function + "*")
                 parents = scope
             elif isinstance(node, ast.ClassDef):
                 parents = parents + (node.name,)
@@ -63,13 +65,14 @@ def results_pass(output: str, selected: list[str]) -> bool:
         return True
     if re.search(r"Survived mutants:\s*[1-9]\d*", output, re.IGNORECASE):
         return False
-    mutants = re.findall(r"([\w.ǁ]+__mutmut_\d+)", output)
+    mutants = re.findall(r"([\w.ǁ]+__mutmut_\d+)\s*:?\s*(killed|survived)",
+                         output, re.IGNORECASE)
     if not mutants:
         return False
-    targets = [pattern.rstrip("*").replace(".", "_").replace("ǁ", "_")
-               for pattern in selected]
-    named = [name.replace("ǁ", "_") for name in mutants]
-    return all(any(name.startswith(target) for name in named) for target in targets)
+    if any(status.lower() == "survived" for _, status in mutants):
+        return False
+    targets = [pattern.rstrip("*") for pattern in selected]
+    return all(any(name.startswith(target) for name, _ in mutants) for target in targets)
 
 
 def main() -> int:
@@ -84,7 +87,8 @@ def main() -> int:
         result = subprocess.run(["mutmut", "run", pattern])
         if result.returncode:
             return result.returncode
-    results = subprocess.run(["mutmut", "results"], capture_output=True, text=True)
+    results = subprocess.run(["mutmut", "results", "--all", "true"],
+                             capture_output=True, text=True)
     print(results.stdout, end="")
     if results.returncode:
         print(results.stderr, file=sys.stderr, end="")

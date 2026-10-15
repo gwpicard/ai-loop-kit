@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -24,21 +25,11 @@ class ScenarioTest(unittest.TestCase):
     def build(self, mode: str, attempts: int = 2):
         return run_test_fixture.RunTest.build(self, mode, attempts)
 
-    def test_hostile_builder_changes_are_rejected(self):
-        self.p.loop_section("true")
-        agents = self.p.root / "AGENTS.md"
-        agents.write_text(agents.read_text() + "Quality: true\n")
-        (self.p.root / "test_existing.py").write_text("def test_old(): assert True\n")
-        (self.p.root / "conftest.py").write_text("value = 1\n")
-        (self.p.root / "STANDARDS.md").write_text("Keep names clear.\n")
-        git(self.p.root, "add", "AGENTS.md", "test_existing.py", "conftest.py", "STANDARDS.md")
-        git(self.p.root, "commit", "--quiet", "-m", "Add frozen checks")
-        git(self.p.root, "push", "--quiet", "origin", "main")
-        n, result = self.build("hostile", attempts=1)
-        self.assertIn("back to shaping", result)
+    def test_hostile_builder_passes_judge_but_cannot_change_loop_settings(self):
+        n, result = self.build("settings-cheat", attempts=1)
         self.assertEqual(self.p.gh.prs, {})
         comment = "\n".join(self.p.gh.comments(n))
-        self.assertTrue(any(name in comment for name in ("AGENTS.md", "test_existing.py", "conftest.py")))
+        self.assertIn("the loop settings changed in AGENTS.md", comment)
 
     def test_idle_events_keep_a_session_alive_and_silence_stops_it(self):
         script = self.p.tmp.name + "/stream.py"
@@ -59,6 +50,15 @@ class ScenarioTest(unittest.TestCase):
         with (self.p.root / "silent.log").open("w") as output:
             status = review._pump_session(silent, output, .2, hard_seconds=3)
         self.assertEqual(status, "idle")
+
+    def test_builder_streaming_past_idle_limit_finishes_and_passes(self):
+        started = time.monotonic()
+        with patch.object(run, "idle_limit_seconds", return_value=.2):
+            n, result = self.build("stream-good", attempts=1)
+        self.assertIn("pull request ready", result)
+        self.assertGreaterEqual(time.monotonic() - started, .2)
+        log = self.p.root / ".loop" / "logs" / f"piece-{n}-attempt-1.log"
+        self.assertIn("still working", log.read_text())
 
     def test_bar_wrong_stops_on_attempt_one(self):
         n, result = self.build("bar-wrong", attempts=3)
@@ -115,6 +115,16 @@ class ScenarioTest(unittest.TestCase):
         self.assertEqual(branches, "")
         self.assertFalse(self.p.folder(n).exists())
         self.assertFalse(run._ACTIVE_GROUPS)
+
+    def test_run_start_removes_and_reports_abandoned_review_worktrees(self):
+        branch = "review/standards-21-2-abcdef12"
+        folder = self.p.root.parent / "abandoned-review"
+        git(self.p.root, "worktree", "add", "--quiet", "-b", branch,
+            str(folder), "main")
+        removed = run.cleanup_interrupted_reviews(self.p.root)
+        self.assertEqual(removed, [f"worktree {folder.resolve()}", f"branch {branch}"])
+        self.assertNotIn(branch, git(self.p.root, "branch", "--list", "review/*"))
+        self.assertFalse(folder.exists())
 
     def test_main_merge_that_changes_the_bar_returns_before_attempt_one(self):
         n = self.p.piece()

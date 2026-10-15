@@ -516,10 +516,34 @@ class GateTest(unittest.TestCase):
         self.assertIsNotNone(failure, checks)
         self.assertIn("quality-check-failed", failure[2])
 
+    def test_doctor_runs_test_before_quality_in_the_same_fresh_copy(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("touch .coverage")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Quality: test -f .coverage\n")
+        git(self.p.root, "add", "AGENTS.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Add coverage quality check")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        checks = gate.doctor(self.p.gh, self.p.root)
+        quality = [item for item in checks if "Quality command" in item[1]]
+        self.assertTrue(quality and all(item[0] for item in quality), checks)
+
+    def test_doctor_says_when_mutation_check_has_no_changed_functions_on_main(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true")
+        helper = Path(gate.__file__).resolve().parents[1] / "quality" / "mutmut-changed.py"
+        checks = gate.doctor(self.p.gh, self.p.root,
+                             extra_quality=[f"python3 {helper} origin/main"])
+        self.assertTrue(any("could not be exercised on main" in what for _, what, _ in checks),
+                        checks)
+
     def test_doctor_warns_about_old_in_project_worktrees(self):
         (self.p.root / ".loop" / "worktrees" / "old").mkdir(parents=True)
         checks = gate.doctor(self.p.gh, self.p.root)
-        self.assertTrue(any("old in-project worktrees" in what for _, what, _ in checks))
+        warning = next((item for item in checks if "old in-project worktrees" in item[1]), None)
+        self.assertIsNotNone(warning, checks)
+        self.assertIn(".loop/worktrees/old", warning[1])
+        self.assertIn("may remove", warning[2])
 
     def test_doctor_catches_a_red_baseline(self):
         gate.init(self.p.gh, self.p.root)
@@ -561,6 +585,7 @@ class GuardTest(unittest.TestCase):
     REFUSED = [
         "git push origin main", "git push origin HEAD:main", "git push --force origin piece/1",
         "git push -f", "rm -rf build", "rm -r src", "rm -fR x", "sudo rm --recursive x",
+        'eval "git push --force origin piece/1"', "printf x | xargs rm -r file",
         "find . -name '*.pyc' -delete", "git clean -fdx", "git rm -r src",
         "gh pr merge 3 --squash", "gh issue edit 3 --add-label state:ready",
         "gh api repos/o/r/issues/3/labels -f labels[]=state:done",

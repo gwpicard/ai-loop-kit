@@ -206,6 +206,10 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
+        settings_changed = sh(["git", "diff", "--no-renames", "--name-only",
+                               f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
+        if "AGENTS.md" in settings_changed:
+            return False, "the loop settings changed in AGENTS.md"
         return False, "the judge files differ from the ones fixed at ready"
     changed_tests = changed_existing_tests(folder, ready)
     if changed_tests:
@@ -264,6 +268,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         changed = changed_check_settings(folder, (ready.get("standards", ""),)
                                         if ready.get("standards") else ())
         if changed:
+            if "AGENTS.md" in changed:
+                return False, "the loop settings changed in AGENTS.md"
             return False, ("the build changes the project's check settings: "
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
@@ -441,8 +447,9 @@ def init(gh: GitHub, root: Path) -> None:
     ignore_loop_folder(root)
 
 
-def quality_on_fresh_main(root: Path, main: str, command: str) -> tuple[bool, str]:
-    """Run one Quality command in its own prepared copy of main."""
+def quality_on_fresh_main(root: Path, main: str, command: str,
+                          test_command: str = "") -> tuple[bool, str]:
+    """Run Test, then one Quality command in its own prepared copy of main."""
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
     folder = tmp / "main"
     try:
@@ -450,6 +457,10 @@ def quality_on_fresh_main(root: Path, main: str, command: str) -> tuple[bool, st
         ok, output = prepare(folder)
         if not ok:
             return False, "Prepare failed:\n" + output.strip()[-800:]
+        if test_command:
+            code, test_output = run_judge(folder, test_command)
+            if code:
+                return False, "Test command failed before Quality:\n" + test_output.strip()[-800:]
         code, output = run_judge(folder, command)
         clean_quality_outputs(folder, record_quality_outputs(folder))
         return code == 0, output
@@ -509,8 +520,10 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) ->
 
     old_worktrees = root / ".loop" / "worktrees"
     if old_worktrees.is_dir() and any(old_worktrees.iterdir()):
-        checks.append((True, "warning: old in-project worktrees can break project tests",
-                       "The person can remove the old .loop/worktrees/ folder after checking it."))
+        folders = ", ".join(
+            (child.relative_to(root).as_posix() for child in sorted(old_worktrees.iterdir())))
+        checks.append((True, f"warning: old in-project worktrees can break project tests: {folders}",
+                       f"The person may remove these folders after checking them: {folders}."))
 
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
     folder = tmp / "main"
@@ -530,9 +543,12 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) ->
             "every piece's keep check needs a green main. Fix the tests or the environment, "
             "or add a Prepare command:\n" + output.strip()[-800:])
         for command in [*settings.get("quality", []), *(extra_quality or [])]:
-            qok, qoutput = quality_on_fresh_main(root, main, command)
-            add(qok, f"Quality command passes on a fresh copy of main ({command})",
-                f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
+            qok, qoutput = quality_on_fresh_main(root, main, command, settings["test"])
+            if "no changed Python functions found" in qoutput:
+                add(True, f"Quality mutation check could not be exercised on main ({command})", "")
+            else:
+                add(qok, f"Quality command passes on a fresh copy of main ({command})",
+                    f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)

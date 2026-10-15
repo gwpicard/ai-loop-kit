@@ -88,10 +88,10 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
         if not w:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
-        if builder and prog == "eval":
-            return "eval is not allowed in a build session. Run a plain command."
-        if builder and prog == "xargs" and any(os.path.basename(arg) == "rm" for arg in rest):
-            return "xargs rm is not allowed in a build session."
+        if prog == "eval":
+            return "eval is not allowed. Run a plain command."
+        if prog == "xargs" and any(os.path.basename(arg) == "rm" for arg in rest):
+            return "xargs rm is not allowed. Run rm on named files directly."
         if builder and prog in ("perl", "ruby") and "-e" in rest:
             return f"{prog} -e is not allowed in a build session."
         if prog in ("bash", "sh", "zsh"):

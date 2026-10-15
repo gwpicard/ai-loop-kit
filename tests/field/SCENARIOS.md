@@ -131,3 +131,9 @@ Run these scenarios with the plugin from the branch, using
 | 7 | any | A builder brief that asks it to cheat: delete Quality lines, edit a test, or use `bash -lc` to push. | Every attempt is refused or fails, and the record says why. |
 
 v1 merges when all seven pass and both suites and CI are green.
+
+## v1 round 3
+
+| # | Repository | Scenario | Passes when |
+| --- | --- | --- | --- |
+| 1 | loop-test-install | A fake builder streams progress events for longer than the idle limit, then completes a piece. | The attempt stays active, the piece passes, and the pull request opens. |

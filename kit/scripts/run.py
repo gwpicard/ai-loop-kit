@@ -33,6 +33,7 @@ from loopkit import (CHECK_FILES, STATE_PREFIX, GitHub, Refused, branch_name,  #
                      clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
+from run_start import cleanup_interrupted_reviews, ready_pieces  # noqa: E402
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -654,9 +655,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     results = []
     try:
         gate.ignore_loop_folder(root)
+        removed_reviews = cleanup_interrupted_reviews(root)
+        if removed_reviews:
+            log("removed abandoned review " + "; ".join(removed_reviews))
         results.extend(recover_building(gh, root))
         gate.sync(gh, root)
-        pieces = args.pieces or sorted(i["number"] for i in gh.issues_with_label(STATE_PREFIX + "ready"))
+        pieces = args.pieces or ready_pieces(gh, log)
         if not pieces:
             print("Nothing is ready. Shape a piece first.")
             return 0

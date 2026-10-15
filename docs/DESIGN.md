@@ -166,6 +166,8 @@ the run never guesses a verdict from free text [Sandcastle].
 The standards reviewer gets the frozen standards path from the ready record,
 runs Prepare in its own folder, and may keep a non-test fix only after the
 judge passes again. Review folders and branches are removed on every exit.
+The next run also clears and reports any review worktree or branch left by an
+interrupted run.
 
 ## 8. The checks
 
@@ -178,7 +180,7 @@ judge passes again. Review folders and branches are removed on every exit.
 | No check setting changed | Ready freezes Test, Prepare, Keep, Quality, Standards, protected paths and the idle and waiting limits. `AGENTS.md` and the named standards file are check settings, alongside project test configuration. A builder in our field runs turned off a lint rule to pass (`docs/LEDGER.md`, 14 October). |
 | Protected paths | Some code (auth, billing, CI) needs a person. Zone the code [Osmani, brownfield]. |
 | No file grows past 1,000 lines | A file that sprawls is a design smell agents create quickly [Cursor, thermo-nuclear]. |
-| Quality commands: CRAP and mutation testing | CRAP limits changed functions to a score of 30. Mutation testing reads `mutmut results`, requires mutants for changed functions and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that result is stored and checked once per piece. |
+| Quality commands: CRAP and mutation testing | CRAP limits changed functions to a score of 30. Mutation testing matches changed functions to mutmut's names, reads all results, requires tested mutants for each changed function and rejects survivors [CRAP], [mutmut], [Stryker], [Meta ACH]. Doctor runs Test before Quality in the same fresh copy of main. They are the project's commands, not the kit's, so the kit works for any stack. A failed Quality command is retried unless it also fails on a fresh copy of main; that result is stored and checked once per piece. |
 | Secret shapes | A secret in git history stays for ever. |
 | Nothing skipped | A skipped test passes silently. |
 
@@ -193,12 +195,12 @@ outruns review [Osmani, quality].
 
 ## 10. The boundary
 
-The guard hook refuses the hard rules: no push to `main`, no force push, no
-agent merge, no recursive delete. In build sessions it also refuses `eval`,
-`xargs` with `rm`, Perl and Ruby code execution, unreadable shell wrappers,
-and redirects into `.claude/`, `.githooks/` or protected paths. It refuses a
-plain push from `main`. It is a seatbelt, not a sandbox: branch protection on
-GitHub is a second layer, and runs are attended.
+The guard hook refuses the hard rules in every session: no push to `main`, no
+force push, no agent merge, no recursive delete, no `eval`, and no `xargs`
+with `rm`. In build sessions it also refuses Perl and Ruby code execution,
+unreadable shell wrappers, and redirects into `.claude/`, `.githooks/` or
+protected paths. It refuses a plain push from `main`. It is a seatbelt, not a
+sandbox: branch protection on GitHub is a second layer, and runs are attended.
 
 A sandbox is later. The likely shape is a container with an `agent` user that
 has the person's user id, the worktree mounted inside, and the token passed in
