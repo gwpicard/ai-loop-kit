@@ -27,6 +27,7 @@ REASON_TYPES = ("spec-unclear", "bar-wrong", "stopped", "environment", "builder-
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
+DEFAULT_KEEP_LIMIT = 15
 # Colour codes and terminal links that tools print. Issue comments show them raw.
 _TERMINAL_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 PREPARE_TIMEOUT = 1800
@@ -423,7 +424,7 @@ def loop_settings(folder: Path) -> dict:
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
             continue
         m = re.match(
-            r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|"
+            r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
             r"Keep|Agent|Sandbox domains)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
@@ -435,11 +436,26 @@ def loop_settings(folder: Path) -> dict:
                 out[key] = value
             elif key == "idle limit":
                 out[key] = value
+            elif key == "keep limit":
+                out[key] = value
             elif key == "agent":
                 out[key] = value.lower()
             else:
                 out[key] = value
     return out
+
+
+def keep_limit_seconds(settings: dict) -> int:
+    """Return the configured Keep limit in seconds, defaulting to 15 minutes."""
+    value = settings.get("keep limit", str(DEFAULT_KEEP_LIMIT))
+    if not re.fullmatch(r"(?:\d+(?:\.\d*)?|\.\d+)", value):
+        raise Refused(f"Keep limit must be a positive number of minutes, not {value!r}",
+                      "set `Keep limit: <minutes>` in the loop section of AGENTS.md")
+    seconds = int(float(value) * 60)
+    if seconds < 1:
+        raise Refused("Keep limit must be at least one second",
+                      "set `Keep limit: <minutes>` in the loop section of AGENTS.md")
+    return seconds
 
 
 def prepare(folder: Path, command: Optional[str] = None,
