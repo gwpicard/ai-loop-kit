@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" role="img" aria-labelledby="t d">
+  <title id="t">How AI Loop Kit works</title>
+  <desc id="d">You and Claude shape an idea into a contract with a test that fails today. The gate checks it. Fresh builder sessions try to pass the test; the gate judges each try. Two reviewers check the work, the gate checks again, and a pull request waits for you to merge. Any failure goes back to shaping with a reason.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#58665f"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b4232a"/></marker>
+    <style>
+      .t{font:600 16px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#15201c}
+      .s{font:13px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#58665f}
+      .g{font:700 12.5px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#c2410c;letter-spacing:.04em}
+      .r{font:600 13px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#b4232a}
+      .h{font:700 22px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#15201c}
+      .k{font:13px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#15201c}
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1000" height="460" rx="18" fill="#f6f8f7" stroke="#d5ddd9"/>
+  <text x="32" y="46" class="h">How it works</text>
+  <text x="32" y="70" class="s">Agents do the work. Scripts decide. You approve the contract and the merge.</text>
+
+  <!-- back path -->
+  <path d="M 690 180 L 690 112 L 103 112 L 103 175" fill="none" stroke="#b4232a" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#b)"/>
+  <path d="M 600 150 L 600 112" fill="none" stroke="#b4232a" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M 868 189 L 868 112 L 690 112" fill="none" stroke="#b4232a" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="380" y="102" class="r" text-anchor="middle">a problem goes back to shaping, with a reason</text>
+
+  <!-- 1 shape -->
+  <rect x="24" y="180" width="160" height="84" rx="12" fill="#dcefe9" stroke="#0d6e5f" stroke-width="2"/>
+  <text x="104" y="210" class="t" text-anchor="middle">1. Shape</text>
+  <text x="104" y="230" class="s" text-anchor="middle">you and Claude agree</text>
+  <text x="104" y="247" class="s" text-anchor="middle">what done means</text>
+  <line x1="184" y1="222" x2="208" y2="222" stroke="#58665f" stroke-width="2" marker-end="url(#a)"/>
+  <polygon points="242,189 275,222 242,255 209,222" fill="#fbe5d8" stroke="#c2410c" stroke-width="2"/>
+  <text x="242" y="226" class="g" text-anchor="middle">CHECK</text>
+  <line x1="275" y1="222" x2="302" y2="222" stroke="#58665f" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- 2 build loop -->
+  <rect x="304" y="150" width="336" height="162" rx="16" fill="none" stroke="#0d6e5f" stroke-width="2"/>
+  <text x="322" y="172" class="s">2. Build: up to 3 fresh tries</text>
+  <rect x="322" y="190" width="132" height="62" rx="9" fill="#ffffff" stroke="#c9d3ce" stroke-width="1.5"/>
+  <text x="388" y="217" class="t" text-anchor="middle">Builder</text>
+  <text x="388" y="236" class="s" text-anchor="middle">a fresh session</text>
+  <line x1="454" y1="221" x2="482" y2="221" stroke="#58665f" stroke-width="2" marker-end="url(#a)"/>
+  <polygon points="520,187 554,221 520,255 486,221" fill="#fbe5d8" stroke="#c2410c" stroke-width="2"/>
+  <text x="520" y="225" class="g" text-anchor="middle">TEST</text>
+  <path d="M 520 255 Q 520 280 454 280 Q 388 280 388 254" fill="none" stroke="#58665f" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="454" y="300" class="s" text-anchor="middle">fails: try again</text>
+  <line x1="554" y1="221" x2="646" y2="221" stroke="#58665f" stroke-width="2" marker-end="url(#a)"/>
+  <text x="596" y="213" class="s" text-anchor="middle">passes</text>
+
+  <!-- 3 review -->
+  <rect x="648" y="180" width="160" height="84" rx="12" fill="#ffffff" stroke="#c9d3ce" stroke-width="1.5"/>
+  <text x="728" y="210" class="t" text-anchor="middle">3. Review</text>
+  <text x="728" y="230" class="s" text-anchor="middle">two fresh reviewers:</text>
+  <text x="728" y="247" class="s" text-anchor="middle">built right? right thing?</text>
+  <line x1="808" y1="222" x2="834" y2="222" stroke="#58665f" stroke-width="2" marker-end="url(#a)"/>
+  <polygon points="868,189 901,222 868,255 835,222" fill="#fbe5d8" stroke="#c2410c" stroke-width="2"/>
+  <text x="868" y="226" class="g" text-anchor="middle">AGAIN</text>
+
+  <!-- 4 merge -->
+  <line x1="868" y1="255" x2="868" y2="300" stroke="#58665f" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="740" y="303" width="236" height="66" rx="12" fill="#dcefe9" stroke="#0d6e5f" stroke-width="2"/>
+  <text x="858" y="331" class="t" text-anchor="middle">4. You merge</text>
+  <text x="858" y="351" class="s" text-anchor="middle">a pull request with the evidence</text>
+
+  <!-- key -->
+  <polygon points="44,404 56,416 44,428 32,416" fill="#fbe5d8" stroke="#c2410c" stroke-width="2"/>
+  <text x="66" y="421" class="k">A script checks. No agent can say its own work is done.</text>
+  <line x1="460" y1="416" x2="500" y2="416" stroke="#b4232a" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="510" y="421" class="k">Goes back, never forward.</text>
+  <rect x="700" y="406" width="22" height="20" rx="5" fill="#dcefe9" stroke="#0d6e5f" stroke-width="2"/>
+  <text x="732" y="421" class="k">You decide here.</text>
+</svg>
