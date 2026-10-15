@@ -535,20 +535,41 @@ class GateTest(unittest.TestCase):
         quality = [item for item in checks if "Quality command" in item[1]]
         self.assertTrue(quality and all(item[0] for item in quality), checks)
 
+    def test_doctor_applies_proposed_quality_to_fresh_main(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true")
+        proposal = "grep -q '^Quality: ' AGENTS.md"
+        checks = gate.doctor(self.p.gh, self.p.root, extra_quality=[proposal])
+        proposed = [item for item in checks if "Proposed Quality command" in item[1]]
+        self.assertEqual(len(proposed), 1, checks)
+        self.assertTrue(proposed[0][0], proposed[0])
+
     def test_failed_quality_probe_runs_test_before_quality_on_main(self):
         self.p.loop_section("touch .coverage")
         failed = gate.quality_fails_on_main(
             self.p.root, "test -f .coverage", "touch .coverage")
         self.assertFalse(failed)
 
-    def test_doctor_says_when_mutation_check_has_no_changed_functions_on_main(self):
+    def test_doctor_fails_mutation_check_without_source_paths(self):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("true")
         helper = Path(gate.__file__).resolve().parents[1] / "quality" / "mutmut-changed.py"
         checks = gate.doctor(self.p.gh, self.p.root,
                              extra_quality=[f"python3 {helper} origin/main"])
-        self.assertTrue(any("could not be exercised on main" in what for _, what, _ in checks),
-                        checks)
+        quality = [item for item in checks if "Quality command" in item[1]]
+        self.assertTrue(quality and not quality[-1][0], checks)
+        self.assertIn("no mutmut source paths configured", quality[-1][2])
+
+    def test_doctor_uses_proposed_prepare_and_test_for_quality_probe(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true", prepare="touch old-prepare")
+        proposed_quality = "printf proposed"
+        with patch.object(gate, "quality_on_fresh_main", return_value=(True, "")) as probe:
+            gate.doctor(self.p.gh, self.p.root, extra_quality=[proposed_quality],
+                        proposed_prepare="touch new-prepare", proposed_test="test -f new-test")
+        probe.assert_called_once()
+        self.assertEqual(probe.call_args.args[2:4], (proposed_quality, "test -f new-test"))
+        self.assertEqual(probe.call_args.kwargs["prepare_command"], "touch new-prepare")
 
     def test_doctor_warns_about_old_in_project_worktrees(self):
         (self.p.root / ".loop" / "worktrees" / "old").mkdir(parents=True)

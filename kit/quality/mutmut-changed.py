@@ -9,27 +9,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mutmut_support import source_paths as configured_source_paths
+
 
 def source_paths(cwd: Path) -> list[Path]:
-    """Read mutmut's configured source paths from pyproject.toml."""
-    config = cwd / "pyproject.toml"
-    try:
-        import tomllib
-    except ImportError:  # Python 3.10
-        try:
-            text = config.read_text()
-        except OSError:
-            return []
-        section = re.search(r"(?ms)^\[tool\.mutmut\]\s*$(.*?)(?=^\[|\Z)", text)
-        match = re.search(r"(?m)^\s*source_paths\s*=\s*(\[[^\]]*\])", section[1]) if section else None
-        values = ast.literal_eval(match[1]) if match else []
-    else:
-        try:
-            values = tomllib.loads(config.read_text()).get("tool", {}).get("mutmut", {}).get(
-                "source_paths", [])
-        except (OSError, ValueError):
-            values = []
-    return [Path(item) for item in values if isinstance(item, str)]
+    """Read mutmut's configured source paths."""
+    return [Path(item) for item in configured_source_paths(cwd)]
 
 
 def patterns(base: str, cwd: Path = Path.cwd()) -> list[str]:
