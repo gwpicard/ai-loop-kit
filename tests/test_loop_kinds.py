@@ -72,6 +72,13 @@ class MeasureTest(unittest.TestCase):
 
 
 class CriticTest(unittest.TestCase):
+    def test_successful_empty_capture_names_the_missing_sample(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            with patch.object(critic, "run_judge", return_value=(0, "")):
+                with self.assertRaisesRegex(Refused, "empty sample"):
+                    critic.capture(folder, "true", "main")
+
     def test_verdict_requires_winner_and_a_reason_for_each_criterion(self):
         output = ('<verdict>{"winner":"A","reasons":{"Readable labels":'
                   '{"winner":"A","reason":"A is clearer"}}}</verdict>')

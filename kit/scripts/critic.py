@@ -32,7 +32,8 @@ def capture(folder: Path, command: str, label: str) -> list[str]:
     files = sorted(path.relative_to(folder).as_posix()
                    for path in target.rglob("*") if path.is_file())
     if not files:
-        raise Refused(f"Capture made no files in {target.relative_to(folder)}")
+        raise Refused(f"Capture succeeded but produced an empty sample in "
+                      f"{target.relative_to(folder)}")
     return files
 
 
