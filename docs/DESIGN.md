@@ -8,7 +8,8 @@ not here.
 Each rule names what holds it: **code** (the gate, the run or a check),
 **hook** (the guard), **sandbox**, or **words** (a brief or a skill only).
 Features marked **preview** pass the automated tests but have not yet run on a
-real project.
+real project. Parts marked **planned** are agreed for 1.2 and not yet built;
+the text says what the kit does today beside them.
 
 ## 1. What the kit is
 
@@ -20,6 +21,24 @@ agents in a GitHub project.
 
 The kit is a state machine. Agents do the work, scripts decide, and the
 person approves the contract and the merge.
+
+### Three phases
+
+1. **Shape.** Most of the person's time goes here. Each piece is shaped the
+   right amount: its intent, its limits, its risks and its exit condition,
+   with dependencies and open choices settled before the build.
+2. **Build in a loop.** Every ready piece is built by fresh attempts. The
+   loop checks after each one whether the piece did what its contract
+   promised and whether it was built well. A failure goes into the next
+   attempt; a piece that cannot pass goes back to shaping with the reason.
+   Nothing gets through until it meets the bar.
+3. **Release.** Finished work waits for the person to review and merge. Today
+   that is one pull request per piece. A combined branch and pre-approved
+   merges come later, when a run earns them.
+
+Around all three, a **meta loop** reads why pieces came back and improves
+what surrounds the loop for this project: its quality floor, its standards,
+the questions shaping asks. It proposes; the person approves.
 
 ### The problem
 
@@ -35,25 +54,49 @@ Four failures come back again and again when agents build software.
 Words alone did not hold in the first kit. Scripts did. So the kit answers
 each failure with a mechanism, not an instruction.
 
-## 2. The principles
+## 2. The promises, and how the kit keeps them
 
-1. **Agents produce, scripts decide, the person approves.** An agent's report
-   of its own work is not evidence. A script that runs the check is
-   [Anthropic harnesses].
-2. **A piece is a contract.** Nothing is built without the person's intent
-   and a judge that fails on today's `main` for the right reason. A test
-   written before the build, by someone other than the builder, is the only
-   proof that the build changed something [TDFlow], [Fowler, TDD].
-3. **Every working state is a loop.** It has an entry check, work, an exit
-   check and a way back. A failure goes back with a typed reason, never
-   forward.
-4. **Hold rules in code, and label what is only words.** Prose is read once
-   and forgotten [Osmani, agent files]. Where it matters, hold a rule in two
-   independent layers, so that one failing does not open it.
-5. **Grow from evidence.** A feature enters `kit/` only when a real run shows
-   the need. Write the failure down, add a test that reproduces it, then add
-   the smallest fix. The first kit was designed in full before it ran, grew
-   to about 35,000 lines and never built a piece.
+### What the kit promises
+
+1. **Shape the right amount.** Every piece states its intent, its limits, its
+   risks and its exit condition, and nothing more. The spec holds what the
+   code cannot say. After the merge it is a closed record, and the tests are
+   the living spec. Too many specs turn into code and drift; the right spec
+   sets the direction and the bar [Martinelli], [DevGenius].
+2. **Done means proven.** A piece leaves the loop only when a script confirms
+   its own exit condition and the project's quality floor. An agent's report
+   of its own work is never evidence [METR], [Anthropic harnesses].
+3. **Built right, and built well.** Two separate questions, each with its own
+   checks: did it build what the contract promised, and did it build it with
+   the craft the project expects?
+4. **The loop heals or hands back.** A failure goes into the next attempt. A
+   piece that cannot pass goes back to shaping with a typed reason and its
+   cause, never forward.
+5. **The person decides twice:** the contract, and the release.
+
+### How the kit keeps them
+
+1. **Agents produce, scripts decide, the person approves.** A script that
+   runs the check is evidence; a report is not.
+2. **One mechanism, rich data.** One loop and one gate. Everything else is a
+   check declared as data: a command, a threshold, when it runs and what it
+   proves. The kit does not grow a tree of special cases.
+3. **Everything that decides is frozen.** The exit checks and every file they
+   run, the quality floor and the check settings are fixed at ready. A
+   builder that cannot change the test can only change the code
+   [ImpossibleBench].
+4. **Every outcome says why.** Each hand-back records a type and a cause, so
+   a flaky test, a broken environment and a weak judge can be told apart and
+   counted (**planned**: today the record holds the type and free text).
+5. **Checks over words, two layers for what matters.** Prose is read once and
+   forgotten [Osmani, agent files]. Where it matters, hold a rule in two
+   independent layers.
+6. **Small and modular.** Each script and skill has one job and a size limit.
+   Skills hold judgement; rules live in scripts [ETH AGENTS.md].
+7. **Grow from evidence.** From 15 October 2026 every change follows the earn
+   rule: a real run shows the need, the failure is written down, a test
+   reproduces it, then the smallest fix. The first kit was designed in full
+   before it ran, grew to about 35,000 lines and never built a piece.
 
 ## 3. The core and the extras
 
@@ -72,6 +115,8 @@ Each core part exists because a real failure showed it was needed.
 | The run is a plain script with one lock | A coordinator agent forgot decisions after a restart and once ran twice |
 | Records read only from collaborators | A stranger could post a forged ready record on a public repository |
 | The guard refuses the irreversible commands, and the person merges | A loss that no later check can repair |
+| Every file an exit check runs is frozen (**planned** for goal and gauntlet) | A builder could edit the benchmark instead of the code |
+| A test that fails during an attempt for the wrong reason is not blamed on the builder (**planned**) | A moved `main` or a broken venv looks like three failed builds |
 
 Everything else is an extra. Extras are useful, but the promise holds
 without them: the two reviewers, quality commands, walk-away runs, goal and
@@ -153,25 +198,49 @@ and reject, and removes it on ready, drop and done.
 | Review | two reviewers | once, always | A review asked for gaps always finds some, so it never converges. One pass with cited findings is the honest form [Pocock, code-review]. |
 | Meta | typed reasons | the person changes something | The same failure should not happen a third time. A lesson becomes a check, not a sentence. |
 
-### One loop, many judges
+### One loop, one exit condition
 
-The build loop is the same for every kind of work. The `Kind:` line chooses
-the judge. The first design had four loop modules (build, fix, goal,
-gauntlet) and found they were one loop with four judges.
+The build loop is the same for every piece. Only the **exit condition**
+changes: the checks that decide when the piece is done. The first design had
+four loop modules (build, fix, goal, gauntlet) and found they were one loop
+with different exits.
 
-| Kind | Judge | Ready requires |
+Two things are kept apart:
+
+| | What it decides | Where it lives |
 | --- | --- | --- |
-| feature | acceptance tests for new behaviour | the tests fail on `main` |
-| fix | a test that reproduces the bug | the test fails on `main` |
-| scaffold | the test runner runs and passes | nothing can fail yet, so the check is skipped and the record says so |
-| goal (**preview**) | a `Measure:` command run three times; the median is compared with a numeric `Target:` | `main` misses the target |
-| gauntlet (**preview**) | three fresh critics compare captured work with a `Reference:` against `Criteria:`, in random order | `main` wins fewer than two of three |
+| Exit condition | When the piece is done | the spec, frozen at ready |
+| Playbook | How to work: a fix reproduces the bug first and finds the cause; new work follows the Approach | the builder's brief |
 
-A goal attempt writes one hypothesis to `.loop/hypothesis` first. A gauntlet
-attempt passes when ours wins at least two comparisons and `Keep:` passes. A
-capture that succeeds but writes no files is refused with a clear message.
-The critics are blind only by neutral file names: they run in the build
-folder and could find out which side is which.
+```text
+exit condition = the piece's own checks   (designed in shaping, frozen at ready)
+               + the project quality floor (set at setup, frozen at ready)
+               + review                    (two axes, every finding cites)
+```
+
+**One ready rule for every check:** each piece check is unmet on `main`, for
+the right reason.
+
+| Check | Unmet on `main` means | Passes when |
+| --- | --- | --- |
+| Tests | they fail on an assertion, not on an import or syntax error | they pass, with nothing skipped |
+| Measure (**preview**) | the median of three runs misses the `Target:` | the median meets it |
+| Critics (**preview**) | `main` wins fewer than two of three blind comparisons | ours wins at least two |
+
+A scaffold piece is no longer an exception: its check is that the test
+runner runs, which is unmet while no runner exists.
+
+**Today** a piece names one check with `Kind:` (feature, fix, scaffold, goal
+or gauntlet). **Planned for 1.2:** an `## Exit` section lists one or more
+checks, so a piece can need both tests and a speed target, and `Kind:` still
+parses as one check. Each check names the files it runs, and they join the
+bar.
+
+A goal attempt writes one hypothesis to `.loop/hypothesis` first. A capture
+that succeeds but writes no files is refused with a clear message. Critics
+are blind only by neutral file names: they run in the build folder and could
+find out which side is which. Critics answer "is ours better than the
+reference?", not "does ours match it".
 
 ## 6. The contract
 
@@ -221,6 +290,40 @@ person can read what will be checked, and the gate can check it.
 
 `Settings: may change` in the Judge section lets a piece change check
 settings. `Large file: <path>` lets a named file grow past 1,000 lines.
+
+### Risks and Exit (planned for 1.2)
+
+Walk-throughs of real projects showed that most failures start before the
+build: an open choice nobody answered, two pieces editing one shared file, an
+unnamed new dependency, a protected path, tests that need a running service.
+So the spec gains two sections the gate reads, and the Judge section becomes
+Exit:
+
+```markdown
+## Risks
+Protected paths: app/api/auth/login/route.ts
+New dependency: none
+Shared files: app/layout.tsx
+Needs services: none
+Open choices: none
+
+## Exit
+- Tests: `npx vitest run tests/judge/rate-limit.test.ts`
+  Files: tests/judge/rate-limit.test.ts
+Keep: `npm test`
+```
+
+| Line | The gate's rule |
+| --- | --- |
+| Protected paths | Only these protected paths may change; the guard lets the builder edit them for this piece |
+| New dependency | Any dependency added that is not named here fails the attempt |
+| Shared files | Ready warns when another ready piece names the same file |
+| Needs services | A piece that needs services is refused for walk-away |
+| Open choices | Must be empty at ready: the person answers before the build |
+
+Exit tests must assert an outcome: a returned value, output or state. A test
+that only checks that nothing raised fails on `main` for the right reason
+and still lets a `try/except: pass` fix through.
 
 **Why it is not waterfall.** A piece is shaped just in time, from today's
 `main`, and is about one hour of work. After the merge the issue closes as a
@@ -326,6 +429,26 @@ source paths and in-process tests, because subprocess tests give no mutation
 or coverage evidence [mutmut]. Doctor runs Test, then each Quality command, on
 a fresh copy of `main` before setup accepts it.
 
+### Built well: the quality floor
+
+The contract axis asks "did it build what was promised?". The craft axis
+asks "was it built well?". Some craft questions a script can answer; some
+need a reviewer.
+
+| Question | Held by |
+| --- | --- |
+| Complexity and bloat | check: CRAP on changed functions, file size; lines added against the contract (**planned**) |
+| Fit with the stack and architecture | check: the project's lint and type commands, import-boundary rules, no unnamed new dependency (**planned**) |
+| Security | check: secret shapes, protected paths; a project scanner as a Quality command |
+| Tests are real | check: test lint; mutation testing where it works (experimental) |
+| Most effective approach, fit with design patterns | the standards reviewer, whose every finding cites a rule or smell and a changed line |
+
+Two rules keep the floor lean. **The kit owns the slot; the project owns the
+thresholds:** setup proposes a floor for the stack, and it is frozen at
+ready. **Ratchet, not absolute** (**planned**): "not worse than `main`" works
+on an old codebase where a fixed limit fails on day one. A finding that a
+reviewer makes twice should become a check.
+
 ### After the merge (code, outside the loop)
 
 `tests/field/audit.py` checks a project after the fact: one state per piece,
@@ -360,6 +483,13 @@ run.py
   is 40 minutes. Each judge run has a 900-second limit.
 - **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
   attempts.
+- **How the builder stops.** Today the builder's only way out is
+  `.loop/outcome` with `bar-wrong`, which ends the piece at once. **Planned
+  for 1.2:** `needs-answer` with the question (the piece goes back with
+  `needs-you` and the question appears in the run summary), and
+  `spec-unclear` with a cited reason (a failing command, or a file and line;
+  without a citation it counts as a failed attempt). The builder no longer
+  decides an open choice alone.
 - **Interruption.** The run tracks every child process group and kills them
   on SIGINT or SIGTERM. The next run finds and removes what a killed run left.
 - **The pull request.** The script writes the facts: files changed by area,
@@ -469,7 +599,43 @@ These facts about the platform shaped the design. Each one cost time once.
 - Many parallel sessions crashed the Mac from memory pressure, and once
   filled the disk. The run builds one piece at a time.
 
-## 13. What the kit does not do, and why
+## 13. How the kit learns
+
+- **Within a piece**, each attempt gets the last failure. Retries stay
+  bounded at three: an open-ended "retry until good" costs money and invites
+  gaming.
+- **Across pieces**, the kit does not keep a growing notes file for agents to
+  read; context files decay and cost accuracy [ETH AGENTS.md], [Osmani, skill
+  decay]. `gate.py report` counts hand-backs by type, and (**planned**) by
+  cause, with attempts, time, kit version and a count of pieces that passed
+  first time.
+- **The meta loop is a person reading that report**, with one rule: the same
+  cause in three different pieces earns a change. Many `judge-gap` points at
+  weak exits; many `spec-unclear` at shaping questions; many `environment` at
+  setup. A project change (floor, standards, questions) is made by the person
+  and applies from the next ready piece. A kit change follows the earn rule.
+- **From real use.** Field reports from people using the kit carry the same
+  report, so their runs can earn changes too.
+
+## 14. Where the kit goes after 1.2
+
+Each step waits for a real run that needs it.
+
+- **A combined branch.** Pieces join a run branch by trial merges in a
+  scratch copy; each join runs every joined piece's checks again; a piece
+  that must leave is rebuilt, never reverted. About 28% of agent pull
+  requests conflict [AgenticFlict]. The first step is read-only: report
+  whether the waiting pull requests merge cleanly together.
+- **Pre-approved merges**, only when the combined branch is green, every exit
+  passed with an unchanged bar, the review is clean and no piece touches a
+  protected path.
+- **A test environment set up once**: the services tests need, a test env
+  file with fake values, and a fast test command for the builder beside the
+  full one for the gate.
+- **Deploy** stays a project-owned command, like Quality.
+- **Held-out tests**, when a builder is seen special-casing visible tests.
+
+## 15. What the kit does not do, and why
 
 | Not done | Why |
 | --- | --- |
@@ -484,7 +650,7 @@ These facts about the platform shaped the design. Each one cost time once.
 | Maintenance and live-feedback loops | They need projects that live for weeks. |
 | Parallel builders | They crashed the machine. One piece at a time. |
 
-## 14. Size
+## 16. Size
 
 The kit has about 4,900 Python lines in `kit/`. The target is about 2,500, so
 that a person can read it in one sitting. It uses the Python standard library
@@ -498,7 +664,11 @@ scripts are most of the rest.
 | --- | --- |
 | piece | One GitHub issue: about one hour of work, with one state label |
 | spec, contract | The issue body the person approves. `## Contract` is its numbered list of items (D1, D2) |
-| judge | The tests (or measure, or critics) that decide whether a piece is done |
+| judge, exit condition | The checks (tests, a measure, or critics) that decide whether a piece is done |
+| playbook | How a builder works on a kind of piece, such as "reproduce the bug first" for a fix; it never decides done |
+| quality floor | The project's craft checks every piece must pass, set at setup and frozen at ready |
+| ratchet | A check that passes when the branch is not worse than `main` |
+| cause | The short word in a hand-back record that says why, such as `keep-flaky` or `prepare-failed` |
 | bar | The judge files plus every helper and `conftest.py` they rely on, frozen by a hash at ready |
 | gate | `gate.py`, the only script that moves a piece and the only one that decides |
 | run | `run.py`, the script that claims, builds, reviews and opens pull requests |
