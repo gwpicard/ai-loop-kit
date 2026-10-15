@@ -16,7 +16,7 @@ Version 1.1.0 is released. It works best with Python and Node projects.
 
 ## Who it is for
 
-One developer using Claude Code with a GitHub project, who wants to review small pull requests.
+AI Loop Kit is for a developer who uses Claude Code with a GitHub project and wants to review small pull requests.
 
 ## Install
 

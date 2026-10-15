@@ -553,17 +553,64 @@ class GateTest(unittest.TestCase):
             self.ready(n)
         self.assertIn("no judge test names D3", r.exception.reason)
 
-    def test_judges_run_with_the_projects_venv_first_on_path(self):
-        venv_bin = self.p.root / ".venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        tool = venv_bin / "habits-tool"
-        tool.write_text("#!/bin/sh\necho from-the-venv\n")
-        tool.chmod(0o755)
-        git(self.p.root, "worktree", "add", "--quiet", "--detach", str(Path(self.p.tmp.name) / "wt"), "main")
+    def test_fresh_worktree_honours_path_override_without_project_venv(self):
+        project_venv = self.p.root / ".venv"
+        project_bin = project_venv / "bin"
+        project_bin.mkdir(parents=True)
+        project_python = project_bin / "python3"
+        project_python.write_text("#!/bin/sh\necho from-project-venv\n")
+        project_python.chmod(0o755)
+        override_bin = Path(self.p.tmp.name) / "override" / "bin"
+        override_bin.mkdir(parents=True)
+        override_python = override_bin / "python3"
+        override_python.write_text("#!/bin/sh\necho from-path-override\n")
+        override_python.chmod(0o755)
+        worktree = Path(self.p.tmp.name) / "wt"
+        git(self.p.root, "worktree", "add", "--quiet", "--detach", str(worktree), "main")
+        inherited_path = os.pathsep.join(
+            [str(project_bin), str(override_bin), os.environ.get("PATH", "")])
         from loopkit import run_judge
-        code, out = run_judge(Path(self.p.tmp.name) / "wt", "habits-tool")
+        with patch.dict(os.environ, {"PATH": inherited_path,
+                                     "VIRTUAL_ENV": str(project_venv)}):
+            env = command_env(worktree)
+            code, out = run_judge(worktree, "python3 --version")
         self.assertEqual(code, 0)
-        self.assertIn("from-the-venv", out)
+        self.assertIn("from-path-override", out)
+        self.assertNotIn(str(project_bin), env["PATH"].split(os.pathsep))
+        self.assertNotIn("VIRTUAL_ENV", env)
+
+    def test_fresh_worktree_uses_system_path_when_caller_path_is_empty(self):
+        worktree = Path(self.p.tmp.name) / "wt"
+        git(self.p.root, "worktree", "add", "--quiet", "--detach", str(worktree), "main")
+        with patch("loopkit.project_root", return_value=self.p.root), \
+                patch.dict(os.environ, {"PATH": "", "VIRTUAL_ENV": "/project/.venv"}):
+            env = command_env(worktree)
+        self.assertEqual(env["PATH"], os.defpath)
+        self.assertNotIn("VIRTUAL_ENV", env)
+
+    def test_fresh_worktree_venv_precedes_project_venv(self):
+        project_bin = self.p.root / ".venv" / "bin"
+        project_bin.mkdir(parents=True)
+        project_python = project_bin / "python3"
+        project_python.write_text("#!/bin/sh\necho from-project-venv\n")
+        project_python.chmod(0o755)
+        worktree = Path(self.p.tmp.name) / "wt"
+        git(self.p.root, "worktree", "add", "--quiet", "--detach", str(worktree), "main")
+        fresh_bin = worktree / ".venv" / "bin"
+        fresh_bin.mkdir(parents=True)
+        fresh_python = fresh_bin / "python3"
+        fresh_python.write_text("#!/bin/sh\necho from-fresh-venv\n")
+        fresh_python.chmod(0o755)
+        inherited_path = os.pathsep.join([str(project_bin), os.environ.get("PATH", "")])
+        with patch.dict(os.environ, {"PATH": inherited_path,
+                                     "VIRTUAL_ENV": str(self.p.root / ".venv")}):
+            env = command_env(worktree)
+            code, out = run_judge(worktree, "python3 --version")
+        self.assertEqual(code, 0)
+        self.assertIn("from-fresh-venv", out)
+        self.assertEqual(env["PATH"].split(os.pathsep)[0], str(fresh_bin.resolve()))
+        self.assertEqual(env["VIRTUAL_ENV"], str((worktree / ".venv").resolve()))
+        self.assertNotIn(str(project_bin), env["PATH"].split(os.pathsep))
 
     def test_prepare_runs_in_the_fresh_copy_before_keep_and_judge(self):
         self.p.loop_section("true", prepare="touch prepared.txt")

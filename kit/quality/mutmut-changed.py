@@ -49,7 +49,10 @@ def patterns(base: str, cwd: Path = Path.cwd()) -> list[str]:
             tree = ast.parse(source.read_text())
         except (OSError, SyntaxError):
             continue
-        module = relative.relative_to(source_root).with_suffix("").as_posix().replace("/", ".")
+        module = relative.with_suffix("").as_posix().replace("/", ".")
+        if module.startswith("src."):
+            module = module[4:]
+        module = module.replace(".__init__.", ".")
         if module.endswith(".__init__"):
             module = module[:-9]
         scopes: set[str] = set()

@@ -379,18 +379,29 @@ def project_root(folder: Path) -> Path:
 
 
 def command_env(folder: Path, protected_paths: Optional[list[str]] = None) -> dict:
-    """The environment for judge, prepare and builder commands. Use the folder's
-    own .venv when Prepare made one, else the person's checkout's .venv."""
+    """The environment for judge, prepare and builder commands.
+
+    Use only the folder's own .venv. A project checkout's environment must not
+    choose the interpreter for a fresh worktree's Prepare command.
+    """
     env = dict(os.environ)
     env["AI_LOOP_KIT_ROOT"] = str(Path(__file__).resolve().parent.parent)
     frozen_paths = (loop_settings(folder).get("protected paths", [])
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
-    for venv_bin in (folder / ".venv" / "bin", project_root(folder) / ".venv" / "bin"):
-        if venv_bin.is_dir():
-            env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
-            env["VIRTUAL_ENV"] = str(venv_bin.parent)
-            break
+    project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
+    path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
+                    if Path(entry or ".").resolve() != project_venv_bin]
+    fresh_venv = folder / ".venv"
+    fresh_venv_bin = fresh_venv / "bin"
+    env.pop("VIRTUAL_ENV", None)
+    if fresh_venv_bin.is_dir():
+        fresh_bin = str(fresh_venv_bin.resolve())
+        path_entries = [entry for entry in path_entries
+                        if Path(entry or ".").resolve() != Path(fresh_bin)]
+        path_entries.insert(0, fresh_bin)
+        env["VIRTUAL_ENV"] = str(fresh_venv.resolve())
+    env["PATH"] = os.pathsep.join(path_entries)
     return env
 
 
