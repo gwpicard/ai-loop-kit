@@ -30,28 +30,38 @@ Large file: src/generated.py
 optional. Contract items start with a unique ID such as `D1`. An item already
 true on main can use `(stays)`; its judge test must pass on main.
 
-Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, and
-`Kind: scaffold` for the first piece in an empty project. A fix starts with
-the bug in its first Contract item. `Done when` remains accepted as the old
-name for `Contract`.
+Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, `Kind: scaffold`
+for the first piece in an empty project, `Kind: goal` for a measured target,
+and `Kind: gauntlet` when a critic must compare an artefact with a reference.
+A fix starts with the bug in its first Contract item. `Done when` remains
+accepted as the old name for `Contract`.
 
-Use `Kind: goal` when one numeric measurement decides whether the work passes.
-Replace `Command:` and `Files:` with:
+## Goal judge
+
+A goal judge uses `Measure:` and `Target:` instead of test files. The command
+must print one finite number on its last non-empty line. The gate runs it three
+times and uses the median. The target uses `<`, `<=`, `>` or `>=` followed by a
+number. At ready, the median on main must miss the target. Before changing
+code, each attempt writes one hypothesis to `.loop/hypothesis`. An attempt
+passes when the median meets the target and `Keep:` passes. The pull request
+records the main and attempt values and the hypotheses tried.
 
 ```markdown
+## Judge
 Kind: goal
-Measure: `python3 bench.py`
-Target: `< 200`
+Measure: `python bench.py`
+Target: < 200
+Keep: `python -m pytest`
 ```
 
-The Measure command must print one finite number on its last line. The gate
-runs it three times and compares the median. At ready, the median on main must
-miss the target. Each attempt must first write its hypothesis to
-`.loop/hypothesis`; the pull request records the main and attempt values and
-the hypotheses tried. Targets use `<`, `<=`, `>` or `>=` followed by a number.
+## Gauntlet judge
 
-Use `Kind: gauntlet` when tests cannot judge the result, such as a design or
-piece of writing. Replace `Command:` and `Files:` with:
+A gauntlet judge uses `Capture:` to make artefact files under
+`.loop/capture/`, `Reference:` to name a project path or URL, and a non-empty
+list of `Criteria:`. Three fresh blind critics see the two artefacts in random
+order. Main must win fewer than two comparisons at ready. An attempt passes
+when ours wins at least two and `Keep:` passes. The pull request records each
+verdict and the order shown to each critic.
 
 ```markdown
 Kind: gauntlet
@@ -61,12 +71,6 @@ Criteria:
 - Readable labels
 - Clear hierarchy
 ```
-
-Capture writes one or more artefact files under `.loop/capture/`. Reference
-names a project path or URL. Criteria must have at least one item. At ready,
-three fresh blind critics must find that main does not win at least two
-comparisons. Each attempt uses three fresh critics, and ours must win at least
-two. The pull request records each verdict and the order shown to each critic.
 
 ## Fix example
 
@@ -97,6 +101,9 @@ Files:
 - `Files:` names judge files inside the project.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
   unless its path is named with `Large file:`.
+
+Goal and gauntlet readiness checks use their measurement or critic instead of
+judge files. Goal and gauntlet still run `Keep:` on main and after each attempt.
 
 The gate records a hash of the spec and of the judge bar. A change after ready
 means the piece must go back through shaping and ready.
