@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
@@ -35,6 +36,7 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      clean_quality_outputs, loop_settings, parse_spec, prepare,
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
+from proposed_quality import apply as apply_proposed_quality  # noqa: E402
 from testlint import lint_files  # noqa: E402
 
 # (from, to): the move's name. Anything else is refused.
@@ -461,12 +463,18 @@ def init(gh: GitHub, root: Path) -> None:
 
 def quality_on_fresh_main(root: Path, main: str, command: str,
                           test_command: str = "",
-                          protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
+                          protected_paths: Optional[list[str]] = None,
+                          proposed_quality: str = "") -> tuple[bool, str]:
     """Run Test, then one Quality command in its own prepared copy of main."""
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
     folder = tmp / "main"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
+        if proposed_quality:
+            apply_proposed_quality(folder / "AGENTS.md", proposed_quality)
+            settings = loop_settings(folder)
+            command = settings.get("quality", [command])[-1]
+            test_command = settings.get("test", test_command)
         ok, output = prepare(folder, protected_paths=protected_paths)
         if not ok:
             return False, "Prepare failed:\n" + output.strip()[-800:]
@@ -556,13 +564,20 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None) ->
         add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
             "every piece's keep check needs a green main. Fix the tests or the environment, "
             "or add a Prepare command:\n" + output.strip()[-800:])
-        for command in [*settings.get("quality", []), *(extra_quality or [])]:
+        for command in settings.get("quality", []):
             qok, qoutput = quality_on_fresh_main(root, main, command, settings["test"])
-            if ("no changed Python functions found" in qoutput or
-                    "no mutmut source paths configured" in qoutput):
+            if "no changed Python functions found" in qoutput:
                 add(True, f"Quality mutation check could not be exercised on main ({command})", "")
             else:
                 add(qok, f"Quality command passes on a fresh copy of main ({command})",
+                    f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
+        for command in extra_quality or []:
+            qok, qoutput = quality_on_fresh_main(
+                root, main, command, settings["test"], proposed_quality=command)
+            if "no changed Python functions found" in qoutput:
+                add(True, f"Quality mutation check could not be exercised on main ({command})", "")
+            else:
+                add(qok, f"Proposed Quality command passes on a fresh copy of main ({command})",
                     f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)

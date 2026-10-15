@@ -157,6 +157,38 @@ class QualityHelperTest(unittest.TestCase):
         self.assertEqual(helper.changed_ranges("+++ b/module.py\n@@ -3 +2,0 @@\n"),
                          {"module.py": [(1, 2)]})
 
+    def test_mutmut_support_requires_version_38_and_source_paths(self):
+        helper = load("mutmut_support.py")
+        (self.root / "pyproject.toml").write_text(
+            '[tool.mutmut]\nsource_paths = ["src/"]\n')
+        self.assertEqual(helper.validation_error(self.root, "mutmut, version 3.8.0"), "")
+        self.assertIn("3.8 or later", helper.validation_error(
+            self.root, "mutmut, version 3.3.1"))
+        (self.root / "pyproject.toml").write_text('[tool.mutmut]\n')
+        self.assertIn("no mutmut source paths configured", helper.validation_error(
+            self.root, "mutmut, version 3.8.0"))
+
+    def test_mutmut_support_reads_setup_cfg_source_paths(self):
+        helper = load("mutmut_support.py")
+        (self.root / "setup.cfg").write_text("[mutmut]\nsource_paths = src/\n")
+        self.assertEqual(helper.source_paths(self.root), ["src/"])
+
+    def test_proposed_quality_replaces_old_loop_quality_in_fresh_copy(self):
+        helper = load("proposed_quality.py")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("# Project\n\n## The loop\nTest command: pytest\n"
+                          "Quality: old-check\nPrepare command: setup\n")
+        helper.apply(agents, "new-check")
+        self.assertEqual(agents.read_text(), "# Project\n\n## The loop\n"
+                         "Test command: pytest\nQuality: new-check\nPrepare command: setup\n")
+
+    def test_proposed_quality_adds_a_loop_section_when_missing(self):
+        helper = load("proposed_quality.py")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("# Project\n")
+        helper.apply(agents, "new-check")
+        self.assertIn("## The loop\nQuality: new-check\n", agents.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

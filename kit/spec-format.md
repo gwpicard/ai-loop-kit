@@ -75,3 +75,9 @@ command. The gate runs Prepare in each fresh copy before checks, except for
 scaffold readiness. The run prepares the build folder before each build.
 Write `Keep:` as the plain Test command. Do not put install steps or local
 paths in the spec.
+
+Quality commands are optional project checks. Setup runs each proposed
+command on a fresh copy of main after applying the proposed Quality line.
+Python mutation checks require mutmut 3.8 or later and configured source
+paths. For subprocess acceptance tests, select an in-process adapter test for
+the changed function in mutmut's test-selection setting.

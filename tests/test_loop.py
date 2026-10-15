@@ -535,6 +535,15 @@ class GateTest(unittest.TestCase):
         quality = [item for item in checks if "Quality command" in item[1]]
         self.assertTrue(quality and all(item[0] for item in quality), checks)
 
+    def test_doctor_applies_proposed_quality_to_fresh_main(self):
+        gate.init(self.p.gh, self.p.root)
+        self.p.loop_section("true")
+        proposal = "grep -q '^Quality: ' AGENTS.md"
+        checks = gate.doctor(self.p.gh, self.p.root, extra_quality=[proposal])
+        proposed = [item for item in checks if "Proposed Quality command" in item[1]]
+        self.assertEqual(len(proposed), 1, checks)
+        self.assertTrue(proposed[0][0], proposed[0])
+
     def test_failed_quality_probe_runs_test_before_quality_on_main(self):
         self.p.loop_section("touch .coverage")
         failed = gate.quality_fails_on_main(
@@ -544,6 +553,13 @@ class GateTest(unittest.TestCase):
     def test_doctor_says_when_mutation_check_has_no_changed_functions_on_main(self):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("true")
+        (self.p.root / "pyproject.toml").write_text(
+            '[tool.mutmut]\nsource_paths = ["src/"]\n')
+        (self.p.root / "src").mkdir()
+        (self.p.root / "src" / "module.py").write_text("def value():\n    return 1\n")
+        git(self.p.root, "add", "AGENTS.md", "pyproject.toml", "src/module.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Add mutation config")
+        git(self.p.root, "push", "--quiet", "origin", "main")
         helper = Path(gate.__file__).resolve().parents[1] / "quality" / "mutmut-changed.py"
         checks = gate.doctor(self.p.gh, self.p.root,
                              extra_quality=[f"python3 {helper} origin/main"])
