@@ -115,7 +115,7 @@ Each core part exists because a real failure showed it was needed.
 | The run is a plain script with one lock | A coordinator agent forgot decisions after a restart and once ran twice |
 | Records read only from collaborators | A stranger could post a forged ready record on a public repository |
 | The guard refuses the irreversible commands, and the person merges | A loss that no later check can repair |
-| Every file an exit check runs is frozen (**planned** for goal and gauntlet) | A builder could edit the benchmark instead of the code |
+| Every file an exit check runs is named under `Files:` and frozen in the bar | A builder could edit the benchmark instead of the code |
 | A test that fails during an attempt for the wrong reason is not blamed on the builder (**planned**) | A moved `main` or a broken venv looks like three failed builds |
 
 Everything else is an extra. Extras are useful, but the promise holds
