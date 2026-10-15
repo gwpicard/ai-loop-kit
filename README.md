@@ -53,7 +53,7 @@ contract and the pull request yourself.
 ## Where things live
 
 - `kit/`: the plugin. Skills, the gate, the run, the guard, the builder brief.
-- `tests/`: the checks. `tests/run-all.sh` takes about two to four minutes.
+- `tests/`: the checks. The last `tests/run-all.sh` run took about six minutes.
 - `docs/ANGLE.md`: what the kit is for.
 - `docs/LEDGER.md`: every idea from the first design, and what would earn it
   a place.

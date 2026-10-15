@@ -30,7 +30,7 @@ the feature. Keep the kit small enough to read in one sitting.
 
 ## Commands
 
-- `tests/run-all.sh`: run every check. It takes about two to four minutes.
+- `tests/run-all.sh`: run every check. The last run took about six minutes.
 - `tests/house-rules.sh`: check the house rules over every tracked file.
 
 Run `git config core.hooksPath .githooks` once in a fresh clone.

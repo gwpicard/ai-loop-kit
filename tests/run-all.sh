@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Runs every check: the house rules, then the kit's tests. Takes about two to four minutes.
+# Runs every check: the house rules, then the kit's tests. Last run took about six minutes.
 set -u
 PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE
