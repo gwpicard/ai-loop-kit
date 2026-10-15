@@ -14,7 +14,7 @@ Decisions already made (15 October 2026):
 
 ## How the work is split
 
-Four packages, each on its own branch from `main`, built in parallel. Put new
+Five packages, each on its own branch from `main`, built in parallel. Put new
 logic in new modules. Keep edits to shared files (`run.py`, `gate.py`,
 `loopkit.py`) to small, named hooks, so the branches merge cleanly. Each item:
 a `docs/LEDGER.md` row (source: "v1.1 plan"), unit tests, then the code. Run
@@ -26,6 +26,7 @@ only your own tests while building; run both suites at the end.
 | P2 Researcher | `kit/researcher` | `kit/agents/researcher.md` | `loopkit.py` (spec parser), shape skill, spec format |
 | P3 Goal and gauntlet | `kit/loop-kinds` | `kit/scripts/measure.py`, `kit/scripts/critic.py`, `kit/briefs/critic.md` | `gate.py` (ready and submit by kind), `run.py` (attempt result hook), spec format |
 | P4 v1.1 fixes | `kit/v1.1-fixes` | none needed | `kit/quality/*`, setup skill, `gate.py` doctor |
+| P5 Agent backend | `kit/codex-backend` | `kit/scripts/agents.py` | `loopkit.py`, `gate.py`, `run.py`, `run_cli.py`, `review.py`, `critic.py`, `walkaway.py`, setup skill, README, `docs/V1.md`, `docs/DESIGN.md` |
 
 ## P1. Walk-away runs
 
@@ -117,12 +118,30 @@ Gauntlet kind (`Kind: gauntlet`):
   not the old one.
 - The other v1.1 ledger rows: fix each that is small; leave the rest marked.
 
+## P5. Agent backend
+
+- Route non-interactive builder, reviewer and critic sessions through
+  `kit/scripts/agents.py`. Keep Claude Code as the default, with its current
+  `claude -p` stream-json settings, guard hook and Edit denies. Add Codex CLI
+  `codex exec` with JSON events, workspace-write limited to the build folder,
+  network disabled and GitHub tokens removed from its environment.
+- Read `Agent: claude|codex` from the loop section and freeze it in the ready
+  record. `run.py --agent codex` overrides it for one run. Keep `LOOP_CLAUDE`
+  for tests.
+- Keep Prepare outside the agent sandbox. Before a Codex walk-away run, prove
+  that an agent cannot write in home, read `~/.ssh` or reach an outside host.
+  Refuse the run if any probe succeeds.
+- Record the installed Codex CLI flags in `docs/v1.1/choices-P5.md`. The
+  interactive skills remain Claude Code skills.
+- Add fake-Codex tests before the implementation. Both test suites run after
+  the package lands.
+
 ## End of build
 
 Each package: push its branch and stop, with both suites passing on that
-branch. Then one Codex merges the four branches into `kit/v1.1` in the order
-P4, P2, P3, P1, resolving conflicts, runs both suites, pushes, opens one draft
-pull request "v1.1", and waits for all four CI jobs.
+branch. Then one Codex merges the five branches into `kit/v1.1` in the order
+P4, P2, P3, P1, P5, resolving conflicts, runs both suites, pushes, opens one
+draft pull request "v1.1", and waits for all CI jobs.
 
 ## Rehearsals (after the merge), run by Codex
 

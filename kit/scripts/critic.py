@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import random
 import re
 import shlex
@@ -16,7 +15,8 @@ import uuid
 from pathlib import Path
 from typing import Callable, Optional
 
-from loopkit import Refused, command_env, run_judge
+import agents
+from loopkit import Refused, run_judge
 
 KIT = Path(__file__).resolve().parent.parent
 
@@ -118,7 +118,8 @@ def _blind_paths(folder: Path, ours: list[str], reference: str,
 
 def judge(folder: Path, ours: list[str], reference: str, criteria: list[str],
           template: Optional[str] = None,
-          session: Optional[Callable[[str], str]] = None) -> list[dict]:
+          session: Optional[Callable[[str], str]] = None,
+          agent: Optional[str] = None) -> list[dict]:
     """Run three fresh sessions with independently randomised artefact order."""
     brief = template if template is not None else (KIT / "briefs" / "critic.md").read_text()
     reference = _stage_reference(folder, reference)
@@ -130,17 +131,15 @@ def judge(folder: Path, ours: list[str], reference: str, criteria: list[str],
         if session:
             output = session(prompt)
         else:
-            cli = os.environ.get("LOOP_CLAUDE", "claude")
             try:
-                result = subprocess.run([cli, "-p", prompt, "--output-format", "text",
-                                         "--allowedTools", "Read"], cwd=folder,
-                                       capture_output=True, text=True, timeout=600,
-                                       env={**command_env(folder), "LOOP_REVIEWER": "1"})
+                backend = agents.selected(folder, agent)
+                proc = agents.start_session(backend, prompt, folder, role="critic")
+                raw, _ = proc.communicate(timeout=600)
             except (OSError, subprocess.TimeoutExpired) as error:
                 raise Refused(f"critic session did not finish: {error}") from error
-            if result.returncode:
-                raise Refused("critic session failed: " + (result.stderr or result.stdout)[-1200:])
-            output = result.stdout
+            if proc.returncode:
+                raise Refused("critic session failed: " + raw.decode(errors="replace")[-1200:])
+            output = agents.event_text(raw, backend)
         try:
             verdict = parse_verdict(output, criteria)
         except ValueError as error:
@@ -173,7 +172,8 @@ def judge_attempt(folder: Path, ready_record: dict) -> tuple[int, str]:
     try:
         number = ready_record.get("attempt", 1)
         artefacts = capture(folder, ready_record["capture"], f"attempt-{number}")
-        verdicts = judge(folder, artefacts, ready_record["reference"], ready_record["criteria"])
+        verdicts = judge(folder, artefacts, ready_record["reference"], ready_record["criteria"],
+                         agent=ready_record.get("agent"))
     except Refused as error:
         return 1, error.reason
     wins = sum(verdict["winner"] == "ours" for verdict in verdicts)

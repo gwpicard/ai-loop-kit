@@ -26,6 +26,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
     p.add_argument("--verdict-file")
     p.add_argument("--walk-away", action="store_true",
                    help="run only after the unattended sandbox checks pass")
+    p.add_argument("--agent", choices=("claude", "codex"),
+                   help="override the ready record's non-interactive agent for this run")
     args = p.parse_args(argv)
     if args.verdict_kind or args.verdict_file:
         try:
@@ -41,7 +43,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
     root = repo_root(Path.cwd())
     gh = GitHub(root)
     if args.walk_away:
-        checks = gate.doctor(gh, root, walk_away=True)
+        checks = gate.doctor(gh, root, walk_away=True, agent=args.agent)
         for ok, what, fix in checks:
             print(f"{'ok  ' if ok else 'FAIL'} {what}")
             if fix:
@@ -84,7 +86,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 results.append(waiting)
                 break
             try:
-                result = api.build_piece(gh, root, n, args.attempts, args.walk_away)
+                result = api.build_piece(gh, root, n, args.attempts, args.walk_away,
+                                         args.agent)
                 results.append(result)
                 if args.walk_away:
                     try:

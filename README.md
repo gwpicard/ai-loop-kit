@@ -8,9 +8,11 @@ agent cannot say a piece of work is done. The gate runs the checks itself.
 - The gate (`kit/scripts/gate.py`) is the only thing that moves a piece. It
   refuses "ready" unless the judge fails on today's `main` for the right
   reason, and it fixes the judge with a hash.
-- `/ai-loop-kit:run` builds each ready piece in fresh `claude -p` sessions,
-  up to three attempts. The gate runs the judge itself. A pass opens a pull
-  request. You merge.
+- `/ai-loop-kit:run` builds each ready piece in fresh Claude Code or Codex
+  sessions, up to three attempts. Set `Agent: claude` or `Agent: codex` in
+  the loop section of `AGENTS.md`, or pass `/ai-loop-kit:run --agent codex`
+  for one run. Claude Code is the default. The gate runs the judge itself. A
+  pass opens a pull request. You merge.
 
 Read [docs/V1.md](docs/V1.md) for the v1 definition and how the kit works.
 Read [docs/ANGLE.md](docs/ANGLE.md) for why it works this way.

@@ -405,7 +405,7 @@ def loop_settings(folder: Path) -> dict:
         if m and m.group(2).strip().strip("`").strip():
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
             continue
-        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep)\s*:\s*(.*)$",
+        m = re.match(r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep|Agent)\s*:\s*(.*)$",
                      line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
@@ -417,6 +417,8 @@ def loop_settings(folder: Path) -> dict:
                 out[key] = value
             elif key == "idle limit":
                 out[key] = value
+            elif key == "agent":
+                out[key] = value.lower()
             else:
                 out[key] = value
     return out

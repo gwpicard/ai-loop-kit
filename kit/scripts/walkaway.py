@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import sandbox
+import agents
 from loopkit import STATE_PREFIX, loop_settings, main_ref, prepare, run_judge, sh
 
 MIN_FREE_BYTES = 10 * 1024 ** 3
@@ -30,44 +31,58 @@ def _check(ok: bool, label: str, next_step: str = "") -> tuple[bool, str, str]:
     return ok, label, "" if ok else next_step
 
 
-def preflight(gh, root: Path, *, baseline_checked: bool = False) -> list[tuple[bool, str, str]]:
+def preflight(gh, root: Path, *, baseline_checked: bool = False,
+              agent: Optional[str] = None) -> list[tuple[bool, str, str]]:
     """Return explicit checks. A failed check always has one next step."""
     checks = []
-    claude = os.environ.get("LOOP_CLAUDE", "claude")
-    version = subprocess.run([claude, "--version"], cwd=root, capture_output=True,
-                             text=True, check=False)
-    version_text = version.stdout.strip() if version.returncode == 0 else ""
-    checks.append(_check(version.returncode == 0 and sandbox.version_ok(version_text),
-                         f"Claude Code {version_text or 'version unavailable'} supports strict sandbox mode",
-                         "install Claude Code 2.1.285 or later and check that it is on PATH"))
+    try:
+        backend = agents.selected(root, agent)
+    except ValueError as error:
+        return [_check(False, str(error), "set `Agent: claude` or `Agent: codex` in AGENTS.md")]
+    if backend == "claude":
+        claude = os.environ.get("LOOP_CLAUDE", "claude")
+        version = subprocess.run([claude, "--version"], cwd=root, capture_output=True,
+                                 text=True, check=False)
+        version_text = version.stdout.strip() if version.returncode == 0 else ""
+        checks.append(_check(version.returncode == 0 and sandbox.version_ok(version_text),
+                             f"Claude Code {version_text or 'version unavailable'} supports strict sandbox mode",
+                             "install Claude Code 2.1.285 or later and check that it is on PATH"))
 
-    settings_errors = sandbox.excluded_commands(root)
-    checks.append(_check(not settings_errors,
-                         "loaded Claude settings do not exclude commands from the sandbox",
-                         "remove sandbox.excludedCommands from the loaded settings and retry"))
-    if settings_errors:
-        checks[-1] = (False, checks[-1][1] + ": " + "; ".join(settings_errors), checks[-1][2])
+        settings_errors = sandbox.excluded_commands(root)
+        checks.append(_check(not settings_errors,
+                             "loaded Claude settings do not exclude commands from the sandbox",
+                             "remove sandbox.excludedCommands from the loaded settings and retry"))
+        if settings_errors:
+            checks[-1] = (False, checks[-1][1] + ": " + "; ".join(settings_errors), checks[-1][2])
 
-    config = root / "kit" / "hooks" / "hooks.json"
-    guard = root / "kit" / "hooks" / "guard.py"
-    wired = config.is_file() and guard.is_file() and "guard.py" in config.read_text(errors="replace")
-    # run.py injects this hook even when the Claude plugin is not loaded.
-    wired = wired or guard.is_file()
-    checks.append(_check(wired, "the kit guard hook is available to sessions",
-                         "restore kit/hooks/guard.py and the run session hook"))
+        config = root / "kit" / "hooks" / "hooks.json"
+        guard = root / "kit" / "hooks" / "guard.py"
+        wired = config.is_file() and guard.is_file() and "guard.py" in config.read_text(errors="replace")
+        wired = wired or guard.is_file()
+        checks.append(_check(wired, "the kit guard hook is available to sessions",
+                             "restore kit/hooks/guard.py and the run session hook"))
 
-    bypass = any(os.environ.get(key) for key in
-                 ("CLAUDE_CODE_BYPASS_PERMISSIONS", "CLAUDE_CODE_DANGEROUSLY_SKIP_PERMISSIONS"))
-    checks.append(_check(not bypass, "the session permission mode is not bypass",
-                         "remove the Claude Code bypass permission environment setting"))
-    domains = approved_domains(root)
-    checks.append(_check(bool(domains), "the project has confirmed sandbox network domains",
-                         "agree package registry domains, then add `Sandbox domains: <comma-separated domains>` to AGENTS.md"))
+        bypass = any(os.environ.get(key) for key in
+                     ("CLAUDE_CODE_BYPASS_PERMISSIONS", "CLAUDE_CODE_DANGEROUSLY_SKIP_PERMISSIONS"))
+        checks.append(_check(not bypass, "the session permission mode is not bypass",
+                             "remove the Claude Code bypass permission environment setting"))
+        domains = approved_domains(root)
+        checks.append(_check(bool(domains), "the project has confirmed sandbox network domains",
+                             "agree package registry domains, then add `Sandbox domains: <comma-separated domains>` to AGENTS.md"))
 
-    for name in ("GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"):
-        checks.append(_check(name not in os.environ,
-                             f"{name} is absent from the session environment",
-                             f"unset {name} before starting the walk-away run"))
+        for name in ("GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"):
+            checks.append(_check(name not in os.environ,
+                                 f"{name} is absent from the session environment",
+                                 f"unset {name} before starting the walk-away run"))
+    else:
+        codex = os.environ.get("LOOP_CODEX", "codex")
+        version = subprocess.run([codex, "--version"], cwd=root, capture_output=True,
+                                 text=True, check=False)
+        version_text = version.stdout.strip() if version.returncode == 0 else "version unavailable"
+        checks.append(_check(version.returncode == 0,
+                             f"Codex CLI {version_text} is available",
+                             "install Codex CLI and check that it is on PATH"))
+        checks.append((True, "GH_TOKEN and GITHUB_TOKEN are removed from Codex sessions", ""))
 
     free_bytes = shutil.disk_usage(root).free
     checks.append(_check(free_bytes >= MIN_FREE_BYTES,
@@ -108,8 +123,13 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False) -> list[tuple[b
     else:
         checks.append((True, "Prepare and Test pass on a fresh main worktree", ""))
 
-    active, detail = sandbox.probe(root, domains, claude=claude)
-    checks.append(_check(active, "Claude's active sandbox probe blocks home writes, secret reads and unlisted network",
+    if backend == "claude":
+        active, detail = sandbox.probe(root, domains, claude=claude)
+        probe_label = "Claude's active sandbox probe blocks home writes, secret reads and unlisted network"
+    else:
+        active, detail = sandbox.codex_probe(root)
+        probe_label = "Codex's active sandbox probe blocks home writes, SSH reads and outside network"
+    checks.append(_check(active, probe_label,
                          "resolve the active sandbox probe failure, then run gate.py doctor --walk-away"))
     if not active:
         checks[-1] = (False, checks[-1][1] + f": {detail}", checks[-1][2])
