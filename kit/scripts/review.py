@@ -11,7 +11,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import gate
 import agents
@@ -164,14 +164,16 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
                   hard_seconds: int = ATTEMPT_TIMEOUT,
                   activity_path: Optional[Path] = None,
                   result_event: Optional[dict] = None,
-                  backend: str = "claude") -> str:
+                  backend: str = "claude",
+                  clock: Optional[Callable[[], float]] = None) -> str:
     """Copy output to a log and stop a silent or overlong process group."""
+    now_seconds = clock if clock is not None else time.monotonic
     assert proc.stdout is not None
     stream = proc.stdout
     os.set_blocking(stream.fileno(), False)
     selector = selectors.DefaultSelector()
     selector.register(stream, selectors.EVENT_READ)
-    started = last_output = time.monotonic()
+    started = last_output = now_seconds()
     last_stamp = _folder_activity_stamp(activity_path) if activity_path else 0.0
     next_activity_check = started + 2
     pending = ""
@@ -180,7 +182,7 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
     parent_exit_deadline: Optional[float] = None
     orphaned_child = False
     while not eof or proc.poll() is None:
-        now = time.monotonic()
+        now = now_seconds()
         if proc.poll() is not None and not eof:
             if parent_exit_deadline is None:
                 parent_exit_deadline = now + 3
@@ -236,7 +238,7 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
                         result_event.update(event)
                 out.write(agents.log_line(line, backend))
             out.flush()
-            last_output = time.monotonic()
+            last_output = now_seconds()
     if pending:
         out.write(agents.log_line(pending, backend))
     proc.wait()

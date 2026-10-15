@@ -4,14 +4,12 @@ from __future__ import annotations
 import json
 import os
 import stat
-import subprocess
-import sys
 import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
 
-from helpers import git
+from helpers import git, pump_events
 import agents
 
 
@@ -96,22 +94,12 @@ class AgentSessionTest(unittest.TestCase):
     def test_codex_json_events_reset_the_idle_clock(self):
         import review
 
-        script = (
-            "import json, time\n"
-            "time.sleep(.3)\n"
-            "for _ in range(5):\n"
-            " print(json.dumps({'type':'item.completed','item':"
-            "{'type':'agent_message','text':'working'}}), flush=True)\n"
-            " time.sleep(.45)\n"
-        )
-        proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, start_new_session=True)
-        from io import StringIO
-        output = StringIO()
-        status = review._pump_session(proc, output, idle_seconds=2, hard_seconds=5,
-                                      backend="codex")
+        events = [json.dumps({"type": "item.completed", "item": {
+            "type": "agent_message", "text": "working"}}) for _ in range(5)]
+        status, output = pump_events(review, events, idle_seconds=2,
+                                     backend="codex", clock_step=.75)
         self.assertEqual(status, "")
-        self.assertGreaterEqual(output.getvalue().count("working"), 5)
+        self.assertEqual(output.count("working"), 5)
 
     def test_codex_builder_and_reviewer_log_final_message(self):
         import review

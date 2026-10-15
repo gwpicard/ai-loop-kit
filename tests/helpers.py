@@ -1,15 +1,117 @@
 """Test helpers: an in-memory GitHub and a throwaway project with a remote."""
 from __future__ import annotations
 
+import io
 import os
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 
 KIT = Path(__file__).resolve().parent.parent / "kit"
 sys.path.insert(0, str(KIT / "scripts"))
+
+
+def pump_events(review, events: list[str], idle_seconds: float,
+                backend: str = "claude", clock_step: float = 0.75) -> tuple[str, str]:
+    """Pump queued lines through a pipe while advancing a controlled clock."""
+    read_fd, write_fd = os.pipe()
+    finished = {"returncode": None}
+    notifications = queue.Queue()
+    output = _ObservedOutput(notifications)
+    clock = _ManualClock()
+    statuses = []
+    errors = []
+
+    class Process:
+        pid = -1
+
+        def __init__(self):
+            self.stdout = os.fdopen(read_fd, "rb", buffering=0)
+
+        def poll(self):
+            return finished["returncode"]
+
+        def wait(self):
+            return finished["returncode"]
+
+    process = Process()
+
+    def pump():
+        try:
+            statuses.append(review._pump_session(
+                process, output, idle_seconds, hard_seconds=10,
+                backend=backend, clock=clock))
+        except BaseException as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=pump)
+    worker.start()
+    try:
+        for index, event in enumerate(events):
+            clock.set((index + 1) * clock_step)
+            os.write(write_fd, event.encode() + b"\n")
+            notifications.get(timeout=10)
+            # The pump samples at startup, then checks and resets after each event.
+            clock.wait_for_calls(3 + 2 * index)
+        os.close(write_fd)
+        write_fd = -1
+        finished["returncode"] = 0
+        worker.join(timeout=10)
+        if worker.is_alive():
+            raise AssertionError("session pump did not finish after the pipe closed")
+        if errors:
+            raise errors[0]
+        return statuses[0], output.value()
+    finally:
+        if write_fd >= 0:
+            os.close(write_fd)
+        finished["returncode"] = 0
+        if worker.is_alive():
+            worker.join(timeout=10)
+        if worker.is_alive():
+            process.stdout.close()
+
+
+class _ManualClock:
+    def __init__(self):
+        self.value = 0.0
+        self.calls = 0
+        self.condition = threading.Condition()
+
+    def __call__(self):
+        with self.condition:
+            self.calls += 1
+            self.condition.notify_all()
+            return self.value
+
+    def set(self, value):
+        with self.condition:
+            self.value = value
+
+    def wait_for_calls(self, count):
+        with self.condition:
+            if not self.condition.wait_for(lambda: self.calls >= count, timeout=10):
+                raise AssertionError("session pump did not sample the fake clock")
+
+
+class _ObservedOutput:
+    def __init__(self, notifications):
+        self._buffer = io.StringIO()
+        self._notifications = notifications
+
+    def write(self, value):
+        self._buffer.write(value)
+        self._notifications.put(value)
+
+    def flush(self):
+        pass
+
+    def value(self):
+        return self._buffer.getvalue()
 
 
 class FakeGitHub:

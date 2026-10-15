@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git
+from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git, pump_events
 import gate
 import run
 from loopkit import Refused, changed_check_settings, parse_spec, records, run_judge
@@ -59,7 +59,6 @@ FAKE_CLAUDE = textwrap.dedent('''\
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
                     printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
-                    sleep 0.12
                   done
                   printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       idle) sleep 5 ;;
@@ -182,24 +181,13 @@ class RunTest(unittest.TestCase):
                          ["# Style at app.js:1: heading citation"])
 
     def test_claude_events_reset_idle_and_logs_keep_assistant_text(self):
-        folder = self.p.root
-        script = ("import time\n"
-                  "time.sleep(.3)\n"
-                  "for _ in range(5):\n"
-                  " print('{\"type\":\"assistant\",\"message\":{\"content\":["
-                  "{\"type\":\"text\",\"text\":\"hello\"}]}}', flush=True)\n"
-                  " time.sleep(.45)\n")
-        proc = subprocess.Popen([sys.executable, "-c", script], cwd=folder,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                start_new_session=True)
-        from io import StringIO
-        output = StringIO()
-        from review import _pump_session
-        status = _pump_session(proc, output, idle_seconds=2, hard_seconds=5,
-                               activity_path=folder)
+        import review
+        events = [json.dumps({"type": "assistant", "message": {
+            "content": [{"type": "text", "text": "hello"}]}}) for _ in range(5)]
+        status, output = pump_events(review, events, idle_seconds=2, clock_step=.75)
         self.assertEqual(status, "")
-        self.assertIn("hello", output.getvalue())
-        self.assertNotIn('"type":"assistant"', output.getvalue())
+        self.assertEqual(output.count("hello"), 5)
+        self.assertNotIn('"type":"assistant"', output)
 
     def test_pump_stops_group_when_child_keeps_pipe_open_after_parent_exits(self):
         script = ("import subprocess,sys; "
