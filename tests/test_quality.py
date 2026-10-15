@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -84,31 +85,27 @@ class QualityHelperTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("mutmut"), "mutmut is not installed")
     def test_mutmut_helper_runs_real_mutmut_on_a_tiny_fixture(self):
-        source = self.root / "src" / "module.py"
+        source = self.root / "tally" / "cli.py"
         source.parent.mkdir()
-        source.write_text("def count(items):\n    return len(items)\n")
+        (source.parent / "__init__.py").write_text("")
+        source.write_text("def count():\n    return 1\n")
         (self.root / "test_module.py").write_text(
-            "from src.module import count\n\n"
-            "def test_count():\n    assert count([1, 1]) == 1\n")
+            "from tally.cli import count\n\n"
+            "def test_count():\n    assert count() == 2\n")
         (self.root / "pyproject.toml").write_text(
-            '[tool.mutmut]\nsource_paths = ["src/"]\n'
-            'pytest_add_cli_args_test_selection = ["-q"]\n')
-        git(self.root, "add", "src/module.py", "test_module.py", "pyproject.toml")
+            '[tool.mutmut]\nsource_paths = ["tally/"]\n'
+            'pytest_add_cli_args_test_selection = ["test_module.py"]\n')
+        git(self.root, "add", "tally", "test_module.py", "pyproject.toml")
         git(self.root, "commit", "--quiet", "-m", "base")
         base = git(self.root, "rev-parse", "HEAD")
-        source.write_text("def count(items):\n    return len(set(items))\n")
-        git(self.root, "add", "src/module.py")
+        source.write_text("def count():\n    return 2\n")
+        git(self.root, "add", "tally/cli.py")
         git(self.root, "commit", "--quiet", "-m", "change")
-        helper = load("mutmut-changed.py")
-        self.assertEqual(helper.patterns(base, self.root), ["module.x_count__mutmut_*"])
-        run = subprocess.run(["mutmut", "run", "module.x_count__mutmut_*"], cwd=self.root,
-                             capture_output=True, text=True)
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        results = subprocess.run(["mutmut", "results", "--all", "true"], cwd=self.root,
-                                 capture_output=True, text=True)
-        self.assertEqual(results.returncode, 0, results.stdout + results.stderr)
-        self.assertTrue(helper.results_pass(results.stdout, ["module.x_count__mutmut_*"]),
-                        results.stdout)
+        script = KIT / "quality" / "mutmut-changed.py"
+        result = subprocess.run([sys.executable, str(script), base], cwd=self.root,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("tally.cli.x_count__mutmut_", result.stdout)
 
     def test_crap_helper_flags_a_changed_function_at_thirty(self):
         path = self.root / "module.py"
