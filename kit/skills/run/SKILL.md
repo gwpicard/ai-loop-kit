@@ -15,9 +15,9 @@ description: Builds the ready pieces. Each attempt is a fresh Claude session; th
    Done when: the person has seen the list. If nothing is ready, suggest `/ai-loop-kit:shape` and stop.
    Before each piece, the run checks how many pull requests wait in approval. At `Waiting limit:` (default 3), it starts no new piece and prints one `next:` step.
    Builder and reviewer attempts stop after ten minutes without output by default; `Idle limit:` in the loop section changes the minutes. An idle attempt returns as `builder-failed`. A dirty build folder returns as `environment` with a `next:` step; the run never resets or cleans it. A stop request returns the piece with type `stopped` and keeps the last real failure reason when one exists.
-2. Start the run in the background: `python3 "<KIT>/scripts/run.py"` (or with piece numbers to build only those). Write the KIT path out in full.
+2. Start the run in the background: `python3 "<KIT>/scripts/run.py"` (or with piece numbers to build only those). Add `--walk-away` only when the person will be absent and `gate.py doctor --walk-away` passes. That check requires Claude Code 2.1.285 or later, a passing live sandbox probe, a wired guard, a green Prepare and Test on fresh main, at least 10 GB free, an approval queue below its limit, confirmed sandbox domains and no exposed child tokens. Write the KIT path out in full.
    Done when: the run has started.
-3. While it runs, report each line it prints: claims, attempts, passes, failures. The attempt logs are in `.loop/logs/`.
+3. For an attended run, report each line it prints: claims, attempts, passes and failures. The attempt logs are in `.loop/logs/`. A walk-away run writes `.loop/heartbeat` every minute and `.loop/summary.md` when it ends. It also posts the summary to the `AI Loop Kit run log` issue, mentioning the person only when a piece needs them.
    Done when: the run prints "Run finished."
 4. Report the result: each pull request link for the person to read and merge, and each piece sent back to shaping with its reason.
    Done when: the person has every link and reason.
@@ -34,3 +34,4 @@ description: Builds the ready pieces. Each attempt is a fresh Claude session; th
 - Never move a state label by hand.
 - Never reset, rewrite or force-push a piece branch. The run refuses a branch whose pushed commits are missing locally.
 - Every move back needs both `--type` and `--reason`. Use `person-rejected` for a rejected pull request, `conflict` when a conflict cannot be handed to the builder, and the type reported by the run for other hand-backs.
+- A walk-away session uses Claude Code's built-in shell sandbox with a strict network allowlist and no MCP servers. Read, Edit, Write and hooks are outside that sandbox; permission rules and the walk-away file-tool hook limit their access. A permitted network domain can still carry data out. The run never merges a pull request.
