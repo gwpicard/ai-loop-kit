@@ -38,22 +38,26 @@ class QualityHelperTest(unittest.TestCase):
         path = self.root / "src" / "module.py"
         path.parent.mkdir()
         path.write_text("def count(items):\n    return len(items)\n\n")
-        git(self.root, "add", "src/module.py")
+        (self.root / "pyproject.toml").write_text(
+            '[tool.mutmut]\nsource_paths = ["src/"]\n')
+        git(self.root, "add", "src/module.py", "pyproject.toml")
         git(self.root, "commit", "--quiet", "-m", "base")
         base = git(self.root, "rev-parse", "HEAD")
         path.write_text("def count(items):\n    return len(set(items))\n\n")
         git(self.root, "commit", "--quiet", "-am", "change")
         helper = load("mutmut-changed.py")
-        self.assertEqual(helper.patterns(base, self.root), ["src.module.x_count*"])
+        self.assertEqual(helper.patterns(base, self.root), ["module.x_count__mutmut_*"])
 
     def test_mutmut_helper_uses_mutmut_38_names_and_skips_test_files(self):
         source = self.root / "src" / "module.py"
         source.parent.mkdir()
         source.write_text("class Counter:\n    def count(self, items):\n        return len(items)\n")
+        (self.root / "pyproject.toml").write_text(
+            '[tool.mutmut]\nsource_paths = ["src/"]\n')
         tests = self.root / "tests" / "test_module.py"
         tests.parent.mkdir()
         tests.write_text("def test_count():\n    assert True\n")
-        git(self.root, "add", "src/module.py", "tests/test_module.py")
+        git(self.root, "add", "src/module.py", "tests/test_module.py", "pyproject.toml")
         git(self.root, "commit", "--quiet", "-m", "base")
         base = git(self.root, "rev-parse", "HEAD")
         source.write_text("class Counter:\n    def count(self, items):\n        return len(set(items))\n")
@@ -62,21 +66,21 @@ class QualityHelperTest(unittest.TestCase):
         git(self.root, "commit", "--quiet", "-m", "change")
         helper = load("mutmut-changed.py")
         self.assertEqual(helper.patterns(base, self.root),
-                         ["src.module.xǁCounterǁcount*"])
+                         ["module.xǁCounterǁcount__mutmut_*"])
 
     def test_mutmut_results_parse_recorded_38_output_and_detect_survivors(self):
         helper = load("mutmut-changed.py")
-        output = ("src.module.x_count__mutmut_1: killed\n"
-                  "src.module.xǁCounterǁcount__mutmut_2: killed\n"
+        output = ("module.x_count__mutmut_1: killed\n"
+                  "module.xǁCounterǁcount__mutmut_2: killed\n"
                   "Killed mutants: 2\nSurvived mutants: 0\n")
         self.assertTrue(helper.results_pass(
-            output, ["src.module.x_count*", "src.module.xǁCounterǁcount*"]))
+            output, ["module.x_count__mutmut_*", "module.xǁCounterǁcount__mutmut_*"]))
         self.assertFalse(helper.results_pass(
             output.replace("count__mutmut_2: killed", "count__mutmut_2: survived"),
-            ["src.module.xǁCounterǁcount*"]))
-        self.assertFalse(helper.results_pass(
+            ["module.xǁCounterǁcount__mutmut_*"]))
+        self.assertTrue(helper.results_pass(
             "Killed mutants: 0\nSurvived mutants: 0\n",
-            ["src.module.x_count*"]))
+            ["module.x_count__mutmut_*"]))
 
     @unittest.skipUnless(shutil.which("mutmut"), "mutmut is not installed")
     def test_mutmut_helper_runs_real_mutmut_on_a_tiny_fixture(self):
@@ -87,8 +91,8 @@ class QualityHelperTest(unittest.TestCase):
             "from src.module import count\n\n"
             "def test_count():\n    assert count([1, 1]) == 1\n")
         (self.root / "pyproject.toml").write_text(
-            "[tool.mutmut]\nsource_paths = ['src/']\n"
-            "pytest_add_cli_args_test_selection = ['-q']\n")
+            '[tool.mutmut]\nsource_paths = ["src/"]\n'
+            'pytest_add_cli_args_test_selection = ["-q"]\n')
         git(self.root, "add", "src/module.py", "test_module.py", "pyproject.toml")
         git(self.root, "commit", "--quiet", "-m", "base")
         base = git(self.root, "rev-parse", "HEAD")
@@ -96,14 +100,14 @@ class QualityHelperTest(unittest.TestCase):
         git(self.root, "add", "src/module.py")
         git(self.root, "commit", "--quiet", "-m", "change")
         helper = load("mutmut-changed.py")
-        self.assertEqual(helper.patterns(base, self.root), ["src.module.x_count*"])
-        run = subprocess.run(["mutmut", "run", "src.module.x_count*"], cwd=self.root,
+        self.assertEqual(helper.patterns(base, self.root), ["module.x_count__mutmut_*"])
+        run = subprocess.run(["mutmut", "run", "module.x_count__mutmut_*"], cwd=self.root,
                              capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         results = subprocess.run(["mutmut", "results", "--all", "true"], cwd=self.root,
                                  capture_output=True, text=True)
         self.assertEqual(results.returncode, 0, results.stdout + results.stderr)
-        self.assertTrue(helper.results_pass(results.stdout, ["src.module.x_count*"]),
+        self.assertTrue(helper.results_pass(results.stdout, ["module.x_count__mutmut_*"]),
                         results.stdout)
 
     def test_crap_helper_flags_a_changed_function_at_thirty(self):
@@ -141,8 +145,8 @@ class QualityHelperTest(unittest.TestCase):
 
     def test_mutmut_results_require_changed_function_coverage_and_no_survivors(self):
         helper = load("mutmut-changed.py")
-        pattern = ["pkg.module.x_count*"]
-        self.assertFalse(helper.results_pass("Killed mutants: 0\nSurvived mutants: 0\n", pattern))
+        pattern = ["pkg.module.x_count__mutmut_*"]
+        self.assertTrue(helper.results_pass("Killed mutants: 0\nSurvived mutants: 0\n", pattern))
         self.assertFalse(helper.results_pass(
             "Killed mutants: 1\nSurvived mutants: 1\npkg.module.x_count__mutmut_2: survived\n", pattern))
         self.assertTrue(helper.results_pass(

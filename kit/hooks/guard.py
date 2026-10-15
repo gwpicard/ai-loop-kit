@@ -45,9 +45,12 @@ def strip_prefix(w: list[str]) -> list[str]:
     return w
 
 
-def current_branch() -> str:
-    result = subprocess.run(["git", "branch", "--show-current"], capture_output=True,
-                            text=True)
+def current_branch(path: str = "") -> str:
+    command = ["git"]
+    if path:
+        command.extend(["-C", path])
+    command.extend(["branch", "--show-current"])
+    result = subprocess.run(command, capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
@@ -89,9 +92,18 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
         if prog == "eval":
-            return "eval is not allowed. Run a plain command."
+            if builder:
+                return "eval is not allowed. Run a plain command."
+            evaluated = " ".join(rest)
+            substitution = re.fullmatch(r"\$\((.*)\)", evaluated.strip())
+            if substitution:
+                evaluated = substitution[1]
+            refused = check_command(evaluated, builder) if evaluated else None
+            if refused:
+                return refused
         if prog == "xargs" and any(os.path.basename(arg) == "rm" for arg in rest):
-            return "xargs rm is not allowed. Run rm on named files directly."
+            if any(re.fullmatch(r"-[rRf]+", arg) for arg in rest):
+                return "xargs rm with recursive or force flags is not allowed."
         if builder and prog in ("perl", "ruby") and "-e" in rest:
             return f"{prog} -e is not allowed in a build session."
         if prog in ("bash", "sh", "zsh"):
@@ -115,8 +127,12 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
                     return "recursive delete is not allowed. Ask the person."
         if prog == "git":
             index = 0
+            git_cwd = ""
             while index < len(rest):
-                if rest[index] in ("-C", "-c", "--git-dir", "--work-tree"):
+                if rest[index] == "-C" and index + 1 < len(rest):
+                    git_cwd = rest[index + 1]
+                    index += 2
+                elif rest[index] in ("-c", "--git-dir", "--work-tree"):
                     index += 2
                 elif rest[index].startswith("--git-dir=") or rest[index].startswith("--work-tree="):
                     index += 1
@@ -153,8 +169,11 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
                        or a.startswith("--force") for a in flags):
                     return "force push and remote delete are not allowed."
                 targets = [a for a in rest[1:] if not a.startswith("-")]
-                if not targets and current_branch() in ("main", "master"):
+                branch = current_branch(git_cwd)
+                if not targets and branch in ("main", "master"):
                     return "an unqualified push from main is not allowed. Push a named piece branch."
+                if (branch == "main" and targets == ["origin"]):
+                    return "an origin push without a refspec from main is not allowed. Push a named piece branch."
                 if any(re.search(r"(^|:)(refs/heads/)?(main|master)$", t) or t.startswith("+")
                        for t in targets[1:]):
                     return "pushing to main is not allowed. Open a pull request."
