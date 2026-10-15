@@ -62,6 +62,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                   disallowed: Optional[list[str]] = None,
                   settings_allowed: bool = False,
                   protected_paths: Optional[list[str]] = None,
+                  contract: Optional[dict[str, str]] = None,
                   walk_away: bool = False,
                   domains: Optional[list[str]] = None,
                   cwd: Optional[Path] = None) -> subprocess.Popen:
@@ -69,6 +70,10 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     backend = selected(folder, backend)
     work = folder.resolve()
     working = (cwd or folder).resolve()
+    if role == "builder" and contract is not None:
+        contract_text = " ".join(contract.values())
+        protected_paths = [path for path in (protected_paths or [])
+                           if path not in contract_text]
     if backend == "claude":
         args = _claude_args(work, prompt, role, disallowed or [], settings_allowed,
                             walk_away, domains)

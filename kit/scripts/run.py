@@ -223,6 +223,7 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: d
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                settings: bool = False, idle_seconds: int = DEFAULT_IDLE_LIMIT,
                protected_paths: Optional[list[str]] = None,
+               contract: Optional[dict[str, str]] = None,
                walk_away: bool = False, domains: Optional[list[str]] = None,
                result_event: Optional[dict] = None,
                append_log: bool = False, backend: str = "claude") -> str:
@@ -230,6 +231,7 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
         proc = agents.start_session(
             backend, prompt, folder, role="builder", disallowed=files,
             settings_allowed=settings, protected_paths=protected_paths,
+            contract=contract,
             walk_away=walk_away, domains=domains)
         track_process(proc)
         from review import _pump_session
@@ -445,7 +447,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         idle_status = build_once(folder, prompt, ready["files"], logfile,
                                  ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
-                                 ready.get("protected_paths", []), walk_away, domains,
+                                 ready.get("protected_paths", []), ready.get("contract", {}),
+                                 walk_away, domains,
                                  result_event, backend=ready["agent"])
         if idle_status == "usage-limit":
             wait_seconds = sandbox.reset_wait_seconds(result_event)
@@ -455,7 +458,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             idle_status = build_once(folder, prompt, ready["files"], logfile,
                                      ready.get("settings", False),
                                      idle_limit_seconds(folder, ready.get("idle_limit")),
-                                     ready.get("protected_paths", []), walk_away, domains,
+                                     ready.get("protected_paths", []), ready.get("contract", {}),
+                                     walk_away, domains,
                                      result_event, append_log=True, backend=ready["agent"])
             if idle_status == "usage-limit":
                 reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
