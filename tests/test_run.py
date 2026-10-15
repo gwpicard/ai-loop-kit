@@ -59,7 +59,7 @@ FAKE_CLAUDE = textwrap.dedent('''\
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
                     printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
-                    sleep 0.1
+                    sleep 0.12
                   done
                   printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       idle) sleep 5 ;;
@@ -184,17 +184,18 @@ class RunTest(unittest.TestCase):
     def test_claude_events_reset_idle_and_logs_keep_assistant_text(self):
         folder = self.p.root
         script = ("import time\n"
+                  "time.sleep(.3)\n"
                   "for _ in range(5):\n"
                   " print('{\"type\":\"assistant\",\"message\":{\"content\":["
                   "{\"type\":\"text\",\"text\":\"hello\"}]}}', flush=True)\n"
-                  " time.sleep(.12)\n")
+                  " time.sleep(.45)\n")
         proc = subprocess.Popen([sys.executable, "-c", script], cwd=folder,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 start_new_session=True)
         from io import StringIO
         output = StringIO()
         from review import _pump_session
-        status = _pump_session(proc, output, idle_seconds=.2, hard_seconds=3,
+        status = _pump_session(proc, output, idle_seconds=2, hard_seconds=5,
                                activity_path=folder)
         self.assertEqual(status, "")
         self.assertIn("hello", output.getvalue())

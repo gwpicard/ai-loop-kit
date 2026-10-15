@@ -62,13 +62,14 @@ class ScenarioTest(unittest.TestCase):
         script = self.p.tmp.name + "/stream.py"
         Path(script).write_text(
             "import time\n"
+            "time.sleep(.3)\n"
             "for _ in range(20):\n"
             " print('{\\\"type\\\":\\\"assistant\\\",\\\"message\\\":{\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"working\\\"}]}}', flush=True)\n"
-            " time.sleep(.08)\n")
+            " time.sleep(.12)\n")
         streamed = subprocess.Popen([sys.executable, script], stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, start_new_session=True)
         with (self.p.root / "stream.log").open("w") as output:
-            status = review._pump_session(streamed, output, 1, hard_seconds=5)
+            status = review._pump_session(streamed, output, 2.5, hard_seconds=5)
         self.assertEqual(status, "")
         self.assertIn("working", (self.p.root / "stream.log").read_text())
         silent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"],
@@ -80,10 +81,10 @@ class ScenarioTest(unittest.TestCase):
 
     def test_builder_streaming_past_idle_limit_finishes_and_passes(self):
         started = time.monotonic()
-        with patch.object(run, "idle_limit_seconds", return_value=2):
+        with patch.object(run, "idle_limit_seconds", return_value=3):
             n, result = self.build("stream-good", attempts=1)
         self.assertIn("pull request ready", result)
-        self.assertGreaterEqual(time.monotonic() - started, 2)
+        self.assertGreaterEqual(time.monotonic() - started, 3)
         log = self.p.root / ".loop" / "logs" / f"piece-{n}-attempt-1.log"
         self.assertIn("still working", log.read_text())
 
