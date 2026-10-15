@@ -620,7 +620,7 @@ class GuardTest(unittest.TestCase):
 
     def test_builder_refuses_unhandled_execution_and_redirect_forms(self):
         for command in ("bash -lc 'echo hi'", "sh -ec 'echo hi'", "eval 'git status'",
-                        "printf x | xargs rm file", "perl -e 'print 1'", "ruby -e 'puts 1'",
+                        "printf x | xargs rm -r file", "perl -e 'print 1'", "ruby -e 'puts 1'",
                         "echo x > .claude/settings.json", "echo x >> .githooks/commit-msg",
                         "echo x > secrets/key.txt"):
             with self.subTest(command=command):
