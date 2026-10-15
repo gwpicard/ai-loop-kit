@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,13 +12,29 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 
-import sandbox
-import walkaway
 import review
 import run
+import sandbox
+import walkaway
 
 
 class SandboxTest(unittest.TestCase):
+    def test_walkaway_review_session_accepts_a_completed_session(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "build"
+            folder.mkdir()
+            logfile = root / "review.log"
+            event = json.dumps({"type": "result", "is_error": False, "result": "ok"})
+            process = subprocess.Popen(
+                [sys.executable, "-c", f"print({event!r})"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+            with patch.object(review.agents, "start_session", return_value=process):
+                status = review._review_session(folder, "brief", logfile, [], 5,
+                                               walk_away=True, domains=["pypi.org"])
+
+        self.assertEqual(status, "")
+
     def test_review_keeps_research_when_walkaway_controls_are_forwarded(self):
         body = ("## Research\n- R1: The API supports batching "
                 "(source: https://example.test/api, read: 2026-10-15)\n")
