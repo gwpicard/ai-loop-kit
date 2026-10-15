@@ -19,6 +19,11 @@ from loopkit import Refused, changed_check_settings, parse_spec, records, run_ju
 
 
 class SpecTest(unittest.TestCase):
+    def test_new_python_entrypoints_are_saved_as_runnable(self):
+        for name in ("pr.py", "review.py"):
+            mode = (KIT / "scripts" / name).stat().st_mode
+            self.assertTrue(mode & 0o111, f"{name} must be executable")
+
     def test_runtime_and_test_modules_stay_within_reviewable_sizes(self):
         self.assertLessEqual(len((KIT / "scripts" / "run.py").read_text().splitlines()), 700)
         self.assertLessEqual(len(Path(__file__).read_text().splitlines()), 1000)
