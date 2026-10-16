@@ -1,8 +1,10 @@
 """Run-start recovery and GitHub's briefly delayed ready search."""
 from __future__ import annotations
 
+import json
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -10,6 +12,32 @@ from loopkit import STATE_PREFIX, sh
 
 READY_RETRIES = 4
 READY_RETRY_SECONDS = 5
+
+
+def _run_metrics_path(root: Path, n: int) -> Path:
+    return root / ".loop" / "run-metrics" / f"piece-{n}.json"
+
+
+def _save_run_metrics(root: Path, n: int, started_at: datetime, attempts: int) -> None:
+    path = _run_metrics_path(root, n)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"started_at": started_at.isoformat(),
+                                     "attempts": attempts}) + "\n")
+    temporary.replace(path)
+
+
+def _recovered_run_metrics(root: Path, n: int) -> tuple[int, float]:
+    try:
+        saved = json.loads(_run_metrics_path(root, n).read_text())
+        started_at = datetime.fromisoformat(saved["started_at"])
+        if started_at.tzinfo is None:
+            return 0, 0
+        attempts = max(0, int(saved["attempts"]))
+        seconds = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
+        return attempts, seconds
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0, 0
 
 
 def cleanup_interrupted_reviews(root: Path) -> list[str]:

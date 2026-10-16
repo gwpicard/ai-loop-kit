@@ -33,7 +33,8 @@ from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, repo_root, sh, untracked_paths)
-from run_start import cleanup_interrupted_reviews, ready_pieces  # noqa: E402
+from run_start import (cleanup_interrupted_reviews, ready_pieces, _run_metrics_path,
+                      _save_run_metrics, _recovered_run_metrics)  # noqa: E402
 from procs import (AttemptIdle, _ACTIVE_GROUPS, _untrack_process, acquire_lock,
                    cache_main_ref_for_piece as _cache_main_for_piece,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
@@ -58,35 +59,6 @@ def record_attempt_timing(logfile: Path, started_at: datetime,
     }
     with logfile.open("a") as output:
         output.write("\nAttempt timing: " + json.dumps(timing, sort_keys=True) + "\n")
-
-
-def _run_metrics_path(root: Path, n: int) -> Path:
-    return root / ".loop" / "run-metrics" / f"piece-{n}.json"
-
-
-def _save_run_metrics(root: Path, n: int, started_at: datetime,
-                      attempts: int) -> None:
-    path = _run_metrics_path(root, n)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({
-        "started_at": started_at.isoformat(),
-        "attempts": attempts,
-    }) + "\n")
-    temporary.replace(path)
-
-
-def _recovered_run_metrics(root: Path, n: int) -> tuple[int, float]:
-    try:
-        saved = json.loads(_run_metrics_path(root, n).read_text())
-        started_at = datetime.fromisoformat(saved["started_at"])
-        if started_at.tzinfo is None:
-            return 0, 0
-        attempts = max(0, int(saved["attempts"]))
-        seconds = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
-        return attempts, seconds
-    except (OSError, ValueError, KeyError, TypeError):
-        return 0, 0
 
 
 def recover_building(gh: GitHub, root: Path) -> list[str]:
