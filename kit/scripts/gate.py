@@ -265,7 +265,9 @@ def _declared_dependencies(path: str, content: str) -> set[str]:
                     project_dependencies = False
             elif section.startswith("project.optional-dependencies"):
                 names.update(re.findall(dependency_pattern, line))
-            elif section.startswith("tool.poetry.dependencies"):
+            elif (section == "tool.poetry.dependencies" or
+                  (section.startswith("tool.poetry.group.") and
+                   section.endswith(".dependencies"))):
                 key = re.match(r"^\s*([A-Za-z0-9_.-]+)\s*=", line)
                 if key and key.group(1).lower() != "python":
                     names.add(key.group(1))

@@ -30,6 +30,14 @@ class RiskSpecTest(unittest.TestCase):
             parse_spec(body.replace("Open choices: none", "Open choices: which database?"))
         self.assertIn("Open choices", refusal.exception.reason)
 
+    def test_new_dependencies_need_a_reason(self):
+        body = (SPEC + "\n## Risks\nProtected paths: none\n"
+                "New dependency: requests\nShared files: none\n"
+                "Needs services: none\nOpen choices: none\n")
+        with self.assertRaises(Refused) as refusal:
+            parse_spec(body)
+        self.assertIn("name and reason", refusal.exception.reason)
+
 
 class RiskGateTest(unittest.TestCase):
     def setUp(self):
@@ -72,6 +80,20 @@ class RiskGateTest(unittest.TestCase):
             '[project]\ndependencies = [\n    "requests>=2",\n]\n')
         git(folder, "add", "pyproject.toml")
         git(folder, "commit", "--quiet", "-m", "Add a Python dependency")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("unnamed dependencies: requests", output)
+
+    def test_poetry_group_dependencies_are_checked_at_submit(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        (folder / "pyproject.toml").write_text(
+            '[tool.poetry.group.dev.dependencies]\nrequests = "^2"\n')
+        git(folder, "add", "habits.py", "pyproject.toml")
+        git(folder, "commit", "--quiet", "-m", "Add a Poetry group dependency")
         passed, output = gate.judge(folder, gate.last_record(
             self.project.gh.comments(number), "ready"))
         self.assertFalse(passed)

@@ -156,6 +156,11 @@ def parse_spec(body: str) -> Spec:
                 gaps.append(f"Risks field '{match.group(1)}' is used twice")
             found_risks.add(key)
             risks[risk_names[key]] = _risk_items(match.group(2))
+            if key == "new dependency":
+                for dependency in risks["new_dependencies"]:
+                    name, separator, reason = dependency.partition(":")
+                    if not separator or not name.strip() or not reason.strip():
+                        gaps.append("Risks New dependency entries need a name and reason")
         for key in risk_names:
             if key not in found_risks:
                 gaps.append(f"Risks section needs '{key.title()}:'")

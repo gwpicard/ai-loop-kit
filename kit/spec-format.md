@@ -54,7 +54,7 @@ say `none` before ready. Protected paths named here are allowed for the
 piece. The gate warns when another ready issue names one of the same shared
 files. `Needs services:` prevents a walk-away run. At submit, every new
 dependency in `package.json` or `pyproject.toml` must be named under
-`New dependency:`. Add a reason after a colon, such as
+`New dependency:`. Each name needs a reason after a colon, such as
 `requests: retry support`.
 
 An `## Exit` section contains one or more checks. Use `### Tests` with
