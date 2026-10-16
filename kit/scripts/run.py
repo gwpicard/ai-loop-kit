@@ -462,16 +462,18 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
             outcome_kind, outcome_reason = walkaway.builder_outcome(outcome)
-            if outcome_kind in ("needs-answer", "spec-unclear"):
+            if outcome_kind in ("needs-answer", "spec-unclear", "environment"):
                 record_attempt_timing(logfile, started_at, time.monotonic() - started)
                 if outcome_reason:
                     reason = outcome_reason
-                    _hand_back(gh, root, n, reason, "spec-unclear", metrics,
-                               cause=outcome_kind)
+                    reason_type = "environment" if outcome_kind == "environment" else "spec-unclear"
+                    _hand_back(gh, root, n, reason, reason_type, metrics,
+                               cause="" if outcome_kind == "environment" else outcome_kind)
                     gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {reason}")
                     return f"piece {n}: back to shaping, {outcome_kind}: {reason}"
                 commit_leftovers(folder, n, k)
-                last_failure = (f"{outcome_kind} needs a question or a cited reason; "
+                last_failure = (f"{outcome_kind} needs a reason (a question for needs-answer, "
+                                "a citation for spec-unclear); "
                                 "this attempt failed.")
                 gh.comment(n, f"**Run:** attempt {k} reported {last_failure}")
                 if k < attempts:

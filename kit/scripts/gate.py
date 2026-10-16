@@ -19,6 +19,7 @@ record on the issue for every move it makes.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import re
@@ -252,6 +253,11 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     main = main_ref(folder)
     changed_paths = sh(["git", "diff", "--no-renames", "--name-only",
                         f"{main}...HEAD"], folder).stdout.splitlines()
+    staged_paths = sh(["git", "diff", "--cached", "--no-renames", "--name-only"],
+                      folder).stdout.splitlines()
+    leaked = sorted(path for path in set(changed_paths + staged_paths) if generated(path))
+    if leaked:
+        return False, "the build includes generated files: " + ", ".join(leaked)
     contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
         " ".join(ready.get("files", []))
     risk_paths = ready.get("risks", {}).get("protected_paths", [])
@@ -658,6 +664,20 @@ GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/
              ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage",
              ".coverage.*", "mutants/", ".stryker-tmp/", "coverage.json", "coverage.xml",
              "coverage.lcov"]
+
+
+def generated(path: str) -> bool:
+    """Is this path one of the files that tools make?"""
+    parts = path.split("/")
+    for pattern in GENERATED:
+        p = pattern.strip("/")
+        if pattern.endswith("/"):
+            dirs = parts[:1] if pattern.startswith("/") else parts[:-1]
+            if any(fnmatch.fnmatch(d, p) for d in dirs):
+                return True
+        elif any(fnmatch.fnmatch(part, p) for part in parts):
+            return True
+    return False
 
 
 def ignore_loop_folder(root: Path) -> None:

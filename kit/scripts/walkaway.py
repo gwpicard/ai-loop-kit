@@ -238,7 +238,7 @@ def builder_outcome(path: Path) -> tuple[str, str]:
     lines = path.read_text(errors="replace").splitlines()
     kind = lines[0].strip() if lines else ""
     body = [line.strip() for line in lines[1:] if line.strip()]
-    if kind == "needs-answer":
+    if kind in ("needs-answer", "environment"):
         return kind, "\n".join(body)[:500]
     if kind != "spec-unclear":
         return kind, ""

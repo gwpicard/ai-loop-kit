@@ -436,6 +436,7 @@ pushed branch.
 | The bar is unchanged; a changed judge is put back and the attempt fails | The commonest cheat [ImpossibleBench], [Anthropic harnesses] |
 | No existing test, `conftest.py` or fixture changed unless the Contract names it | Same cheat, one step removed. Rename detection is off, so a moved test stays visible |
 | No protected path changed unless the Contract names it | Some code (auth, billing, CI) needs a person [Osmani, brownfield] |
+| No generated path in the change, including runtime `.loop/` files, even if force-added. Submit and the field audit use the same path check | The field audit rejected generated files that the gate had accepted |
 | No file grows from under 1,000 to 1,000 or more lines without `Large file:` | A sprawling file is a design smell agents create quickly [Cursor] |
 | No secret shape (`.env` files, private keys, AWS, GitHub and `sk-` tokens) | Git history keeps a secret for ever |
 | No conflict markers | A half-resolved merge |
@@ -518,7 +519,10 @@ run.py
   `needs-answer` with a question, and `spec-unclear` with a cited reason. The
   last two return the piece to shaping with `needs-you`; the question appears
   in the run summary. A `spec-unclear` outcome without a citation counts as a
-  failed attempt. The builder no longer decides an open choice alone.
+  failed attempt. For blocked cleanup, `environment` with a path and reason
+  returns the piece to shaping as an environment failure before review or
+  submit. An empty reason counts as a failed attempt. The builder no longer
+  decides an open choice alone.
 - **Interruption.** The run tracks every child process group and kills them
   on SIGINT or SIGTERM. The next run finds and removes what a killed run left.
 - **The pull request.** The script writes the facts: files changed by area,
