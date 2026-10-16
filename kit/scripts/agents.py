@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional, Union
@@ -62,6 +63,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                   disallowed: Optional[list[str]] = None,
                   settings_allowed: bool = False,
                   protected_paths: Optional[list[str]] = None,
+                  protected_exceptions: Optional[list[str]] = None,  # noqa: UP045
                   contract: Optional[dict[str, str]] = None,
                   walk_away: bool = False,
                   domains: Optional[list[str]] = None,
@@ -73,11 +75,12 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     if role == "builder" and contract is not None:
         contract_text = " ".join(contract.values())
         protected_paths = [path for path in (protected_paths or [])
-                           if path not in contract_text]
+                           if not _mentions_path(contract_text, path)]
     if backend == "claude":
         args = _claude_args(work, prompt, role, disallowed or [], settings_allowed,
                             walk_away, domains)
-        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True),
+        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
+                             protected_exceptions=protected_exceptions),
                "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
                "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
         if walk_away:
@@ -101,11 +104,18 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
             args += ["--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
         else:
             args += [prompt]
-        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True),
+        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
+                             protected_exceptions=protected_exceptions),
                "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
                "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
     return subprocess.Popen(args, cwd=working, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, env=env, start_new_session=True)
+
+
+def _mentions_path(text: str, path: str) -> bool:
+    """Match a path name on component boundaries in contract prose."""
+    return re.search(rf"(?<![A-Za-z0-9_.-]){re.escape(path.rstrip('/'))}(?![A-Za-z0-9_.-])",
+                     text) is not None
 
 
 def event_text(output: Union[str, bytes], backend: str = "codex") -> str:

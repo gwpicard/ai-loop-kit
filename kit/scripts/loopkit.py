@@ -539,7 +539,8 @@ def project_root(folder: Path) -> Path:
 
 
 def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
-               scrub_secrets: bool = False) -> dict:
+               scrub_secrets: bool = False,
+               protected_exceptions: Optional[list[str]] = None) -> dict:  # noqa: UP045
     """The environment for judge, prepare and agent commands.
 
     Use only the folder's own .venv. A project checkout's environment must not
@@ -554,6 +555,7 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
     frozen_paths = (loop_settings(folder).get("protected paths", [])
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
+    env["LOOP_PROTECTED_EXCEPTIONS"] = os.pathsep.join(protected_exceptions or [])
     project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
     path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
                     if Path(entry or ".").resolve() != project_venv_bin]

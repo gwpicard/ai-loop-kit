@@ -30,6 +30,18 @@ from typing import Optional
 SPLIT = re.compile(r"&&|\|\||;|\||\n|\$\(|`")
 
 
+def _path_covers(declared: str, actual: str) -> bool:
+    declared = declared.replace("\\", "/").strip("/")
+    actual = actual.replace("\\", "/").strip("/")
+    return bool(declared) and (actual == declared or actual.startswith(declared + "/")
+                               or ("/" + declared + "/") in ("/" + actual + "/"))
+
+
+def _protected_paths(name: str) -> list[str]:
+    return [item.strip().strip("`") for item in
+            os.environ.get(name, "").split(os.pathsep) if item.strip()]
+
+
 def words(segment: str) -> list[str]:
     try:
         return shlex.split(segment)
@@ -55,16 +67,15 @@ def current_branch(path: str = "") -> str:
 
 
 def redirect_to_protected(command: str) -> bool:
-    protected = [item.strip().strip("`").replace("\\", "/") for item in
-                 os.environ.get("LOOP_PROTECTED_PATHS", "").split(os.pathsep) if item.strip()]
+    protected = _protected_paths("LOOP_PROTECTED_PATHS")
+    exceptions = _protected_paths("LOOP_PROTECTED_EXCEPTIONS")
     for match in re.finditer(r"(?:^|\s)(?:\d*>>?)\s*(['\"]?)([^\s'\"]+)\1", command):
         target = match.group(2).replace("\\", "/")
         parts = target.strip("/").split("/")
         if ".claude" in parts or ".githooks" in parts:
             return True
-        if any(target == item.rstrip("/") or target.startswith(item.rstrip("/") + "/")
-               or ("/" + item.rstrip("/") + "/") in ("/" + target.strip("/") + "/")
-               for item in protected):
+        if (any(_path_covers(item, target) for item in protected)
+                and not any(_path_covers(item, target) for item in exceptions)):
             return True
     return False
 
@@ -196,12 +207,11 @@ def check_path(path: str) -> Optional[str]:
     parts = path.replace("\\", "/").split("/")
     if ".claude" in parts or ".githooks" in parts:
         return "builders never change .claude/ or .githooks/."
-    protected = [item.strip().strip("`") for item in
-                 os.environ.get("LOOP_PROTECTED_PATHS", "").split(os.pathsep) if item.strip()]
+    protected = _protected_paths("LOOP_PROTECTED_PATHS")
+    exceptions = _protected_paths("LOOP_PROTECTED_EXCEPTIONS")
     normal = path.replace("\\", "/").rstrip("/")
-    if any(normal == item.rstrip("/") or normal.startswith(item.rstrip("/") + "/")
-           or ("/" + item.rstrip("/") + "/") in (normal + "/")
-           for item in protected):
+    if (any(_path_covers(item, normal) for item in protected)
+            and not any(_path_covers(item, normal) for item in exceptions)):
         return "builders and reviewers never edit a protected path. Shape a piece that names it."
     return None
 

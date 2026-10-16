@@ -281,11 +281,13 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                contract: Optional[dict[str, str]] = None,
                walk_away: bool = False, domains: Optional[list[str]] = None,
                result_event: Optional[dict] = None,
-               append_log: bool = False, backend: str = "claude") -> str:
+               append_log: bool = False, backend: str = "claude",
+               protected_exceptions: Optional[list[str]] = None) -> str:  # noqa: UP045
     with logfile.open("a" if append_log else "w") as out:
         proc = agents.start_session(
             backend, prompt, folder, role="builder", disallowed=files,
             settings_allowed=settings, protected_paths=protected_paths,
+            protected_exceptions=protected_exceptions,
             contract=contract,
             walk_away=walk_away, domains=domains)
         track_process(proc)
@@ -518,13 +520,14 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
-        build_contract["risks"] = " ".join(ready.get("risks", {}).get("protected_paths", []))
         idle_status = build_once(folder, prompt, ready["files"], logfile,
                                  ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
                                  ready.get("protected_paths", []), build_contract,
                                  walk_away, domains,
-                                 result_event, backend=ready["agent"])
+                                 result_event, backend=ready["agent"],
+                                 protected_exceptions=ready.get("risks", {}).get(
+                                     "protected_paths", []))
         if idle_status == "usage-limit":
             wait_seconds = sandbox.reset_wait_seconds(result_event)
             log(f"piece {n}: usage limit; waiting {wait_seconds} seconds before one retry")
@@ -535,7 +538,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                                      idle_limit_seconds(folder, ready.get("idle_limit")),
                                      ready.get("protected_paths", []), build_contract,
                                      walk_away, domains,
-                                     result_event, append_log=True, backend=ready["agent"])
+                                     result_event, append_log=True, backend=ready["agent"],
+                                     protected_exceptions=ready.get("risks", {}).get(
+                                         "protected_paths", []))
             if idle_status == "usage-limit":
                 reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
                 gh.comment(n, f"**Run:** {reason}")

@@ -290,6 +290,19 @@ def unnamed_dependencies(folder: Path, base: str, named: list[str]) -> list[str]
     return sorted(added - allowed)
 
 
+def _path_mentioned(text: str, path: str) -> bool:
+    """Match a path name on component boundaries in contract prose."""
+    return re.search(rf"(?<![A-Za-z0-9_.-]){re.escape(path.rstrip('/'))}(?![A-Za-z0-9_.-])",
+                     text) is not None
+
+
+def _path_covers(declared: str, actual: str) -> bool:
+    """Whether a declared relative path covers a changed path or its child."""
+    declared = declared.replace("\\", "/").strip("/")
+    actual = actual.replace("\\", "/").strip("/")
+    return bool(declared) and (actual == declared or actual.startswith(declared + "/"))
+
+
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
@@ -306,11 +319,12 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     changed_paths = sh(["git", "diff", "--no-renames", "--name-only",
                         f"{main}...HEAD"], folder).stdout.splitlines()
     contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
-        " ".join(ready.get("files", [])) + " " + \
-        " ".join(ready.get("risks", {}).get("protected_paths", []))
+        " ".join(ready.get("files", []))
+    risk_paths = ready.get("risks", {}).get("protected_paths", [])
     protected = [p for p in changed_paths for target in ready.get("protected_paths", [])
                  if (p == target.rstrip("/") or p.startswith(target.rstrip("/") + "/"))
-                 and target not in contract_text]
+                 and not _path_mentioned(contract_text, target)
+                 and not any(_path_covers(risk, p) for risk in risk_paths)]
     if protected:
         return False, "the build changes protected paths not named in the Contract: " + \
             ", ".join(sorted(set(protected)))

@@ -4,8 +4,10 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
+import agents
 import gate
 import run
 from helpers import GOOD_CODE, SPEC, Project, git
@@ -119,6 +121,55 @@ class RiskGateTest(unittest.TestCase):
         passed, output = gate.judge(folder, gate.last_record(
             self.project.gh.comments(number), "ready"))
         self.assertTrue(passed, output)
+
+    def test_similar_risk_path_does_not_authorise_a_protected_path(self):
+        self.project.loop_section("true")
+        agents_file = self.project.root / "AGENTS.md"
+        agents_file.write_text(agents_file.read_text() + "Protected paths: secrets\n")
+        git(self.project.root, "add", "AGENTS.md")
+        git(self.project.root, "commit", "--quiet", "-m", "Protect secrets")
+        git(self.project.root, "push", "--quiet", "origin", "main")
+        risks = ("\n## Risks\nProtected paths: secrets-backup\nNew dependency: none\n"
+                 "Shared files: none\nNeeds services: none\nOpen choices: none\n")
+        number = self.project.piece(spec=SPEC + risks)
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        (folder / "secrets").mkdir()
+        (folder / "secrets" / "settings.py").write_text("setting = True\n")
+        git(folder, "add", "habits.py", "secrets/settings.py")
+        git(folder, "commit", "--quiet", "-m", "Change protected path")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("protected paths", output)
+
+    def test_builder_session_receives_scoped_protected_path_exceptions(self):
+        folder = self.project.root
+        with patch("loopkit.project_root", return_value=folder), \
+                patch.object(agents.subprocess, "Popen") as popen:
+            agents.start_session("codex", "build", folder, role="builder",
+                                 protected_paths=["secrets"],
+                                 protected_exceptions=["secrets/settings.py"])
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual(environment["LOOP_PROTECTED_PATHS"], "secrets")
+        self.assertEqual(environment["LOOP_PROTECTED_EXCEPTIONS"], "secrets/settings.py")
+
+    def test_guard_allows_only_the_scoped_protected_path_exception(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "loop_guard", Path(__file__).resolve().parents[1] / "kit" / "hooks" / "guard.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with patch.dict("os.environ", {
+                "LOOP_PROTECTED_PATHS": "secrets",
+                "LOOP_PROTECTED_EXCEPTIONS": "secrets/settings.py"}):
+            self.assertIsNone(module.check_path("/project/secrets/settings.py"))
+            self.assertIsNotNone(module.check_path("/project/secrets/other.py"))
+            self.assertFalse(module.redirect_to_protected(
+                "echo setting > /project/secrets/settings.py"))
+            self.assertTrue(module.redirect_to_protected(
+                "echo other > /project/secrets/other.py"))
 
     def test_walk_away_refuses_pieces_that_need_services(self):
         risks = ("\n## Risks\nProtected paths: none\nNew dependency: none\n"
