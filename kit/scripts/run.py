@@ -67,8 +67,16 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
         note = "the previous run ended while this piece was building"
         recovered.append(f"piece {issue['number']}: " + gate.move(
             gh, root, issue["number"], "shaping", reason=note,
-            reason_type="environment"))
+            reason_type="environment", attempts=0, seconds=0))
     return recovered
+
+
+def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
+               metrics: dict) -> str:
+    """Return a claimed piece with the run's actual attempt count and duration."""
+    return gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type,
+                     attempts=metrics["attempts"],
+                     seconds=time.monotonic() - metrics["started"])
 
 
 def waiting_limit_note(gh: GitHub, root: Path, ready: Optional[dict] = None) -> str:
@@ -338,21 +346,23 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int,
 
 def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
                  walk_away: bool = False, agent_override: Optional[str] = None) -> str:
+    metrics = {"started": time.monotonic(), "attempts": 0}
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     check_pushed_branch(root, n)
     gate.move(gh, root, n, "building")
     try:
-        result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override)
+        result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override,
+                               metrics)
     except AttemptIdle as e:
         reason = str(e)
         if gate.state_of(gh.issue(n)) == "building":
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
+            _hand_back(gh, root, n, reason, "builder-failed", metrics)
         result = f"piece {n}: back to shaping, {reason}"
     except Exception as e:  # never leave a piece in building
         reason = f"the run stopped with an error: {str(e).strip()[:300]}"
         if gate.state_of(gh.issue(n)) == "building":
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+            _hand_back(gh, root, n, reason, "environment", metrics)
         result = f"piece {n}: back to shaping, {reason}"
     if gate.state_of(gh.issue(n)) == "shaping":
         release_worktree(root, n)
@@ -360,8 +370,9 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
-                  walk_away: bool = False, agent_override: Optional[str] = None) -> str:
-    build_started = time.monotonic()
+                  walk_away: bool = False, agent_override: Optional[str] = None,
+                  metrics: Optional[dict] = None) -> str:  # noqa: UP045
+    metrics = metrics or {"started": time.monotonic(), "attempts": 0}
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
     ready = {**ready, "agent": agents.selected(root, agent_override or ready.get("agent"))}
@@ -372,7 +383,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
         gh.comment(n, f"**Run:** {dirty}\n\n```\n{status[-1200:]}\n```")
-        gate.move(gh, root, n, "shaping", reason=dirty, reason_type="environment")
+        _hand_back(gh, root, n, dirty, "environment", metrics)
         return f"piece {n}: back to shaping, {dirty}"
 
     # Bring the piece up to date with main, so the pull request merges cleanly.
@@ -385,7 +396,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if not conflicts:
             sh(["git", "merge", "--abort"], folder, check=False)
             reason = f"{branch_name(n)} does not merge with {main}"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="conflict")
+            _hand_back(gh, root, n, reason, "conflict", metrics)
             return f"piece {n}: back to shaping, {reason}"
         log(f"piece {n}: main changed; the builder resolves conflicts in {', '.join(conflicts)}")
         merge_note = ("Main changed since this piece was built. This folder holds an unfinished "
@@ -401,7 +412,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                           f"{ready['commit']}..HEAD", "--", *sorted(set(frozen_bar) | set(added_bar))],
                          folder).stdout.splitlines()
         reason = "main changed the frozen judge bar: " + ", ".join(changed_bar or added_bar or frozen_bar)
-        gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+        _hand_back(gh, root, n, reason, "bar-wrong", metrics)
         return f"piece {n}: back to shaping, {reason}"
 
     before = untracked_paths(folder)
@@ -410,7 +421,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
-        gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+        _hand_back(gh, root, n, reason, "environment", metrics)
         return f"piece {n}: back to shaping, {reason}"
     record_prepare_outputs(folder, before, before_dirs)
 
@@ -424,7 +435,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
                       else "the person asked the run to stop")
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="stopped")
+            _hand_back(gh, root, n, reason, "stopped", metrics)
             return f"piece {n}: back to shaping, {reason}"
         logfile = logs / f"piece-{n}-attempt-{k}.log"
         dirty_reason = dirty_folder_reason(folder)
@@ -432,7 +443,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
             reason = dirty_reason
             gh.comment(n, f"**Run:** {reason}\n\n``\n{status[-1200:]}\n```")
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+            _hand_back(gh, root, n, reason, "environment", metrics)
             return f"piece {n}: back to shaping, {reason}"
         started = time.monotonic()
         started_at = datetime.now(timezone.utc)
@@ -445,6 +456,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             walkaway.write_heartbeat(root, n, k)
         result_event = {}
         prompt = brief(n, issue["body"], ready, last_failure, came_back, folder)
+        metrics["attempts"] = k
         idle_status = build_once(folder, prompt, ready["files"], logfile,
                                  ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
@@ -465,15 +477,13 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             if idle_status == "usage-limit":
                 reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
                 gh.comment(n, f"**Run:** {reason}")
-                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment",
-                          attempts=k, seconds=time.monotonic() - build_started)
+                _hand_back(gh, root, n, reason, "environment", metrics)
                 return f"piece {n}: back to shaping, {reason}"
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed",
-                      attempts=k, seconds=time.monotonic() - build_started)
+            _hand_back(gh, root, n, reason, "builder-failed", metrics)
             return f"piece {n}: back to shaping, {reason}"
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
@@ -484,8 +494,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                     f"log: {logfile.relative_to(root)}")
                 gh.comment(n, f"**Run:** attempt {k} reports bar-wrong: {reason}")
-                gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong",
-                          attempts=k, seconds=time.monotonic() - build_started)
+                _hand_back(gh, root, n, reason, "bar-wrong", metrics)
                 return f"piece {n}: back to shaping, {reason}"
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
@@ -530,8 +539,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             if main_quality_failed:
                 reason = f"Quality check also fails on main: {command}"
                 gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")
-                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment",
-                          attempts=k, seconds=time.monotonic() - build_started)
+                _hand_back(gh, root, n, reason, "environment", metrics)
                 return f"piece {n}: back to shaping, {reason}"
             last_failure = (f"Attempt {k} failed Quality command `{command}`. Fix this in the next "
                             f"attempt.\n\n{output.strip()[-2500:]}")
@@ -550,15 +558,14 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                                           "reason": reason},
                                           "Contract review found a judge gap: " + reason))
             return open_pull_request(gh, root, folder, n, issue, k, output, review,
-                                    time.monotonic() - build_started)
+                                    time.monotonic() - metrics["started"])
         if output.startswith(gate.BAR_WRONG):
             # No build can fix this, and more attempts invite loosening a check.
             gh.comment(n, f"**Run:** attempt {k} of {attempts}: the judge passes, but the keep "
                           "check fails on the judge files themselves. The run stops here.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             reason = "the keep check fails on the judge files themselves; fix the judge"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong",
-                      attempts=k, seconds=time.monotonic() - build_started)
+            _hand_back(gh, root, n, reason, "bar-wrong", metrics)
             return f"piece {n}: back to shaping, {reason}"
         if "differ from the ones fixed at ready" in output:
             restore_bar(folder, ready)
@@ -576,12 +583,10 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if stop_requested(root):
             reason = last_failure if last_failure.startswith("Attempt ") else \
                 "the person asked the run to stop"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="stopped",
-                      attempts=k, seconds=time.monotonic() - build_started)
+            _hand_back(gh, root, n, reason, "stopped", metrics)
             return f"piece {n}: back to shaping, {reason}"
     reason = f"the judge still fails after {attempts} attempts; see the comments above"
-    gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed",
-              attempts=attempts, seconds=time.monotonic() - build_started)
+    _hand_back(gh, root, n, reason, "builder-failed", metrics)
     return f"piece {n}: back to shaping, needs you"
 
 

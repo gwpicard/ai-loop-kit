@@ -287,6 +287,8 @@ class RunTest(unittest.TestCase):
         self.assertIn(f"piece {n}", recovered[0])
         record = records(self.p.gh.comments(n))[-1]
         self.assertEqual(record["type"], "environment")
+        self.assertEqual(record["attempts"], 0)
+        self.assertGreaterEqual(record["seconds"], 0)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
 
     def test_judge_timeout_returns_a_clear_failure(self):
@@ -405,9 +407,84 @@ class RunTest(unittest.TestCase):
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
         self.assertEqual(handback["cause"], "idle")
         self.assertEqual(handback["attempts"], 1)
-        self.assertGreaterEqual(handback["seconds"], 0)
+        self.assertGreater(handback["seconds"], 0)
         self.assertEqual(handback["kit"], "1.1.0")
         self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_prepare_failure_records_zero_attempts_and_elapsed_time(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with patch("run.prepare", return_value=(False, "Prepare failed")):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("Prepare command failed", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
+
+    def test_outer_run_error_records_the_attempt_count_and_elapsed_time(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with patch("run.build_claimed", side_effect=RuntimeError("unexpected failure")):
+            result = run.build_piece(self.p.gh, self.p.root, n, 2)
+        self.assertIn("unexpected failure", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
+
+    def test_outer_idle_recovery_records_the_attempt_count_and_elapsed_time(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with patch("run.build_claimed", side_effect=run.AttemptIdle("builder idle")):
+            result = run.build_piece(self.p.gh, self.p.root, n, 2)
+        self.assertIn("builder idle", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
+
+    def test_dirty_folder_before_attempt_records_zero_and_elapsed(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with patch("run.dirty_folder_reason", side_effect=["", "new dirt"]):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("new dirt", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
+
+    def test_non_conflict_merge_error_records_zero_and_elapsed(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        original_sh = run.sh
+
+        def fail_merge(args, cwd, check=True, timeout=None):
+            if args[:2] == ["git", "merge"] and "--no-edit" in args:
+                return subprocess.CompletedProcess(args, 1, "", "")
+            return original_sh(args, cwd, check=check, timeout=timeout)
+
+        with patch("run.sh", side_effect=fail_merge):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("does not merge", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
+
+    def test_changed_build_bar_records_zero_and_elapsed(self):
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        original_hash = gate.bar_hash_in
+
+        def changed_hash(path, files):
+            if Path(path).resolve() == folder.resolve():
+                return "changed bar"
+            return original_hash(path, files)
+
+        with patch("gate.bar_hash_in", side_effect=changed_hash):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("frozen judge bar", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
 
     def test_idle_reviewer_is_recorded_as_builder_failed(self):
         os.environ["FAKE_REVIEW_MODE"] = "review-idle"
@@ -442,6 +519,9 @@ class RunTest(unittest.TestCase):
         self.assertIn("next:", result)
         self.assertTrue(dirty.is_file())
         self.assertIn("environment: 1", gate.report(self.p.gh))
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["attempts"], 0)
+        self.assertGreater(handback["seconds"], 0)
 
     def test_standards_reviewer_changes_are_committed_and_judged(self):
         (self.p.root / "standards.md").write_text("Use small local changes.\n")
@@ -657,6 +737,8 @@ class RunTest(unittest.TestCase):
         self.assertIn("person asked the run to stop", result)
         handbacks = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"]
         self.assertEqual(handbacks[0]["type"], "stopped")
+        self.assertEqual(handbacks[0]["attempts"], 0)
+        self.assertGreaterEqual(handbacks[0]["seconds"], 0)
         self.assertIn("stopped: 1", gate.report(self.p.gh))
 
     def test_stop_keeps_the_previous_judge_failure_reason(self):
