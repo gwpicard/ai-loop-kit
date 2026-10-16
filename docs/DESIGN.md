@@ -244,7 +244,9 @@ reference?", not "does ours match it".
 Criterion keys ignore terminal full stops, commas, semicolons, colons,
 exclamation marks and question marks. Ambiguous keys are refused. For a key
 mismatch, the error names the missing and extra keys. The attempt log keeps
-the full answer and the order shown, even after the build folder is removed.
+the full answer and the order shown from both the attempt and submit checks,
+even after the build folder is removed. A submit without an attempt number
+writes to `.loop/logs/piece-<number>-submit.log`.
 Before claiming a piece, the run refuses a branch checked out outside its
 own build folders and names that checkout.
 

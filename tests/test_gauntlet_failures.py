@@ -63,7 +63,7 @@ class CriticFailureTest(unittest.TestCase):
                 self.assertIn(response, output)
                 self.assertIn("critic returned an invalid verdict", output)
 
-    def test_invalid_answer_survives_release_of_the_build_folder(self):
+    def gauntlet_project(self):
         project = Project()
         self.addCleanup(project.close)
         body = SPEC.replace(
@@ -82,6 +82,10 @@ class CriticFailureTest(unittest.TestCase):
         with patch.object(critic, "judge", return_value=[{"winner": "reference"}] * 3):
             gate.move(project.gh, project.root, number, "ready")
 
+        return project, number
+
+    def test_invalid_answer_survives_release_of_the_build_folder(self):
+        project, number = self.gauntlet_project()
         response = "START OF CRITIC ANSWER\n" + "detail\n" * 800 + verdict("Colour")
         process = Mock(returncode=0)
         process.communicate.return_value = (response.encode(), None)
@@ -95,6 +99,36 @@ class CriticFailureTest(unittest.TestCase):
         self.assertIn(response, logfile.read_text())
         self.assertIn("missing: ['Readable labels.']", logfile.read_text())
         self.assertIn("extra: ['Colour']", logfile.read_text())
+
+
+    def test_invalid_submit_answer_survives_release_of_the_build_folder(self):
+        for existing_pr in (False, True):
+            with self.subTest(existing_pr=existing_pr):
+                project, number = self.gauntlet_project()
+                if existing_pr:
+                    project.gh.create_pr(f"piece/{number}", "Existing piece", "Earlier attempt")
+                response = "SUBMIT CRITIC ANSWER\n" + "detail\n" * 800 + verdict("Colour")
+                process = Mock(returncode=0)
+                process.communicate.side_effect = [
+                    (verdict("Readable labels.").encode(), None)] * 3 + [
+                    (response.encode(), None)]
+                with patch.object(run, "build_once", return_value=""), \
+                        patch.object(run, "review_piece", return_value={"contract_findings": []}), \
+                        patch.object(critic.random.SystemRandom, "getrandbits", return_value=1), \
+                        patch.object(critic.agents, "start_session", return_value=process):
+                    result = run.build_piece(project.gh, project.root, number, 1)
+
+                self.assertEqual(process.communicate.call_count, 4, result)
+                self.assertIn("back to shaping", result)
+                self.assertEqual(gate.state_of(project.gh.issue(number)), "shaping")
+                self.assertFalse(project.folder(number).exists())
+                self.assertEqual(len(project.gh.prs), int(existing_pr))
+                logfile = project.root / ".loop" / "logs" / f"piece-{number}-attempt-1.log"
+                evidence = logfile.read_text()
+                self.assertIn(response, evidence)
+                self.assertIn("missing: ['Readable labels.']", evidence)
+                self.assertIn("extra: ['Colour']", evidence)
+                self.assertIn("Order: A=ours, B=reference", evidence)
 
 
 class PieceCheckoutTest(unittest.TestCase):

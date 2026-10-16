@@ -540,6 +540,11 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             raise Refused("submit needs the build folder",
                           "the run makes this move, not a person")
         passed, output = judge(folder, ready)
+        logs = root / ".loop" / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        label = f"attempt-{attempts}" if attempts is not None else "submit"
+        with (logs / f"piece-{n}-{label}.log").open("a") as out:
+            out.write("\nSubmit judge output:\n" + output + "\n")
         if not passed:
             raise Refused(f"the judge does not pass:\n{output.strip()[-1500:]}")
         if pr:
