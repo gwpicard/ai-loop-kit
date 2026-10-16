@@ -52,7 +52,9 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
     if changed_settings:
         risk.append("check settings touched: " + ", ".join(changed_settings))
     importers = run.dependent_files(folder, ready.get("approach", ""), paths, ready.get("files"))
-    risk.append(f"{len(importers)} project file(s) import a named or changed module")
+    risk.append(f"{len(importers)} source file(s) found importing a named or changed module "
+                "in the Python and JavaScript/TypeScript scan; excludes test directories, "
+                "test_* files, exit files, and .git, .venv, venv, node_modules, dist, build, .loop")
     large = []
     for path in paths:
         candidate = folder / path
@@ -66,7 +68,8 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
     revert = f"Revert {len(paths)} changed file(s)" + (
         f" and account for {migration_count} migration file(s)" if migration_count else "") + "."
     risk_text = "\n".join(f"- {line}" for line in risk) if risk else "- No flagged paths."
-    risk_text += "\n- Importers: " + (", ".join(f"`{p}`" for p in importers) if importers else "none found")
+    risk_text += "\n- Importers in this scan: " + (
+        ", ".join(f"`{p}`" for p in importers) if importers else "none found in this scan")
     why_path = folder / ".loop" / "why.md"
     why = why_path.read_text(errors="replace").strip() if why_path.is_file() else "Why: not supplied.\n\nWhat could go wrong: not supplied."
     evidence = (f"- Judge, Keep and Quality output:\n\n```text\n{output.strip()[-5000:]}\n```\n"
@@ -102,19 +105,20 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
         body += ("\n**Check settings changed** (the spec allows it). Read these first:\n"
                  + "".join(f"- `{c}`\n" for c in changed))
     existing = gh.pr_for_branch(branch_name(n))
-    if existing and existing["state"] == "OPEN":
-        url = existing["url"]
-        gate.move(gh, root, n, "approval", folder=folder, pr=url,
-                  attempts=k, seconds=seconds)
-    else:
-        # The submit move must pass before a new pull request can be created.
-        gate.move(gh, root, n, "approval", folder=folder, attempts=k, seconds=seconds)
-        try:
+    url = existing["url"] if existing and existing["state"] == "OPEN" else ""
+    # Submit must pass before creating or refreshing the pull request evidence.
+    gate.move(gh, root, n, "approval", folder=folder, pr=url, attempts=k, seconds=seconds)
+    action = "update" if url else "creation"
+    try:
+        if url:
+            gh.edit_pr(url, issue["title"], body)
+        else:
             url = gh.create_pr(branch_name(n), issue["title"], body)
-        except Exception:
-            gate.move(gh, root, n, "shaping", reason="pull request creation failed after submit",
-                      reason_type="environment")
-            raise
+    except Exception:
+        gate.move(gh, root, n, "shaping", reason=f"pull request {action} failed after submit",
+                  reason_type="environment", cause="pull-request-failed")
+        raise
+    if action == "creation":
         gh.comment(n, f"**Gate:** pull request created after submit passed: {url}")
     return f"piece {n}: pull request ready for you: {url}"
 

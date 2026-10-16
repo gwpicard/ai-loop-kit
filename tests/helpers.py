@@ -168,8 +168,15 @@ class FakeGitHub:
 
     def create_pr(self, head: str, title: str, body: str) -> str:
         url = f"https://example.invalid/pull/{len(self.prs) + 1}"
-        self.prs[head] = {"url": url, "state": "OPEN", "body": body}
+        self.prs[head] = {"url": url, "state": "OPEN", "title": title, "body": body}
         return url
+
+    def edit_pr(self, url: str, title: str, body: str) -> None:
+        for pull_request in self.prs.values():
+            if pull_request["url"] == url:
+                pull_request.update(title=title, body=body)
+                return
+        raise RuntimeError(f"unknown pull request: {url}")
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         return self.prs.get(branch)

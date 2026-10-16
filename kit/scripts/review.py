@@ -28,6 +28,17 @@ BASELINE_SMELLS = (
     "Primitive Obsession", "Repeated Switches", "Shotgun Surgery", "Divergent Change",
     "Speculative Generality", "Message Chains", "Middle Man", "Refused Bequest",
 )
+BUILTIN_RULES = (
+    "Unrelated special-case branches", "Pass-through wrappers",
+    "Logic in the owning layer", "Reuse existing helpers",
+    "Test review: production change makes the test fail",
+    "Test review: expected values are literals",
+    "Test review: separate doubles for success and error paths",
+    "Test review: never mock the subject under test",
+    "Test review: source checks need a Contract citation",
+    "Abstraction review: deletion test", "Abstraction review: two real adapters",
+    "Abstraction review: replace, do not layer", "Judge review: module interface only",
+)
 
 
 def _diff_hunks(diff: str) -> dict[str, list[tuple[int, int]]]:
@@ -108,9 +119,7 @@ def _logged_verdict(logfile: Path, reviewer: str) -> dict:
 def parse_standards_findings(output: str, standards: str, diff: str) -> list[str]:
     """Keep only findings that cite a rule or smell and a changed hunk."""
     hunks = _diff_hunks(diff)
-    allowed = {name.strip().casefold() for name in BASELINE_SMELLS}
-    allowed.update(("unrelated special-case branches", "pass-through wrappers",
-                    "logic in the owning layer", "reuse existing helpers"))
+    allowed = {name.casefold() for name in (*BASELINE_SMELLS, *BUILTIN_RULES)}
     standard_rules = {line.strip().casefold() for line in standards.splitlines()
                       if line.strip()}
     verdict = _last_verdict(output, "standards")
@@ -156,6 +165,7 @@ def parse_contract_findings(output: str, body: str, diff: str) -> list[str]:
 
 def _review_prompt(name: str, values: dict[str, str]) -> str:
     prompt = (KIT / "briefs" / name).read_text()
+    prompt = prompt.replace("{{BUILTIN_RULES}}", "\n".join(f"- {rule}" for rule in BUILTIN_RULES))
     for key, value in values.items():
         prompt = prompt.replace("{{" + key + "}}", value)
     return prompt

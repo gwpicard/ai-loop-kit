@@ -941,6 +941,9 @@ class GitHub:
         return self._gh("pr", "create", "--base", "main", "--head", head,
                         "--title", title, "--body-file", "-", stdin=body).strip()
 
+    def edit_pr(self, url: str, title: str, body: str) -> None:
+        self._gh("pr", "edit", url, "--title", title, "--body-file", "-", stdin=body)
+
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         data = json.loads(self._gh("pr", "list", "--head", branch, "--state", "all",
                                    "--json", "url,state", "--limit", "1"))
