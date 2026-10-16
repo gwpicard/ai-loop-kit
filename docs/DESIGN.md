@@ -453,6 +453,13 @@ source paths and in-process tests, because subprocess tests give no mutation
 or coverage evidence [mutmut]. Doctor runs Test, then each Quality command, on
 a fresh copy of `main` before setup accepts it.
 
+If a builder must strengthen an existing mutation adapter, Contract names
+its path. Keep it out of Exit `Files:` and the judge's dependencies, because
+the bar is frozen even when Contract names a file. `mutmut-changed.py`
+selects functions from committed `base...HEAD` changes. A builder's check
+before committing may find no changed functions. Final gate evidence comes
+after the runner commits the attempt and runs the checks again.
+
 ### Built well: the quality floor
 
 The contract axis asks "did it build what was promised?". The craft axis

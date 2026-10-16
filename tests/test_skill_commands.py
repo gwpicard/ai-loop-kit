@@ -10,6 +10,20 @@ from helpers import KIT
 
 
 class SkillCommandTest(unittest.TestCase):
+    def test_mutation_guidance_explains_adapter_permission_and_commit_rule(self):
+        for path in (KIT / "spec-format.md", KIT / "skills" / "shape" / "SKILL.md"):
+            text = " ".join(path.read_text().split())
+            for wording in (
+                "name its path in Contract so the builder may strengthen it",
+                "Keep the adapter out of Exit `Files:`",
+                "those files are frozen at ready",
+                "selects functions from committed `base...HEAD` changes",
+                "before committing may find no changed functions",
+                "final gate evidence comes after the runner commits the attempt",
+            ):
+                with self.subTest(path=path.relative_to(KIT), wording=wording):
+                    self.assertIn(wording, text)
+
     def test_skill_and_brief_guidance_matches_the_spec_and_project(self):
         shape = (KIT / "skills" / "shape" / "SKILL.md").read_text()
         setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()

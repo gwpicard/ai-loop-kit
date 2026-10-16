@@ -42,6 +42,15 @@ Use the KIT path above in every command. Write it out in full. Read
    Exit. Use `Playbook: fix` for fix guidance. Add
    `Settings: may change` only when the piece is about the project's lint,
    test or CI settings.
+   When a piece needs stronger tests in an existing mutation adapter, name
+   its path in Contract so the builder may strengthen it. Keep the adapter
+   out of Exit `Files:`: those files are frozen at ready, even when Contract
+   names them. Use a separate judge that does not depend on the editable
+   adapter.
+   `mutmut-changed.py` selects functions from committed `base...HEAD`
+   changes. A builder's check before committing may find no changed
+   functions. The final gate evidence comes after the runner commits the
+   attempt and runs the checks again.
    Done when: the person says yes to the spec.
    Once the person approves the Intent, Out of scope, Approach and Contract, do not change those words without asking for approval again. For a `fix`, first reproduce the bug and make the first Contract item say what fails now and what should happen.
 5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
