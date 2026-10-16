@@ -103,11 +103,23 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
 
 
 def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
-               metrics: dict) -> str:
+               metrics: dict, cause: str = "") -> str:
     """Return a claimed piece with the run's actual attempt count and duration."""
     return gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type,
+                     cause=cause,
                      attempts=metrics["attempts"],
                      seconds=time.monotonic() - metrics["started"])
+
+
+def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
+    """Refresh remote main before deciding whether a failed check is stale."""
+    main = main_ref(folder)
+    if "origin" in sh(["git", "remote"], folder).stdout.split():
+        sh(["git", "fetch", "--quiet", "origin", "main"], folder, check=False)
+        remote_main = rev(folder, "origin/main")
+        if remote_main:
+            return remote_main
+    return rev(folder, main)
 
 
 def waiting_limit_note(gh: GitHub, root: Path, ready: Optional[dict] = None) -> str:
@@ -548,6 +560,19 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                         f"{ready['main_median']}\n" if ready.get("kind") == "goal" else
                         f"Main gauntlet: {ready['main_verdicts']}\n")
             output += "\n\n" + baseline + "Attempt history:\n" + "\n".join(kind_history)
+        wrong_reason = re.search(
+            r"\b(?:SyntaxError|IndentationError|ModuleNotFoundError|ImportError|"
+            r"FileNotFoundError)\b|ERROR collecting|\bcommand not found\b",
+            output, re.IGNORECASE)
+        if not passed and wrong_reason:
+            main_moved = latest_main_commit(folder) != ready.get("main")
+            cause = "stale-after-main" if main_moved else "import-error"
+            reason = "the judge or Keep check failed for the wrong reason"
+            gh.comment(n, f"**Run:** attempt {k} of {attempts} failed for the wrong reason; "
+                          "the run stops here.\n\n"
+                          f"```\n{output.strip()[-1500:]}\n```")
+            _hand_back(gh, root, n, reason, "environment", metrics, cause=cause)
+            return f"piece {n}: back to shaping, {reason}"
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)

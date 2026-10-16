@@ -67,6 +67,9 @@ FAKE_CLAUDE = textwrap.dedent('''\
                    '    return items if name in items else items + [name]' > habits.py
                  git add src/auth.py habits.py && git commit --quiet -m "Build protected path" ;;
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      wrong-import) printf 'import missing_runtime\\n' > habits.py ;;
+      wrong-keep-import) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+                         touch broken_keep ;;
       stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
                     printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
                   done
@@ -111,9 +114,9 @@ class RunTest(unittest.TestCase):
         self.addCleanup(os.environ.pop, "FAKE_MODE", None)
         self.addCleanup(os.environ.pop, "FAKE_REVIEW_MODE", None)
 
-    def build(self, mode, attempts=2):
+    def build(self, mode, attempts=2, spec=SPEC):
         os.environ["FAKE_MODE"] = mode
-        n = self.p.piece()
+        n = self.p.piece(spec=spec)
         gate.move(self.p.gh, self.p.root, n, "ready")
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
