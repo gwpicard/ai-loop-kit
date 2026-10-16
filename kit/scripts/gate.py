@@ -47,6 +47,7 @@ import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
+from frozen import frozen_file_reason
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -241,11 +242,7 @@ def claim_stale_research(ready: dict) -> list[str]:
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
-        settings_changed = sh(["git", "diff", "--no-renames", "--name-only",
-                               f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
-        if "AGENTS.md" in settings_changed:
-            return False, "the loop settings changed in AGENTS.md"
-        return False, "the judge files differ from the ones fixed at ready"
+        return False, frozen_file_reason(folder, ready)
     changed_tests = changed_existing_tests(folder, ready)
     if changed_tests:
         return False, ("the build changes existing test files not named in the Contract or Files: "

@@ -127,7 +127,7 @@ class LoopKindSpecTest(unittest.TestCase):
         (project.root / "bench.py").write_text("print(1)\n")
         passed, reason = gate.judge(project.root, ready)
         self.assertFalse(passed)
-        self.assertIn("judge files differ from the ones fixed at ready", reason)
+        self.assertIn("the build changed frozen files: bench.py", reason)
 
 
 class MeasureTest(unittest.TestCase):

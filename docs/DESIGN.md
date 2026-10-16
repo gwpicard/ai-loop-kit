@@ -399,6 +399,11 @@ config file and disables plugins and apps so their MCP servers do not start.
 Codex has no guard hook and no Edit denies, so only the gate holds the rules
 after the session.
 
+Each Codex attempt keeps the raw event stream, including tool calls and their
+results, in a `.jsonl` file beside its readable `.log` file under `.loop/logs/`.
+The event file is flushed as output arrives and kept when the build folder is
+removed. A retry within the same attempt appends to both files.
+
 ## 8. The checks
 
 ### At ready (code, in a fresh copy of `main`)
@@ -418,6 +423,15 @@ During an attempt, a syntax, import, missing-file or missing-command error in
 the judge or Keep output returns the piece at once as `environment`. The cause
 is `stale-after-main` when `main` moved since ready, and `import-error`
 otherwise. The failure does not use another builder attempt.
+
+A frozen-file refusal names every mismatched file. It distinguishes changes
+inherited from a merged `main` from edits made by the build, including edits
+not yet committed. The gate keeps the original bar frozen; inherited changes
+need a new shaping review.
+The gate attributes a mismatch to `main` only when `main` changed that file
+and the build copy matches the merged version. Deleting a judge created during
+shaping counts as a build edit. The run checks the bar hash to restore changed
+judge files between attempts, independently of the refusal text.
 
 The ready message reports each Exit check. Tests name the contract IDs that
 fail on main. Measure reports the median and missed target. Critics reports
@@ -533,6 +547,8 @@ run.py
 - **Idle limit.** An attempt stops after ten minutes with no output and no
   file change in the build folder (`Idle limit:` changes it). The hard limit
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
+- **Build location.** The run prints the full worktree path before it starts
+  a builder.
 - **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
   attempts.
 - **How the builder stops.** `.loop/outcome` accepts `bar-wrong`,
