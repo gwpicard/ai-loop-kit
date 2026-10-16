@@ -74,6 +74,29 @@ class GeneratedTest(unittest.TestCase):
         self.assertIn(".loop/why.md", refused.exception.reason)
         self.assertIn("state:building", self.p.gh.issue(n)["labels"])
 
+    def assert_quoted_generated_files_refused(self, committed):
+        paths = (".loop/café.md", ".loop/tab\tname.md", ".loop/line\nname.md",
+                 '.loop/"quoted".md')
+        for name in paths:
+            with self.subTest(path=name):
+                n, folder = self.claimed()
+                (folder / ".loop").mkdir(exist_ok=True)
+                (folder / name).write_text("runtime output\n")
+                git(folder, "add", "--force", name)
+                if committed:
+                    git(folder, "commit", "--quiet", "-m", "Add runtime output")
+                self.assertTrue(audit.generated(name))
+                with self.assertRaises(Refused) as refused:
+                    gate.move(self.p.gh, self.p.root, n, "approval", folder=folder, pr="u")
+                self.assertIn(name, refused.exception.reason)
+                self.assertIn("state:building", self.p.gh.issue(n)["labels"])
+
+    def test_submit_refuses_committed_quoted_generated_files(self):
+        self.assert_quoted_generated_files_refused(committed=True)
+
+    def test_submit_refuses_staged_quoted_generated_files(self):
+        self.assert_quoted_generated_files_refused(committed=False)
+
     def test_untracked_generated_files_do_not_block_submit(self):
         n, folder = self.claimed()
         (folder / ".loop").mkdir(exist_ok=True)

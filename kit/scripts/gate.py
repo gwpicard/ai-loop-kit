@@ -251,10 +251,10 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         return False, ("the build changes existing test files not named in the Contract or Files: "
                        + ", ".join(changed_tests))
     main = main_ref(folder)
-    changed_paths = sh(["git", "diff", "--no-renames", "--name-only",
-                        f"{main}...HEAD"], folder).stdout.splitlines()
-    staged_paths = sh(["git", "diff", "--cached", "--no-renames", "--name-only"],
-                      folder).stdout.splitlines()
+    changed_paths = sh(["git", "diff", "--no-renames", "--name-only", "-z",
+                        f"{main}...HEAD"], folder).stdout.split("\0")[:-1]
+    staged_paths = sh(["git", "diff", "--cached", "--no-renames", "--name-only", "-z"],
+                      folder).stdout.split("\0")[:-1]
     leaked = sorted(path for path in set(changed_paths + staged_paths) if generated(path))
     if leaked:
         return False, "the build includes generated files: " + ", ".join(leaked)
