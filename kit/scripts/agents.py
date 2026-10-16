@@ -87,7 +87,8 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
             env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     else:
         cli = os.environ.get("LOOP_CODEX", "codex")
-        args = [cli, "exec", "--json"]
+        # Ignoring config.toml alone still loads installed plugins and app MCP servers.
+        args = [cli, "exec", "--json", "--disable", "plugins", "--disable", "apps"]
         if walk_away:
             import sandbox
             args += sandbox.codex_permission_args(work)

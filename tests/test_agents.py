@@ -14,6 +14,29 @@ import agents
 
 
 class AgentSessionTest(unittest.TestCase):
+    def test_codex_disables_user_mcp_sources_in_every_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git(root, "init", "--quiet")
+            fake = root / "fake-codex"
+            fake.write_text("#!/usr/bin/env python3\n"
+                            "import json, sys\nprint(json.dumps(sys.argv[1:]))\n")
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            for role in ("builder", "reviewer", "critic", "probe"):
+                for walk_away in (False, True):
+                    with self.subTest(role=role, walk_away=walk_away), \
+                            mock.patch.dict(os.environ, {"LOOP_CODEX": str(fake)}):
+                        proc = agents.start_session("codex", "brief", root, role=role,
+                                                    walk_away=walk_away)
+                        output, _ = proc.communicate(timeout=5)
+                        self.assertEqual(proc.returncode, 0)
+                        args = json.loads(output)
+                        disabled = {args[index + 1] for index, arg in enumerate(args[:-1])
+                                    if arg == "--disable"}
+                        self.assertIn("--ignore-user-config", args)
+                        self.assertTrue({"plugins", "apps"} <= disabled,
+                                        "Codex can still start user plugin or app MCP servers")
+
     def fake_codex(self, root: Path) -> Path:
         fake = root / "fake-codex-session"
         fake.write_text(
@@ -51,7 +74,8 @@ class AgentSessionTest(unittest.TestCase):
             self.assertEqual(called["gh"], None)
             self.assertEqual(called["github"], None)
             self.assertEqual(called["argv"], [
-                "exec", "--json", "--sandbox", "workspace-write",
+                "exec", "--json", "--disable", "plugins", "--disable", "apps",
+                "--sandbox", "workspace-write",
                 "--config", 'approval_policy="never"', "--cd", str(root.resolve()),
                 "--ignore-user-config", "--ephemeral", "--config",
                 "sandbox_workspace_write.network_access=false", "--config",
