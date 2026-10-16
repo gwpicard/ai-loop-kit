@@ -118,6 +118,18 @@ class RunTest(unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
 
+    def assert_handback_record(self, handback, *, reason_type, cause, attempts):
+        self.assertEqual(handback["move"], "give-back")
+        self.assertEqual(handback["from"], "building")
+        self.assertEqual(handback["to"], "shaping")
+        self.assertEqual(handback["type"], reason_type)
+        self.assertTrue(handback["reason"])
+        self.assertEqual(handback["cause"], cause)
+        self.assertEqual(handback["attempts"], attempts)
+        self.assertGreater(handback["seconds"], 0)
+        self.assertEqual(handback["kit"], "1.1.0")
+        self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
+
     def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
         setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
         builder = (KIT / "briefs" / "builder.md").read_text()
@@ -405,11 +417,8 @@ class RunTest(unittest.TestCase):
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
         self.assertIn("builder-failed: 1", gate.report(self.p.gh))
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["cause"], "idle")
-        self.assertEqual(handback["attempts"], 1)
-        self.assertGreater(handback["seconds"], 0)
-        self.assertEqual(handback["kit"], "1.1.0")
-        self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
+        self.assert_handback_record(handback, reason_type="builder-failed",
+                                    cause="idle", attempts=1)
 
     def test_prepare_failure_records_zero_attempts_and_elapsed_time(self):
         n = self.p.piece()
@@ -418,8 +427,8 @@ class RunTest(unittest.TestCase):
             result = run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertIn("Prepare command failed", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="prepare-failed", attempts=0)
 
     def test_outer_run_error_records_the_attempt_count_and_elapsed_time(self):
         n = self.p.piece()
@@ -428,8 +437,8 @@ class RunTest(unittest.TestCase):
             result = run.build_piece(self.p.gh, self.p.root, n, 2)
         self.assertIn("unexpected failure", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="other", attempts=0)
 
     def test_outer_idle_recovery_records_the_attempt_count_and_elapsed_time(self):
         n = self.p.piece()
@@ -438,18 +447,19 @@ class RunTest(unittest.TestCase):
             result = run.build_piece(self.p.gh, self.p.root, n, 2)
         self.assertIn("builder idle", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="builder-failed",
+                                    cause="idle", attempts=0)
 
     def test_dirty_folder_before_attempt_records_zero_and_elapsed(self):
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
-        with patch("run.dirty_folder_reason", side_effect=["", "new dirt"]):
+        dirty_reason = "build folder has uncommitted changes the run did not make"
+        with patch("run.dirty_folder_reason", side_effect=["", dirty_reason]):
             result = run.build_piece(self.p.gh, self.p.root, n, 1)
-        self.assertIn("new dirt", result)
+        self.assertIn(dirty_reason, result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="dirty-worktree", attempts=0)
 
     def test_non_conflict_merge_error_records_zero_and_elapsed(self):
         n = self.p.piece()
@@ -465,8 +475,8 @@ class RunTest(unittest.TestCase):
             result = run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertIn("does not merge", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="conflict",
+                                    cause="conflict", attempts=0)
 
     def test_changed_build_bar_records_zero_and_elapsed(self):
         n = self.p.piece()
@@ -483,8 +493,8 @@ class RunTest(unittest.TestCase):
             result = run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertIn("frozen judge bar", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="bar-wrong",
+                                    cause="stale-after-main", attempts=0)
 
     def test_idle_reviewer_is_recorded_as_builder_failed(self):
         os.environ["FAKE_REVIEW_MODE"] = "review-idle"
