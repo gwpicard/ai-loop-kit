@@ -433,6 +433,10 @@ and the build copy matches the merged version. Deleting a judge created during
 shaping counts as a build edit. The run checks the bar hash to restore changed
 judge files between attempts, independently of the refusal text.
 
+The ready message reports each Exit check. Tests name the contract IDs that
+fail on main. Measure reports the median and missed target. Critics reports
+main's wins out of three against the required two.
+
 Keep uses `Keep limit:` in the project's loop settings, in minutes. The
 default is 15. Doctor runs Keep on a fresh copy of `main` with this limit and
 prints a `next:` step if it times out. Each Keep check records how many
@@ -459,8 +463,14 @@ pushed branch.
 | No file added under paths that Prepare created | `.venv` once leaked into a branch |
 | No check-setting change unless `Settings: may change`. Check settings include lint, test and CI config, `.gitignore`, `AGENTS.md`, the standards file, and the check keys of `package.json` and `pyproject.toml` | A builder turned off a lint rule to pass |
 | The judge passes, with nothing skipped | A skipped test passes silently |
-| `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names. If it fails again only with the judge files present, the bar is wrong and the piece goes back at once | A judge that breaks the project's lint can never pass |
+| `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names, including unittest `FAIL:` and `ERROR:` headers. The gate blames the bar only when both failures locate a diagnostic in the same judge file and Keep passes without judge files, with nothing skipped | A judge that breaks the project's lint can never pass |
 | Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
+
+The diagnostic must name a judge file in an explicit lint error (`error`,
+`fatal` or an `E`/`F` code followed by three or four digits) or an exception
+traceback. A warning, informational location or passing test's name is not
+evidence. The no-judge result includes that run's own output. Without this
+evidence, Keep fails the attempt without a `bar-wrong` diagnosis.
 
 **Quality commands** belong to the project, not the kit, so the kit works for
 any stack. Setup offers CRAP for Python (a limit of 30 on changed functions,
@@ -558,6 +568,16 @@ run.py
   delete and an add. The builder writes only why, and what could go wrong. A
   person should understand the change and its danger in two minutes
   [HumanLayer], [Port]. The run never merges.
+
+The importer count covers a Python and JavaScript/TypeScript source scan.
+Its message names the exclusions: test directories, `test_*` files, exit
+files and the scanner's ignored directories. An empty result means that
+this scan found no importers. Built-in review rules have explicit names in
+the reviewer brief; findings under these names still need a changed hunk.
+When a rejected piece reuses an open pull request, submit must pass before
+the run refreshes its title, body and judged-commit evidence. An update
+failure returns the piece to shaping as `environment`, with cause
+`pull-request-failed`.
 
 ### Walk-away runs (preview)
 

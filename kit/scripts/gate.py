@@ -47,6 +47,7 @@ import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
+from frozen import frozen_file_reason
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -238,28 +239,6 @@ def claim_stale_research(ready: dict) -> list[str]:
     return stale_findings(ready.get("research", []))
 
 
-def frozen_file_reason(folder: Path, ready: dict) -> str:
-    """Name each mismatch and distinguish inherited files from build edits."""
-    paths = ready.get("bar_files", ready["files"])
-    changed = [path for path in paths
-               if bar_hash_at(folder, ready["commit"], [path], [path])
-               != bar_hash_in(folder, [path])]
-    base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
-    build_paths = set(sh(["git", "diff", "--no-renames", "--name-only", "-z", base],
-                         folder).stdout.split("\0"))
-    old_base = sh(["git", "merge-base", ready["commit"], base], folder).stdout.strip()
-    main_paths = set(sh(["git", "diff", "--no-renames", "--name-only", "-z",
-                         old_base, base], folder).stdout.split("\0"))
-    inherited = sorted((set(changed) & main_paths) - build_paths)
-    edited = sorted(set(changed) - set(inherited))
-    reasons = []
-    if inherited:
-        reasons.append("main changed the frozen judge bar: " + ", ".join(inherited))
-    if edited:
-        reasons.append("the build changed frozen files: " + ", ".join(edited))
-    return "; ".join(reasons)
-
-
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
@@ -367,10 +346,13 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"\n\nKeep retry: {ready['keep']}\nExit: {retry_code}\n"
                            f"{retry_output.strip()}\nCause: keep-flaky\n"
                            f"Failing Keep tests: {names}")
-            elif ready["files"] and keep_passes_without_judge(folder, ready):
-                return False, (f"{BAR_WRONG}. Keep retry also failed:\n"
-                               f"{retry_output}\nWithout judge files it passes:\n{koutput}")
             else:
+                bar_wrong, probe_output = keep_passes_without_judge(
+                    folder, ready, (koutput, retry_output))
+                if bar_wrong:
+                    return False, (f"{BAR_WRONG}. Keep retry also failed:\n"
+                                   f"{retry_output}\nWithout judge files it passes:\n"
+                                   f"{probe_output}")
                 failure = f"the judge passes, but the keep check now fails:\n{koutput}"
                 if kind_code >= 0:
                     failure += f"\n\n{output}"
@@ -395,7 +377,9 @@ def failing_test_names(output: str) -> list[str]:
     """Extract reported failing test names from common test runner output."""
     names = []
     for line in output.splitlines():
-        match = re.search(r"\b(?:FAILED?|ERROR)\s*:?\s*(.+)$|\bnot ok\s+\d+\s+-\s*(.+)$",
+        if re.match(r"\s*FAILED\s*\(", line):
+            continue  # unittest's summary is not a test name.
+        match = re.search(r"^\s*(?:FAIL(?:ED)?|ERROR)\b\s*:?\s*(.+)$|\bnot ok\s+\d+\s+-\s*(.+)$",
                           line, re.IGNORECASE)
         if match:
             name = (match.group(1) or match.group(2)).strip()
@@ -430,9 +414,23 @@ def _is_test_support(name: str) -> bool:
             ".test." in base or ".spec." in base)
 
 
-def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
-    """Run the keep check once with the judge files set aside. If it passes,
-    the judge files break it, and no build can fix that."""
+def keep_passes_without_judge(folder: Path, ready: dict,
+                              failures: tuple[str, str]) -> tuple[bool, str]:
+    """Probe only when both failures locate an error in the same judge file."""
+    traceback = (r"^Traceback \(most recent call last\):\n"
+                 r"(?:[ \t]+[^\n]*\n|\n)+\w+(?:\.\w+)*(?::[^\n]*)?$")
+    for name in ready["files"]:
+        path = rf"(?:{re.escape(str(folder))}/)?{re.escape(name)}"
+        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*'
+                      rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
+        frame = rf'^[ \t]+File "{path}", line \d+'
+        if all(re.search(diagnostic, output, re.MULTILINE) or
+               any(re.search(frame, block, re.MULTILINE)
+                   for block in re.findall(traceback, output, re.MULTILINE))
+               for output in failures):
+            break
+    else:
+        return False, ""
     aside = Path(tempfile.mkdtemp(prefix="loop-aside-"))
     moved = []
     try:
@@ -440,11 +438,11 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
             if (folder / f).is_file():
                 shutil.move(str(folder / f), str(aside / str(i)))
                 moved.append((aside / str(i), folder / f))
-        code, _ = run_keep(folder, ready["keep"],
+        code, output = run_keep(folder, ready["keep"],
                            timeout=keep_limit_seconds(
                                {"keep limit": ready.get("keep_limit", "15")}),
                            protected_paths=ready.get("protected_paths", []))
-        return code == 0
+        return code == 0 and not skipped_tests(output), output
     finally:
         for held, home in moved:
             shutil.move(str(held), str(home))
@@ -539,12 +537,19 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     comments = gh.comments(n)
     if name == "ready":
         record = {**check_ready(gh, root, issue), "from": frm, "to": to}
-        if record["kind"] == "scaffold":
-            note += " Scaffold piece: the fails-on-main check does not apply."
-        else:
-            note += " The judge fails on main as it should, naming every spec ID to build."
-            if record["stays"]:
-                note += f" {', '.join(record['stays'])} already hold on main, as marked."
+        for check in record["checks"]:
+            if check.get("legacy_kind") == "scaffold":
+                note += " Scaffold piece: the fails-on-main check does not apply."
+            elif check["type"] == "tests":
+                note += " The judge fails on main as it should, naming every spec ID to build."
+                if record["stays"]:
+                    note += f" {', '.join(record['stays'])} already hold on main, as marked."
+            elif check["type"] == "measure":
+                note += (f" Measure on main: median {check['main_median']} "
+                         f"misses target {check['target']}.")
+            elif check["type"] == "critics":
+                wins = sum(v["winner"] == "ours" for v in check["main_verdicts"])
+                note += f" Critics on main: {wins}/3 wins; fewer than the required 2."
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."

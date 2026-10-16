@@ -736,7 +736,7 @@ class RunTest(unittest.TestCase):
         (self.p.root / "lint.py").write_text(
             "import os, sys\n"
             "if os.path.exists('judge_add.py'):\n"
-            "    print('judge_add.py: assertion inside a loop')\n"
+            "    print('judge_add.py: error: assertion inside a loop')\n"
             "    sys.exit(1)\n")
         git(self.p.root, "add", "lint.py")
         git(self.p.root, "commit", "--quiet", "-m", "Lint")

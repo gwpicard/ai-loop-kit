@@ -42,6 +42,12 @@ Mysterious Name; Duplicated Code; Feature Envy; Data Clumps; Primitive
 Obsession; Repeated Switches; Shotgun Surgery; Divergent Change; Speculative
 Generality; Message Chains; Middle Man; Refused Bequest.
 
+## Built-in rule names
+
+Use these exact names when citing the built-in rules above:
+
+{{BUILTIN_RULES}}
+
 ## Project standards
 
 <<<DATA
