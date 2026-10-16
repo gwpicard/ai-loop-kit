@@ -791,9 +791,11 @@ def exit_attempt(folder: Path, checks: list[dict],
                 code = 1
                 output = "the judge reported skipped tests:\n" + output.strip()[-1500:]
         elif check["type"] == "measure":
-            code, output = measure.judge_attempt(folder, check)
+            code, output = measure.judge_attempt(folder, check,
+                                                  protected_paths=protected_paths)
         else:
-            code, output = critic.judge_attempt(folder, check)
+            code, output = critic.judge_attempt(folder, check,
+                                                 protected_paths=protected_paths)
         results.append(f"{check['type'].title()} exit check (exit {code}):\n{output.strip()}")
         if code:
             failed = True

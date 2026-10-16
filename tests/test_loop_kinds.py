@@ -142,6 +142,22 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual(result, [10.0, 30.0, 20.0])
         self.assertEqual(measure.median(result), 20.0)
 
+    def test_measure_attempt_runs_with_frozen_protected_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            loop_dir = folder / ".loop"
+            loop_dir.mkdir()
+            (loop_dir / "hypothesis").write_text("cache repeated work")
+            protected_paths = ["src/private"]
+            ready = {"measure": "bench", "target": "< 10"}
+            with patch.object(measure, "run_judge", return_value=(0, "9")) as run:
+                code, _ = measure.judge_attempt(
+                    folder, ready, protected_paths=protected_paths)
+        self.assertEqual(code, 0)
+        self.assertEqual(run.call_count, 3)
+        self.assertTrue(all(call.kwargs["protected_paths"] == protected_paths
+                            for call in run.call_args_list))
+
     def test_measure_refuses_a_non_numeric_last_line(self):
         with self.assertRaises(Refused):
             measure.parse_value("elapsed: unknown\n")
@@ -154,6 +170,38 @@ class CriticTest(unittest.TestCase):
             with patch.object(critic, "run_judge", return_value=(0, "")):
                 with self.assertRaisesRegex(Refused, "empty sample"):
                     critic.capture(folder, "true", "main")
+
+    def test_capture_runs_with_frozen_protected_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            protected_paths = ["src/private"]
+
+            def run(folder, command, protected_paths=None):
+                target = Path(critic.shlex.split(command)[0].split("=", 1)[1])
+                (target / "sample.png").write_bytes(b"sample")
+                return 0, "captured"
+
+            with patch.object(critic, "run_judge", side_effect=run) as runner:
+                files = critic.capture(folder, "render", "attempt", protected_paths)
+
+        self.assertEqual(len(files), 1)
+        self.assertEqual(runner.call_args.kwargs["protected_paths"], protected_paths)
+
+    def test_critic_attempt_passes_frozen_paths_to_capture_and_judge(self):
+        ready = {"capture": "render", "reference": "reference.png",
+                 "criteria": ["Readable labels"], "attempt": 2}
+        protected_paths = ["src/private"]
+        wins = [{"winner": "ours"}, {"winner": "ours"}, {"winner": "reference"}]
+        with patch.object(critic, "capture", return_value=["ours.png"]) as capture, \
+                patch.object(critic, "judge", return_value=wins) as judge:
+            code, _ = critic.judge_attempt(Path.cwd(), ready,
+                                           protected_paths=protected_paths)
+        self.assertEqual(code, 0)
+        capture.assert_called_once_with(Path.cwd(), "render", "attempt-2",
+                                        protected_paths=protected_paths)
+        judge.assert_called_once_with(Path.cwd(), ["ours.png"], "reference.png",
+                                      ["Readable labels"], agent=None,
+                                      protected_paths=protected_paths)
 
     def test_verdict_requires_winner_and_a_reason_for_each_criterion(self):
         output = ('<verdict>{"winner":"A","reasons":{"Readable labels":'
@@ -244,6 +292,21 @@ class GateHooksTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Tests exit check", output)
         self.assertIn("Measure exit check", output)
+
+    def test_exit_attempt_passes_frozen_paths_to_measure_and_critic_adapters(self):
+        measure_check = {"type": "measure", "command": "bench"}
+        critic_check = {"type": "critic", "capture": "render", "reference": "reference.png",
+                        "criteria": ["Readable labels"]}
+        protected_paths = ["src/private"]
+        with patch.object(measure, "judge_attempt", return_value=(0, "met")) as measure_attempt, \
+                patch.object(critic, "judge_attempt", return_value=(0, "won")) as critic_attempt:
+            code, _ = loopkit.exit_attempt(Path.cwd(), [measure_check, critic_check],
+                                            protected_paths)
+        self.assertEqual(code, 0)
+        measure_attempt.assert_called_once_with(
+            Path.cwd(), measure_check, protected_paths=protected_paths)
+        critic_attempt.assert_called_once_with(
+            Path.cwd(), critic_check, protected_paths=protected_paths)
 
     def test_goal_ready_records_main_measurements_and_requires_a_miss(self):
         spec = parse_spec(SPEC.replace(

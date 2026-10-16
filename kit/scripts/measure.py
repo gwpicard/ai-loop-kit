@@ -45,12 +45,14 @@ def parse_value(output: str) -> float:
 
 
 def measure_values(command: str, cwd: Optional[Path] = None,
-                   runner: Optional[Callable[[str], tuple[int, str]]] = None) -> list[float]:
+                   runner: Optional[Callable[[str], tuple[int, str]]] = None,
+                   protected_paths: list[str] | None = None) -> list[float]:
     """Run a measurement three times and return each last-line value."""
     def run() -> tuple[int, str]:
         if runner:
             return runner(command)
-        code, output = run_judge(cwd or Path.cwd(), command)
+        code, output = run_judge(cwd or Path.cwd(), command,
+                                 protected_paths=protected_paths)
         return code, output
 
     values = []
@@ -81,13 +83,15 @@ def ready(folder: Path, command: str, target_text: str) -> tuple[str, dict]:
         "main_measurements": values, "main_median": result}
 
 
-def judge_attempt(folder: Path, ready_record: dict) -> tuple[int, str]:
+def judge_attempt(folder: Path, ready_record: dict,
+                  protected_paths: list[str] | None = None) -> tuple[int, str]:
     """Check one goal attempt and require its hypothesis record."""
     hypothesis = folder / ".loop" / "hypothesis"
     if not hypothesis.is_file() or not hypothesis.read_text().strip():
         return 1, "goal attempt did not record a hypothesis in .loop/hypothesis"
     try:
-        values = measure_values(ready_record["measure"], folder)
+        values = measure_values(ready_record["measure"], folder,
+                                protected_paths=protected_paths)
         result = median(values)
         target = parse_target(ready_record["target"])
     except Refused as error:
