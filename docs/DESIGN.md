@@ -116,7 +116,7 @@ Each core part exists because a real failure showed it was needed.
 | Records read only from collaborators | A stranger could post a forged ready record on a public repository |
 | The guard refuses the irreversible commands, and the person merges | A loss that no later check can repair |
 | Every file an exit check runs is named under `Files:` and frozen in the bar | A builder could edit the benchmark instead of the code |
-| A test that fails during an attempt for the wrong reason is not blamed on the builder (**planned**) | A moved `main` or a broken venv looks like three failed builds |
+| A test that fails during an attempt for the wrong reason is returned as an environment failure | A moved `main` or a broken venv looks like three failed builds |
 
 Everything else is an extra. Extras are useful, but the promise holds
 without them: the two reviewers, quality commands, walk-away runs, goal and
@@ -397,6 +397,11 @@ denies, so only the gate holds the rules after the session.
 | Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-to-literal comparison; no skip, `xfail`, `.only` or `.skip`; no private imports; no reading source as text unless the Contract names it | A test can restate the code or never be able to fail [kata] |
 | The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
 | The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, and the backend | A builder must not change the rules after they were agreed |
+
+During an attempt, a syntax, import, missing-file or missing-command error in
+the judge or Keep output returns the piece at once as `environment`. The cause
+is `stale-after-main` when `main` moved since ready, and `import-error`
+otherwise. The failure does not use another builder attempt.
 
 Keep uses `Keep limit:` in the project's loop settings, in minutes. The
 default is 15. Doctor runs Keep on a fresh copy of `main` with this limit and

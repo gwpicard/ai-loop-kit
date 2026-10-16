@@ -67,6 +67,9 @@ FAKE_CLAUDE = textwrap.dedent('''\
                    '    return items if name in items else items + [name]' > habits.py
                  git add src/auth.py habits.py && git commit --quiet -m "Build protected path" ;;
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      wrong-import) printf 'import missing_runtime\\n' > habits.py ;;
+      wrong-keep-import) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+                         touch broken_keep ;;
       stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
                     printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
                   done
@@ -111,9 +114,9 @@ class RunTest(unittest.TestCase):
         self.addCleanup(os.environ.pop, "FAKE_MODE", None)
         self.addCleanup(os.environ.pop, "FAKE_REVIEW_MODE", None)
 
-    def build(self, mode, attempts=2):
+    def build(self, mode, attempts=2, spec=SPEC):
         os.environ["FAKE_MODE"] = mode
-        n = self.p.piece()
+        n = self.p.piece(spec=spec)
         gate.move(self.p.gh, self.p.root, n, "ready")
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
@@ -679,6 +682,43 @@ class RunTest(unittest.TestCase):
         self.assertEqual(len(failed), 2)
         self.assertIn("The builder said:", failed[0])
         self.assertIn("built", failed[0])  # the stand-in's own words reach the issue
+
+    def test_wrong_reason_import_error_returns_after_one_attempt(self):
+        n, result = self.build("wrong-import", attempts=3)
+        self.assertIn("back to shaping", result)
+        handback = [r for r in records(self.p.gh.comments(n))
+                    if r.get("move") == "give-back"][-1]
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="import-error", attempts=1)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertEqual(len(failed), 1)
+
+    def test_wrong_reason_keep_import_error_returns_after_one_attempt(self):
+        keep = "python3 -c \"import pathlib; pathlib.Path('broken_keep').exists() and __import__('missing_runtime')\""
+        n, result = self.build(
+            "wrong-keep-import", attempts=3,
+            spec=SPEC.replace("Files:", f"Keep: `{keep}`\nFiles:"))
+        self.assertIn("back to shaping", result)
+        handback = [r for r in records(self.p.gh.comments(n))
+                    if r.get("move") == "give-back"][-1]
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="import-error", attempts=1)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertEqual(len(failed), 1)
+
+    def test_wrong_reason_after_main_moves_uses_stale_cause(self):
+        os.environ["FAKE_MODE"] = "wrong-import"
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        (self.p.root / "main_change.py").write_text("main_moved = True\n")
+        git(self.p.root, "add", "main_change.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Move main")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        run.build_piece(self.p.gh, self.p.root, n, 3)
+        handback = [r for r in records(self.p.gh.comments(n))
+                    if r.get("move") == "give-back"][-1]
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="stale-after-main", attempts=1)
 
     def test_a_build_never_commits_generated_files(self):
         run.gate.ignore_loop_folder(self.p.root)
