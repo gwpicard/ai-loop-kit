@@ -234,6 +234,20 @@ def piece_summary(root: Path, number: int, result: str, state: str,
             f"Result: {result}")
 
 
+def builder_outcome(path: Path) -> tuple[str, str]:
+    lines = path.read_text(errors="replace").splitlines()
+    kind = lines[0].strip() if lines else ""
+    body = [line.strip() for line in lines[1:] if line.strip()]
+    if kind == "needs-answer":
+        return kind, "\n".join(body)
+    if kind != "spec-unclear":
+        return kind, ""
+    reason = next((line[7:].strip() for line in body if line.startswith("Reason:")), "")
+    cite = next((line[9:].strip() for line in body if line.startswith("Citation:")), "")
+    valid = re.fullmatch(r"Command: .+ \(exit [1-9][0-9]*\)|`?[\w./-]+:[1-9][0-9]*`?", cite)
+    return kind, f"{reason}\nCitation: {cite}" if reason and valid else ""
+
+
 def summary_text(results: list[str], started: datetime, finished: datetime) -> str:
     lines = ["# Walk-away run summary", "", f"Started: {started.isoformat()}",
              f"Finished: {finished.isoformat()}", "", "## Pieces", ""]

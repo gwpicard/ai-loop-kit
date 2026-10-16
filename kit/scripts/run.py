@@ -541,6 +541,22 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             return f"piece {n}: back to shaping, {reason}"
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
+            outcome_kind, outcome_reason = walkaway.builder_outcome(outcome)
+            if outcome_kind in ("needs-answer", "spec-unclear"):
+                record_attempt_timing(logfile, started_at, time.monotonic() - started)
+                if outcome_reason:
+                    reason = outcome_reason[:500]
+                    _hand_back(gh, root, n, reason, "spec-unclear", metrics,
+                               cause=outcome_kind)
+                    gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {reason}")
+                    return f"piece {n}: back to shaping, {outcome_kind}: {reason}"
+                commit_leftovers(folder, n, k)
+                last_failure = (f"{outcome_kind} needs a question or a cited reason; "
+                                "this attempt failed.")
+                gh.comment(n, f"**Run:** attempt {k} reported {last_failure}")
+                if k < attempts:
+                    continue
+                break
             lines = outcome.read_text(errors="replace").splitlines()
             if lines and lines[0].strip() == "bar-wrong" and "\n".join(lines[1:]).strip():
                 reason = "\n".join(lines[1:]).strip()[:500]

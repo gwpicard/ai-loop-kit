@@ -25,9 +25,9 @@ RECORD_TAG = "loop-gate"
 REASON_TYPES = ("spec-unclear", "bar-wrong", "stopped", "environment", "builder-failed",
                 "person-rejected", "conflict", "judge-gap")
 CAUSES = ("bar-wrong", "builder-failed", "conflict", "dirty-worktree", "import-error",
-          "idle", "judge-failed", "judge-gap", "keep-flaky", "other",
+          "idle", "judge-failed", "judge-gap", "keep-flaky", "needs-answer", "other",
           "person-rejected", "person-request", "prepare-failed", "pull-request-failed",
-          "quality-failed", "stale-after-main", "stopped", "usage-limit")
+          "quality-failed", "spec-unclear", "stale-after-main", "stopped", "usage-limit")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900

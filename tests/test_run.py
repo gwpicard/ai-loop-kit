@@ -76,6 +76,12 @@ FAKE_CLAUDE = textwrap.dedent('''\
                   printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       idle) sleep 5 ;;
       bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
+      needs-answer) mkdir -p .loop
+                    printf 'needs-answer\\nShould this limiter use shared storage?\\n' > .loop/outcome ;;
+      spec-unclear) mkdir -p .loop
+                    printf 'spec-unclear\\nReason: The required interface is unspecified.\\nCitation: habits.py:1\\n' > .loop/outcome ;;
+      uncited-spec-unclear) mkdir -p .loop
+                    printf 'spec-unclear\\nReason: The required interface is unspecified.\\n' > .loop/outcome ;;
       hostile|hostile-quality-delete) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
               sed -i.bak '/Quality:/d' AGENTS.md; rm -f AGENTS.md.bak ;;
       hostile-test-rename) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
@@ -756,6 +762,40 @@ class RunTest(unittest.TestCase):
         self.assertFalse(self.p.folder(n).exists())
         git(self.p.root, "switch", "--quiet", f"piece/{n}")
         git(self.p.root, "switch", "--quiet", "main")
+
+    def test_builder_needs_answer_returns_question_as_spec_unclear(self):
+        n, result = self.build("needs-answer", attempts=3)
+        self.assertIn("Should this limiter use shared storage?", result)
+        handbacks = [r for r in records(self.p.gh.comments(n))
+                     if r.get("move") == "give-back"]
+        self.assertEqual(len(handbacks), 1)
+        self.assert_handback_record(handbacks[0], reason_type="spec-unclear",
+                                    cause="needs-answer", attempts=1)
+        self.assertEqual(handbacks[0]["reason"], "Should this limiter use shared storage?")
+        self.assertIn("needs-you", self.p.gh.issue(n)["labels"])
+
+    def test_builder_spec_unclear_with_citation_returns_immediately(self):
+        n, result = self.build("spec-unclear", attempts=3)
+        self.assertIn("The required interface is unspecified", result)
+        handbacks = [r for r in records(self.p.gh.comments(n))
+                     if r.get("move") == "give-back"]
+        self.assertEqual(len(handbacks), 1)
+        self.assert_handback_record(handbacks[0], reason_type="spec-unclear",
+                                    cause="spec-unclear", attempts=1)
+
+    def test_builder_spec_unclear_without_citation_counts_as_failed_attempt(self):
+        n, result = self.build("uncited-spec-unclear", attempts=2)
+        handbacks = [r for r in records(self.p.gh.comments(n))
+                     if r.get("move") == "give-back"]
+        self.assertEqual(len(handbacks), 1)
+        self.assertEqual(handbacks[0]["type"], "builder-failed")
+        self.assertNotEqual(handbacks[0]["cause"], "needs-answer")
+        attempts = [c for c in self.p.gh.comments(n)
+                    if c.startswith("**Run:** attempt")]
+        self.assertEqual(len(attempts), 2)
+        self.assertIn("back to shaping", result)
+        self.assertEqual(sum("spec-unclear needs a question or a cited reason" in c
+                             for c in self.p.gh.comments(n)), 2)
 
     def test_a_stale_outcome_is_cleared_before_attempt_one(self):
         os.environ["FAKE_MODE"] = "good"

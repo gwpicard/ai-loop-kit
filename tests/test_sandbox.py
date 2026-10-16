@@ -210,6 +210,13 @@ class SandboxTest(unittest.TestCase):
         self.assertIn("## Blockers", body)
         self.assertIn("piece 4", body)
 
+    def test_walkaway_summary_shows_the_builder_question(self):
+        started = datetime.now(timezone.utc)
+        question = "Should this limiter use shared storage?"
+        body = walkaway.summary_text(
+            [f"piece 4: back to shaping, needs-answer: {question}"], started, started)
+        self.assertIn(question, body)
+
     def test_piece_summary_includes_state_timing_and_pull_request(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
