@@ -419,6 +419,10 @@ the judge or Keep output returns the piece at once as `environment`. The cause
 is `stale-after-main` when `main` moved since ready, and `import-error`
 otherwise. The failure does not use another builder attempt.
 
+The ready message reports each Exit check. Tests name the contract IDs that
+fail on main. Measure reports the median and missed target. Critics reports
+main's wins out of three against the required two.
+
 Keep uses `Keep limit:` in the project's loop settings, in minutes. The
 default is 15. Doctor runs Keep on a fresh copy of `main` with this limit and
 prints a `next:` step if it times out. Each Keep check records how many
@@ -542,6 +546,16 @@ run.py
   delete and an add. The builder writes only why, and what could go wrong. A
   person should understand the change and its danger in two minutes
   [HumanLayer], [Port]. The run never merges.
+
+The importer count covers a Python and JavaScript/TypeScript source scan.
+Its message names the exclusions: test directories, `test_*` files, exit
+files and the scanner's ignored directories. An empty result means that
+this scan found no importers. Built-in review rules have explicit names in
+the reviewer brief; findings under these names still need a changed hunk.
+When a rejected piece reuses an open pull request, submit must pass before
+the run refreshes its title, body and judged-commit evidence. An update
+failure returns the piece to shaping as `environment`, with cause
+`pull-request-failed`.
 
 ### Walk-away runs (preview)
 

@@ -521,12 +521,19 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     comments = gh.comments(n)
     if name == "ready":
         record = {**check_ready(gh, root, issue), "from": frm, "to": to}
-        if record["kind"] == "scaffold":
-            note += " Scaffold piece: the fails-on-main check does not apply."
-        else:
-            note += " The judge fails on main as it should, naming every spec ID to build."
-            if record["stays"]:
-                note += f" {', '.join(record['stays'])} already hold on main, as marked."
+        for check in record["checks"]:
+            if check.get("legacy_kind") == "scaffold":
+                note += " Scaffold piece: the fails-on-main check does not apply."
+            elif check["type"] == "tests":
+                note += " The judge fails on main as it should, naming every spec ID to build."
+                if record["stays"]:
+                    note += f" {', '.join(record['stays'])} already hold on main, as marked."
+            elif check["type"] == "measure":
+                note += (f" Measure on main: median {check['main_median']} "
+                         f"misses target {check['target']}.")
+            elif check["type"] == "critics":
+                wins = sum(v["winner"] == "ours" for v in check["main_verdicts"])
+                note += f" Critics on main: {wins}/3 wins; fewer than the required 2."
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
