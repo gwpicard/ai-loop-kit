@@ -1,9 +1,12 @@
 """Tests for builder stop outcomes."""
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import test_run
+import walkaway
 from loopkit import records
 
 
@@ -28,6 +31,15 @@ class BuilderOutcomeTest(unittest.TestCase):
                         if r.get("move") == "give-back")
         test_run.RunTest.assert_handback_record(self, handback, reason_type="spec-unclear",
                                                 cause="spec-unclear", attempts=1)
+
+    def test_spec_unclear_accepts_spaces_in_file_citation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outcome = Path(directory) / "outcome"
+            outcome.write_text("spec-unclear\nReason: See the source.\n"
+                               "Citation: src/my module.py:12\n")
+            kind, reason = walkaway.builder_outcome(outcome)
+        self.assertEqual(kind, "spec-unclear")
+        self.assertIn("Citation: src/my module.py:12", reason)
 
     def test_uncited_spec_unclear_counts_as_a_failed_attempt(self):
         n, result = test_run.RunTest.build(self, "uncited-spec-unclear", attempts=2)
