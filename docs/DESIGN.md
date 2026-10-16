@@ -492,13 +492,11 @@ run.py
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
 - **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
   attempts.
-- **How the builder stops.** Today the builder's only way out is
-  `.loop/outcome` with `bar-wrong`, which ends the piece at once. **Planned
-  for 1.2:** `needs-answer` with the question (the piece goes back with
-  `needs-you` and the question appears in the run summary), and
-  `spec-unclear` with a cited reason (a failing command, or a file and line;
-  without a citation it counts as a failed attempt). The builder no longer
-  decides an open choice alone.
+- **How the builder stops.** `.loop/outcome` accepts `bar-wrong`,
+  `needs-answer` with a question, and `spec-unclear` with a cited reason. The
+  last two return the piece to shaping with `needs-you`; the question appears
+  in the run summary. A `spec-unclear` outcome without a citation counts as a
+  failed attempt. The builder no longer decides an open choice alone.
 - **Interruption.** The run tracks every child process group and kills them
   on SIGINT or SIGTERM. The next run finds and removes what a killed run left.
 - **The pull request.** The script writes the facts: files changed by area,
