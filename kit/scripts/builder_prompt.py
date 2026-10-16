@@ -66,15 +66,12 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
     kind_rules = ""
     if ready.get("checks"):
         command = "\n".join(
-            f"{check['type'].title()}: " + check.get("command", check.get("capture", ""))
+            f"{check['type'].title()}: " + check.get("command", "")
             for check in ready["checks"])
         if any(check["type"] == "measure" for check in ready["checks"]):
             kind_rules += ("Before changing code, write one testable hypothesis to "
                            "`.loop/hypothesis`. The gate measures the result three times "
                            "and uses the median. Meet every Measure target and Keep check.\n")
-        if any(check["type"] == "critics" for check in ready["checks"]):
-            kind_rules += ("The gate captures your result and runs three fresh blind critics "
-                           "against each named reference. Do not change references or criteria.\n")
     earlier = last_failure or "This is the first attempt."
     playbook = ("For a fix, reproduce the reported bug before changing code, then find and "
                 "address its cause. This is work guidance. The gate checks only the Exit "

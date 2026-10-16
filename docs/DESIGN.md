@@ -119,8 +119,13 @@ Each core part exists because a real failure showed it was needed.
 | A test that fails during an attempt for the wrong reason is returned as an environment failure | A moved `main` or a broken venv looks like three failed builds |
 
 Everything else is an extra. Extras are useful, but the promise holds
-without them: the two reviewers, quality commands, walk-away runs, goal and
-gauntlet judges, the researcher and the Codex backend.
+without them: the two reviewers, quality commands, walk-away runs, goal
+judges, the researcher and the Codex backend.
+
+`spec.py` parses the contract, `loopkit.py` holds shared project and GitHub
+helpers, and `gate_cli.py` handles the gate's command line. The gate keeps the
+state transitions and checks. [Kit size](KIT-SIZE.md) records per-file counts
+before and after the gauntlet removal and module splits.
 
 ## 4. The engine: states and moves
 
@@ -225,21 +230,23 @@ the right reason.
 | --- | --- | --- |
 | Tests | they fail on an assertion, not on an import or syntax error | they pass, with nothing skipped |
 | Measure (**preview**) | the median of three runs misses the `Target:` | the median meets it |
-| Critics (**preview**) | `main` wins fewer than two of three blind comparisons | ours wins at least two |
 
 A scaffold piece is no longer an exception: its check is that the test
 runner runs, which is unmet while no runner exists.
 
-An `## Exit` section lists one or more checks: tests, a measure or critics.
+An `## Exit` section lists one or more checks: tests or a measure.
 A piece can combine them. Each check names the files it runs, and those files
 join the frozen bar. Old `Kind:` specs still parse as one check. `Playbook:`
 guides the builder and does not affect the gate.
 
-A goal attempt writes one hypothesis to `.loop/hypothesis` first. A capture
-that succeeds but writes no files is refused with a clear message. Critics
-are blind only by neutral file names: they run in the build folder and could
-find out which side is which. Critics answer "is ours better than the
-reference?", not "does ours match it".
+A goal attempt writes one hypothesis to `.loop/hypothesis` first.
+
+The gauntlet preview and its tests live on `preview/gauntlet`. Its field run
+needed hand repairs when critic criterion keys differed only in punctuation;
+the kit lost the first invalid answer. The shipped kit refuses `Kind: gauntlet`,
+`### Critics` checks and frozen critic checks. Return these pieces to shaping
+and choose Tests or Measure checks. The archive keeps the preview available
+for further work without shipping it as a supported exit condition.
 
 ## 6. The contract
 
@@ -345,7 +352,6 @@ Nobody edits a closed issue to keep it current.
 | Builder | a fresh Claude Code (or Codex, **preview**) session per attempt | the contract, research, the judge, the last failure | code on the piece branch, `.loop/why.md`, optionally `.loop/outcome` |
 | Standards reviewer | a fresh session after the gate passes | the diff, plus the project's standards file or a baseline of Fowler's code smells | small checked fixes, follow-ups, a JSON verdict |
 | Contract reviewer | another fresh session | Intent, Out of scope, Approach, Contract, Research and the diff | missing items or scope creep, a JSON verdict |
-| Critic (**preview**) | three fresh sessions, gauntlet only | the criteria and two artefacts | a JSON verdict for each comparison |
 | Gate | `gate.py`, a script | everything | every decision and record |
 | Run | `run.py`, a script | the ready pieces | attempts, reviews, pull requests |
 | Person | you | the contract, the pull request | approval and the merge |
@@ -381,7 +387,7 @@ Why each role is separate:
   the merge. Everything in between is checked by a script.
 
 **Backend (preview).** `Agent: claude|codex` in the loop section of
-`AGENTS.md` chooses the backend for builders, reviewers and critics. Claude
+`AGENTS.md` chooses the backend for builders and reviewers. Claude
 Code is the default. The ready record freezes the choice, and
 `run.py --agent codex` overrides it for one run. Interactive skills stay in
 Claude Code. Codex runs `codex exec --json` with workspace-write rooted at the
@@ -668,11 +674,11 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The kit has about 4,900 Python lines in `kit/`. The target is about 2,500, so
+The kit has about 5,500 Python lines in `kit/`. The target is about 2,500, so
 that a person can read it in one sitting. It uses the Python standard library
-only and supports Python 3.9 or later. The core (gate, spec parser, run,
-guard, test lint, pull request) is about 3,000 lines; the previews and quality
-scripts are most of the rest.
+only and supports Python 3.9 or later. [Kit size](KIT-SIZE.md) records the
+measured reduction and the module splits. A test keeps the Python total below
+5,500 lines and every Python module in `kit/` and `tests/` below 900 lines.
 
 ## Words used in this file
 
@@ -680,7 +686,7 @@ scripts are most of the rest.
 | --- | --- |
 | piece | One GitHub issue: about one hour of work, with one state label |
 | spec, contract | The issue body the person approves. `## Contract` is its numbered list of items (D1, D2) |
-| judge, exit condition | The checks (tests, a measure, or critics) that decide whether a piece is done |
+| judge, exit condition | The checks (tests or a measure) that decide whether a piece is done |
 | playbook | How a builder works on a kind of piece, such as "reproduce the bug first" for a fix; it never decides done |
 | quality floor | The project's craft checks every piece must pass, set at setup and frozen at ready |
 | ratchet | A check that passes when the branch is not worse than `main` |

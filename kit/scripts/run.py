@@ -495,8 +495,6 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 if check["type"] == "measure":
                     baselines.append(f"Main measurement: {check['main_measurements']}; "
                                      f"median {check['main_median']}")
-                elif check["type"] == "critics":
-                    baselines.append(f"Main critics: {check['main_verdicts']}")
             output += ("\n\n" + "\n".join(baselines) + "\nAttempt history:\n"
                        + "\n".join(kind_history))
         wrong_reason = re.search(

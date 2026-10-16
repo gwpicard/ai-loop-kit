@@ -18,7 +18,6 @@ record on the issue for every move it makes.
 """
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import re
@@ -40,8 +39,8 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      exit_attempt, exit_ready, parse_spec, prepare,
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
+from gate_cli import build_parser as build_parser, main as main  # noqa: E402
 from proposed_quality import apply as apply_proposed_quality  # noqa: E402
-import critic  # noqa: E402
 import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
@@ -84,11 +83,9 @@ def state_of(issue: dict) -> str:
 
 
 def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
-    """Run the measurement or blind critic for one completed attempt."""
+    """Run the measurement for a legacy goal attempt."""
     if ready.get("kind") == "goal":
         return measure.judge_attempt(folder, ready)
-    if ready.get("kind") == "gauntlet":
-        return critic.judge_attempt(folder, ready)
     return -1, ""
 
 
@@ -165,7 +162,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
                           "fix the judge files, then run gate.py check again")
         check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
         kind_record = {"checks": check_records}
-        if spec.kind in ("goal", "gauntlet"):
+        if spec.kind == "goal":
             kind_record.update(check_records[0])
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
@@ -218,6 +215,10 @@ def check_frozen(issue: dict, comments: list[str]) -> dict:
     if ready["spec"] != spec_hash(issue["body"] or ""):
         raise Refused("the spec changed after the piece became ready",
                       "pull the piece back to shaping and take it through ready again")
+    if (ready.get("kind") == "gauntlet" or
+            any(check["type"] not in {"tests", "measure"} for check in ready.get("checks", []))):
+        raise Refused("unsupported exit check; gauntlet is archived on preview/gauntlet",
+                      "return the piece to shaping and choose Tests or Measure checks")
     return ready
 
 
@@ -239,6 +240,8 @@ def claim_stale_research(ready: dict) -> list[str]:
 
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
+    if ready.get("kind") == "gauntlet":
+        return False, "gauntlet checks are archived on preview/gauntlet; return to shaping"
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
         settings_changed = sh(["git", "diff", "--no-renames", "--name-only",
                                f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
@@ -856,86 +859,6 @@ def request_stop(root: Path) -> str:
     loop.mkdir(parents=True, exist_ok=True)
     (loop / "stop").write_text("stop after the current attempt\n")
     return "the run will stop after the current attempt"
-
-
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="gate.py", description=__doc__.split("\n\n")[0])
-    sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("init")
-    c = sub.add_parser("capture")
-    c.add_argument("--title", required=True)
-    c.add_argument("--body-file", required=True)
-    ck = sub.add_parser("check")
-    ck.add_argument("n", type=int)
-    m = sub.add_parser("move")
-    m.add_argument("n", type=int)
-    m.add_argument("to", choices=STATES)
-    m.add_argument("--reason", default="")
-    m.add_argument("--type", dest="reason_type", choices=REASON_TYPES, default="")
-    s = sub.add_parser("spec")
-    s.add_argument("n", type=int)
-    s.add_argument("--body-file", required=True)
-    sub.add_parser("sync")
-    sub.add_parser("status")
-    d = sub.add_parser("doctor")
-    d.add_argument("--quality-command", action="append", default=[],
-                   help="also dry-run this proposed Quality command on fresh main")
-    d.add_argument("--prepare-command",
-                   help="use this proposed Prepare command for doctor dry-runs")
-    d.add_argument("--test-command",
-                   help="use this proposed Test command for doctor dry-runs")
-    d.add_argument("--walk-away", action="store_true",
-                   help="also check the active sandbox and unattended-run prerequisites")
-    sub.add_parser("report")
-    sub.add_parser("stop")
-    return p
-
-
-def main(argv: Optional[list[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
-
-    root = repo_root(Path.cwd())
-    gh = GitHub(root)
-    try:
-        if args.cmd == "init":
-            init(gh, root)
-            print("ok: labels made, .loop/ ignored locally")
-        elif args.cmd == "capture":
-            n = capture(gh, args.title, Path(args.body_file).read_text())
-            print(f"ok: captured piece {n} in shaping")
-        elif args.cmd == "check":
-            issue = gh.issue(args.n)
-            rec = check_ready(gh, root, issue)
-            print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
-        elif args.cmd == "move":
-            print("ok: " + move(gh, root, args.n, args.to, args.reason,
-                                  args.reason_type))
-        elif args.cmd == "spec":
-            replace_spec(gh, args.n, Path(args.body_file).read_text())
-            print(f"ok: piece {args.n} spec replaced")
-        elif args.cmd == "sync":
-            print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
-        elif args.cmd == "status":
-            print(status(gh, root))
-        elif args.cmd == "doctor":
-            checks = doctor(gh, root, args.quality_command,
-                            args.prepare_command, args.test_command, args.walk_away)
-            for ok, what, fix in checks:
-                print(f"{'ok  ' if ok else 'FAIL'} {what}")
-                if fix:
-                    print(f"     next: {fix}")
-            if not all(ok for ok, _, _ in checks):
-                return 2
-        elif args.cmd == "report":
-            print(report(gh))
-        elif args.cmd == "stop":
-            print("ok: " + request_stop(root))
-    except Refused as r:
-        print(f"refused: {r.reason}", file=sys.stderr)
-        if r.next_step:
-            print(f"next: {r.next_step}", file=sys.stderr)
-        return 2
-    return 0
 
 
 if __name__ == "__main__":

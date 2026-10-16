@@ -51,7 +51,7 @@ Use the KIT path above in every command. Write it out in full. Read
    Done when: `git log main..piece/<n>` shows one commit holding only the judge files (for a piece that came back, the newest commit holds only the judge change), and you are back on main.
    Save the judge-writer response, including its `<verdict>` block, to a temporary file and run `python3 "<KIT>/scripts/run.py" --verdict-kind judge-writer --verdict-file <file>`. If the verdict is missing or invalid, stop shaping and report the printed `next:` line.
 7. Run the project's Test command on the piece branch. An Exit Tests check
-   fails on main; a Measure or Critics check uses its own baseline. Read the
+   fails on main; a Measure check uses its own baseline. Read the
    output and fix errors in the check files, such as lint, type or format
    errors. Then run `python3 "<KIT>/scripts/gate.py" check <n>` and fix what it
    names on the piece branch.
@@ -62,7 +62,7 @@ Use the KIT path above in every command. Write it out in full. Read
 ## Rules
 - Never change a `state:` label by hand. Only the gate moves a piece.
 - Never write the code the piece asks for. Shaping writes the spec and the judge only.
-- Use `## Exit` for the checks that decide when the piece is done. Add one or more `### Tests`, `### Measure` or `### Critics` checks. Every check must be unmet on main for the right reason, and each check names its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
+- Use `## Exit` for the checks that decide when the piece is done. Add one or more `### Tests` or `### Measure` checks. Every check must be unmet on main for the right reason, and each check names its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
 - Keep `Playbook: fix` as builder guidance. A fix reproduces the reported bug first and finds its cause. Playbook text does not affect the gate.
 - Old issues with `## Judge` and `Kind:` remain accepted as one check. Do not use the old format for new specs.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.

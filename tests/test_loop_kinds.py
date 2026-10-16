@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
-import critic
 import gate
 import loopkit
 import measure
@@ -93,18 +91,6 @@ class LoopKindSpecTest(unittest.TestCase):
         with self.assertRaisesRegex(Refused, "goal judges need.*Files"):
             gate.move(project.gh, project.root, number, "ready")
 
-    def test_gauntlet_spec_reads_capture_reference_and_criteria(self):
-        body = SPEC.replace("Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
-                            "Kind: gauntlet\n"
-                            "Capture: `python3 render.py`\nReference: `docs/example.png`\n"
-                            "Criteria:\n- Readable labels\n- Clear hierarchy\n"
-                            "Files:\n- render.py\n- docs/example.png\n")
-        spec = parse_spec(body)
-        self.assertEqual(spec.kind, "gauntlet")
-        self.assertEqual(spec.capture, "python3 render.py")
-        self.assertEqual(spec.reference, "docs/example.png")
-        self.assertEqual(spec.criteria, ("Readable labels", "Clear hierarchy"))
-        self.assertEqual(spec.files, ["render.py", "docs/example.png"])
 
     def test_editing_goal_measure_script_fails_attempt_with_bar_changed(self):
         project = Project()
@@ -163,89 +149,11 @@ class MeasureTest(unittest.TestCase):
             measure.parse_value("elapsed: unknown\n")
 
 
-class CriticTest(unittest.TestCase):
-    def test_successful_empty_capture_names_the_missing_sample(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            with patch.object(critic, "run_judge", return_value=(0, "")):
-                with self.assertRaisesRegex(Refused, "empty sample"):
-                    critic.capture(folder, "true", "main")
-
-    def test_capture_runs_with_frozen_protected_paths(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            protected_paths = ["src/private"]
-
-            def run(folder, command, protected_paths=None):
-                target = Path(critic.shlex.split(command)[0].split("=", 1)[1])
-                (target / "sample.png").write_bytes(b"sample")
-                return 0, "captured"
-
-            with patch.object(critic, "run_judge", side_effect=run) as runner:
-                files = critic.capture(folder, "render", "attempt", protected_paths)
-
-        self.assertEqual(len(files), 1)
-        self.assertEqual(runner.call_args.kwargs["protected_paths"], protected_paths)
-
-    def test_critic_attempt_passes_frozen_paths_to_capture_and_judge(self):
-        ready = {"capture": "render", "reference": "reference.png",
-                 "criteria": ["Readable labels"], "attempt": 2}
-        protected_paths = ["src/private"]
-        wins = [{"winner": "ours"}, {"winner": "ours"}, {"winner": "reference"}]
-        with patch.object(critic, "capture", return_value=["ours.png"]) as capture, \
-                patch.object(critic, "judge", return_value=wins) as judge:
-            code, _ = critic.judge_attempt(Path.cwd(), ready,
-                                           protected_paths=protected_paths)
-        self.assertEqual(code, 0)
-        capture.assert_called_once_with(Path.cwd(), "render", "attempt-2",
-                                        protected_paths=protected_paths)
-        judge.assert_called_once_with(Path.cwd(), ["ours.png"], "reference.png",
-                                      ["Readable labels"], agent=None,
-                                      protected_paths=protected_paths)
-
-    def test_verdict_requires_winner_and_a_reason_for_each_criterion(self):
-        output = ('<verdict>{"winner":"A","reasons":{"Readable labels":'
-                  '{"winner":"A","reason":"A is clearer"}}}</verdict>')
-        result = critic.parse_verdict(output, ["Readable labels"])
-        self.assertEqual(result["winner"], "A")
-        with self.assertRaises(ValueError):
-            critic.parse_verdict('<verdict>{"winner":"A","reasons":{}}</verdict>',
-                                 ["Readable labels"])
-
-    def test_three_sessions_get_a_randomised_pair_and_return_three_verdicts(self):
-        prompts = []
-        verdict = ('<verdict>{"winner":"A","reasons":{"Readable labels":'
-                   '{"winner":"A","reason":"clear"}}}</verdict>')
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            (folder / ".loop").mkdir()
-            (folder / "ours.png").write_text("ours")
-            (folder / "reference.png").write_text("ref")
-            results = critic.judge(folder, ["ours.png"], "reference.png",
-                                   ["Readable labels"],
-                                   template="{{ARTEFACT_A}} {{ARTEFACT_B}}",
-                                   session=lambda prompt: prompts.append(prompt) or verdict)
-        self.assertEqual(len(results), 3)
-        self.assertEqual(len(prompts), 3)
-        self.assertTrue(all("loop-critic-" in prompt and "/A/" in prompt and "/B/" in prompt
-                            for prompt in prompts))
-
-    def test_url_reference_is_downloaded_before_blind_order_is_assigned(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            with patch.object(critic.urllib.request, "urlopen",
-                              return_value=BytesIO(b"reference bytes")):
-                staged = Path(critic._stage_reference(folder, "https://example.invalid/ref.png"))
-            self.assertTrue(staged.is_file())
-            self.assertEqual(staged.suffix, ".png")
-            self.assertEqual(staged.read_bytes(), b"reference bytes")
 
 
 class PackageFilesTest(unittest.TestCase):
-    def test_new_modules_and_critic_brief_are_present(self):
+    def test_measure_module_is_present(self):
         self.assertTrue((KIT / "scripts" / "measure.py").is_file())
-        self.assertTrue((KIT / "scripts" / "critic.py").is_file())
-        self.assertTrue((KIT / "briefs" / "critic.md").is_file())
 
 
 class GateHooksTest(unittest.TestCase):
@@ -293,20 +201,15 @@ class GateHooksTest(unittest.TestCase):
         self.assertIn("Tests exit check", output)
         self.assertIn("Measure exit check", output)
 
-    def test_exit_attempt_passes_frozen_paths_to_measure_and_critic_adapters(self):
+    def test_exit_attempt_passes_frozen_paths_to_measure_adapter(self):
         measure_check = {"type": "measure", "command": "bench"}
-        critic_check = {"type": "critic", "capture": "render", "reference": "reference.png",
-                        "criteria": ["Readable labels"]}
         protected_paths = ["src/private"]
-        with patch.object(measure, "judge_attempt", return_value=(0, "met")) as measure_attempt, \
-                patch.object(critic, "judge_attempt", return_value=(0, "won")) as critic_attempt:
-            code, _ = loopkit.exit_attempt(Path.cwd(), [measure_check, critic_check],
+        with patch.object(measure, "judge_attempt", return_value=(0, "met")) as measure_attempt:
+            code, _ = loopkit.exit_attempt(Path.cwd(), [measure_check],
                                             protected_paths)
         self.assertEqual(code, 0)
         measure_attempt.assert_called_once_with(
             Path.cwd(), measure_check, protected_paths=protected_paths)
-        critic_attempt.assert_called_once_with(
-            Path.cwd(), critic_check, protected_paths=protected_paths)
 
     def test_goal_ready_records_main_measurements_and_requires_a_miss(self):
         spec = parse_spec(SPEC.replace(
@@ -336,20 +239,6 @@ class GateHooksTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("Hypothesis: cache repeated work", output)
 
-    def test_gauntlet_attempt_passes_only_with_two_wins(self):
-        ready = {"kind": "gauntlet", "capture": "render", "reference": "reference.png",
-                 "criteria": ["Readable labels"], "attempt": 2}
-        with patch.object(critic, "capture", return_value=["ours.png"]), \
-                patch.object(critic, "judge", return_value=[
-                    {"winner": "ours"}, {"winner": "ours"}, {"winner": "reference"}]):
-            code, output = gate._kind_attempt_judge(Path.cwd(), ready)
-        self.assertEqual(code, 0)
-        self.assertIn("2/3", output)
-        with patch.object(critic, "capture", return_value=["ours.png"]), \
-                patch.object(critic, "judge", return_value=[
-                    {"winner": "ours"}, {"winner": "reference"}, {"winner": "reference"}]):
-            code, _ = gate._kind_attempt_judge(Path.cwd(), ready)
-        self.assertEqual(code, 1)
 
 
 class RunBriefTest(unittest.TestCase):

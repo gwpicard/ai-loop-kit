@@ -130,24 +130,6 @@ class AgentSessionTest(unittest.TestCase):
             self.assertEqual(status, "")
             self.assertEqual(review._logged_verdict(review_log, "standards")["changes"], "none")
 
-    def test_codex_critic_parses_tagged_final_message(self):
-        import critic
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            git(root, "init", "--quiet")
-            (root / ".loop").mkdir()
-            (root / "ours.txt").write_text("ours")
-            (root / "reference.txt").write_text("reference")
-            fake = self.fake_codex(root)
-            verdict = ('<verdict>{"winner":"A","reasons":{"Readable labels":'
-                       '{"winner":"A","reason":"clear"}}}</verdict>')
-            with mock.patch.dict(os.environ, {"LOOP_CODEX": str(fake),
-                                              "FAKE_MESSAGE": verdict}, clear=True):
-                results = critic.judge(root, ["ours.txt"], "reference.txt",
-                                       ["Readable labels"], agent="codex")
-            self.assertEqual(len(results), 3)
-            self.assertTrue(all(item["winner"] in {"ours", "reference"} for item in results))
 
     def test_codex_walkaway_probe_requires_every_boundary_to_block(self):
         import sandbox

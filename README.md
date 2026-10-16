@@ -68,7 +68,7 @@ These are new in 1.1. They pass the automated tests but have not yet been tested
 - **Walk-away runs:** build every ready piece while you are away. A run refuses to start unless a probe proves the sandbox blocks writes outside the build folder, reads of your secrets and outside network calls.
 - **Researcher:** looks up outside facts while shaping, and records each source with the date it was read.
 - **Goal pieces:** the test is a measurement, such as speed, that must reach a target.
-- **Gauntlet pieces:** three critics compare the result with a reference without knowing which is which. The result must win two of three.
+- **Gauntlet archive:** the failed critic preview and its tests are kept on `preview/gauntlet`. The shipped kit refuses gauntlet specs.
 - **Codex backend:** with `Agent: codex` in the loop settings, Codex does the building, reviewing and judging instead of Claude.
 
 ## What you approve

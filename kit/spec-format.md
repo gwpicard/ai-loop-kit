@@ -58,16 +58,16 @@ dependency in `package.json` or `pyproject.toml` must be named under
 `requests: retry support`.
 
 An `## Exit` section contains one or more checks. Use `### Tests` with
-`Command:` and `Files:`, `### Measure` with `Command:`, `Target:` and
-`Files:`, or `### Critics` with `Capture:`, `Reference:`, `Criteria:` and
+`Command:` and `Files:`, or `### Measure` with `Command:`, `Target:` and
 `Files:`. Every check must be unmet on main for the right reason. A piece may
 combine check types. `Keep:` remains in `## Judge` and must pass on main and
 after every attempt. `Playbook: fix` guides the builder and has no gate effect.
 `Done when` remains accepted as the old name for `Contract`.
 
 Old specs with `## Judge` and `Kind:` remain accepted as one check. A fix
-starts with the bug in its first Contract item. Old `Kind: scaffold`,
-`Kind: goal` and `Kind: gauntlet` specs retain their existing behaviour.
+starts with the bug in its first Contract item. Old `Kind: scaffold` and `Kind: goal` specs retain their existing behaviour.
+`Kind: gauntlet` and `### Critics` are refused. Their preview is archived on
+`preview/gauntlet`; return those pieces to shaping and choose supported checks.
 
 ## Measure check
 
@@ -87,33 +87,6 @@ Command: `python bench.py`
 Target: < 200
 Files:
 - bench.py
-
-## Judge
-Keep: `python -m pytest`
-```
-
-## Critics check
-
-A Critics check uses `Capture:` to make artefact files under
-`.loop/capture/`, `Reference:` to name a project path or URL, and a non-empty
-list of `Criteria:`. `Files:` names the capture script, its support files and
-any local reference files. The gate freezes these files in the bar. Three
-fresh blind critics see the two artefacts in random order. Main must win fewer
-than two comparisons at ready. An attempt passes when ours wins at least two
-and `Keep:` passes. The pull request records each verdict and the order shown
-to each critic.
-
-```markdown
-## Exit
-### Critics
-Capture: `python3 render.py`
-Reference: `docs/example.png`
-Criteria:
-- Readable labels
-- Clear hierarchy
-Files:
-- render.py
-- docs/example.png
 
 ## Judge
 Keep: `python -m pytest`
@@ -154,9 +127,8 @@ Playbook: fix
   unless its path is named with `Large file:`.
 
 Every check in `## Exit` runs on main at ready and after each attempt. Measure
-checks use the median of three runs. Critics checks use three blind verdicts.
-Every check's `Files:` list is included in the frozen bar. Legacy goal and
-gauntlet specs keep the same readiness and attempt rules.
+checks use the median of three runs. Every check's `Files:` list is included
+in the frozen bar. Legacy goal specs keep the same readiness and attempt rules.
 
 The gate records a hash of the spec and of the judge bar. A change after ready
 means the piece must go back through shaping and ready.
