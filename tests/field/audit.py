@@ -16,6 +16,8 @@ Rules (a broken rule is a kit failure, exit 1):
   merged        a done piece has a merged pull request and a closed issue
   bar           the judge files in the pull request are the ones fixed at ready
   generated     the pull request holds no generated files
+  cleanup       recorded reviewer process groups have exited, with no review
+                worktrees or branches left in the local project
   doctor        (with --doctor) main passes gate.py doctor
 
 Scores per piece: builds, attempts, pieces sent back, and whether a person
@@ -35,6 +37,7 @@ sys.path.insert(0, str(KIT))
 import gate  # noqa: E402
 from loopkit import (NEEDS_YOU, STATE_PREFIX, TRUSTED, GitHub, bar_hash_at, branch_name,  # noqa: E402
                      records, repo_root, sh)
+from procs import process_group_alive  # noqa: E402
 
 BACK_MOVES = ("pull-back", "give-back", "reject", "rebuild")
 
@@ -79,9 +82,10 @@ def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str],
 
     moves = [r.get("move") for r in recs]
     submits = [r for r in recs if r.get("move") == "submit"]
-    failed = sum(1 for c in piece["comments"] if c.startswith("**Run:** attempt"))
+    attempts = sum(r.get("attempts", 0) for r in recs
+                   if r.get("move") in ("submit", "give-back"))
     score = {"piece": piece["number"], "title": piece["title"], "state": state,
-             "builds": moves.count("claim"), "attempts": failed + len(submits),
+             "builds": moves.count("claim"), "attempts": attempts,
              "sent_back": sum(moves.count(m) for m in BACK_MOVES), "changed_after_gate": None}
 
     if pr:
@@ -101,6 +105,45 @@ def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str],
         if piece["state"] != "CLOSED":
             broken.append("merged: done, but the issue is still open")
     return broken, score
+
+
+def audit_cleanup(root: Path) -> list[tuple[bool, str]]:
+    """Check retained process groups and Git state without relying on the run lock."""
+    checks = []
+    evidence = root / ".loop" / "logs" / "reviewer-processes"
+    groups = set()
+    if evidence.exists():
+        try:
+            groups = {int(line) for line in evidence.read_text().splitlines()}
+            if any(group <= 0 for group in groups):
+                raise ValueError("process group IDs must be positive")
+        except (OSError, ValueError):
+            checks.append((False, "reviewer process evidence cannot be read"))
+            groups = set()
+    if not groups:
+        has_logs = any((root / ".loop" / "logs").glob("piece-*-review.log"))
+        checks.append((not has_logs, "reviewer process evidence is missing" if has_logs
+                       else "no reviewer processes were recorded"))
+    for group in sorted(groups):
+        alive = process_group_alive(group)
+        checks.append((not alive, f"reviewer process group {group} "
+                       + ("is alive" if alive else "has exited")))
+
+    worktrees = sh(["git", "worktree", "list", "--porcelain"], root).stdout
+    path, remaining = "", False
+    for line in worktrees.splitlines():
+        if line.startswith("worktree "):
+            path = line[9:]
+        elif line.startswith("branch refs/heads/review/"):
+            checks.append((False, f"review worktree remains: {path}"))
+            remaining = True
+    branches = sh(["git", "for-each-ref", "--format=%(refname:short)",
+                   "refs/heads/review/"], root).stdout.splitlines()
+    for branch in branches:
+        checks.append((False, f"review branch remains: {branch}"))
+    if not remaining and not branches:
+        checks.append((True, "no review worktrees or branches remain"))
+    return checks
 
 
 # ---------------------------------------------------------------- GitHub
@@ -136,7 +179,8 @@ def load(root: Path) -> list[tuple[dict, Optional[dict]]]:
     return out
 
 
-def report(results: list[tuple[list[str], dict]], doctor: Optional[list] = None) -> tuple[str, bool]:
+def report(results: list[tuple[list[str], dict]], doctor: Optional[list] = None,
+           cleanup: list[tuple[bool, str]] | None = None) -> tuple[str, bool]:
     lines, ok = [], True
     for broken, s in results:
         changed = {None: "unknown", True: "yes", False: "no"}[s["changed_after_gate"]]
@@ -150,6 +194,10 @@ def report(results: list[tuple[list[str], dict]], doctor: Optional[list] = None)
         if not passed:
             ok = False
         lines.append(f"{'ok    ' if passed else 'BROKEN'} doctor: {what}")
+    for passed, what in cleanup or []:
+        if not passed:
+            ok = False
+        lines.append(f"{'ok    ' if passed else 'BROKEN'} cleanup: {what}")
     done = [s for _, s in results if s["state"] == "done"]
     clean = [s for s in done if s["builds"] == 1 and s["attempts"] == 1
              and s["changed_after_gate"] is not True]
@@ -165,7 +213,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     root = repo_root(Path.cwd())
     results = [audit_piece(piece, pr, root) for piece, pr in load(root)]
     checks = gate.doctor(GitHub(root), root) if args.doctor else None
-    text, ok = report(results, checks)
+    text, ok = report(results, checks, audit_cleanup(root))
     print(text)
     return 0 if ok else 1
 

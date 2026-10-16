@@ -485,6 +485,14 @@ reviewer makes twice should become a check.
 `tests/field/audit.py` checks a project after the fact: one state per piece,
 records present, `needs-you` only where valid, merged pieces done, the merged
 code equal to the judged commit, and generated files absent.
+It counts attempts from submit and give-back records. Rejections and later
+pull-backs repeat earlier totals, so the audit does not count them again.
+
+The local cleanup check reads the reviewer process-group IDs retained in
+`.loop/logs/reviewer-processes` and checks that each group has exited. It also
+checks Git for remaining review worktrees and `review/*` branches. A missing
+process record beside existing review logs fails the check. Run the audit in
+the checkout that ran the build, where the local evidence lives.
 
 ## 9. The run
 
