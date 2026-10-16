@@ -12,7 +12,7 @@ import os
 import re
 import signal
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -73,11 +73,21 @@ class Spec:
     criteria: tuple = ()
     checks: tuple = ()
     playbook: str = ""
+    risks: dict = field(default_factory=dict)
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
 _FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file|Measure|Target|"
                     r"Capture|Reference|Criteria|Playbook)\s*:\s*(.*)$", re.IGNORECASE)
+_RISK_FIELD = re.compile(r"^\s*(Protected paths|New dependency|Shared files|Needs services|"
+                         r"Open choices)\s*:\s*(.*)$", re.IGNORECASE)
+
+
+def _risk_items(value: str) -> tuple[str, ...]:
+    value = value.strip().strip("`").strip()
+    if not value or value.lower() == "none":
+        return ()
+    return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -127,6 +137,40 @@ def parse_spec(body: str) -> Spec:
     approach = "\n".join(line.strip() for line in (approach_lines or []) if line.strip())
     research, research_gaps = parse_research_section(body)
     gaps.extend(research_gaps)
+    risk_lines = _section(body, "Risks")
+    risk_names = {"protected paths": "protected_paths", "new dependency": "new_dependencies",
+                  "shared files": "shared_files", "needs services": "needs_services",
+                  "open choices": "open_choices"}
+    risks = {value: () for value in risk_names.values()}
+    if risk_lines is not None:
+        found_risks = set()
+        for line in risk_lines:
+            if not line.strip():
+                continue
+            match = _RISK_FIELD.match(line)
+            if not match:
+                gaps.append(f"unexpected text in Risks section: {line.strip()}")
+                continue
+            key = match.group(1).lower()
+            if key in found_risks:
+                gaps.append(f"Risks field '{match.group(1)}' is used twice")
+            found_risks.add(key)
+            risks[risk_names[key]] = _risk_items(match.group(2))
+            if key == "new dependency":
+                for dependency in risks["new_dependencies"]:
+                    name, separator, reason = dependency.partition(":")
+                    if not separator or not name.strip() or not reason.strip():
+                        gaps.append("Risks New dependency entries need a name and reason")
+        for key in risk_names:
+            if key not in found_risks:
+                gaps.append(f"Risks section needs '{key.title()}:'")
+        if risks["open_choices"]:
+            gaps.append("Risks Open choices must be empty at ready")
+        for key in ("protected_paths", "shared_files"):
+            for path in risks[key]:
+                if path.startswith("/") or ".." in Path(path).parts:
+                    label = key.replace("_", " ")
+                    gaps.append(f"Risks {label} path '{path}' must be inside the project")
     done_when: dict[str, str] = {}
     stays: list[str] = []
     done = _section(body, "Contract")
@@ -316,7 +360,8 @@ def parse_spec(body: str) -> Spec:
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
     return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
                 keep, tuple(stays), settings, tuple(large_files), tuple(research),
-                measure, target, capture, reference, tuple(criteria), tuple(checks), playbook)
+                measure, target, capture, reference, tuple(criteria), tuple(checks), playbook,
+                risks)
 # ---------------------------------------------------------------- check settings
 
 # Files that set how the project checks itself. A pattern with no slash
@@ -494,7 +539,8 @@ def project_root(folder: Path) -> Path:
 
 
 def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
-               scrub_secrets: bool = False) -> dict:
+               scrub_secrets: bool = False,
+               protected_exceptions: Optional[list[str]] = None) -> dict:  # noqa: UP045
     """The environment for judge, prepare and agent commands.
 
     Use only the folder's own .venv. A project checkout's environment must not
@@ -509,6 +555,7 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
     frozen_paths = (loop_settings(folder).get("protected paths", [])
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
+    env["LOOP_PROTECTED_EXCEPTIONS"] = os.pathsep.join(protected_exceptions or [])
     project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
     path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
                     if Path(entry or ".").resolve() != project_venv_bin]

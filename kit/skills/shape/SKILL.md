@@ -34,9 +34,12 @@ Use the KIT path above in every command. Write it out in full. Read
    changes a module, Approach names that module and the interface a caller
    uses. If the project already has tests, add `Keep:` with the Test command
    from the project's AGENTS.md, exactly, so what works today must still
-   work. Mark a Contract item that already holds today as `(stays)`; never
-   bend a test so it fails on main. Put rules the gate must enforce in
-   Contract or Exit. Use `Playbook: fix` for fix guidance. Add
+   work. Include all five lines under `## Risks`: Protected paths, New
+   dependency, Shared files, Needs services and Open choices. Write `none`
+   when a line has no entries, and settle every open choice before ready.
+   Mark a Contract item that already holds today as `(stays)`; never bend a
+   test so it fails on main. Put rules the gate must enforce in Contract or
+   Exit. Use `Playbook: fix` for fix guidance. Add
    `Settings: may change` only when the piece is about the project's lint,
    test or CI settings.
    Done when: the person says yes to the spec.

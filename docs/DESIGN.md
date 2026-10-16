@@ -290,13 +290,12 @@ person can read what will be checked, and the gate can check it.
 `Settings: may change` in the Judge section lets a piece change check
 settings. `Large file: <path>` lets a named file grow past 1,000 lines.
 
-### Risks (planned for 1.2)
+### Risks
 
 Walk-throughs of real projects showed that most failures start before the
 build: an open choice nobody answered, two pieces editing one shared file, an
 unnamed new dependency, a protected path, tests that need a running service.
-So the spec gains two sections the gate reads, and the Judge section becomes
-Exit:
+The spec has a Risks section that the gate reads, alongside Exit:
 
 ```markdown
 ## Risks
@@ -319,6 +318,13 @@ Keep: `npm test`
 | Shared files | Ready warns when another ready piece names the same file |
 | Needs services | A piece that needs services is refused for walk-away |
 | Open choices | Must be empty at ready: the person answers before the build |
+
+The gate freezes the five risk lines at ready. Open choices must be empty.
+It warns when a ready piece lists the same shared file. A piece that needs
+services cannot run unattended. At submit, the gate refuses any new
+dependency in `package.json` or `pyproject.toml` that the issue does not name.
+Protected paths named under Risks are allowed for this piece; other protected
+paths remain blocked.
 
 Exit tests must assert an outcome: a returned value, output or state. A test
 that only checks that nothing raised fails on `main` for the right reason

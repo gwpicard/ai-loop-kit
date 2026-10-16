@@ -45,6 +45,7 @@ import critic  # noqa: E402
 import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
+from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -109,7 +110,7 @@ def run_keep(folder: Path, command: str, timeout: int,
 
 # ---------------------------------------------------------------- checks
 
-def check_ready(root: Path, issue: dict) -> dict:
+def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     """The ready gate. Returns the record to write. Refuses on any gap."""
     n = issue["number"]
     spec = parse_spec(issue["body"] or "")
@@ -126,6 +127,17 @@ def check_ready(root: Path, issue: dict) -> dict:
     keep_limit = keep_limit_seconds(settings)
     keep_command = spec.keep or settings.get("keep", "")
     keep_output = ""
+    shared_conflicts = []
+    wanted_shared = set(spec.risks.get("shared_files", ()))
+    if wanted_shared:
+        for other in gh.issues_with_label(STATE_PREFIX + "ready"):
+            if other["number"] == n:
+                continue
+            previous = last_record(gh.comments(other["number"]), "ready") or {}
+            other_shared = previous.get("risks", {}).get("shared_files", [])
+            overlaps = sorted(wanted_shared & set(other_shared))
+            if overlaps:
+                shared_conflicts.append({"issue": other["number"], "files": overlaps})
 
     # Run the judge on today's main, with only the judge files added.
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
@@ -188,6 +200,8 @@ def check_ready(root: Path, issue: dict) -> dict:
             "agent": agent,
             "stays": list(spec.stays),
             "research": list(spec.research),
+            "risks": {key: list(value) for key, value in spec.risks.items()},
+            "shared_conflicts": shared_conflicts,
             "settings": spec.settings,
             "protected_paths": loop_settings(root).get("protected paths", []),
             "large_files": list(spec.large_files),
@@ -240,12 +254,17 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                         f"{main}...HEAD"], folder).stdout.splitlines()
     contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
         " ".join(ready.get("files", []))
+    risk_paths = ready.get("risks", {}).get("protected_paths", [])
     protected = [p for p in changed_paths for target in ready.get("protected_paths", [])
                  if (p == target.rstrip("/") or p.startswith(target.rstrip("/") + "/"))
-                 and target not in contract_text]
+                 and not path_mentioned(contract_text, target)
+                 and not any(path_covers(risk, p) for risk in risk_paths)]
     if protected:
         return False, "the build changes protected paths not named in the Contract: " + \
             ", ".join(sorted(set(protected)))
+    unnamed = unnamed_dependencies(folder, main, ready.get("risks", {}).get("new_dependencies", []))
+    if unnamed:
+        return False, "the build adds unnamed dependencies: " + ", ".join(unnamed)
     oversized = []
     for path in changed_paths:
         target = folder / path
@@ -495,7 +514,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     note = f"{frm} → {to} ({name})."
     comments = gh.comments(n)
     if name == "ready":
-        record = {**check_ready(root, issue), "from": frm, "to": to}
+        record = {**check_ready(gh, root, issue), "from": frm, "to": to}
         if record["kind"] == "scaffold":
             note += " Scaffold piece: the fails-on-main check does not apply."
         else:
@@ -505,6 +524,9 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
+        for conflict in record.get("shared_conflicts", []):
+            note += (f" Warning: shared files {', '.join(conflict['files'])} also appear in "
+                     f"ready piece {conflict['issue']}.")
     elif name == "claim":
         ready = check_frozen(issue, comments)
         check_claim_bar(root, n, ready)
@@ -883,7 +905,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"ok: captured piece {n} in shaping")
         elif args.cmd == "check":
             issue = gh.issue(args.n)
-            rec = check_ready(root, issue)
+            rec = check_ready(gh, root, issue)
             print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
         elif args.cmd == "move":
             print("ok: " + move(gh, root, args.n, args.to, args.reason,
