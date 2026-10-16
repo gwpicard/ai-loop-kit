@@ -241,6 +241,12 @@ are blind only by neutral file names: they run in the build folder and could
 find out which side is which. Critics answer "is ours better than the
 reference?", not "does ours match it".
 
+The builder brief tells both backends to stage with
+`python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`. The helper
+stages project changes while excluding the root `.loop/` directory. It
+refuses to run if runtime files are already staged. The brief forbids
+staging or force-adding `.loop/` files; submit checks them again.
+
 Criterion keys ignore terminal full stops, commas, semicolons, colons,
 exclamation marks and question marks. Ambiguous keys are refused. For a key
 mismatch, the error names the missing and extra keys. The attempt log keeps
