@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,6 +49,22 @@ class BuilderEnvironmentTest(unittest.TestCase):
             self.assertTrue((folder / ".loop" / "outcome").exists())
             self.assertFalse(Path(git(folder, "rev-parse", "--absolute-git-dir"),
                                   "index.lock").exists())
+
+    def test_run_returns_nonzero_after_environment_handback(self):
+        test_run.RunTest.setUp(self)
+        n = self.p.piece()
+        import gate
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        previous = Path.cwd()
+        self.addCleanup(os.chdir, previous)
+        os.chdir(self.p.root)
+        with patch("run_cli.GitHub", return_value=self.p.gh), \
+                patch.object(run, "build_once", side_effect=OSError("builder unavailable")):
+            status = run.main([str(n)])
+        handback = next(r for r in records(self.p.gh.comments(n))
+                        if r.get("move") == "give-back")
+        self.assertEqual(handback["type"], "environment")
+        self.assertNotEqual(status, 0)
 
     def test_measure_brief_stops_if_hypothesis_write_fails(self):
         prompt = run.brief(1, "spec", {"files": [], "checks": [

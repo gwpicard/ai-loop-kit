@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import re
 import subprocess
 import sys
@@ -136,8 +137,46 @@ def stage() -> int:
     if staged.stdout:
         print("refused: .loop/ files are already staged; do not commit them.", file=sys.stderr)
         return 2
-    return subprocess.run(
-        ["git", "add", "-A", "--", ":/", ":(top,exclude).loop"], check=False).returncode
+    candidates = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard",
+         "--full-name", "-z", "--", ":/"],
+        capture_output=True, check=False)
+    if candidates.returncode:
+        sys.stderr.buffer.write(candidates.stderr)
+        return candidates.returncode
+    paths = [b":(top,literal)" + path for path in candidates.stdout.split(b"\0")
+             if path and path != b".loop" and not path.startswith(b".loop/")]
+    if not paths:
+        return 0
+    location = subprocess.run(["git", "rev-parse", "--git-path", "index"],
+                              capture_output=True, check=False)
+    if location.returncode:
+        sys.stderr.buffer.write(location.stderr)
+        return location.returncode
+    index = Path(os.fsdecode(location.stdout).strip()).resolve()
+    lock = index.with_name(index.name + ".lock")
+    try:
+        stream = lock.open("xb")
+    except OSError as error:
+        print(f"could not lock the git index: {error}", file=sys.stderr)
+        return 1
+    try:
+        with stream:
+            if index.exists():
+                stream.write(index.read_bytes())
+        env = dict(os.environ, GIT_INDEX_FILE=str(lock))
+        if not index.exists():
+            initial = subprocess.run(["git", "read-tree", "--empty"], env=env, check=False)
+            if initial.returncode:
+                return initial.returncode
+        result = subprocess.run(
+            ["git", "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            input=b"\0".join(paths) + b"\0", env=env, check=False)
+        if result.returncode == 0:
+            lock.replace(index)
+        return result.returncode
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

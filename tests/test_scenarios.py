@@ -197,7 +197,8 @@ class ScenarioTest(unittest.TestCase):
         restarted = subprocess.run(
             [sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
             cwd=self.p.root, env=env, capture_output=True, text=True, timeout=20, check=False)
-        self.assertEqual(restarted.returncode, 0, restarted.stdout + restarted.stderr)
+        self.assertEqual(restarted.returncode, 1, restarted.stdout + restarted.stderr)
+        self.assertIn("refused: there is no move from shaping to building", restarted.stdout)
         checks = audit.audit_cleanup(self.p.root)
         self.assertTrue(all(passed for passed, _ in checks), checks)
         self.assertIn((True, f"reviewer process group {group} has exited"), checks)

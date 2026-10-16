@@ -246,7 +246,10 @@ The Claude builder brief tells builders to stage with
 `python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`. Codex builders
 leave changes unstaged. After the sandboxed session exits, the run uses the
 same helper and commits the project changes. The helper excludes the root
-`.loop/` directory and refuses already staged runtime files. The brief
+`.loop/` directory, including when it is ignored or contains the build
+worktree, and refuses already staged runtime files. It stages through a
+separate index and replaces the original only after a successful add. A
+failed add leaves the original staged changes intact. The brief
 forbids staging or force-adding `.loop/` files; submit checks them again.
 
 Criterion keys ignore terminal full stops, commas, semicolons, colons,
@@ -561,6 +564,9 @@ run.py
      └─ any error after the claim → back to shaping with the reason
 ```
 
+- **Exit status.** The run exits non-zero when a piece fails, including an
+  environment hand-back, a refusal or an unexpected error. It continues
+  with the other pieces before returning that status.
 - **Idle limit.** An attempt stops after ten minutes with no output and no
   file change in the build folder (`Idle limit:` changes it). The hard limit
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
