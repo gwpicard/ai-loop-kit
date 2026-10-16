@@ -715,6 +715,10 @@ class RunTest(unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, 3)
         self.assertIn("fails on the judge files themselves", result)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
+        handback = [r for r in records(self.p.gh.comments(n))
+                    if r.get("move") == "give-back"][-1]
+        self.assert_handback_record(handback, reason_type="bar-wrong",
+                                    cause="bar-wrong", attempts=1)
 
     def test_builder_bar_wrong_outcome_returns_on_first_attempt(self):
         n, result = self.build("bar-wrong", attempts=3)
@@ -722,7 +726,8 @@ class RunTest(unittest.TestCase):
         seen = records(self.p.gh.comments(n))
         handbacks = [r for r in seen if r.get("move") == "give-back"]
         self.assertEqual(len(handbacks), 1)
-        self.assertEqual(handbacks[0]["type"], "bar-wrong")
+        self.assert_handback_record(handbacks[0], reason_type="bar-wrong",
+                                    cause="bar-wrong", attempts=1)
         attempts = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(attempts), 1)
         # The build folder is gone, so shaping can switch to the branch; the work stays on it.
@@ -762,7 +767,8 @@ class RunTest(unittest.TestCase):
             n, result = self.build("bad", attempts=3)
         self.assertIn("back to shaping", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["type"], "stopped")
+        self.assert_handback_record(handback, reason_type="stopped",
+                                    cause="stopped", attempts=1)
         self.assertTrue(handback["reason"].startswith("Attempt 1 failed."))
 
     def test_run_refuses_lock_with_a_live_orphan_process_group(self):
