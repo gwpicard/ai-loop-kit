@@ -78,6 +78,7 @@ class RiskGateTest(unittest.TestCase):
         number = self.project.piece()
         self.ready(number)
         folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
         (folder / "pyproject.toml").write_text(
             '[project]\ndependencies = [\n    "requests>=2",\n]\n')
         git(folder, "add", "pyproject.toml")
@@ -86,6 +87,36 @@ class RiskGateTest(unittest.TestCase):
             self.project.gh.comments(number), "ready"))
         self.assertFalse(passed)
         self.assertIn("unnamed dependencies: requests", output)
+
+    def test_pyproject_build_dependencies_are_checked_at_submit(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        (folder / "pyproject.toml").write_text(
+            '[build-system]\nrequires = [\n    "setuptools>=64",\n]\n'
+            'build-backend = "setuptools.build_meta"\n')
+        git(folder, "add", "pyproject.toml")
+        git(folder, "commit", "--quiet", "-m", "Add an unnamed build dependency")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("unnamed dependencies: setuptools", output)
+
+    def test_pyproject_dependency_groups_are_checked_at_submit(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        (folder / "pyproject.toml").write_text(
+            '[dependency-groups]\nqa = ["ruff"]\n'
+            'dev = [{include-group = "qa"}, "pytest>=8"]\n')
+        git(folder, "add", "pyproject.toml")
+        git(folder, "commit", "--quiet", "-m", "Add an unnamed dependency group")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("unnamed dependencies: pytest, ruff", output)
 
     def test_poetry_group_dependencies_are_checked_at_submit(self):
         number = self.project.piece()

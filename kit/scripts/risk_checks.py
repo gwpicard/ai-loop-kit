@@ -19,31 +19,75 @@ def _declared_dependencies(path: str, content: str) -> set[str]:
     if path.endswith("pyproject.toml"):
         names = set()
         section = ""
-        project_dependencies = False
+        dependency_array = None
         dependency_pattern = r"['\"]([A-Za-z0-9_.-]+)(?:\[[^]]+\])?(?:[<>=!~; ].*)?['\"]"
         for line in content.splitlines():
             heading = re.match(r"^\s*\[([^]]+)\]", line)
             if heading:
                 section = heading.group(1).lower()
-                project_dependencies = False
+                dependency_array = None
                 continue
-            if section == "project" and re.match(r"^\s*dependencies\s*=", line):
-                project_dependencies = "[" in line and "]" not in line
-                names.update(re.findall(dependency_pattern, line.split("=", 1)[1]))
-            elif section == "project" and project_dependencies:
-                names.update(re.findall(dependency_pattern, line))
-                if "]" in line:
-                    project_dependencies = False
-            elif section.startswith("project.optional-dependencies"):
-                names.update(re.findall(dependency_pattern, line))
-            elif (section == "tool.poetry.dependencies" or
-                  (section.startswith("tool.poetry.group.") and
-                   section.endswith(".dependencies"))):
-                key = re.match(r"^\s*([A-Za-z0-9_.-]+)\s*=", line)
-                if key and key.group(1).lower() != "python":
-                    names.add(key.group(1))
+            source = line.split("#", 1)[0]
+            if dependency_array is not None:
+                dependency_array.append(source)
+                if _array_complete("\n".join(dependency_array)):
+                    names.update(_requirement_names("\n".join(dependency_array),
+                                                     dependency_pattern))
+                    dependency_array = None
+                continue
+            assignment = re.match(r"^\s*([A-Za-z0-9_.-]+)\s*=\s*(.*)$", source)
+            if not assignment:
+                continue
+            key, value = assignment.groups()
+            if (section in {"tool.poetry.dependencies", "tool.poetry.dev-dependencies"} or
+                    (section.startswith("tool.poetry.group.") and
+                     section.endswith(".dependencies"))):
+                if key.lower() != "python":
+                    names.add(key.lower())
+                continue
+            array_table = ((section == "build-system" and key == "requires") or
+                           (section == "project" and key == "dependencies") or
+                           section.startswith("project.optional-dependencies") or
+                           section in {"dependency-groups", "tool.pdm.dev-dependencies"})
+            if not array_table:
+                continue
+            if not value.lstrip().startswith("["):
+                continue
+            dependency_array = [value]
+            if _array_complete(value):
+                names.update(_requirement_names(value, dependency_pattern))
+                dependency_array = None
         return {name.lower().replace("_", "-") for name in names}
     return set()
+
+
+def _array_complete(value: str) -> bool:
+    depth = 0
+    quote = ""
+    escaped = False
+    for character in value:
+        if quote:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = ""
+        elif character in "\"'":
+            quote = character
+        elif character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return True
+    return False
+
+
+def _requirement_names(value: str, pattern: str) -> set[str]:
+    # PEP 735 include-group tables name groups, not packages.
+    values = re.sub(r"\{[^{}]*\}", "", value, flags=re.DOTALL)
+    return set(re.findall(pattern, values))
 
 
 def unnamed_dependencies(folder: Path, base: str, named: list[str]) -> list[str]:
