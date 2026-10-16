@@ -394,8 +394,10 @@ Why each role is separate:
 Code is the default. The ready record freezes the choice, and
 `run.py --agent codex` overrides it for one run. Interactive skills stay in
 Claude Code. Codex runs `codex exec --json` with workspace-write rooted at the
-build folder and network disabled. Codex has no guard hook and no Edit
-denies, so only the gate holds the rules after the session.
+build folder and network disabled. Every Codex session ignores the user's
+config file and disables plugins and apps so their MCP servers do not start.
+Codex has no guard hook and no Edit denies, so only the gate holds the rules
+after the session.
 
 ## 8. The checks
 
