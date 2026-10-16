@@ -8,8 +8,8 @@ not here.
 Each rule names what holds it: **code** (the gate, the run or a check),
 **hook** (the guard), **sandbox**, or **words** (a brief or a skill only).
 Features marked **preview** pass the automated tests but have not yet run on a
-real project. Parts marked **planned** are agreed for 1.2 and not yet built;
-the text says what the kit does today beside them.
+real project. Parts marked **planned** are for after 1.2; the text says what
+the kit does today beside them.
 
 ## 1. What the kit is
 

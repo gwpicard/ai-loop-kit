@@ -2,7 +2,7 @@
 
 Build software with Claude Code in small steps. A script checks each step before you review the change.
 
-Version 1.1.0 is released. It works best with Python and Node projects.
+Version 1.2.0 is released. It works best with Python and Node projects.
 
 ![How AI Loop Kit works](docs/images/how-it-works.svg)
 
