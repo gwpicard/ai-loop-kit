@@ -6,6 +6,7 @@ import stat
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from helpers import Project, git
 from test_run import FAKE_CLAUDE
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "field"))
 import audit  # noqa: E402
 import gate  # noqa: E402
 import run  # noqa: E402
+from loopkit import record_text
 
 
 class AuditTest(unittest.TestCase):
@@ -54,6 +56,43 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(broken, [])
         self.assertEqual((score["builds"], score["attempts"], score["changed_after_gate"]),
                          (1, 1, False))
+
+    def test_recovered_builds_count_completed_attempts_from_records(self):
+        n = self.p.piece()
+        for _ in range(2):
+            gate.move(self.p.gh, self.p.root, n, "ready")
+            with patch.object(run, "review_piece", side_effect=KeyboardInterrupt), \
+                    self.assertRaises(KeyboardInterrupt):
+                run.build_piece(self.p.gh, self.p.root, n, 1)
+            run.recover_building(self.p.gh, self.p.root)
+        broken, score = self.audit(n)
+        self.assertEqual(broken, [])
+        self.assertEqual((score["builds"], score["attempts"], score["sent_back"]),
+                         (2, 2, 2))
+
+    def test_attempt_totals_ignore_comments_and_repeated_rejection_metrics(self):
+        transitions = [
+            ("capture", "new", "shaping", None),
+            ("ready", "shaping", "ready", None),
+            ("claim", "ready", "building", None),
+            ("give-back", "building", "shaping", 0),
+            ("ready", "shaping", "ready", None),
+            ("claim", "ready", "building", None),
+            ("submit", "building", "approval", 3),
+            ("reject", "approval", "shaping", 3),
+            ("ready", "shaping", "ready", None),
+            ("pull-back", "ready", "shaping", 3),
+        ]
+        comments = [record_text({"move": move, "from": frm, "to": to,
+                                 "attempts": attempts}, "test record")
+                    for move, frm, to, attempts in transitions]
+        comments += ["**Run:** attempt 1 failed.", "**Run:** attempt 2 failed.",
+                     "**Run:** attempt 2 failed a Quality check; retrying."]
+        piece = {"number": 1, "title": "Retry", "labels": ["state:shaping"],
+                 "state": "OPEN", "comments": comments}
+        broken, score = audit.audit_piece(piece, None, self.p.root)
+        self.assertEqual(broken, [])
+        self.assertEqual(score["attempts"], 3)
 
     def test_a_label_set_by_hand_breaks_the_records_rule(self):
         n = self.p.piece()

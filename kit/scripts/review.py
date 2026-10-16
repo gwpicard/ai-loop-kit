@@ -286,6 +286,8 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
                 backend, prompt, folder, role="reviewer", disallowed=disallowed,
                 protected_paths=protected_paths, walk_away=walk_away, domains=domains)
             track_process(proc)
+            with (logfile.parent / "reviewer-processes").open("a") as evidence:
+                evidence.write(f"{proc.pid}\n")
             status = _pump_session(proc, out, idle_seconds, activity_path=folder,
                                    result_event=result_event, backend=backend)
         if not walk_away or not sandbox.usage_limit_event(result_event):

@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from helpers import KIT, git, pump_events
+from test_audit import audit
 import test_run as run_test_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
@@ -119,6 +120,11 @@ class ScenarioTest(unittest.TestCase):
                     self.issues = {int(k): v for k, v in state["issues"].items()}
                     self.notes = {int(k): [tuple(note) for note in v]
                                   for k, v in state["notes"].items()}
+                def set_labels(self, n, add, remove):
+                    super().set_labels(n, add, remove)
+                    Path(os.environ["LOOP_GH_STATE"]).write_text(json.dumps({
+                        "issues": self.issues, "notes": self.notes,
+                    }))
             loopkit.GitHub = ChildGitHub
             """))
         child_pid_file = Path(self.p.tmp.name) / "review-child.pid"
@@ -170,6 +176,11 @@ class ScenarioTest(unittest.TestCase):
             time.sleep(.05)
         self.assertTrue(child_pid_file.is_file(), process.stdout.read() if process.poll() is not None else "review child did not start")
         child_pid = int(child_pid_file.read_text())
+        group = os.getpgid(child_pid)
+        evidence = self.p.root / ".loop" / "logs" / "reviewer-processes"
+        self.assertIn(str(group), evidence.read_text().splitlines())
+        live_checks = audit.audit_cleanup(self.p.root)
+        self.assertIn((False, f"reviewer process group {group} is alive"), live_checks)
         process.send_signal(signal.SIGTERM)
         process.wait(timeout=10)
         deadline = time.monotonic() + 3
@@ -182,6 +193,22 @@ class ScenarioTest(unittest.TestCase):
         else:
             os.kill(child_pid, signal.SIGKILL)
             self.fail("review child survived SIGTERM to the real run process")
+
+        restarted = subprocess.run(
+            [sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
+            cwd=self.p.root, env=env, capture_output=True, text=True, timeout=20, check=False)
+        self.assertEqual(restarted.returncode, 0, restarted.stdout + restarted.stderr)
+        checks = audit.audit_cleanup(self.p.root)
+        self.assertTrue(all(passed for passed, _ in checks), checks)
+        self.assertIn((True, f"reviewer process group {group} has exited"), checks)
+        self.assertIn((True, "no review worktrees or branches remain"), checks)
+        saved = json.loads(Path(state).read_text())
+        piece = {**saved["issues"][str(n)],
+                 "comments": [text for _, text in saved["notes"][str(n)]]}
+        broken, score = audit.audit_piece(piece, None, self.p.root)
+        self.assertEqual(broken, [])
+        self.assertEqual((score["state"], score["attempts"], score["sent_back"]),
+                         ("shaping", 1, 1))
 
     def test_bar_wrong_stops_on_attempt_one(self):
         n, result = self.build("bar-wrong", attempts=3)
