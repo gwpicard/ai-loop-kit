@@ -361,6 +361,7 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                   walk_away: bool = False, agent_override: Optional[str] = None) -> str:
+    build_started = time.monotonic()
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
     ready = {**ready, "agent": agents.selected(root, agent_override or ready.get("agent"))}
@@ -464,13 +465,15 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             if idle_status == "usage-limit":
                 reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
                 gh.comment(n, f"**Run:** {reason}")
-                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment",
+                          attempts=k, seconds=time.monotonic() - build_started)
                 return f"piece {n}: back to shaping, {reason}"
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed",
+                      attempts=k, seconds=time.monotonic() - build_started)
             return f"piece {n}: back to shaping, {reason}"
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
@@ -481,7 +484,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                     f"log: {logfile.relative_to(root)}")
                 gh.comment(n, f"**Run:** attempt {k} reports bar-wrong: {reason}")
-                gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong",
+                          attempts=k, seconds=time.monotonic() - build_started)
                 return f"piece {n}: back to shaping, {reason}"
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
@@ -526,7 +530,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             if main_quality_failed:
                 reason = f"Quality check also fails on main: {command}"
                 gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")
-                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment")
+                gate.move(gh, root, n, "shaping", reason=reason, reason_type="environment",
+                          attempts=k, seconds=time.monotonic() - build_started)
                 return f"piece {n}: back to shaping, {reason}"
             last_failure = (f"Attempt {k} failed Quality command `{command}`. Fix this in the next "
                             f"attempt.\n\n{output.strip()[-2500:]}")
@@ -544,14 +549,16 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 gh.comment(n, record_text({"move": "judge-gap", "type": "judge-gap",
                                           "reason": reason},
                                           "Contract review found a judge gap: " + reason))
-            return open_pull_request(gh, root, folder, n, issue, k, output, review)
+            return open_pull_request(gh, root, folder, n, issue, k, output, review,
+                                    time.monotonic() - build_started)
         if output.startswith(gate.BAR_WRONG):
             # No build can fix this, and more attempts invite loosening a check.
             gh.comment(n, f"**Run:** attempt {k} of {attempts}: the judge passes, but the keep "
                           "check fails on the judge files themselves. The run stops here.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             reason = "the keep check fails on the judge files themselves; fix the judge"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="bar-wrong",
+                      attempts=k, seconds=time.monotonic() - build_started)
             return f"piece {n}: back to shaping, {reason}"
         if "differ from the ones fixed at ready" in output:
             restore_bar(folder, ready)
@@ -569,10 +576,12 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if stop_requested(root):
             reason = last_failure if last_failure.startswith("Attempt ") else \
                 "the person asked the run to stop"
-            gate.move(gh, root, n, "shaping", reason=reason, reason_type="stopped")
+            gate.move(gh, root, n, "shaping", reason=reason, reason_type="stopped",
+                      attempts=k, seconds=time.monotonic() - build_started)
             return f"piece {n}: back to shaping, {reason}"
     reason = f"the judge still fails after {attempts} attempts; see the comments above"
-    gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed")
+    gate.move(gh, root, n, "shaping", reason=reason, reason_type="builder-failed",
+              attempts=attempts, seconds=time.monotonic() - build_started)
     return f"piece {n}: back to shaping, needs you"
 
 
@@ -582,9 +591,10 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
 
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
-                      k: int, output: str, review: Optional[dict] = None) -> str:
+                      k: int, output: str, review: Optional[dict] = None,
+                      seconds: float = 0) -> str:
     import pr
-    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review)
+    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review, seconds)
 
 
 def main(argv: Optional[list[str]] = None) -> int:

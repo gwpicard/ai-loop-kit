@@ -477,6 +477,58 @@ class GateTest(unittest.TestCase):
         self.assertIn("spec-unclear: 1", report)
         self.assertIn(f"{n}: spec-unclear: bad spec", report)
 
+    def test_handback_records_have_cause_timing_version_and_date(self):
+        from datetime import date
+        n = self.p.piece()
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="Prepare failed",
+                  reason_type="environment")
+        record = records(self.p.gh.comments(n))[-1]
+        self.assertEqual(record["cause"], "prepare-failed")
+        self.assertEqual(record["attempts"], 0)
+        self.assertEqual(record["seconds"], 0)
+        self.assertEqual(record["kit"], "1.1.0")
+        self.assertEqual(date.fromisoformat(record["date"]).isoformat(), record["date"])
+
+    def test_report_groups_causes_and_counts_first_attempt_rate(self):
+        first = self.p.piece()
+        self.ready(first)
+        gate.move(self.p.gh, self.p.root, first, "building")
+        gate.move(self.p.gh, self.p.root, first, "shaping", reason="Prepare failed",
+                  reason_type="environment")
+        second = self.p.piece()
+        self.ready(second)
+        gate.move(self.p.gh, self.p.root, second, "building")
+        git(self.p.root, "switch", "--quiet", f"piece/{second}")
+        (self.p.root / "habits.py").write_text(GOOD_CODE)
+        gate.move(self.p.gh, self.p.root, second, "approval", folder=self.p.root,
+                  pr="https://example.test/pr/1", attempts=1, seconds=3.5)
+        report = gate.report(self.p.gh)
+        self.assertIn("environment / prepare-failed: 1", report)
+        self.assertIn("pieces started: 2", report)
+        self.assertIn("passed on the first attempt: 1 / 2 (50%)", report)
+
+    def test_person_handbacks_record_their_cause_and_prior_attempts(self):
+        n = self.p.piece()
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="clarify the scope",
+                  reason_type="spec-unclear")
+        pullback = records(self.p.gh.comments(n))[-1]
+        self.assertEqual(pullback["cause"], "person-request")
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "habits.py").write_text(GOOD_CODE)
+        gate.move(self.p.gh, self.p.root, n, "approval", folder=self.p.root,
+                  pr="https://example.test/pr/1", attempts=2, seconds=8.25)
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="please revise",
+                  reason_type="person-rejected")
+        rejection = records(self.p.gh.comments(n))[-1]
+        self.assertEqual(rejection["cause"], "person-rejected")
+        self.assertEqual(rejection["attempts"], 2)
+        self.assertEqual(rejection["seconds"], 8.25)
+
     def test_gate_stop_writes_a_marker_only_for_a_live_lock(self):
         with self.assertRaises(Refused):
             gate.request_stop(self.p.root)

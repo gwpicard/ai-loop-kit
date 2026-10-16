@@ -85,9 +85,9 @@ each failure with a mechanism, not an instruction.
    run, the quality floor and the check settings are fixed at ready. A
    builder that cannot change the test can only change the code
    [ImpossibleBench].
-4. **Every outcome says why.** Each hand-back records a type and a cause, so
-   a flaky test, a broken environment and a weak judge can be told apart and
-   counted (**planned**: today the record holds the type and free text).
+4. **Every outcome says why.** Each hand-back records its type, cause,
+   attempt count, elapsed seconds, kit version and date. The report groups
+   hand-backs by type and cause, and shows how many pieces passed first time.
 5. **Checks over words, two layers for what matters.** Prose is read once and
    forgotten [Osmani, agent files]. Where it matters, hold a rule in two
    independent layers.
@@ -615,9 +615,8 @@ These facts about the platform shaped the design. Each one cost time once.
   gaming.
 - **Across pieces**, the kit does not keep a growing notes file for agents to
   read; context files decay and cost accuracy [ETH AGENTS.md], [Osmani, skill
-  decay]. `gate.py report` counts hand-backs by type, and (**planned**) by
-  cause, with attempts, time, kit version and a count of pieces that passed
-  first time.
+  decay]. `gate.py report` groups hand-backs by type and cause, and shows the
+  number of pieces started and how many passed on the first attempt.
 - **The meta loop is a person reading that report**, with one rule: the same
   cause in three different pieces earns a change. Many `judge-gap` points at
   weak exits; many `spec-unclear` at shaping questions; many `environment` at

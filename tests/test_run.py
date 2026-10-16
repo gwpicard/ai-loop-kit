@@ -402,6 +402,12 @@ class RunTest(unittest.TestCase):
         self.assertIn("idle", result)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
         self.assertIn("builder-failed: 1", gate.report(self.p.gh))
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["cause"], "idle")
+        self.assertEqual(handback["attempts"], 1)
+        self.assertGreaterEqual(handback["seconds"], 0)
+        self.assertEqual(handback["kit"], "1.1.0")
+        self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
 
     def test_idle_reviewer_is_recorded_as_builder_failed(self):
         os.environ["FAKE_REVIEW_MODE"] = "review-idle"
@@ -637,6 +643,10 @@ class RunTest(unittest.TestCase):
         (folder / ".loop" / "outcome").write_text("bar-wrong\nstale result\n")
         result = run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertIn("pull request ready", result)
+        submit = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "submit"][-1]
+        self.assertEqual(submit["attempts"], 1)
+        self.assertGreaterEqual(submit["seconds"], 0)
+        self.assertIn("passed on the first attempt: 1 / 1 (100%)", gate.report(self.p.gh))
 
     def test_stop_records_stopped_and_report_counts_it(self):
         n = self.p.piece()
