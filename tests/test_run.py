@@ -737,6 +737,7 @@ class RunTest(unittest.TestCase):
         self.assertIn("person asked the run to stop", result)
         handbacks = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"]
         self.assertEqual(handbacks[0]["type"], "stopped")
+        self.assertEqual(handbacks[0]["cause"], "stopped")
         self.assertEqual(handbacks[0]["attempts"], 0)
         self.assertGreaterEqual(handbacks[0]["seconds"], 0)
         self.assertIn("stopped: 1", gate.report(self.p.gh))
@@ -793,6 +794,9 @@ class RunTest(unittest.TestCase):
         labels = self.p.gh.issue(n)["labels"]
         self.assertIn("state:shaping", labels)
         self.assertIn("needs-you", labels)
+        handback = [r for r in records(self.p.gh.comments(n))
+                    if r.get("move") == "give-back"][-1]
+        self.assertEqual(handback["cause"], "other")
 
     def test_a_pushed_branch_is_never_rewritten(self):
         os.environ["FAKE_MODE"] = "good"

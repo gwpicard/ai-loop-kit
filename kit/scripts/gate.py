@@ -498,7 +498,7 @@ def _cause(name: str, reason: str, reason_type: str) -> str:
         cause = "conflict"
     elif "judge gap" in text:
         cause = "judge-gap"
-    elif "stop" in text:
+    elif reason_type == "stopped" or "person asked the run to stop" in text:
         cause = "stopped"
     elif "bar" in text or reason_type == "bar-wrong":
         cause = "bar-wrong"
