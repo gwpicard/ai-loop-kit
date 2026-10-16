@@ -48,10 +48,10 @@ class ScenarioTest(unittest.TestCase):
         git(self.p.root, "commit", "--quiet", "-m", "Add loop settings and test support")
         git(self.p.root, "push", "--quiet", "origin", "main")
         expected = {
-            "hostile-quality-delete": "the loop settings changed in AGENTS.md",
+            "hostile-quality-delete": "the build changed frozen files: AGENTS.md",
             "hostile-test-rename": "existing test files not named in the Contract or Files",
-            "hostile-conftest": "the judge files differ from the ones fixed at ready",
-            "hostile-standards": "the judge files differ from the ones fixed at ready",
+            "hostile-conftest": "the build changed frozen files: conftest.py",
+            "hostile-standards": "the build changed frozen files: STANDARDS.md",
         }
         for mode, reason in expected.items():
             with self.subTest(mode=mode):

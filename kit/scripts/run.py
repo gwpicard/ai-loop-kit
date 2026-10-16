@@ -18,6 +18,7 @@ import re
 import signal
 import sys
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -184,7 +185,9 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                result_event: Optional[dict] = None,
                append_log: bool = False, backend: str = "claude",
                protected_exceptions: Optional[list[str]] = None) -> str:  # noqa: UP045
-    with logfile.open("a" if append_log else "w") as out:
+    events = (logfile.with_suffix(".jsonl").open("ab" if append_log else "wb")
+              if backend == "codex" else nullcontext())
+    with logfile.open("a" if append_log else "w") as out, events as event_log:
         proc = agents.start_session(
             backend, prompt, folder, role="builder", disallowed=files,
             settings_allowed=settings, protected_paths=protected_paths,
@@ -194,7 +197,7 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
         track_process(proc)
         from review import _pump_session
         status = _pump_session(proc, out, idle_seconds, activity_path=folder,
-                               result_event=result_event, backend=backend)
+                               result_event=result_event, backend=backend, event_log=event_log)
         if walk_away and result_event is not None and sandbox.usage_limit_event(result_event):
             return "usage-limit"
         return status
@@ -347,6 +350,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     claim = last_record(gh.comments(n), "claim") or {}
     ready = {**ready, "stale_research": claim.get("stale_research", [])}
     folder = worktree(root, n)
+    log(f"piece {n}: build worktree: {folder}")
     dirty = dirty_folder_reason(folder)
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()

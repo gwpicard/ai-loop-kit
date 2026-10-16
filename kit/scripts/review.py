@@ -166,7 +166,8 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
                   activity_path: Optional[Path] = None,
                   result_event: Optional[dict] = None,
                   backend: str = "claude",
-                  clock: Optional[Callable[[], float]] = None) -> str:
+                  clock: Optional[Callable[[], float]] = None,
+                  event_log=None) -> str:
     """Copy output to a log and stop a silent or overlong process group."""
     now_seconds = clock if clock is not None else time.monotonic
     assert proc.stdout is not None
@@ -226,6 +227,9 @@ def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
                 eof = True
                 selector.unregister(stream)
                 continue
+            if event_log is not None:
+                event_log.write(chunk)
+                event_log.flush()
             pending += chunk.decode(errors="replace")
             lines = pending.split("\n")
             pending = lines.pop()

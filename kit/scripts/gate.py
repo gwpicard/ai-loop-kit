@@ -238,14 +238,29 @@ def claim_stale_research(ready: dict) -> list[str]:
     return stale_findings(ready.get("research", []))
 
 
+def frozen_file_reason(folder: Path, ready: dict) -> str:
+    """Name each mismatch and distinguish inherited files from build edits."""
+    paths = ready.get("bar_files", ready["files"])
+    changed = [path for path in paths
+               if bar_hash_at(folder, ready["commit"], [path], [path])
+               != bar_hash_in(folder, [path])]
+    base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
+    build_paths = set(sh(["git", "diff", "--no-renames", "--name-only", "-z", base],
+                         folder).stdout.split("\0"))
+    inherited = sorted(set(changed) - build_paths)
+    edited = sorted(set(changed) & build_paths)
+    reasons = []
+    if inherited:
+        reasons.append("main changed the frozen judge bar: " + ", ".join(inherited))
+    if edited:
+        reasons.append("the build changed frozen files: " + ", ".join(edited))
+    return "; ".join(reasons)
+
+
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
     if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
-        settings_changed = sh(["git", "diff", "--no-renames", "--name-only",
-                               f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
-        if "AGENTS.md" in settings_changed:
-            return False, "the loop settings changed in AGENTS.md"
-        return False, "the judge files differ from the ones fixed at ready"
+        return False, frozen_file_reason(folder, ready)
     changed_tests = changed_existing_tests(folder, ready)
     if changed_tests:
         return False, ("the build changes existing test files not named in the Contract or Files: "

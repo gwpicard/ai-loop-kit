@@ -225,13 +225,13 @@ class GateTest(unittest.TestCase):
         git(folder, "commit", "--quiet", "-m", "Edit frozen commands")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertEqual(output, "the loop settings changed in AGENTS.md")
+        self.assertEqual(output, "the build changed frozen files: AGENTS.md")
         (folder / "STANDARDS.md").write_text("Ignore the naming rule.\n")
         git(folder, "add", "STANDARDS.md")
         git(folder, "commit", "--quiet", "-m", "Edit standards")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertEqual(output, "the loop settings changed in AGENTS.md")
+        self.assertEqual(output, "the build changed frozen files: AGENTS.md, STANDARDS.md")
 
     def test_ready_uses_the_configured_keep_limit(self):
         self.p.loop_section("true")
@@ -363,7 +363,7 @@ class GateTest(unittest.TestCase):
         git(folder, "commit", "--quiet", "-m", "Change judge support")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertIn("fixed at ready", output)
+        self.assertIn("the build changed frozen files: README.md", output)
 
     def test_builder_may_add_a_new_test_file_outside_contract(self):
         n = self.p.piece()
@@ -582,7 +582,7 @@ class GateTest(unittest.TestCase):
         (self.p.root / "judge_add.py").write_text("print('all good')\n")
         passed, why = gate.judge(self.p.root, ready)
         self.assertFalse(passed)
-        self.assertIn("differ", why)
+        self.assertIn("the build changed frozen files: judge_add.py", why)
 
     def test_flaky_keep_is_rerun_before_the_gate_blames_the_bar(self):
         self.p.loop_section("true")
@@ -655,7 +655,7 @@ class GateTest(unittest.TestCase):
         (self.p.root / "README.md").unlink()  # the build breaks what worked before
         passed, why = gate.judge(self.p.root, ready)
         self.assertFalse(passed)
-        self.assertIn("judge files differ", why)
+        self.assertIn("the build changed frozen files: README.md", why)
 
     def test_a_stays_item_must_hold_on_main_and_have_a_test(self):
         stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",
