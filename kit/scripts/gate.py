@@ -20,17 +20,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import shutil
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
-from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
+from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
@@ -474,8 +476,61 @@ def quality_probe_path(root: Path, piece: int, command: str, main_commit: str) -
 
 # ---------------------------------------------------------------- moves
 
+def _cause(name: str, reason: str, reason_type: str) -> str:
+    text = reason.lower()
+    if name == "reject" and "pull request creation failed" in text:
+        cause = "pull-request-failed"
+    elif name == "reject":
+        cause = "person-rejected"
+    elif name == "pull-back":
+        cause = "person-request"
+    elif "prepare" in text:
+        cause = "prepare-failed"
+    elif "rate limit" in text or "usage limit" in text:
+        cause = "usage-limit"
+    elif "idle" in text:
+        cause = "idle"
+    elif "stale" in text or "main changed" in text:
+        cause = "stale-after-main"
+    elif ("importerror" in text or "modulenotfounderror" in text
+          or "no module named" in text or "module not found" in text
+          or "import error" in text):
+        cause = "import-error"
+    elif "flaky" in text:
+        cause = "keep-flaky"
+    elif "conflict" in text or "does not merge" in text:
+        cause = "conflict"
+    elif "judge gap" in text:
+        cause = "judge-gap"
+    elif reason_type == "stopped" or "person asked the run to stop" in text:
+        cause = "stopped"
+    elif "bar" in text or reason_type == "bar-wrong":
+        cause = "bar-wrong"
+    elif "quality" in text:
+        cause = "quality-failed"
+    elif "judge" in text:
+        cause = "judge-failed"
+    elif "dirty" in text or "uncommitted" in text:
+        cause = "dirty-worktree"
+    elif reason_type == "builder-failed":
+        cause = "builder-failed"
+    else:
+        cause = "other"
+    return cause if cause in CAUSES else "other"
+
+
+def _kit_version() -> str:
+    manifest = Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json"
+    try:
+        return str(json.loads(manifest.read_text()).get("version") or "unknown")
+    except (OSError, ValueError, AttributeError):
+        return "unknown"
+
+
 def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
-         reason_type: str = "", folder: Optional[Path] = None, pr: str = "") -> str:
+         reason_type: str = "", folder: Optional[Path] = None, pr: str = "",
+         cause: str = "", attempts: Optional[int] = None,
+         seconds: Optional[float] = None) -> str:
     issue = gh.issue(n)
     frm = state_of(issue)
     name = MOVES.get((frm, to))
@@ -521,6 +576,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             record["pr"] = pr
         record["check_seconds"] = check_times(output)
         record["commit"] = rev(folder, "HEAD")
+        record["attempts"] = max(0, int(attempts or 0))
+        record["seconds"] = round(max(0.0, float(seconds or 0)), 3)
         note += f" The gate ran the judge and it passed. Pull request: {pr}"
     elif name == "merged":
         found = gh.pr_for_branch(branch_name(n))
@@ -532,6 +589,17 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         note += f" Reason: {reason}"
     if reason_type:
         record["type"] = reason_type
+    if name in ("give-back", "reject", "pull-back"):
+        previous_submit = last_record(comments, "submit") or {}
+        attempt_count = attempts if attempts is not None else previous_submit.get("attempts", 0)
+        elapsed = seconds if seconds is not None else previous_submit.get("seconds", 0)
+        record.update({
+            "cause": cause if cause in CAUSES else _cause(name, reason, reason_type),
+            "attempts": max(0, int(attempt_count)),
+            "seconds": round(max(0.0, float(elapsed)), 3),
+            "kit": _kit_version(),
+            "date": datetime.now(timezone.utc).date().isoformat(),
+        })
 
     add = [STATE_PREFIX + to]
     remove = [STATE_PREFIX + frm]
@@ -753,25 +821,46 @@ def status(gh: GitHub, root: Optional[Path] = None) -> str:
 
 
 def report(gh: GitHub) -> str:
-    """Count hand-backs by typed reason and by piece from trusted records."""
+    """Count hand-backs by type and cause, and report first-attempt outcomes."""
     counts: dict[str, int] = {}
+    cause_counts: dict[str, int] = {}
     pieces: dict[int, list[str]] = {}
     seen: dict[int, set[str]] = {}
+    started, first_pass = set(), set()
     for state in STATES:
         for issue in gh.issues_with_label(STATE_PREFIX + state, closed_too=True):
             n = issue["number"]
             if n in seen:
                 continue
             seen[n] = set()
-            for record in records(gh.comments(n)):
+            issue_records = records(gh.comments(n))
+            claimed = False
+            first_build_outcome = False
+            for record in issue_records:
+                if record.get("move") == "claim":
+                    started.add(n)
+                    claimed = True
+                elif claimed and not first_build_outcome and record.get("move") in (
+                        "give-back", "submit"):
+                    first_build_outcome = True
+                    if record.get("move") == "submit" and record.get("attempts") == 1:
+                        first_pass.add(n)
                 kind = record.get("type")
                 if (record.get("move") not in NEEDS_TYPE and record.get("move") != "judge-gap") or \
                         kind not in REASON_TYPES:
                     continue
                 key = f"{kind}: {record.get('reason', '')}"
                 counts[kind] = counts.get(kind, 0) + 1
+                cause_key = f"{kind} / {record.get('cause', 'other')}"
+                cause_counts[cause_key] = cause_counts.get(cause_key, 0) + 1
                 pieces.setdefault(n, []).append(key)
     lines = [f"{kind}: {counts.get(kind, 0)}" for kind in REASON_TYPES]
+    lines.append("by type and cause:")
+    lines += [f"{key}: {value}" for key, value in sorted(cause_counts.items())]
+    denominator = len(started)
+    percentage = round(len(first_pass) * 100 / denominator) if denominator else 0
+    lines.append(f"pieces started: {denominator}")
+    lines.append(f"passed on the first attempt: {len(first_pass)} / {denominator} ({percentage}%)")
     lines.append("by piece:")
     lines += [f"{n}: " + "; ".join(items) for n, items in sorted(pieces.items())]
     if not pieces:

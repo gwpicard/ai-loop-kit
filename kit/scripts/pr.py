@@ -78,7 +78,8 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
 
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
-                      k: int, output: str, review: Optional[dict] = None) -> str:
+                      k: int, output: str, review: Optional[dict] = None,
+                      seconds: float = 0) -> str:
     sh(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
     facts, evidence = pull_request_facts(folder, last_record(gh.comments(n), "ready") or {}, output)
     body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
@@ -103,10 +104,11 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
     existing = gh.pr_for_branch(branch_name(n))
     if existing and existing["state"] == "OPEN":
         url = existing["url"]
-        gate.move(gh, root, n, "approval", folder=folder, pr=url)
+        gate.move(gh, root, n, "approval", folder=folder, pr=url,
+                  attempts=k, seconds=seconds)
     else:
         # The submit move must pass before a new pull request can be created.
-        gate.move(gh, root, n, "approval", folder=folder)
+        gate.move(gh, root, n, "approval", folder=folder, attempts=k, seconds=seconds)
         try:
             url = gh.create_pr(branch_name(n), issue["title"], body)
         except Exception:
