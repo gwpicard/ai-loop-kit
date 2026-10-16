@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.0 (17 October 2026)
+
+- Fixed the Codex backend sandbox so builders can write temporary files and
+  their worktree's Git data. The run stages Codex changes after the session
+  exits. The staging helper handles ignored `.loop/` folders and preserves
+  the original index if staging fails.
+- Generated `.loop/` files stay out of commits. The builder brief, staging
+  helper, submit check and field audit enforce this rule.
+- A Keep rerun records the failing test names and needs evidence before
+  blaming the frozen tests for a failure.
+- Pull request and ready messages say what their counts cover. Reused pull
+  requests get fresh checked evidence. Failed pieces make the run exit
+  non-zero, and an environment refusal needs a failed tool result as evidence.
+- Gauntlet checks keep invalid critic answers and the order shown, and
+  compare criteria by stable keys.
+- The audit counts completed attempts. The reviewer cleanup check verifies
+  that process groups have exited and that no review worktrees or branches
+  remain.
+- Frozen-file refusals name the right reason, and logs keep tool events.
+- The GitHub account check uses the account seen by the API.
+- Codex sessions start without unrelated MCP servers.
+- The mutation guidance explains editable adapters and why changed-function
+  checks need a commit.
+- Installation uses `stable`, which only a release moves. The pull-request base
+  check refuses `stable` and points builders to `main`.
+- No preview became stable and none was removed in 1.3. The walk-away night,
+  the researcher and the attended `/shape` and `/run` pass were not field-tested.
+  See the [field results](tests/field/RESULTS.md) for the runs and their limits.
+- Python code in `kit/` is 5,972 lines, up 288 from 5,684 in 1.2.
+
 ## 1.2.0 (16 October 2026)
 
 - Fixed holes in sandbox domains and the review import. Goal and gauntlet
