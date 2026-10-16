@@ -174,3 +174,13 @@ command on a fresh copy of main after applying the proposed loop commands.
 Python mutation checks require mutmut 3.8 or later and configured source
 paths. For subprocess acceptance tests, select an in-process adapter test for
 the changed function in mutmut's test-selection setting.
+
+When a piece needs stronger tests in an existing mutation adapter, name its
+path in Contract so the builder may strengthen it. Keep the adapter out of
+Exit `Files:`: those files are frozen at ready, even when Contract names
+them. Use a separate judge that does not depend on the editable adapter.
+
+`mutmut-changed.py` selects functions from committed `base...HEAD` changes.
+A builder's check before committing may find no changed functions. The
+final gate evidence comes after the runner commits the attempt and runs
+the checks again.
