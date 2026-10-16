@@ -60,6 +60,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         print(f"refused: {r.reason}", file=sys.stderr)
         print(f"next: {r.next_step}", file=sys.stderr)
         return 2
+    failed = False
     results = []
     summary_results = []
     awake = walkaway.keep_awake(root) if args.walk_away else nullcontext()
@@ -89,6 +90,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 result = api.build_piece(gh, root, n, args.attempts, args.walk_away,
                                          args.agent)
                 results.append(result)
+                failed = gate.state_of(gh.issue(n)) not in ("approval", "done") or failed
                 if args.walk_away:
                     try:
                         state = gate.state_of(gh.issue(n))
@@ -97,12 +99,14 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                     summary_results.append(walkaway.piece_summary(root, n, result, state,
                                                                   started_at))
             except Refused as r:
+                failed = True
                 result = f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else "")
                 results.append(result)
                 if args.walk_away:
                     summary_results.append(walkaway.piece_summary(root, n, result, "unchanged",
                                                                   started_at))
             except Exception as e:  # keep going with the other pieces
+                failed = True
                 result = f"piece {n}: stopped by an error: {e}"
                 results.append(result)
                 if args.walk_away:
@@ -110,7 +114,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                                                                   started_at))
         print("\nRun finished.")
         print("\n".join(results))
-        return 0
+        return int(failed)
     finally:
         if api.stop_requested(root):
             api.clear_stop(root)
