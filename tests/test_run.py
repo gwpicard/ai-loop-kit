@@ -306,6 +306,24 @@ class RunTest(unittest.TestCase):
                                     attempts=0, seconds_positive=False)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
 
+    def test_crash_recovery_records_persisted_attempts_and_elapsed_time(self):
+        self.p.loop_section("true")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with patch("run.build_once", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                run.build_piece(self.p.gh, self.p.root, n, attempts=2)
+
+        saved = run._run_metrics_path(self.p.root, n)
+        self.assertTrue(saved.is_file())
+        self.assertEqual(json.loads(saved.read_text())["attempts"], 1)
+        recovered = run.recover_building(self.p.gh, self.p.root)
+        self.assertIn(f"piece {n}", recovered[0])
+        handback = records(self.p.gh.comments(n))[-1]
+        self.assert_handback_record(handback, reason_type="environment", cause="other",
+                                    attempts=1)
+        self.assertFalse(saved.exists())
+
     def test_judge_timeout_returns_a_clear_failure(self):
         code, output = run_judge(self.p.root, "sleep 2", timeout=0.1)
         self.assertEqual(code, 124)

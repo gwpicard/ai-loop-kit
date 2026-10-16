@@ -60,14 +60,45 @@ def record_attempt_timing(logfile: Path, started_at: datetime,
         output.write("\nAttempt timing: " + json.dumps(timing, sort_keys=True) + "\n")
 
 
+def _run_metrics_path(root: Path, n: int) -> Path:
+    return root / ".loop" / "run-metrics" / f"piece-{n}.json"
+
+
+def _save_run_metrics(root: Path, n: int, started_at: datetime,
+                      attempts: int) -> None:
+    path = _run_metrics_path(root, n)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({
+        "started_at": started_at.isoformat(),
+        "attempts": attempts,
+    }) + "\n")
+    temporary.replace(path)
+
+
+def _recovered_run_metrics(root: Path, n: int) -> tuple[int, float]:
+    try:
+        saved = json.loads(_run_metrics_path(root, n).read_text())
+        started_at = datetime.fromisoformat(saved["started_at"])
+        if started_at.tzinfo is None:
+            return 0, 0
+        attempts = max(0, int(saved["attempts"]))
+        seconds = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
+        return attempts, seconds
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0, 0
+
+
 def recover_building(gh: GitHub, root: Path) -> list[str]:
     """Return pieces left in building to shaping after a dead run."""
     recovered = []
     for issue in gh.issues_with_label(STATE_PREFIX + "building"):
         note = "the previous run ended while this piece was building"
+        attempts, seconds = _recovered_run_metrics(root, issue["number"])
         recovered.append(f"piece {issue['number']}: " + gate.move(
             gh, root, issue["number"], "shaping", reason=note,
-            reason_type="environment", attempts=0, seconds=0))
+            reason_type="environment", attempts=attempts, seconds=seconds))
+        _run_metrics_path(root, issue["number"]).unlink(missing_ok=True)
     return recovered
 
 
@@ -346,10 +377,12 @@ def build_piece(gh: GitHub, root: Path, n: int, attempts: int,
 
 def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
                  walk_away: bool = False, agent_override: Optional[str] = None) -> str:
-    metrics = {"started": time.monotonic(), "attempts": 0}
+    started_at = datetime.now(timezone.utc)
+    metrics = {"started": time.monotonic(), "started_at": started_at, "attempts": 0}
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     check_pushed_branch(root, n)
+    _save_run_metrics(root, n, started_at, metrics["attempts"])
     gate.move(gh, root, n, "building")
     try:
         result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override,
@@ -364,15 +397,19 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
         if gate.state_of(gh.issue(n)) == "building":
             _hand_back(gh, root, n, reason, "environment", metrics)
         result = f"piece {n}: back to shaping, {reason}"
-    if gate.state_of(gh.issue(n)) == "shaping":
+    state = gate.state_of(gh.issue(n))
+    if state == "shaping":
         release_worktree(root, n)
+    if state != "building":
+        _run_metrics_path(root, n).unlink(missing_ok=True)
     return result
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                   walk_away: bool = False, agent_override: Optional[str] = None,
                   metrics: Optional[dict] = None) -> str:  # noqa: UP045
-    metrics = metrics or {"started": time.monotonic(), "attempts": 0}
+    metrics = metrics or {"started": time.monotonic(),
+                          "started_at": datetime.now(timezone.utc), "attempts": 0}
     ready = last_record(gh.comments(n), "ready")
     assert ready is not None  # the claim move checked it
     ready = {**ready, "agent": agents.selected(root, agent_override or ready.get("agent"))}
@@ -457,6 +494,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         result_event = {}
         prompt = brief(n, issue["body"], ready, last_failure, came_back, folder)
         metrics["attempts"] = k
+        _save_run_metrics(root, n, metrics["started_at"], k)
         idle_status = build_once(folder, prompt, ready["files"], logfile,
                                  ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
