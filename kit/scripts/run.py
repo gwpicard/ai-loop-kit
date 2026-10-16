@@ -111,6 +111,17 @@ def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
                      seconds=time.monotonic() - metrics["started"])
 
 
+def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
+    """Refresh remote main before deciding whether a failed check is stale."""
+    main = main_ref(folder)
+    if "origin" in sh(["git", "remote"], folder).stdout.split():
+        sh(["git", "fetch", "--quiet", "origin", "main"], folder, check=False)
+        remote_main = rev(folder, "origin/main")
+        if remote_main:
+            return remote_main
+    return rev(folder, main)
+
+
 def waiting_limit_note(gh: GitHub, root: Path, ready: Optional[dict] = None) -> str:
     value = (ready or {}).get("waiting_limit", loop_settings(root).get("waiting limit", "3"))
     try:
@@ -554,7 +565,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             r"FileNotFoundError)\b|ERROR collecting|\bcommand not found\b",
             output, re.IGNORECASE)
         if not passed and wrong_reason:
-            main_moved = rev(folder, main_ref(folder)) != ready.get("main")
+            main_moved = latest_main_commit(folder) != ready.get("main")
             cause = "stale-after-main" if main_moved else "import-error"
             reason = "the judge or Keep check failed for the wrong reason"
             gh.comment(n, f"**Run:** attempt {k} of {attempts} failed for the wrong reason; "

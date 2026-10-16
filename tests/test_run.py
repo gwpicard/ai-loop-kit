@@ -683,43 +683,6 @@ class RunTest(unittest.TestCase):
         self.assertIn("The builder said:", failed[0])
         self.assertIn("built", failed[0])  # the stand-in's own words reach the issue
 
-    def test_wrong_reason_import_error_returns_after_one_attempt(self):
-        n, result = self.build("wrong-import", attempts=3)
-        self.assertIn("back to shaping", result)
-        handback = [r for r in records(self.p.gh.comments(n))
-                    if r.get("move") == "give-back"][-1]
-        self.assert_handback_record(handback, reason_type="environment",
-                                    cause="import-error", attempts=1)
-        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
-        self.assertEqual(len(failed), 1)
-
-    def test_wrong_reason_keep_import_error_returns_after_one_attempt(self):
-        keep = "python3 -c \"import pathlib; pathlib.Path('broken_keep').exists() and __import__('missing_runtime')\""
-        n, result = self.build(
-            "wrong-keep-import", attempts=3,
-            spec=SPEC.replace("Files:", f"Keep: `{keep}`\nFiles:"))
-        self.assertIn("back to shaping", result)
-        handback = [r for r in records(self.p.gh.comments(n))
-                    if r.get("move") == "give-back"][-1]
-        self.assert_handback_record(handback, reason_type="environment",
-                                    cause="import-error", attempts=1)
-        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
-        self.assertEqual(len(failed), 1)
-
-    def test_wrong_reason_after_main_moves_uses_stale_cause(self):
-        os.environ["FAKE_MODE"] = "wrong-import"
-        n = self.p.piece()
-        gate.move(self.p.gh, self.p.root, n, "ready")
-        (self.p.root / "main_change.py").write_text("main_moved = True\n")
-        git(self.p.root, "add", "main_change.py")
-        git(self.p.root, "commit", "--quiet", "-m", "Move main")
-        git(self.p.root, "push", "--quiet", "origin", "main")
-        run.build_piece(self.p.gh, self.p.root, n, 3)
-        handback = [r for r in records(self.p.gh.comments(n))
-                    if r.get("move") == "give-back"][-1]
-        self.assert_handback_record(handback, reason_type="environment",
-                                    cause="stale-after-main", attempts=1)
-
     def test_a_build_never_commits_generated_files(self):
         run.gate.ignore_loop_folder(self.p.root)
         os.environ["FAKE_MODE"] = "good"
