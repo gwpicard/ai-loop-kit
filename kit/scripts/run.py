@@ -472,9 +472,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                     gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {reason}")
                     return f"piece {n}: back to shaping, {outcome_kind}: {reason}"
                 commit_leftovers(folder, n, k)
-                last_failure = (f"{outcome_kind} needs a reason (a question for needs-answer, "
-                                "a citation for spec-unclear); "
-                                "this attempt failed.")
+                needed = ("a reason" if outcome_kind == "environment"
+                          else "a question or a cited reason")
+                last_failure = f"{outcome_kind} needs {needed}; this attempt failed."
                 gh.comment(n, f"**Run:** attempt {k} reported {last_failure}")
                 if k < attempts:
                     continue
