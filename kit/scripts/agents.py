@@ -186,3 +186,37 @@ def log_line(line: str, backend: str) -> str:
     if event.get("type") == "turn.failed":
         return f"Codex turn failed: {event.get('error', '')}\n"
     return ""
+
+
+def environment_evidence(logfile: Path) -> str:
+    """Read observed environment errors from failed tools, never agent prose."""
+    events = logfile.with_suffix(".jsonl")
+    if not events.is_file():
+        return ""
+    failures = []
+    for line in events.read_text(errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        item = event.get("item", {})
+        outputs = []
+        if event.get("type") == "item.completed" and isinstance(item, dict) and \
+                item.get("type") == "command_execution" and \
+                isinstance(item.get("exit_code"), int) and item["exit_code"] != 0:
+            outputs.append(str(item.get("aggregated_output", "")))
+        message = event.get("message", {})
+        if event.get("type") == "user" and isinstance(message, dict):
+            for block in message.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "tool_result" and \
+                        block.get("is_error"):
+                    content = block.get("content", "")
+                    if isinstance(content, list):
+                        content = "\n".join(str(part.get("text", "")) for part in content
+                                            if isinstance(part, dict))
+                    outputs.append(str(content))
+        failures.extend(text.strip() for output in outputs for text in output.splitlines()
+                        if text.strip())
+    return ("Observed tool failure: " + "\n".join(failures[-3:]))[:500] if failures else ""
