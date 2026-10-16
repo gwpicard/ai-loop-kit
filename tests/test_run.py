@@ -77,11 +77,15 @@ FAKE_CLAUDE = textwrap.dedent('''\
       idle) sleep 5 ;;
       bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
       needs-answer) mkdir -p .loop
-                    printf 'needs-answer\\nShould this limiter use shared storage?\\n' > .loop/outcome ;;
+                    printf '%s\\n' 'needs-answer' \\
+                      'Should this limiter use shared storage?' > .loop/outcome ;;
       spec-unclear) mkdir -p .loop
-                    printf 'spec-unclear\\nReason: The required interface is unspecified.\\nCitation: habits.py:1\\n' > .loop/outcome ;;
+                    printf '%s\\n' 'spec-unclear' \\
+                      'Reason: The required interface is unspecified.' \\
+                      'Citation: habits.py:1' > .loop/outcome ;;
       uncited-spec-unclear) mkdir -p .loop
-                    printf 'spec-unclear\\nReason: The required interface is unspecified.\\n' > .loop/outcome ;;
+                    printf '%s\\n' 'spec-unclear' \\
+                      'Reason: The required interface is unspecified.' > .loop/outcome ;;
       hostile|hostile-quality-delete) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
               sed -i.bak '/Quality:/d' AGENTS.md; rm -f AGENTS.md.bak ;;
       hostile-test-rename) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
