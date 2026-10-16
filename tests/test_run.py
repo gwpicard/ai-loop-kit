@@ -118,7 +118,8 @@ class RunTest(unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, attempts)
         return n, result
 
-    def assert_handback_record(self, handback, *, reason_type, cause, attempts):
+    def assert_handback_record(self, handback, *, reason_type, cause, attempts,
+                               seconds_positive=True):
         self.assertEqual(handback["move"], "give-back")
         self.assertEqual(handback["from"], "building")
         self.assertEqual(handback["to"], "shaping")
@@ -126,7 +127,10 @@ class RunTest(unittest.TestCase):
         self.assertTrue(handback["reason"])
         self.assertEqual(handback["cause"], cause)
         self.assertEqual(handback["attempts"], attempts)
-        self.assertGreater(handback["seconds"], 0)
+        if seconds_positive:
+            self.assertGreater(handback["seconds"], 0)
+        else:
+            self.assertGreaterEqual(handback["seconds"], 0)
         self.assertEqual(handback["kit"], "1.1.0")
         self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
 
@@ -298,9 +302,8 @@ class RunTest(unittest.TestCase):
         recovered = run.recover_building(self.p.gh, self.p.root)
         self.assertIn(f"piece {n}", recovered[0])
         record = records(self.p.gh.comments(n))[-1]
-        self.assertEqual(record["type"], "environment")
-        self.assertEqual(record["attempts"], 0)
-        self.assertGreaterEqual(record["seconds"], 0)
+        self.assert_handback_record(record, reason_type="environment", cause="other",
+                                    attempts=0, seconds_positive=False)
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
 
     def test_judge_timeout_returns_a_clear_failure(self):
@@ -530,8 +533,8 @@ class RunTest(unittest.TestCase):
         self.assertTrue(dirty.is_file())
         self.assertIn("environment: 1", gate.report(self.p.gh))
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["attempts"], 0)
-        self.assertGreater(handback["seconds"], 0)
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="dirty-worktree", attempts=0)
 
     def test_standards_reviewer_changes_are_committed_and_judged(self):
         (self.p.root / "standards.md").write_text("Use small local changes.\n")
@@ -650,6 +653,9 @@ class RunTest(unittest.TestCase):
         labels = self.p.gh.issue(n)["labels"]
         self.assertIn("state:shaping", labels)
         self.assertIn("needs-you", labels)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assert_handback_record(handback, reason_type="builder-failed",
+                                    cause="judge-failed", attempts=2)
         failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(failed), 2)
         self.assertIn("The builder said:", failed[0])
@@ -746,10 +752,9 @@ class RunTest(unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, 2)
         self.assertIn("person asked the run to stop", result)
         handbacks = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"]
-        self.assertEqual(handbacks[0]["type"], "stopped")
-        self.assertEqual(handbacks[0]["cause"], "stopped")
-        self.assertEqual(handbacks[0]["attempts"], 0)
-        self.assertGreaterEqual(handbacks[0]["seconds"], 0)
+        self.assert_handback_record(handbacks[0], reason_type="stopped",
+                                    cause="stopped", attempts=0,
+                                    seconds_positive=False)
         self.assertIn("stopped: 1", gate.report(self.p.gh))
 
     def test_stop_keeps_the_previous_judge_failure_reason(self):
