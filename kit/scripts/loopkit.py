@@ -752,7 +752,7 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                     raise Refused("the judge fails on main, but its output names no spec ID "
                                   f"({', '.join(building)}):\n{output.strip()[-1500:]}",
                                   "put each Contract ID in a failing test name")
-                required = (building if check.get("legacy_kind") or len(checks) == 1 else [])
+                required = building
                 missing = [item for item in required if item not in named]
                 if missing:
                     raise Refused(f"no failing judge test names {', '.join(missing)}",

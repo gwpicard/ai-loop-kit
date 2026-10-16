@@ -211,11 +211,21 @@ class GateHooksTest(unittest.TestCase):
         with patch.object(measure, "ready", return_value=("median 11", {"main_median": 11})):
             records, _ = loopkit.exit_ready(Path.cwd(), (measure_check,), {"D1": "feature"}, ())
         self.assertEqual(records[0]["main_median"], 11)
-        with patch.object(loopkit, "run_judge", return_value=(1, "FAIL test_D1_feature")), \
+        failed_both = "FAIL test_D1_feature\nFAIL test_D2_target"
+        with patch.object(loopkit, "run_judge", return_value=(1, failed_both)), \
                 patch.object(measure, "ready", return_value=("median 11", {"main_median": 11})):
             records, _ = loopkit.exit_ready(Path.cwd(), (test_check, measure_check),
                                              {"D1": "feature", "D2": "target"}, ())
         self.assertEqual([record["type"] for record in records], ["tests", "measure"])
+
+    def test_combined_exit_requires_tests_to_cover_every_build_contract_id(self):
+        test_check = {"type": "tests", "command": "judge"}
+        measure_check = {"type": "measure", "command": "bench", "target": "< 10"}
+        with patch.object(loopkit, "run_judge", return_value=(1, "FAIL test_D1_feature")), \
+                patch.object(measure, "ready", return_value=("median 11", {"main_median": 11})), \
+                self.assertRaisesRegex(Refused, "no failing judge test names D2"):
+            loopkit.exit_ready(Path.cwd(), (test_check, measure_check),
+                               {"D1": "feature", "D2": "target"}, ())
 
     def test_tests_only_measure_only_and_combined_exit_checks_at_submit(self):
         test_check = {"type": "tests", "command": "judge"}
