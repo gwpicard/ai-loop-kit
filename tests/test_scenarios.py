@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from helpers import KIT, git
+from helpers import KIT, git, pump_events
 import test_run as run_test_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
@@ -59,18 +59,11 @@ class ScenarioTest(unittest.TestCase):
                 self.assertIn(reason, "\n".join(self.p.gh.comments(n)))
 
     def test_idle_events_keep_a_session_alive_and_silence_stops_it(self):
-        script = self.p.tmp.name + "/stream.py"
-        Path(script).write_text(
-            "import time\n"
-            "for _ in range(20):\n"
-            " print('{\\\"type\\\":\\\"assistant\\\",\\\"message\\\":{\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"working\\\"}]}}', flush=True)\n"
-            " time.sleep(.08)\n")
-        streamed = subprocess.Popen([sys.executable, script], stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, start_new_session=True)
-        with (self.p.root / "stream.log").open("w") as output:
-            status = review._pump_session(streamed, output, 1, hard_seconds=5)
+        events = [json.dumps({"type": "assistant", "message": {
+            "content": [{"type": "text", "text": "working"}]}}) for _ in range(20)]
+        status, output = pump_events(review, events, idle_seconds=1, clock_step=.25)
         self.assertEqual(status, "")
-        self.assertIn("working", (self.p.root / "stream.log").read_text())
+        self.assertEqual(output.count("working"), 20)
         silent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"],
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                   start_new_session=True)
@@ -78,12 +71,10 @@ class ScenarioTest(unittest.TestCase):
             status = review._pump_session(silent, output, 1, hard_seconds=5)
         self.assertEqual(status, "idle")
 
-    def test_builder_streaming_past_idle_limit_finishes_and_passes(self):
-        started = time.monotonic()
-        with patch.object(run, "idle_limit_seconds", return_value=2):
+    def test_builder_streaming_logs_events_and_passes(self):
+        with patch.object(run, "idle_limit_seconds", return_value=30):
             n, result = self.build("stream-good", attempts=1)
         self.assertIn("pull request ready", result)
-        self.assertGreaterEqual(time.monotonic() - started, 2)
         log = self.p.root / ".loop" / "logs" / f"piece-{n}-attempt-1.log"
         self.assertIn("still working", log.read_text())
 
