@@ -208,11 +208,11 @@ class RiskGateTest(unittest.TestCase):
     def test_builder_session_receives_scoped_protected_path_exceptions(self):
         folder = self.project.root
         with patch("loopkit.project_root", return_value=folder), \
-                patch.object(agents.subprocess, "Popen") as popen:
+                patch.object(agents, "subprocess") as process:
             agents.start_session("codex", "build", folder, role="builder",
                                  protected_paths=["secrets"],
                                  protected_exceptions=["secrets/settings.py"])
-        environment = popen.call_args.kwargs["env"]
+        environment = process.Popen.call_args.kwargs["env"]
         self.assertEqual(environment["LOOP_PROTECTED_PATHS"], "secrets")
         self.assertEqual(environment["LOOP_PROTECTED_EXCEPTIONS"], "secrets/settings.py")
 

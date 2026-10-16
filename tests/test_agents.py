@@ -37,6 +37,64 @@ class AgentSessionTest(unittest.TestCase):
                         self.assertTrue({"plugins", "apps"} <= disabled,
                                         "Codex can still start user plugin or app MCP servers")
 
+    def test_codex_builder_grants_own_git_data_and_prepared_temp(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary).resolve() / "repo"
+            repo.mkdir()
+            git(repo, "init", "--quiet")
+            git(repo, "commit", "--allow-empty", "-qm", "Initial")
+            linked = repo.parent / "linked"
+            git(repo, "worktree", "add", "-qb", "piece", str(linked))
+            for root in (repo, linked):
+                for walk_away in (False, True):
+                    with self.subTest(linked=root == linked, walk_away=walk_away), \
+                            mock.patch.object(agents, "subprocess") as process:
+                        agents.start_session("codex", "brief", root, role="builder",
+                                             walk_away=walk_away)
+                        args = process.Popen.call_args.args[0]
+                        env = process.Popen.call_args.kwargs["env"]
+                        temp = root / ".loop" / "tmp"
+                        self.assertEqual(env.get("TMPDIR"), str(temp))
+                        self.assertTrue(temp.is_dir())
+                        configs = [args[i + 1] for i, value in enumerate(args[:-1])
+                                   if value == "--config"]
+                        filesystem = next(value for value in configs
+                                          if value.startswith("permissions.ai-loop.filesystem="))
+                        git_dir = git(root, "rev-parse", "--absolute-git-dir")
+                        self.assertIn(json.dumps(git_dir) + '="write"', filesystem)
+                        self.assertIn(json.dumps(str(temp)) + '="write"', filesystem)
+                        self.assertIn('":tmpdir"="write"', filesystem)
+                        self.assertIn('":slash_tmp"="deny"', filesystem)
+                        self.assertIn("permissions.ai-loop.network.enabled=false", configs)
+                        self.assertIn('approval_policy="never"', configs)
+                        if root == linked:
+                            common = repo / ".git"
+                            for path in (common / "objects", common / "refs/heads/piece",
+                                         common / "refs/heads/piece.lock",
+                                         common / "logs/refs/heads/piece"):
+                                self.assertIn(json.dumps(str(path)) + '="write"', filesystem)
+                            self.assertNotIn(json.dumps(str(common)) + '="write"', filesystem)
+                            self.assertNotIn(json.dumps(str(repo)) + '="write"', filesystem)
+                        prompt = args[-1]
+                        self.assertIn("permissions.ai-loop.filesystem", prompt)
+                        self.assertIn(git_dir, prompt)
+                        self.assertIn(".loop/outcome", prompt)
+                        self.assertIn("refused path", prompt)
+
+    def test_codex_builder_refuses_temp_symlink_outside_worktree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            git(root, "init", "--quiet")
+            outside = Path(temporary) / "outside"
+            outside.mkdir()
+            (root / ".loop").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "TMPDIR.*permissions.ai-loop.filesystem"), \
+                    mock.patch.object(agents, "subprocess") as process:
+                agents.start_session("codex", "brief", root, role="builder")
+            process.Popen.assert_not_called()
+            self.assertFalse((outside / "tmp").exists())
+
     def fake_codex(self, root: Path) -> Path:
         fake = root / "fake-codex-session"
         fake.write_text(

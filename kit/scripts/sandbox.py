@@ -93,14 +93,40 @@ def session_settings(folder: Path, domains: Optional[list[str]] = None) -> dict:
     return settings
 
 
-def codex_permission_args(folder: Path) -> list[str]:
-    """Build Codex CLI overrides that deny project secrets in walk-away runs."""
+def codex_builder_paths(folder: Path) -> list[Path]:
+    """Prepare temp space and find only the git paths needed for this checkout."""
+    from loopkit import sh
+
+    work = folder.resolve()
+    temp = work / ".loop" / "tmp"
+    if not temp.resolve().is_relative_to(work):
+        raise ValueError(f"TMPDIR {temp} resolves outside the build folder "
+                         "(permissions.ai-loop.filesystem)")
+    temp.mkdir(parents=True, exist_ok=True)
+    git_dir = Path(sh(["git", "rev-parse", "--absolute-git-dir"], work).stdout.strip())
+    common = Path(sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                     work).stdout.strip())
+    paths = [temp.resolve(), git_dir.resolve()]
+    if common != git_dir:
+        paths.append((common / "objects").resolve())
+        ref = sh(["git", "symbolic-ref", "-q", "HEAD"], work, check=False).stdout.strip()
+        if ref:
+            paths.extend((common / name).resolve()
+                         for name in (ref, ref + ".lock", "logs/" + ref))
+    return paths
+
+
+def codex_permission_args(folder: Path, writable: Optional[list[Path]] = None,  # noqa: UP045
+                          deny_secrets: bool = True) -> list[str]:
+    """Build a write boundary, with secret denials for walk-away sessions."""
     from loopkit import loop_settings
 
     work = folder.resolve()
-    workspace_rules = {".": "write", ".env*": "deny", ".env.example": "read"}
-    absolute_rules = {}
-    for raw in loop_settings(work).get("secret paths", []):
+    workspace_rules = {".": "write"}
+    if deny_secrets:
+        workspace_rules.update({".env*": "deny", ".env.example": "read"})
+    absolute_rules = {str(path): "write" for path in (writable or [])}
+    for raw in loop_settings(work).get("secret paths", []) if deny_secrets else []:
         path = Path(raw)
         target = (path if path.is_absolute() else work / path).resolve()
         try:
@@ -111,7 +137,7 @@ def codex_permission_args(folder: Path) -> list[str]:
             workspace_rules[relative] = "deny"
 
     filesystem = {
-        ":tmpdir": "deny",
+        ":tmpdir": "write" if writable else "deny",
         ":slash_tmp": "deny",
         ":workspace_roots": workspace_rules,
         **absolute_rules,

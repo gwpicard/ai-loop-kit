@@ -89,9 +89,21 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         cli = os.environ.get("LOOP_CODEX", "codex")
         # Ignoring config.toml alone still loads installed plugins and app MCP servers.
         args = [cli, "exec", "--json", "--disable", "plugins", "--disable", "apps"]
-        if walk_away:
+        writable = None
+        if role == "builder":
             import sandbox
-            args += sandbox.codex_permission_args(work)
+            writable = sandbox.codex_builder_paths(work)
+            prompt += ("\n\nCodex write boundary (permissions.ai-loop.filesystem):\n"
+                       + "\n".join(str(path) for path in [work, *writable])
+                       + "\nTMPDIR is the first path after the build folder above. "
+                       "permissions.ai-loop.network.enabled=false. "
+                       "If a refusal cannot be fixed within this boundary, write "
+                       "environment on the first line of .loop/outcome, then the "
+                       "refused path and the setting responsible. Do not retry "
+                       "outside the sandbox.")
+        if walk_away or writable:
+            import sandbox
+            args += sandbox.codex_permission_args(work, writable, deny_secrets=walk_away)
             args += ["--config", 'approval_policy="never"']
         else:
             args += ["--sandbox", "workspace-write", "--config",
@@ -101,7 +113,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                      "sandbox_workspace_write.writable_roots=[]", "--config",
                      "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
                      "sandbox_workspace_write.exclude_tmpdir_env_var=true"]
-        if walk_away:
+        if walk_away or writable:
             args += ["--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
         else:
             args += [prompt]
@@ -109,6 +121,8 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                              protected_exceptions=protected_exceptions),
                "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
                "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
+    if backend == "codex" and writable:
+        env["TMPDIR"] = str(writable[0])
     return subprocess.Popen(args, cwd=working, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, env=env, start_new_session=True)
 
