@@ -49,8 +49,17 @@ def parse_verdict(output: str, criteria: list[str]) -> dict:
     if not isinstance(data, dict) or data.get("winner") not in ("A", "B", "tie"):
         raise ValueError("verdict winner must be A, B or tie")
     reasons = data.get("reasons")
-    if not isinstance(reasons, dict) or set(reasons) != set(criteria):
-        raise ValueError("verdict needs one reason for each criterion")
+    if not isinstance(reasons, dict):
+        raise ValueError("verdict reasons must be an object")
+    expected = {item.rstrip(" \t\r\n.,;:!?"): item for item in criteria}
+    returned = {item.rstrip(" \t\r\n.,;:!?"): item for item in reasons}
+    if len(expected) != len(criteria) or len(returned) != len(reasons):
+        raise ValueError("ambiguous criterion keys after ignoring terminal punctuation")
+    missing = sorted(expected[key] for key in expected.keys() - returned.keys())
+    extra = sorted(returned[key] for key in returned.keys() - expected.keys())
+    if missing or extra:
+        raise ValueError(f"verdict criterion keys differ; missing: {missing}; extra: {extra}")
+    reasons = {item: reasons[returned[key]] for key, item in expected.items()}
     for value in reasons.values():
         if (not isinstance(value, dict) or value.get("winner") not in ("A", "B", "tie")
                 or not isinstance(value.get("reason"), str) or not value["reason"].strip()):
@@ -144,12 +153,14 @@ def judge(folder: Path, ours: list[str], reference: str, criteria: list[str],
             if proc.returncode:
                 raise Refused("critic session failed: " + raw.decode(errors="replace")[-1200:])
             output = agents.event_text(raw, backend)
+        order = "A=ours, B=reference" if ours_is_a else "A=reference, B=ours"
         try:
             verdict = parse_verdict(output, criteria)
         except ValueError as error:
-            raise Refused(f"critic returned an invalid verdict: {error}") from error
+            raise Refused(f"critic returned an invalid verdict: {error}\n"
+                          f"Order: {order}\nRaw critic answer:\n{output}") from error
         winner = verdict["winner"]
-        verdict["order"] = "A=ours, B=reference" if ours_is_a else "A=reference, B=ours"
+        verdict["order"] = order
         if winner != "tie":
             verdict["winner"] = "ours" if (winner == "A") == ours_is_a else "reference"
         results.append(verdict)
