@@ -21,12 +21,13 @@ from loopkit import Refused, run_judge
 KIT = Path(__file__).resolve().parent.parent
 
 
-def capture(folder: Path, command: str, label: str) -> list[str]:
+def capture(folder: Path, command: str, label: str,
+            protected_paths: list[str] | None = None) -> list[str]:
     """Run Capture into its named directory and return relative artefact paths."""
     target = folder / ".loop" / "capture" / label / uuid.uuid4().hex[:8]
     target.mkdir(parents=True, exist_ok=True)
     env_command = f"LOOP_CAPTURE_DIR={shlex.quote(str(target))} {command}"
-    code, output = run_judge(folder, env_command)
+    code, output = run_judge(folder, env_command, protected_paths=protected_paths)
     if code:
         raise Refused(f"Capture failed with exit {code}:\n{output.strip()[-1200:]}")
     files = sorted(path.relative_to(folder).as_posix()
@@ -120,7 +121,8 @@ def _blind_paths(folder: Path, ours: list[str], reference: str,
 def judge(folder: Path, ours: list[str], reference: str, criteria: list[str],
           template: Optional[str] = None,
           session: Optional[Callable[[str], str]] = None,
-          agent: Optional[str] = None) -> list[dict]:
+          agent: Optional[str] = None,
+          protected_paths: list[str] | None = None) -> list[dict]:
     """Run three fresh sessions with independently randomised artefact order."""
     brief = template if template is not None else (KIT / "briefs" / "critic.md").read_text()
     reference = _stage_reference(folder, reference)
@@ -134,7 +136,8 @@ def judge(folder: Path, ours: list[str], reference: str, criteria: list[str],
         else:
             try:
                 backend = agents.selected(folder, agent)
-                proc = agents.start_session(backend, prompt, folder, role="critic")
+                proc = agents.start_session(backend, prompt, folder, role="critic",
+                                            protected_paths=protected_paths)
                 raw, _ = proc.communicate(timeout=600)
             except (OSError, subprocess.TimeoutExpired) as error:
                 raise Refused(f"critic session did not finish: {error}") from error
@@ -168,13 +171,15 @@ def ready(folder: Path, capture_command: str, reference: str,
         "main_verdicts": verdicts}
 
 
-def judge_attempt(folder: Path, ready_record: dict) -> tuple[int, str]:
+def judge_attempt(folder: Path, ready_record: dict,
+                  protected_paths: list[str] | None = None) -> tuple[int, str]:
     """Capture one attempt and require at least two blind wins."""
     try:
         number = ready_record.get("attempt", 1)
-        artefacts = capture(folder, ready_record["capture"], f"attempt-{number}")
+        artefacts = capture(folder, ready_record["capture"], f"attempt-{number}",
+                            protected_paths=protected_paths)
         verdicts = judge(folder, artefacts, ready_record["reference"], ready_record["criteria"],
-                         agent=ready_record.get("agent"))
+                         agent=ready_record.get("agent"), protected_paths=protected_paths)
     except Refused as error:
         return 1, error.reason
     wins = sum(verdict["winner"] == "ours" for verdict in verdicts)

@@ -71,11 +71,13 @@ class Spec:
     capture: str = ""
     reference: str = ""
     criteria: tuple = ()
+    checks: tuple = ()
+    playbook: str = ""
 
 
 _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGNORECASE)
 _FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file|Measure|Target|"
-                    r"Capture|Reference|Criteria)\s*:\s*(.*)$", re.IGNORECASE)
+                    r"Capture|Reference|Criteria|Playbook)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _section(body: str, name: str) -> Optional[list[str]]:
@@ -145,10 +147,72 @@ def parse_spec(body: str) -> Spec:
             gaps.append("'## Contract' has no item like '- D1: ...'")
 
     command, kind, keep, files, settings, large_files = "", "feature", "", [], False, []
-    measure, target, capture, reference, criteria = "", "", "", "", []
+    measure, target, capture, reference, criteria, playbook = "", "", "", "", [], ""
     judge = _section(body, "Judge")
-    if judge is None:
-        gaps.append("no '## Judge' section")
+    exit_lines = _section(body, "Exit")
+    checks = []
+    if exit_lines is not None:
+        current = None
+        for line in exit_lines:
+            heading = re.match(r"^###\s+(Tests|Measure|Critics)\s*$", line, re.IGNORECASE)
+            if heading:
+                current = {"type": heading.group(1).lower(), "files": [], "criteria": []}
+                checks.append(current)
+                continue
+            if current is None:
+                if line.strip():
+                    gaps.append("'## Exit' fields must be inside a ### Tests, ### Measure "
+                                "or ### Critics check")
+                continue
+            field = _FIELD.match(line)
+            if field:
+                key, value = field.group(1).lower(), field.group(2).strip().strip("`").strip()
+                if key in ("command", "measure", "capture", "reference", "target"):
+                    current[key] = value
+                elif key == "files":
+                    current["_files"] = True
+                    current["files"].extend(
+                        f.strip().strip("`") for f in value.split(",") if f.strip())
+                elif key == "criteria":
+                    current["_criteria"] = True
+                    current["criteria"].extend(
+                        item.strip() for item in value.split(",") if item.strip())
+                else:
+                    gaps.append(f"'{field.group(1)}:' does not belong in an Exit check")
+            elif (current.get("_files") and re.match(r"^\s*[-*]\s+\S", line)):
+                current["files"].append(line.strip()[1:].strip().strip("`"))
+            elif (current.get("_criteria") and re.match(r"^\s*[-*]\s+\S", line)):
+                current["criteria"].append(line.strip()[1:].strip())
+            elif line.strip() and not line.lstrip().startswith("<!--"):
+                gaps.append(f"unexpected text in {current['type']} exit check: {line.strip()}")
+        if not checks:
+            gaps.append("'## Exit' has no checks")
+        for check in checks:
+            kind_name = check["type"]
+            if kind_name == "tests" and (not check.get("command") or not check["files"]):
+                gaps.append("Tests exit checks need 'Command:' and files under 'Files:'")
+            elif kind_name == "measure" and (not check.get("command") or not check.get("target")
+                                                or not check["files"]):
+                gaps.append("Measure exit checks need 'Command:', 'Target:' and files "
+                            "under 'Files:'")
+            elif kind_name == "critics" and (not check.get("capture") or not check.get("reference")
+                                                or not check["criteria"] or not check["files"]):
+                gaps.append("Critics exit checks need 'Capture:', 'Reference:', non-empty "
+                            "'Criteria:' and files under 'Files:'")
+            for path in check["files"]:
+                if path.startswith("/") or ".." in Path(path).parts:
+                    gaps.append(f"exit file '{path}' must be a path inside the project")
+        kind = "checks"
+        files = list(dict.fromkeys(path for check in checks for path in check["files"]))
+        tests = next((check for check in checks if check["type"] == "tests"), None)
+        command = tests.get("command", "") if tests else ""
+        if len(checks) == 1 and checks[0]["type"] == "measure":
+            measure, target = checks[0]["command"], checks[0]["target"]
+        if len(checks) == 1 and checks[0]["type"] == "critics":
+            capture, reference, criteria = (checks[0]["capture"], checks[0]["reference"],
+                                            checks[0]["criteria"])
+    elif judge is None:
+        gaps.append("no '## Exit' or '## Judge' section")
     else:
         in_files = False
         in_criteria = False
@@ -174,6 +238,10 @@ def parse_spec(body: str) -> Spec:
                     criteria.extend([item.strip() for item in value.split(",") if item.strip()])
                 elif key == "keep":
                     keep = value.strip("`").strip()
+                elif key == "playbook":
+                    playbook = value.strip("`").strip().lower()
+                    if playbook not in ("", "fix"):
+                        gaps.append("'Playbook:' must be 'fix'")
                 elif key == "settings":
                     settings = value.strip("`").strip().lower() == "may change"
                     if not settings:
@@ -183,7 +251,8 @@ def parse_spec(body: str) -> Spec:
                     if not target_path or target_path.startswith("/") or ".." in Path(target_path).parts:
                         gaps.append("'Large file:' must name a path inside the project")
                     else:
-                        large_files.append(target_path)
+                        if target_path not in large_files:
+                            large_files.append(target_path)
                 elif value:
                     files += [f.strip().strip("`") for f in value.split(",") if f.strip()]
             elif in_files and re.match(r"^\s*[-*]\s+\S", line):
@@ -209,6 +278,37 @@ def parse_spec(body: str) -> Spec:
         for f in files:
             if f.startswith("/") or ".." in Path(f).parts:
                 gaps.append(f"judge file '{f}' must be a path inside the project")
+        if not gaps:
+            check_type = ("measure" if kind == "goal" else
+                          "critics" if kind == "gauntlet" else "tests")
+            checks = [{"type": check_type, "command": measure if kind == "goal" else command,
+                       "target": target, "capture": capture, "reference": reference,
+                       "criteria": criteria, "files": files, "legacy_kind": kind}]
+    if judge is not None and exit_lines is not None:
+        for line in judge:
+            m = _FIELD.match(line)
+            if not m:
+                continue
+            key, value = m.group(1).lower(), m.group(2).strip()
+            if key == "keep":
+                keep = value.strip("`").strip()
+            elif key == "playbook":
+                playbook = value.strip("`").strip().lower()
+                if playbook not in ("", "fix"):
+                    gaps.append("'Playbook:' must be 'fix'")
+            elif key == "settings":
+                settings = value.strip("`").strip().lower() == "may change"
+                if not settings:
+                    gaps.append(f"'Settings: {value}' is unknown; use 'Settings: may change'")
+            elif key == "large file":
+                target_path = value.strip("`").strip()
+                if (not target_path or target_path.startswith("/") or
+                        ".." in Path(target_path).parts):
+                    gaps.append("'Large file:' must name a path inside the project")
+                elif target_path not in large_files:
+                    large_files.append(target_path)
+    if exit_lines is not None and not checks:
+        gaps.append("'## Exit' has no valid checks")
     if gaps:
         raise Refused("the spec is incomplete: " + "; ".join(gaps),
                       "fix the issue body to match kit/spec-format.md")
@@ -216,7 +316,7 @@ def parse_spec(body: str) -> Spec:
         gaps.append("every Done when item is marked (stays), so there is nothing to build")
     return Spec(done_when, command, files, kind, intent, tuple(out_of_scope), approach,
                 keep, tuple(stays), settings, tuple(large_files), tuple(research),
-                measure, target, capture, reference, tuple(criteria))
+                measure, target, capture, reference, tuple(criteria), tuple(checks), playbook)
 # ---------------------------------------------------------------- check settings
 
 # Files that set how the project checks itself. A pattern with no slash
@@ -614,6 +714,92 @@ def skipped_tests(output: str) -> bool:
                 r"\bOK\s*\(skipped\s*=\s*[1-9]\d*\)", r"^\s*#\s*skipped\s+[1-9]\d*\b")
     return any(re.search(pattern, line, re.IGNORECASE)
                for line in output.splitlines() for pattern in patterns)
+
+
+def exit_ready(folder: Path, checks: tuple, contract: dict,
+               stays: tuple) -> tuple[list[dict], str]:
+    """Prove every Exit check is unmet on main and save its baseline."""
+    import critic
+    import measure
+
+    records, outputs = [], []
+    building = [item for item in contract if item not in stays]
+    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
+    wrong_reason = re.compile(
+        r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|ModuleNotFoundError|"
+        r"ImportError|FileNotFoundError):|^ERROR collecting(?:\s|$)", re.MULTILINE)
+    for source in checks:
+        check = dict(source)
+        if check["type"] == "tests":
+            code, output = run_judge(folder, check["command"])
+            if check.get("legacy_kind") == "scaffold":
+                check["main_output"] = output
+            elif code == 0:
+                raise Refused("the judge already passes on main, so there is nothing to build",
+                              "make the judge test what the Contract items ask for")
+            if (check.get("legacy_kind") != "scaffold" and
+                    ((code == 127 and "command not found" in output) or
+                     wrong_reason.search(output))):
+                raise Refused("the judge fails on main for the wrong reason "
+                              f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
+                              "fix the judge so it fails on an assertion")
+            if check.get("legacy_kind") != "scaffold":
+                fail_lines = "\n".join(
+                    line for line in output.splitlines() if fail_line.search(line))
+                named = [item for item in building if re.search(
+                    rf"(?<![A-Za-z0-9]){item}(?![0-9])", fail_lines)]
+                if not named:
+                    raise Refused("the judge fails on main, but its output names no spec ID "
+                                  f"({', '.join(building)}):\n{output.strip()[-1500:]}",
+                                  "put each Contract ID in a failing test name")
+                required = building
+                missing = [item for item in required if item not in named]
+                if missing:
+                    raise Refused(f"no failing judge test names {', '.join(missing)}",
+                                  "give every Contract item at least one failing test")
+                failing_stays = [item for item in stays if re.search(
+                    rf"(?<![A-Za-z0-9]){item}(?![0-9])", fail_lines)]
+                if failing_stays:
+                    raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
+                                  "a (stays) item already holds today; test only what it says")
+                check["main_output"] = output
+        elif check["type"] == "measure":
+            output, baseline = measure.ready(folder, check["command"], check["target"])
+            check.update(baseline)
+        else:
+            output, baseline = critic.ready(folder, check["capture"], check["reference"],
+                                            list(check["criteria"]))
+            check.update(baseline)
+        records.append(check)
+        outputs.append(output.strip())
+    return records, "\n\n".join(outputs)
+
+
+def exit_attempt(folder: Path, checks: list[dict],
+                 protected_paths: list[str] | None = None) -> tuple[int, str]:
+    """Run every frozen Exit check after an attempt."""
+    import critic
+    import measure
+
+    results = []
+    failed = False
+    for check in checks:
+        if check["type"] == "tests":
+            code, output = run_judge(folder, check["command"],
+                                     protected_paths=protected_paths)
+            if skipped_tests(output):
+                code = 1
+                output = "the judge reported skipped tests:\n" + output.strip()[-1500:]
+        elif check["type"] == "measure":
+            code, output = measure.judge_attempt(folder, check,
+                                                  protected_paths=protected_paths)
+        else:
+            code, output = critic.judge_attempt(folder, check,
+                                                 protected_paths=protected_paths)
+        results.append(f"{check['type'].title()} exit check (exit {code}):\n{output.strip()}")
+        if code:
+            failed = True
+    return (1 if failed else 0), "\n\n".join(results)
 
 
 # ---------------------------------------------------------------- GitHub

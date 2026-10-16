@@ -37,7 +37,7 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
                      clean_quality_outputs, keep_limit_seconds, loop_settings,
-                     parse_spec, prepare,
+                     exit_attempt, exit_ready, parse_spec, prepare,
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
 from proposed_quality import apply as apply_proposed_quality  # noqa: E402
@@ -65,14 +65,6 @@ for _s in ("shaping", "ready", "building", "approval"):
 NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
 NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen", "stopped"}
 
-# A judge that fails for one of these reasons fails for the wrong reason.
-WRONG_REASON = re.compile(r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|"
-                          r"ModuleNotFoundError|ImportError|FileNotFoundError):|"
-                          r"^ERROR collecting(?:\s|$)", re.MULTILINE)
-
-# A line that reports a failing test: pytest, unittest, TAP and plain runners.
-FAIL_LINE = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
-
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
 
@@ -88,17 +80,6 @@ def state_of(issue: dict) -> str:
     if states[0] not in STATES:
         raise Refused(f"'{STATE_PREFIX}{states[0]}' is not a state")
     return states[0]
-
-
-def _kind_ready_judge(folder: Path, spec) -> tuple[bool, str, dict]:
-    """Run the goal or gauntlet baseline while checking a piece for ready."""
-    if spec.kind == "goal":
-        output, record = measure.ready(folder, spec.measure, spec.target)
-        return True, output, record
-    if spec.kind == "gauntlet":
-        output, record = critic.ready(folder, spec.capture, spec.reference, list(spec.criteria))
-        return True, output, record
-    return False, "", {}
 
 
 def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
@@ -170,53 +151,15 @@ def check_ready(root: Path, issue: dict) -> dict:
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
-        kind_record = {}
+        check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
+        kind_record = {"checks": check_records}
         if spec.kind in ("goal", "gauntlet"):
-            _, output, kind_record = _kind_ready_judge(folder, spec)
-            code = 1
-        else:
-            code, output = run_judge(folder, spec.command)
+            kind_record.update(check_records[0])
     finally:
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
         shutil.rmtree(tmp, ignore_errors=True)
 
-    tail = output.strip()[-1500:]
-    if spec.kind in ("goal", "gauntlet"):
-        pass
-    elif spec.kind == "scaffold":
-        # The first piece of an empty project: its judge is that the test
-        # command runs, so there is nothing that must fail on main.
-        pass
-    elif code == 0:
-        raise Refused("the judge already passes on main, so there is nothing to build",
-                      "make the judge test what the Done when items ask for")
-    elif (code == 127 and "command not found" in output) or WRONG_REASON.search(output):
-        raise Refused("the judge fails on main for the wrong reason "
-                      f"(a broken test, not a missing feature):\n{tail}",
-                      "fix the judge so it fails on an assertion")
-    else:
-        # The ID may sit inside a test name, like test_D1_adds, so do not use \b.
-        # Count an ID only on a line that reports a failure, so that a runner
-        # which also prints passing tests (pytest -v) cannot fake a failure.
-        fail_lines = "\n".join(line for line in output.splitlines() if FAIL_LINE.search(line))
-
-        def named_in(text: str, i: str) -> bool:
-            return re.search(rf"(?<![A-Za-z0-9]){i}(?![0-9])", text) is not None
-        build = [i for i in spec.done_when if i not in spec.stays]
-        named = [i for i in build if named_in(fail_lines, i)]
-        if not named:
-            raise Refused("the judge fails on main, but its output names no spec ID "
-                          f"({', '.join(build)}):\n{tail}",
-                          "put the spec ID in each test name, like test_D1_adds_a_habit")
-        missing = [i for i in build if i not in named]
-        if missing:
-            raise Refused(f"no failing judge test names {', '.join(missing)}",
-                          "give every Done when item at least one test, or mark an item that "
-                          "already holds as '(stays)'")
-        failing_stays = [i for i in spec.stays if named_in(fail_lines, i)]
-        if failing_stays:
-            raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
-                          "a (stays) item already holds today; test only what it says")
+    # exit_ready has checked each type on main, including assertion failures for tests.
     if spec.stays:
         judge_text = "".join(sh(["git", "show", f"{head}:{f}"], root).stdout for f in spec.files)
         untested = [i for i in spec.stays
@@ -230,6 +173,7 @@ def check_ready(root: Path, issue: dict) -> dict:
                       "set `Agent: claude` or `Agent: codex` in the loop section of AGENTS.md")
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
+            "playbook": spec.playbook,
             "files": spec.files, "command": spec.command,
             "kind": spec.kind, "keep": keep_command,
             "keep_limit": settings.get("keep limit", "15"),
@@ -350,7 +294,11 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"{', '.join(changed)}. Put them back. A piece may change them only "
                            "when its spec says 'Settings: may change'.")
     protected_paths = ready.get("protected_paths", [])
-    kind_code, kind_output = _kind_attempt_judge(folder, ready)
+    if ready.get("checks"):
+        kind_code, kind_output = exit_attempt(folder, ready.get("checks", []),
+                                              protected_paths=protected_paths)
+    else:
+        kind_code, kind_output = _kind_attempt_judge(folder, ready)
     if kind_code >= 0:
         code, output = kind_code, kind_output
     else:

@@ -38,13 +38,13 @@ Approach. Check them when changing the public shape:
 
 {{DEPENDENTS}}
 
-## The judge
+## The exit checks
 
-The gate decides if you are done by running this command itself:
+The gate decides if you are done by running each check itself:
 
     {{COMMAND}}
 
-These judge files are fixed. Never change, move, skip or loosen them. If you
+These check files are fixed. Never change, move, skip or loosen them. If you
 do, the attempt fails. They are fixed as they are now in this folder. If git
 history shows an older version, that version no longer counts: never restore it.
 
@@ -58,13 +58,15 @@ DATA>>>
 
 ## What to do
 
-1. Read the spec and the judge files.
-2. Build the smallest change that makes the judge pass.
-3. Run the judge command often.
+{{PLAYBOOK}}
+
+1. Read the spec and the Exit check files.
+2. Build the smallest change that makes every Exit check pass.
+3. Run the Exit checks often.
 4. Commit your work on this branch with plain messages. Do not push.
 5. Write `.loop/why.md` with exactly two short paragraphs: why this change;
    then what could go wrong. Do not include implementation notes.
-6. Stop when the judge passes, and say in two or three lines what you built
+6. Stop when the Exit checks pass, and say in two or three lines what you built
    and any choice you made alone.
 
 ## Tests and commands
