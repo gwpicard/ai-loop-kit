@@ -194,10 +194,6 @@ def environment_evidence(logfile: Path) -> str:
     if not events.is_file():
         return ""
     failures = []
-    pattern = re.compile(
-        r"permission denied|operation not permitted|read-only file system|"
-        r"no space left|disk quota|cannot create|unable to create|"
-        r"sandbox.*(?:denied|refused)", re.I)
     for line in events.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -222,5 +218,5 @@ def environment_evidence(logfile: Path) -> str:
                                             if isinstance(part, dict))
                     outputs.append(str(content))
         failures.extend(text.strip() for output in outputs for text in output.splitlines()
-                        if pattern.search(text))
+                        if text.strip())
     return ("Observed tool failure: " + "\n".join(failures[-3:]))[:500] if failures else ""

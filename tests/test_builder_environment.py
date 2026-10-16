@@ -60,7 +60,14 @@ class BuilderEnvironmentTest(unittest.TestCase):
     def test_environment_report_without_failed_tool_is_not_accepted(self):
         self._environment_report(False)
 
-    def _environment_report(self, failed):
+    def test_missing_hypothesis_directory_is_reported_from_tool_log(self):
+        self._environment_report(True, "bash: .loop/hypothesis: No such file or directory")
+
+    def test_open_file_limit_is_reported_from_tool_log(self):
+        self._environment_report(True, "bash: .loop/hypothesis: Too many open files")
+
+    def _environment_report(self, failed, error=(
+            "fatal: Unable to create /piece/git/index.lock: Operation not permitted")):
         test_run.RunTest.setUp(self)
         def builder(folder, prompt, files, logfile, *args, **kwargs):
             (folder / ".loop").mkdir(exist_ok=True)
@@ -69,8 +76,7 @@ class BuilderEnvironmentTest(unittest.TestCase):
             event = {"type": "item.completed", "item": {
                 "type": "command_execution", "command": "python3 helper.py --stage",
                 "exit_code": 1 if failed else 0,
-                "aggregated_output": "fatal: Unable to create /piece/git/index.lock: "
-                                     "Operation not permitted" if failed else "done"}}
+                "aggregated_output": error if failed else "done"}}
             logfile.write_text("The shell could not create a here-document temporary file.\n")
             logfile.with_suffix(".jsonl").write_text(json.dumps(event) + "\n")
             return ""
@@ -81,8 +87,8 @@ class BuilderEnvironmentTest(unittest.TestCase):
         self.assertNotIn("here-document", handback["reason"])
         if failed:
             self.assertEqual(handback["type"], "environment")
-            self.assertIn("index.lock", handback["reason"])
-            self.assertIn("Operation not permitted", result)
+            self.assertIn(error, handback["reason"])
+            self.assertIn(error, result)
         else:
             self.assertEqual(handback["type"], "builder-failed")
             self.assertIn("log evidence", handback["reason"])

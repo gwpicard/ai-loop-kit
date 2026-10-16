@@ -574,7 +574,7 @@ run.py
   in the run summary. A `spec-unclear` outcome without a citation counts as a
   failed attempt. For blocked cleanup, `environment` with a path and reason
   is checked against failed tool results in the raw event log. The run reports
-  observed permission or filesystem errors, rather than the builder's claim,
+  observed failed tool output, without filtering for known error phrases,
   and returns the piece to shaping before review or submit. An empty reason
   or a report without log evidence counts as a failed attempt. The builder
   no longer decides an open choice alone.
