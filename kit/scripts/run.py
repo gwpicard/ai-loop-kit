@@ -230,12 +230,17 @@ def worktree_home(root: Path) -> Path:
 
 
 def existing_worktree(root: Path, n: int) -> Optional[Path]:
-    """The folder git already has checked out on the piece branch, if any."""
+    """Find a piece's build folder, refusing a checkout owned by someone else."""
     path = None
     for line in sh(["git", "worktree", "list", "--porcelain"], root).stdout.splitlines():
         if line.startswith("worktree "):
             path = Path(line[len("worktree "):])
-        elif line == f"branch refs/heads/{branch_name(n)}" and path and path != root:
+        elif line == f"branch refs/heads/{branch_name(n)}" and path:
+            owned = (worktree_home(root) / f"piece-{n}",
+                     root / ".loop" / "worktrees" / f"piece-{n}")
+            if path.resolve() not in {folder.resolve() for folder in owned}:
+                raise Refused(f"{branch_name(n)} is already checked out at {path}",
+                              "finish work there and switch that checkout to another branch")
             return path
     return None
 
@@ -306,6 +311,7 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
         raise Refused("walk-away is refused because the piece needs services: " +
                       ", ".join(services),
                       "run the piece with an attended session")
+    existing_worktree(root, n)
     check_pushed_branch(root, n)
     _save_run_metrics(root, n, started_at, metrics["attempts"])
     gate.move(gh, root, n, "building")
@@ -482,9 +488,12 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 return f"piece {n}: back to shaping, {reason}"
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
+        said = builder_words(logfile)
         try:
             attempt_ready = {**ready, "attempt": k}
             passed, output = gate.judge(folder, attempt_ready)
+            with logfile.open("a") as out:
+                out.write("\nJudge output:\n" + output + "\n")
         finally:
             clean_quality_outputs(folder, record_quality_outputs(folder))
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
@@ -578,7 +587,6 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         log(f"piece {n}: attempt {k} failed")
         log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
             f"log: {logfile.relative_to(root)}")
-        said = builder_words(logfile)
         gh.comment(n, f"**Run:** attempt {k} of {attempts} failed.\n\n"
                       f"The builder said:\n\n<<<\n{said}\n>>>\n\n"
                       f"The judge said:\n\n```\n{output.strip()[-1500:]}\n```")
