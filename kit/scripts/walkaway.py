@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
-import sandbox
 import agents
-from loopkit import STATE_PREFIX, loop_settings, main_ref, prepare, run_judge, sh
+import sandbox
+from loopkit import (STATE_PREFIX, loop_settings, main_ref, prepare, run_judge,
+                     secret_env_names, sh)
 
 MIN_FREE_BYTES = 10 * 1024 ** 3
 STALE_AFTER_SECONDS = 10 * 60
@@ -70,10 +71,6 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         checks.append(_check(bool(domains), "the project has confirmed sandbox network domains",
                              "agree package registry domains, then add `Sandbox domains: <comma-separated domains>` to AGENTS.md"))
 
-        for name in ("GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"):
-            checks.append(_check(name not in os.environ,
-                                 f"{name} is absent from the session environment",
-                                 f"unset {name} before starting the walk-away run"))
     else:
         codex = os.environ.get("LOOP_CODEX", "codex")
         version = subprocess.run([codex, "--version"], cwd=root, capture_output=True,
@@ -82,7 +79,12 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         checks.append(_check(version.returncode == 0,
                              f"Codex CLI {version_text} is available",
                              "install Codex CLI and check that it is on PATH"))
-        checks.append((True, "GH_TOKEN and GITHUB_TOKEN are removed from Codex sessions", ""))
+
+    removed_names = secret_env_names()
+    listed_names = ", ".join(removed_names) if removed_names else "none found"
+    report = ("secret-shaped environment variables removed from builder and reviewer "
+              f"sessions: {listed_names}")
+    checks.append((True, report, ""))
 
     free_bytes = shutil.disk_usage(root).free
     checks.append(_check(free_bytes >= MIN_FREE_BYTES,

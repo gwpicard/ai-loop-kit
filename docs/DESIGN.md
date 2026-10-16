@@ -516,7 +516,8 @@ run.py
 - Confirmed `Sandbox domains:` (package registries only). The gate reads the
   list from the loop section of `AGENTS.md` and passes it to Claude's strict
   network allowlist.
-- No GitHub or npm token in the environment.
+- Secret-shaped environment variables are removed from builder and reviewer
+  environments. Preflight reports their names without values.
 - Green Prepare and Test on a fresh `main`, 10 GB free, room in the approval
   queue.
 
@@ -547,10 +548,11 @@ gate is the backstop, because it checks the result whatever the agent did.
 
 Claude Code's sandbox covers Bash and its child processes. Read, Edit, Write,
 web tools and hooks run outside it. So walk-away Claude sessions also load no
-MCP servers, deny reads of credential paths, and use a second hook that keeps
-file-tool writes in the build folder. An allowed domain can still carry data
-out. Attended runs have no sandbox: the builder runs Bash with the person's
-network, under the guard.
+MCP servers, deny reads of credential paths, project `.env*` files except
+`.env.example`, and paths named with `Secret paths:` in the loop section. A
+second hook keeps file-tool writes in the build folder. An allowed domain can
+still carry data out. Attended runs have no sandbox: the builder runs Bash
+with the person's network, under the guard.
 
 ## 11. Setup, shape and run
 
