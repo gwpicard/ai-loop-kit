@@ -596,6 +596,10 @@ The skills hold judgement and conversation. Every rule that must hold lives
 in a script, a hook or the gate. All gate commands print one `next:` step
 when they refuse.
 
+Doctor checks GitHub sign-in with `gh auth status --active`. An expired
+inactive account does not block setup. If an active account fails, doctor
+keeps the CLI's error message, including the account and host.
+
 ## 12. Constraints learned from real runs
 
 These facts about the platform shaped the design. Each one cost time once.
