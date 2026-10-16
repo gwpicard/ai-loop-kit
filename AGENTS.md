@@ -38,6 +38,12 @@ Run `git config core.hooksPath .githooks` once in a fresh clone.
 
 ## Rules and the reason for each
 
+Work merges to `main`. `stable` is the default branch and only a release
+moves it. Every pull request names `main` as its base: use
+`gh pr create --base main`. A `Closes #N` line does not close the issue when
+the base is not the default branch. The person or the run closes the issue
+after the merge.
+
 - Never put an issue or pull request number in a tracked file. When the
   repository moves, the number points at nothing.
 - Never add a model co-author line or a session link to a commit or pull

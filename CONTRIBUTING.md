@@ -19,8 +19,33 @@ would expect to see. You do not need a technical design.
 
 ## Pull requests
 
-Open a pull request against `main`. Keep it to one slice, with evidence that it
-works. A person reads and merges every pull request.
+Work merges to `main`. `stable` is the default branch and only a release
+moves it. Every pull request must name `main` as its base: use
+`gh pr create --base main`. A check refuses pull requests aimed at `stable`.
+Keep each pull request to one slice, with evidence that it works. A person
+reads and merges every pull request.
+
+A `Closes #N` line does not close the issue when the base is not the default
+branch. The person or the run closes the issue after the merge.
 
 Run `tests/run-all.sh` before you ask for a review. Read `AGENTS.md` for the
 house rules. They apply to people as well as agents.
+
+## Releases
+
+Between releases, `main` carries a development version such as `1.3.0-dev`
+in `kit/.claude-plugin/plugin.json`. The release sets the real number.
+
+After the maintainer approves publication, publish and verify the release
+from `main`, then move `stable` with:
+
+```sh
+GITHUB_REPOSITORY=gwpicard/ai-loop-kit \
+  .agents/tools/promote-stable.sh vX.Y.Z <full-release-commit>
+```
+
+Replace both placeholders with the published tag and its full commit hash.
+The tool checks that the release is published, that its tag names the
+commit, and that `stable` reads back at that commit after the write. It
+refuses draft releases, prereleases and updates that would overwrite work.
+The maintainer investigates a refused promotion before trying again.

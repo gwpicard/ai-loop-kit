@@ -1,0 +1,21 @@
+name: pull request base
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: pull-request-base-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  pull-request-base:
+    if: github.repository == 'gwpicard/ai-loop-kit'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check the pull request base
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: .agents/tools/check-pull-request-base.sh "$BASE"
