@@ -144,7 +144,7 @@ class RunTest(unittest.TestCase):
             self.assertGreater(handback["seconds"], 0)
         else:
             self.assertGreaterEqual(handback["seconds"], 0)
-        self.assertEqual(handback["kit"], "1.2.0")
+        self.assertEqual(handback["kit"], "1.3.0-dev")
         self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
 
     def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
@@ -865,7 +865,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(rejection["reason"], "pull request creation failed after submit")
         self.assertEqual(rejection["attempts"], 1)
         self.assertGreater(rejection["seconds"], 0)
-        self.assertEqual(rejection["kit"], "1.2.0")
+        self.assertEqual(rejection["kit"], "1.3.0-dev")
         self.assertRegex(rejection["date"], r"^\d{4}-\d{2}-\d{2}$")
 
     def test_a_pushed_branch_is_never_rewritten(self):

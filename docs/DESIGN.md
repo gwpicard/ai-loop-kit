@@ -630,6 +630,14 @@ with the person's network, under the guard.
 
 ## 11. Setup, shape and run
 
+This repository's default branch, `stable`, supplies the released kit to
+installers. Work merges to `main`, which carries a development version
+between releases. Every pull request names `main` as its base; a workflow
+refuses a base of `stable`. After publication and verification, the release
+uses `.agents/tools/promote-stable.sh` to move `stable` to the published
+tag's commit and read the ref back. The tool refuses an update that would
+overwrite work. `CONTRIBUTING.md` gives the release steps.
+
 1. **Install:** `/plugin marketplace add gwpicard/ai-loop-kit`, then
    `/plugin install ai-loop-kit@ai-loop-kit`.
 2. **`/ai-loop-kit:setup`**, once per project. `gate.py init` makes the
@@ -674,8 +682,10 @@ These facts about the platform shaped the design. Each one cost time once.
   choose the interpreter for a fresh folder.
 - Build folders inside the project break the person's own linters. They live
   in `~/.cache/ai-loop-kit/worktrees/`.
-- GitHub closes an issue when "Closes" appears in any sentence. Only a
-  `Closes` line is used.
+- GitHub's closing keywords apply when a pull request targets the default
+  branch. Only a `Closes` line is used. In this repository, pull requests
+  target `main` and the default is `stable`, so the person or the run must
+  close the issue after the merge.
 - GitHub's label search lags after a move. The run retries the ready list for
   about 20 seconds.
 - A free private repository has no branch protection. The local layers must
