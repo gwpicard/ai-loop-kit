@@ -74,6 +74,36 @@ class RiskGateTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("unnamed dependencies: left-pad", output)
 
+    def test_nested_package_dependency_is_checked_at_submit(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        manifest = folder / "packages" / "widget" / "package.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"dependencies":{"left-pad":"^1.0.0"}}\n')
+        git(folder, "add", "habits.py", "packages/widget/package.json")
+        git(folder, "commit", "--quiet", "-m", "Add a nested package dependency")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("unnamed dependencies: left-pad", output)
+
+    def test_nested_pyproject_dependency_is_checked_at_submit(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        manifest = folder / "packages" / "widget" / "pyproject.toml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('[project]\ndependencies = ["requests>=2"]\n')
+        git(folder, "add", "habits.py", "packages/widget/pyproject.toml")
+        git(folder, "commit", "--quiet", "-m", "Add a nested Python dependency")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("unnamed dependencies: requests", output)
+
     def test_pyproject_dependencies_are_checked_at_submit(self):
         number = self.project.piece()
         self.ready(number)

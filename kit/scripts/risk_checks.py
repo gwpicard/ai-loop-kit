@@ -94,13 +94,17 @@ def unnamed_dependencies(folder: Path, base: str, named: list[str]) -> list[str]
     allowed = {re.split(r"\s*:\s*", item, maxsplit=1)[0].lower().replace("_", "-")
                for item in named}
     added = set()
-    for path in ("package.json", "pyproject.toml"):
+    manifests = sh(["git", "ls-files", "-z"], folder).stdout.split("\0")
+    for path in (path for path in manifests
+                 if Path(path).name in {"package.json", "pyproject.toml"}):
+        manifest = Path(path).name
         before = sh(["git", "show", f"{base}:{path}"], folder, check=False)
         after_path = folder / path
         if not after_path.is_file():
             continue
-        previous = _declared_dependencies(path, before.stdout) if before.returncode == 0 else set()
-        current = _declared_dependencies(path, after_path.read_text(errors="replace"))
+        previous = (_declared_dependencies(manifest, before.stdout)
+                    if before.returncode == 0 else set())
+        current = _declared_dependencies(manifest, after_path.read_text(errors="replace"))
         added.update(current - previous)
     return sorted(added - allowed)
 
