@@ -247,8 +247,11 @@ def frozen_file_reason(folder: Path, ready: dict) -> str:
     base = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip()
     build_paths = set(sh(["git", "diff", "--no-renames", "--name-only", "-z", base],
                          folder).stdout.split("\0"))
-    inherited = sorted(set(changed) - build_paths)
-    edited = sorted(set(changed) & build_paths)
+    old_base = sh(["git", "merge-base", ready["commit"], base], folder).stdout.strip()
+    main_paths = set(sh(["git", "diff", "--no-renames", "--name-only", "-z",
+                         old_base, base], folder).stdout.split("\0"))
+    inherited = sorted((set(changed) & main_paths) - build_paths)
+    edited = sorted(set(changed) - set(inherited))
     reasons = []
     if inherited:
         reasons.append("main changed the frozen judge bar: " + ", ".join(inherited))

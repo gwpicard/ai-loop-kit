@@ -584,7 +584,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = "the keep check fails on the judge files themselves; fix the judge"
             _hand_back(gh, root, n, reason, "bar-wrong", metrics)
             return f"piece {n}: back to shaping, {reason}"
-        if "differ from the ones fixed at ready" in output:
+        if ready["files"] and gate.bar_hash_in(folder, ready.get("bar_files", ready["files"])) \
+                != ready["bar"]:
             restore_bar(folder, ready)
             last_failure = ("The last attempt changed the judge files. They were put back. "
                             "Make the judge pass without changing it.")

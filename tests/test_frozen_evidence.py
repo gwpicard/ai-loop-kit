@@ -55,6 +55,49 @@ class FrozenEvidenceTest(unittest.TestCase):
         self.assertIn("the build changed frozen files: README.md", reason)
         self.assertNotIn("AGENTS.md", reason)
 
+    def test_deleted_shaping_judge_is_a_build_edit(self):
+        folder = run.worktree(self.p.root, self.n)
+        (folder / "judge_add.py").unlink()
+        for committed in (False, True):
+            with self.subTest(committed=committed):
+                if committed:
+                    git(folder, "add", "judge_add.py")
+                    git(folder, "commit", "--quiet", "-m", "Delete the shaped judge")
+                passed, reason = gate.judge(folder, self.ready)
+                self.assertFalse(passed)
+                self.assertEqual(reason, "the build changed frozen files: judge_add.py")
+
+    def test_deletion_inherited_from_main_is_named_as_inherited(self):
+        (self.p.root / "README.md").unlink()
+        git(self.p.root, "add", "README.md")
+        git(self.p.root, "commit", "--quiet", "-m", "Remove old readme")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        folder = run.worktree(self.p.root, self.n)
+        git(folder, "merge", "--quiet", "--no-edit", "main")
+        passed, reason = gate.judge(folder, self.ready)
+        self.assertFalse(passed)
+        self.assertEqual(reason, "main changed the frozen judge bar: README.md")
+
+    def test_changed_judge_is_restored_before_next_attempt(self):
+        fake = self.p.root / ".loop" / "fake-claude"
+        fake.write_text(FAKE_CLAUDE)
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        modes = iter(("cheat", "good"))
+        build_once = run.build_once
+
+        def build_in_order(*args, **kwargs):
+            with patch.dict(os.environ, {"FAKE_MODE": next(modes)}):
+                return build_once(*args, **kwargs)
+
+        with patch.dict(os.environ, {"LOOP_CLAUDE": str(fake)}), \
+                patch("run.build_once", side_effect=build_in_order) as builder:
+            result = run.build_piece(self.p.gh, self.p.root, self.n, 2)
+        self.assertEqual(builder.call_count, 2)
+        self.assertIn("pull request ready", result)
+        restored = git(self.p.root, "show", f"piece/{self.n}:judge_add.py")
+        original = git(self.p.root, "show", f"{self.ready['commit']}:judge_add.py")
+        self.assertEqual(restored, original)
+
     def test_run_returns_stale_settings_before_starting_builder(self):
         self.p.loop_section("printf newer-main")
         with patch("run.build_once") as builder:

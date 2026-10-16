@@ -428,6 +428,10 @@ A frozen-file refusal names every mismatched file. It distinguishes changes
 inherited from a merged `main` from edits made by the build, including edits
 not yet committed. The gate keeps the original bar frozen; inherited changes
 need a new shaping review.
+The gate attributes a mismatch to `main` only when `main` changed that file
+and the build copy matches the merged version. Deleting a judge created during
+shaping counts as a build edit. The run checks the bar hash to restore changed
+judge files between attempts, independently of the refusal text.
 
 Keep uses `Keep limit:` in the project's loop settings, in minutes. The
 default is 15. Doctor runs Keep on a fresh copy of `main` with this limit and
