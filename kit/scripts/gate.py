@@ -295,7 +295,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            "when its spec says 'Settings: may change'.")
     protected_paths = ready.get("protected_paths", [])
     if ready.get("checks"):
-        kind_code, kind_output = exit_attempt(folder, ready.get("checks", []))
+        kind_code, kind_output = exit_attempt(folder, ready.get("checks", []),
+                                              protected_paths=protected_paths)
     else:
         kind_code, kind_output = _kind_attempt_judge(folder, ready)
     if kind_code >= 0:

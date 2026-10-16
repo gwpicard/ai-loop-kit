@@ -775,7 +775,8 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
     return records, "\n\n".join(outputs)
 
 
-def exit_attempt(folder: Path, checks: list[dict]) -> tuple[int, str]:
+def exit_attempt(folder: Path, checks: list[dict],
+                 protected_paths: list[str] | None = None) -> tuple[int, str]:
     """Run every frozen Exit check after an attempt."""
     import critic
     import measure
@@ -784,7 +785,8 @@ def exit_attempt(folder: Path, checks: list[dict]) -> tuple[int, str]:
     failed = False
     for check in checks:
         if check["type"] == "tests":
-            code, output = run_judge(folder, check["command"])
+            code, output = run_judge(folder, check["command"],
+                                     protected_paths=protected_paths)
             if skipped_tests(output):
                 code = 1
                 output = "the judge reported skipped tests:\n" + output.strip()[-1500:]

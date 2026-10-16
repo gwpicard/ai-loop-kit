@@ -220,9 +220,11 @@ class GateHooksTest(unittest.TestCase):
     def test_tests_only_measure_only_and_combined_exit_checks_at_submit(self):
         test_check = {"type": "tests", "command": "judge"}
         measure_check = {"type": "measure", "command": "bench"}
-        with patch.object(loopkit, "run_judge", return_value=(0, "passed")):
-            code, _ = loopkit.exit_attempt(Path.cwd(), [test_check])
+        protected_paths = ["src/private"]
+        with patch.object(loopkit, "run_judge", return_value=(0, "passed")) as run:
+            code, _ = loopkit.exit_attempt(Path.cwd(), [test_check], protected_paths)
         self.assertEqual(code, 0)
+        run.assert_called_once_with(Path.cwd(), "judge", protected_paths=protected_paths)
         with patch.object(measure, "judge_attempt", return_value=(0, "target met")):
             code, _ = loopkit.exit_attempt(Path.cwd(), [measure_check])
         self.assertEqual(code, 0)
