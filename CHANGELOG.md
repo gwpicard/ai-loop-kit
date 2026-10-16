@@ -1,8 +1,20 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (16 October 2026)
 
-- README states the kit's limits and links to the [1.2 upgrade note](docs/UPGRADE-1.2.md).
+- Fixed holes in sandbox domains and the review import. Goal and gauntlet
+  files are frozen, Keep checks rerun within a limit, protected paths have an
+  exception for each piece, and secrets stay out of agent sessions.
+- Hand-back records now include the cause, attempt count and elapsed seconds.
+- Specs can name their Exit checks and Risks.
+- Builds can return `needs-answer` and `spec-unclear` outcomes. The run skill
+  asks a question when a person rejects a pull request.
+- The README states the kit's limits and links to the [1.2 upgrade note](docs/UPGRADE-1.2.md).
+- No preview became stable or was removed. Walk-away, the researcher, goal
+  and gauntlet loop kinds, and the Codex backend remain previews. The attended
+  loop is the tested path. The field round moves to 1.3.
+- The Python code in `kit/` grew from about 4,880 lines to about 5,680. The
+  1.3 work aims to shrink it.
 
 ## 1.1.0 (15 October 2026)
 
