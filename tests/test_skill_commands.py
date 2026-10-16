@@ -47,6 +47,14 @@ class SkillCommandTest(unittest.TestCase):
                 found += 1
         self.assertGreater(found, 0, "no gate commands were found in the skills")
 
+    def test_run_skill_classifies_rejected_pull_requests(self):
+        text = (KIT / "skills" / "run" / "SKILL.md").read_text()
+
+        self.assertIn("was something missing from the contract", text.lower())
+        self.assertIn("--type judge-gap", text)
+        self.assertIn("--type person-rejected", text)
+        self.assertIn("taste", text.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
