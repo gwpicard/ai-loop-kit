@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- README states the kit's limits and links to the [1.2 upgrade note](docs/UPGRADE-1.2.md).
+
 ## 1.1.0 (15 October 2026)
 
 - Walk-away runs (`run.py --walk-away`) use a sandbox and a pre-run probe. They wait on usage limits, write a heartbeat and make a morning summary. preview: not yet field-tested.

@@ -18,6 +18,8 @@ Version 1.1.0 is released. It works best with Python and Node projects.
 
 AI Loop Kit is for a developer who uses Claude Code with a GitHub project and wants to review small pull requests.
 
+Use it in a repository where only collaborators shape pieces. The gate accepts records only from owners, members and collaborators.
+
 ## Install
 
 In Claude Code, run:
@@ -85,10 +87,13 @@ You approve the task, including its intent, what is out of scope and its contrac
 
 ## Limits
 
-The attended loop from 1.0 is the tested path. Preview features have only automated tests so far. Stay nearby while the attended loop runs. The guard is not a sandbox. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
+The fail-on-main check recognises failing assertions in pytest and unittest output, and TAP-style `not ok` lines. CI tests on Linux and macOS with Python 3.9 and 3.12. Attended runs have no sandbox, so stay nearby while they run. The guard blocks some commands but does not isolate the builder.
+
+Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a Mac awake with `caffeinate`. Walk-away is a preview. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
 
 ## More to read
 
 - [How it works, and why](docs/DESIGN.md)
+- [Upgrade from 1.0 or 1.1 to 1.2](docs/UPGRADE-1.2.md)
 - [Changelog](CHANGELOG.md)
 - [MIT licence](LICENSE)
