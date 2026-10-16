@@ -87,6 +87,10 @@ then either `Citation: Command: <command> (exit <non-zero status>)` or
 `Citation: <file path>:<line>`. Without a reason and citation, the run counts
 `spec-unclear` as a failed attempt.
 
+If cleanup is blocked by permissions or the environment, write `.loop/outcome`
+with `environment` on its first line and the blocked path and reason on the
+next line. Stop. The run returns the piece to shaping for the person to fix.
+
 ## Never
 
 - Never push, and never run `gh`. The run does that after the gate checks you.

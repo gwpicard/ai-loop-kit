@@ -26,7 +26,6 @@ changed the pull request after the gate judged it.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import sys
 from pathlib import Path
@@ -35,25 +34,12 @@ from typing import Optional
 KIT = Path(__file__).resolve().parent.parent.parent / "kit" / "scripts"
 sys.path.insert(0, str(KIT))
 import gate  # noqa: E402
+from gate import generated  # noqa: E402
 from loopkit import (NEEDS_YOU, STATE_PREFIX, TRUSTED, GitHub, bar_hash_at, branch_name,  # noqa: E402
                      records, repo_root, sh)
 from procs import process_group_alive  # noqa: E402
 
 BACK_MOVES = ("pull-back", "give-back", "reject", "rebuild")
-
-
-def generated(path: str) -> bool:
-    """Is this path one of the files that tools make? Same list as the gate."""
-    parts = path.split("/")
-    for pattern in gate.GENERATED:
-        p = pattern.strip("/")
-        if pattern.endswith("/"):
-            dirs = parts[:1] if pattern.startswith("/") else parts[:-1]
-            if any(fnmatch.fnmatch(d, p) for d in dirs):
-                return True
-        elif any(fnmatch.fnmatch(part, p) for part in parts):
-            return True
-    return False
 
 
 def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str], dict]:
