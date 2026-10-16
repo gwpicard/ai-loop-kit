@@ -353,7 +353,8 @@ class RunTest(unittest.TestCase):
         self.assertTrue(any("quality-failed" in comment for comment in comments))
         self.assertEqual(self.p.gh.prs, {})
         handback = [r for r in records(comments) if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["type"], "environment")
+        self.assert_handback_record(handback, reason_type="environment",
+                                    cause="quality-failed", attempts=1)
         self.assertIn("Quality check also fails on main", handback["reason"])
 
     def test_both_reviewers_run_without_a_project_standards_file(self):
