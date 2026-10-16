@@ -349,10 +349,13 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                            f"\n\nKeep retry: {ready['keep']}\nExit: {retry_code}\n"
                            f"{retry_output.strip()}\nCause: keep-flaky\n"
                            f"Failing Keep tests: {names}")
-            elif ready["files"] and keep_passes_without_judge(folder, ready):
-                return False, (f"{BAR_WRONG}. Keep retry also failed:\n"
-                               f"{retry_output}\nWithout judge files it passes:\n{koutput}")
             else:
+                bar_wrong, probe_output = keep_passes_without_judge(
+                    folder, ready, (koutput, retry_output))
+                if bar_wrong:
+                    return False, (f"{BAR_WRONG}. Keep retry also failed:\n"
+                                   f"{retry_output}\nWithout judge files it passes:\n"
+                                   f"{probe_output}")
                 failure = f"the judge passes, but the keep check now fails:\n{koutput}"
                 if kind_code >= 0:
                     failure += f"\n\n{output}"
@@ -377,7 +380,9 @@ def failing_test_names(output: str) -> list[str]:
     """Extract reported failing test names from common test runner output."""
     names = []
     for line in output.splitlines():
-        match = re.search(r"\b(?:FAILED?|ERROR)\s*:?\s*(.+)$|\bnot ok\s+\d+\s+-\s*(.+)$",
+        if re.match(r"\s*FAILED\s*\(", line):
+            continue  # unittest's summary is not a test name.
+        match = re.search(r"^\s*(?:FAIL(?:ED)?|ERROR)\b\s*:?\s*(.+)$|\bnot ok\s+\d+\s+-\s*(.+)$",
                           line, re.IGNORECASE)
         if match:
             name = (match.group(1) or match.group(2)).strip()
@@ -412,9 +417,23 @@ def _is_test_support(name: str) -> bool:
             ".test." in base or ".spec." in base)
 
 
-def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
-    """Run the keep check once with the judge files set aside. If it passes,
-    the judge files break it, and no build can fix that."""
+def keep_passes_without_judge(folder: Path, ready: dict,
+                              failures: tuple[str, str]) -> tuple[bool, str]:
+    """Probe only when both failures locate an error in the same judge file."""
+    traceback = (r"^Traceback \(most recent call last\):\n"
+                 r"(?:[ \t]+[^\n]*\n|\n)+\w+(?:\.\w+)*(?::[^\n]*)?$")
+    for name in ready["files"]:
+        path = rf"(?:{re.escape(str(folder))}/)?{re.escape(name)}"
+        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*'
+                      rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
+        frame = rf'^[ \t]+File "{path}", line \d+'
+        if all(re.search(diagnostic, output, re.MULTILINE) or
+               any(re.search(frame, block, re.MULTILINE)
+                   for block in re.findall(traceback, output, re.MULTILINE))
+               for output in failures):
+            break
+    else:
+        return False, ""
     aside = Path(tempfile.mkdtemp(prefix="loop-aside-"))
     moved = []
     try:
@@ -422,11 +441,11 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
             if (folder / f).is_file():
                 shutil.move(str(folder / f), str(aside / str(i)))
                 moved.append((aside / str(i), folder / f))
-        code, _ = run_keep(folder, ready["keep"],
+        code, output = run_keep(folder, ready["keep"],
                            timeout=keep_limit_seconds(
                                {"keep limit": ready.get("keep_limit", "15")}),
                            protected_paths=ready.get("protected_paths", []))
-        return code == 0
+        return code == 0 and not skipped_tests(output), output
     finally:
         for held, home in moved:
             shutil.move(str(held), str(home))
