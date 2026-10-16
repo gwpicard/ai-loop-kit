@@ -397,6 +397,12 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     metrics = {"started": time.monotonic(), "started_at": started_at, "attempts": 0}
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
+    ready = last_record(gh.comments(n), "ready") or {}
+    services = ready.get("risks", {}).get("needs_services", [])
+    if walk_away and services:
+        raise Refused("walk-away is refused because the piece needs services: " +
+                      ", ".join(services),
+                      "run the piece with an attended session")
     check_pushed_branch(root, n)
     _save_run_metrics(root, n, started_at, metrics["attempts"])
     gate.move(gh, root, n, "building")
@@ -511,10 +517,12 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         prompt = brief(n, issue["body"], ready, last_failure, came_back, folder)
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
+        build_contract = dict(ready.get("contract", {}))
+        build_contract["risks"] = " ".join(ready.get("risks", {}).get("protected_paths", []))
         idle_status = build_once(folder, prompt, ready["files"], logfile,
                                  ready.get("settings", False),
                                  idle_limit_seconds(folder, ready.get("idle_limit")),
-                                 ready.get("protected_paths", []), ready.get("contract", {}),
+                                 ready.get("protected_paths", []), build_contract,
                                  walk_away, domains,
                                  result_event, backend=ready["agent"])
         if idle_status == "usage-limit":
@@ -525,7 +533,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             idle_status = build_once(folder, prompt, ready["files"], logfile,
                                      ready.get("settings", False),
                                      idle_limit_seconds(folder, ready.get("idle_limit")),
-                                     ready.get("protected_paths", []), ready.get("contract", {}),
+                                     ready.get("protected_paths", []), build_contract,
                                      walk_away, domains,
                                      result_event, append_log=True, backend=ready["agent"])
             if idle_status == "usage-limit":

@@ -25,6 +25,13 @@ Command: `python -m pytest tests/judge/test_piece_add.py -q`
 Files:
 - tests/judge/test_piece_add.py
 
+## Risks
+Protected paths: none
+New dependency: none
+Shared files: none
+Needs services: none
+Open choices: none
+
 ## Judge
 Keep: `python -m pytest`
 # Optional: allow this named file to cross 1,000 lines.
@@ -40,6 +47,15 @@ ID, an HTTP or HTTPS source URL and the date read in `YYYY-MM-DD` form. The
 gate refuses a malformed finding. At claim, it reports findings older than
 30 days as possibly stale. The builder and contract reviewer receive the
 findings.
+
+`Risks` is optional for older issues. New issues should include all five
+lines. Use comma-separated paths or names, or `none`. `Open choices:` must
+say `none` before ready. Protected paths named here are allowed for the
+piece. The gate warns when another ready issue names one of the same shared
+files. `Needs services:` prevents a walk-away run. At submit, every new
+dependency in `package.json` or `pyproject.toml` must be named under
+`New dependency:`. Add a reason after a colon, such as
+`requests: retry support`.
 
 An `## Exit` section contains one or more checks. Use `### Tests` with
 `Command:` and `Files:`, `### Measure` with `Command:`, `Target:` and
