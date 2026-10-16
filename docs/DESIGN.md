@@ -396,7 +396,12 @@ denies, so only the gate holds the rules after the session.
 | Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
 | Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-to-literal comparison; no skip, `xfail`, `.only` or `.skip`; no private imports; no reading source as text unless the Contract names it | A test can restate the code or never be able to fail [kata] |
 | The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
-| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle and waiting limits, and the backend | A builder must not change the rules after they were agreed |
+| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, and the backend | A builder must not change the rules after they were agreed |
+
+Keep uses `Keep limit:` in the project's loop settings, in minutes. The
+default is 15. Doctor runs Keep on a fresh copy of `main` with this limit and
+prints a `next:` step if it times out. Each Keep check records how many
+seconds it took.
 
 ### At claim (code)
 
@@ -480,7 +485,7 @@ run.py
 
 - **Idle limit.** An attempt stops after ten minutes with no output and no
   file change in the build folder (`Idle limit:` changes it). The hard limit
-  is 40 minutes. Each judge run has a 900-second limit.
+  is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
 - **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
   attempts.
 - **How the builder stops.** Today the builder's only way out is

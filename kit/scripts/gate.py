@@ -24,6 +24,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +34,8 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: 
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
-                     clean_quality_outputs, loop_settings, parse_spec, prepare,
+                     clean_quality_outputs, keep_limit_seconds, loop_settings,
+                     parse_spec, prepare,
                      record_quality_outputs, record_text, records, repo_root, rev,
                      run_judge, sh, skipped_tests, spec_hash)
 from proposed_quality import apply as apply_proposed_quality  # noqa: E402
@@ -106,6 +108,22 @@ def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
     return -1, ""
 
 
+def check_times(output: str) -> list[float]:
+    """Extract elapsed seconds from Keep checks recorded in command output."""
+    return [float(value) for value in re.findall(
+        r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
+
+
+def run_keep(folder: Path, command: str, timeout: int,
+             protected_paths: Optional[list[str]] = None) -> tuple[int, str]:
+    """Run Keep with its limit and report the elapsed seconds."""
+    started = time.monotonic()
+    code, output = run_judge(folder, command, timeout=timeout,
+                             protected_paths=protected_paths)
+    elapsed = time.monotonic() - started
+    return code, f"{output.rstrip()}\nKeep took: {elapsed:.3f} seconds".lstrip()
+
+
 # ---------------------------------------------------------------- checks
 
 def check_ready(root: Path, issue: dict) -> dict:
@@ -121,6 +139,10 @@ def check_ready(root: Path, issue: dict) -> dict:
     bar = bar_hash_at(root, head, spec.files, bar_files) if spec.files else ""
     main = main_ref(root)
     main_sha = rev(root, main)
+    settings = loop_settings(root)
+    keep_limit = keep_limit_seconds(settings)
+    keep_command = spec.keep or settings.get("keep", "")
+    keep_output = ""
 
     # Run the judge on today's main, with only the judge files added.
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
@@ -132,9 +154,10 @@ def check_ready(root: Path, issue: dict) -> dict:
             raise Refused("the Prepare command fails on a fresh copy of main:\n"
                           f"{poutput.strip()[-1500:]}",
                           "fix the Prepare command in AGENTS.md, then run gate.py doctor")
-        if spec.keep:
+        if keep_command:
             # What must stay the same is checked on main as it is today.
-            kcode, koutput = run_judge(folder, spec.keep)
+            kcode, koutput = run_keep(folder, keep_command, timeout=keep_limit)
+            keep_output = koutput
             if kcode != 0:
                 raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
                               "fix main first, or correct the Keep: command")
@@ -206,7 +229,9 @@ def check_ready(root: Path, issue: dict) -> dict:
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
             "files": spec.files, "command": spec.command,
-            "kind": spec.kind, "keep": spec.keep or loop_settings(root).get("keep", ""),
+            "kind": spec.kind, "keep": keep_command,
+            "keep_limit": settings.get("keep limit", "15"),
+            "check_seconds": check_times(keep_output + "\n" + output),
             **kind_record,
             "test": loop_settings(root).get("test", ""),
             "prepare": loop_settings(root).get("prepare", ""),
@@ -333,12 +358,15 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if code != 0:
         return False, output
     if ready.get("keep"):
-        kcode, koutput = run_judge(folder, ready["keep"], protected_paths=protected_paths)
+        keep_timeout = keep_limit_seconds({"keep limit": ready.get("keep_limit", "15")})
+        kcode, koutput = run_keep(folder, ready["keep"], timeout=keep_timeout,
+                                  protected_paths=protected_paths)
         if skipped_tests(koutput):
             return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
         if kcode != 0:
-            retry_code, retry_output = run_judge(
-                folder, ready["keep"], protected_paths=protected_paths)
+            retry_code, retry_output = run_keep(
+                folder, ready["keep"], timeout=keep_timeout,
+                protected_paths=protected_paths)
             if retry_code == 0 and not skipped_tests(retry_output):
                 failed_names = failing_test_names(koutput)
                 names = ", ".join(failed_names) if failed_names else "see failed Keep output"
@@ -419,8 +447,10 @@ def keep_passes_without_judge(folder: Path, ready: dict) -> bool:
             if (folder / f).is_file():
                 shutil.move(str(folder / f), str(aside / str(i)))
                 moved.append((aside / str(i), folder / f))
-        code, _ = run_judge(folder, ready["keep"],
-                            protected_paths=ready.get("protected_paths", []))
+        code, _ = run_keep(folder, ready["keep"],
+                           timeout=keep_limit_seconds(
+                               {"keep limit": ready.get("keep_limit", "15")}),
+                           protected_paths=ready.get("protected_paths", []))
         return code == 0
     finally:
         for held, home in moved:
@@ -489,6 +519,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             raise Refused(f"the judge does not pass:\n{output.strip()[-1500:]}")
         if pr:
             record["pr"] = pr
+        record["check_seconds"] = check_times(output)
         record["commit"] = rev(folder, "HEAD")
         note += f" The gate ran the judge and it passed. Pull request: {pr}"
     elif name == "merged":
@@ -641,6 +672,11 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         settings = loop_settings(folder)
+        try:
+            keep_timeout = keep_limit_seconds(settings)
+        except Refused as refusal:
+            add(False, "AGENTS.md has a valid Keep limit", refusal.next_step)
+            return checks
         if not add("test" in settings, "AGENTS.md on main names the Test command",
                    "merge setup's AGENTS.md section, with a 'Test command:' line"):
             return checks
@@ -649,10 +685,28 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
             if not add(ok, f"Prepare passes on a fresh copy of main ({settings['prepare']})",
                        "fix the Prepare command:\n" + output.strip()[-800:]):
                 return checks
-        code, output = run_judge(folder, settings["test"])
-        add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
-            "every piece's keep check needs a green main. Fix the tests or the environment, "
-            "or add a Prepare command:\n" + output.strip()[-800:])
+        keep_command = settings.get("keep", settings["test"])
+        if keep_command == settings["test"]:
+            code, output = run_keep(folder, keep_command, timeout=keep_timeout)
+            check_name = f"the tests pass on a fresh copy of main ({settings['test']})"
+        else:
+            code, output = run_judge(folder, settings["test"])
+            add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
+                "fix the Test command or the environment, or add a Prepare command:\n"
+                + output.strip()[-800:])
+            code, output = run_keep(folder, keep_command, timeout=keep_timeout)
+            check_name = f"Keep passes on a fresh copy of main ({keep_command})"
+        duration = next((line for line in output.splitlines()
+                         if line.startswith("Keep took: ")), "")
+        if duration:
+            check_name += f" ({duration.removeprefix('Keep took: ')})"
+        if code == 124:
+            fix = ("increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
+                   + output.strip()[-800:])
+        else:
+            fix = ("fix the Keep command or the environment, or add a Prepare command:\n"
+                   + output.strip()[-800:])
+        add(code == 0, check_name, fix)
         for command in settings.get("quality", []):
             qok, qoutput = quality_on_fresh_main(
                 root, main, command, settings["test"],
