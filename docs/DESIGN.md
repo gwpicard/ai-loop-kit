@@ -235,17 +235,19 @@ A piece can combine them. Each check names the files it runs, and those files
 join the frozen bar. Old `Kind:` specs still parse as one check. `Playbook:`
 guides the builder and does not affect the gate.
 
-A goal attempt writes one hypothesis to `.loop/hypothesis` first. A capture
+A goal attempt writes one hypothesis to `.loop/hypothesis` first. The brief
+tells the builder to stop before editing code if writing it fails. A capture
 that succeeds but writes no files is refused with a clear message. Critics
 are blind only by neutral file names: they run in the build folder and could
 find out which side is which. Critics answer "is ours better than the
 reference?", not "does ours match it".
 
-The builder brief tells both backends to stage with
-`python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`. The helper
-stages project changes while excluding the root `.loop/` directory. It
-refuses to run if runtime files are already staged. The brief forbids
-staging or force-adding `.loop/` files; submit checks them again.
+The Claude builder brief tells builders to stage with
+`python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`. Codex builders
+leave changes unstaged. After the sandboxed session exits, the run uses the
+same helper and commits the project changes. The helper excludes the root
+`.loop/` directory and refuses already staged runtime files. The brief
+forbids staging or force-adding `.loop/` files; submit checks them again.
 
 Criterion keys ignore terminal full stops, commas, semicolons, colons,
 exclamation marks and question marks. Ambiguous keys are refused. For a key
@@ -414,7 +416,7 @@ config file and disables plugins and apps so their MCP servers do not start.
 Codex has no guard hook and no Edit denies, so only the gate holds the rules
 after the session.
 
-Each Codex attempt keeps the raw event stream, including tool calls and their
+Each builder attempt keeps the raw event stream, including tool calls and their
 results, in a `.jsonl` file beside its readable `.log` file under `.loop/logs/`.
 The event file is flushed as output arrives and kept when the build folder is
 removed. A retry within the same attempt appends to both files.
@@ -571,9 +573,11 @@ run.py
   last two return the piece to shaping with `needs-you`; the question appears
   in the run summary. A `spec-unclear` outcome without a citation counts as a
   failed attempt. For blocked cleanup, `environment` with a path and reason
-  returns the piece to shaping as an environment failure before review or
-  submit. An empty reason counts as a failed attempt. The builder no longer
-  decides an open choice alone.
+  is checked against failed tool results in the raw event log. The run reports
+  observed permission or filesystem errors, rather than the builder's claim,
+  and returns the piece to shaping before review or submit. An empty reason
+  or a report without log evidence counts as a failed attempt. The builder
+  no longer decides an open choice alone.
 - **Interruption.** The run tracks every child process group and kills them
   on SIGINT or SIGTERM. The next run finds and removes what a killed run left.
 - **The pull request.** The script writes the facts: files changed by area,

@@ -18,7 +18,6 @@ import re
 import signal
 import sys
 import time
-from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -185,8 +184,7 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                result_event: Optional[dict] = None,
                append_log: bool = False, backend: str = "claude",
                protected_exceptions: Optional[list[str]] = None) -> str:  # noqa: UP045
-    events = (logfile.with_suffix(".jsonl").open("ab" if append_log else "wb")
-              if backend == "codex" else nullcontext())
+    events = logfile.with_suffix(".jsonl").open("ab" if append_log else "wb")
     with logfile.open("a" if append_log else "w") as out, events as event_log:
         proc = agents.start_session(
             backend, prompt, folder, role="builder", disallowed=files,
@@ -212,7 +210,9 @@ def builder_words(logfile: Path) -> str:
 
 def commit_leftovers(folder: Path, n: int, k: int) -> None:
     if sh(["git", "status", "--porcelain"], folder).stdout.strip():
-        sh(["git", "add", "-A"], folder)
+        sh([sys.executable, str(Path(__file__).with_name("builder_prompt.py")), "--stage"], folder)
+        if not sh(["git", "diff", "--cached", "--name-only"], folder).stdout.strip():
+            return
         sh(["git", "commit", "--quiet", "-m", f"Attempt {k} for piece {n}"], folder)
 
 
@@ -427,7 +427,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if walk_away:
             walkaway.write_heartbeat(root, n, k)
         result_event = {}
-        prompt = brief(n, issue["body"], ready, last_failure, came_back, folder)
+        prompt = brief(n, issue["body"], ready, last_failure, came_back, folder,
+                       backend=ready["agent"])
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
@@ -466,6 +467,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
             outcome_kind, outcome_reason = walkaway.builder_outcome(outcome)
+            if outcome_kind == "environment" and outcome_reason:
+                outcome_reason = agents.environment_evidence(logfile)
             if outcome_kind in ("needs-answer", "spec-unclear", "environment"):
                 record_attempt_timing(logfile, started_at, time.monotonic() - started)
                 if outcome_reason:
@@ -476,7 +479,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                     gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {reason}")
                     return f"piece {n}: back to shaping, {outcome_kind}: {reason}"
                 commit_leftovers(folder, n, k)
-                needed = ("a reason" if outcome_kind == "environment"
+                needed = ("log evidence from a failed tool" if outcome_kind == "environment"
                           else "a question or a cited reason")
                 last_failure = f"{outcome_kind} needs {needed}; this attempt failed."
                 gh.comment(n, f"**Run:** attempt {k} reported {last_failure}")
@@ -602,7 +605,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 "the person asked the run to stop"
             _hand_back(gh, root, n, reason, "stopped", metrics)
             return f"piece {n}: back to shaping, {reason}"
-    reason = f"the judge still fails after {attempts} attempts; see the comments above"
+    reason = (last_failure if last_failure.startswith("environment needs log evidence") else
+              f"the judge still fails after {attempts} attempts; see the comments above")
     _hand_back(gh, root, n, reason, "builder-failed", metrics)
     return f"piece {n}: back to shaping, needs you"
 

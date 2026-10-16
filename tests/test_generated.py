@@ -1,6 +1,7 @@
 """Generated files cannot pass submit, even when a builder force-adds them."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -25,7 +26,7 @@ class GeneratedTest(unittest.TestCase):
         self.p = Project()
         self.addCleanup(self.p.close)
 
-    def test_builder_session_stages_source_without_runtime_files(self):
+    def test_builder_or_runner_stages_source_without_runtime_files(self):
         for backend in ("claude", "codex"):
             with self.subTest(backend=backend), tempfile.TemporaryDirectory() as temp:
                 folder = Path(temp)
@@ -35,12 +36,13 @@ class GeneratedTest(unittest.TestCase):
                     "#!/usr/bin/env python3\n"
                     "import os, pathlib, subprocess, sys\n"
                     "loop = pathlib.Path('.loop')\n"
-                    "loop.mkdir()\n"
+                    "loop.mkdir(exist_ok=True)\n"
                     "for name in ('hypothesis', 'why.md', 'outcome'):\n"
                     " (loop / name).write_text('runtime output')\n"
                     "pathlib.Path('source.py').write_text('value = 1\\n')\n"
                     "prompt = (sys.argv[sys.argv.index('-p') + 1]\n"
                     "          if '-p' in sys.argv else sys.argv[-1])\n"
+                    "if 'The run stages and commits' in prompt: sys.exit(0)\n"
                     "command = ([sys.executable, os.environ['AI_LOOP_KIT_ROOT'] +\n"
                     " '/scripts/builder_prompt.py', '--stage'] if 'builder_prompt.py\" --stage'\n"
                     " in prompt else ['git', 'add', '--force', '-A'])\n"
@@ -48,11 +50,17 @@ class GeneratedTest(unittest.TestCase):
                 fake.chmod(0o755)
                 with patch.dict(os.environ, {"LOOP_CLAUDE": str(fake),
                                              "LOOP_CODEX": str(fake)}):
-                    prompt = builder_prompt.brief(4, "spec", {"files": []}, "", folder=folder)
+                    prompt = builder_prompt.brief(4, "spec", {"files": []}, "", folder=folder,
+                                                  backend=backend)
                     proc = agents.start_session(backend, prompt, folder, role="builder")
                     output, _ = proc.communicate(timeout=10)
                 self.assertEqual(proc.returncode, 0, output)
-                staged = git(folder, "diff", "--cached", "--name-only").splitlines()
+                if backend == "codex":
+                    self.assertEqual(git(folder, "diff", "--cached", "--name-only"), "")
+                    run.commit_leftovers(folder, 4, 1)
+                    staged = git(folder, "show", "--pretty=", "--name-only", "HEAD").splitlines()
+                else:
+                    staged = git(folder, "diff", "--cached", "--name-only").splitlines()
                 self.assertIn("source.py", staged)
                 self.assertFalse(any(path.startswith(".loop/") for path in staged), staged)
                 self.assertEqual((folder / ".loop/hypothesis").read_text(), "runtime output")
@@ -184,7 +192,7 @@ class GeneratedTest(unittest.TestCase):
         gate.move(self.p.gh, self.p.root, n, "ready")
         calls = []
 
-        def build(folder, *args, **kwargs):
+        def build(folder, prompt, files, logfile, *args, **kwargs):
             calls.append(folder)
             (folder / ".loop").mkdir(exist_ok=True)
             if len(calls) == 1:
@@ -195,6 +203,10 @@ class GeneratedTest(unittest.TestCase):
             else:
                 (folder / ".loop/outcome").write_text(
                     "environment\nCleanup of .loop/why.md was blocked by permissions.\n")
+                logfile.with_suffix(".jsonl").write_text(json.dumps({
+                    "type": "item.completed", "item": {"type": "command_execution",
+                    "exit_code": 1, "aggregated_output":
+                    "Cleanup of .loop/why.md: Permission denied"}}) + "\n")
             return "done"
 
         with patch.object(run, "build_once", side_effect=build), patch.object(
