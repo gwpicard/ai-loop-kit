@@ -1,7 +1,10 @@
 """Generated files cannot pass submit, even when a builder force-adds them."""
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +12,9 @@ from unittest.mock import patch
 from helpers import GOOD_CODE, Project, git
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "field"))
+import agents
 import audit
+import builder_prompt
 import gate
 import run
 from loopkit import Refused, records
@@ -19,6 +24,76 @@ class GeneratedTest(unittest.TestCase):
     def setUp(self):
         self.p = Project()
         self.addCleanup(self.p.close)
+
+    def test_builder_session_stages_source_without_runtime_files(self):
+        for backend in ("claude", "codex"):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as temp:
+                folder = Path(temp)
+                git(folder, "init", "--quiet")
+                fake = folder / "fake-agent"
+                fake.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import os, pathlib, subprocess, sys\n"
+                    "loop = pathlib.Path('.loop')\n"
+                    "loop.mkdir()\n"
+                    "for name in ('hypothesis', 'why.md', 'outcome'):\n"
+                    " (loop / name).write_text('runtime output')\n"
+                    "pathlib.Path('source.py').write_text('value = 1\\n')\n"
+                    "prompt = (sys.argv[sys.argv.index('-p') + 1]\n"
+                    "          if '-p' in sys.argv else sys.argv[-1])\n"
+                    "command = ([sys.executable, os.environ['AI_LOOP_KIT_ROOT'] +\n"
+                    " '/scripts/builder_prompt.py', '--stage'] if 'builder_prompt.py\" --stage'\n"
+                    " in prompt else ['git', 'add', '--force', '-A'])\n"
+                    "subprocess.run(command, check=True)\n")
+                fake.chmod(0o755)
+                with patch.dict(os.environ, {"LOOP_CLAUDE": str(fake),
+                                             "LOOP_CODEX": str(fake)}):
+                    prompt = builder_prompt.brief(4, "spec", {"files": []}, "", folder=folder)
+                    proc = agents.start_session(backend, prompt, folder, role="builder")
+                    output, _ = proc.communicate(timeout=10)
+                self.assertEqual(proc.returncode, 0, output)
+                staged = git(folder, "diff", "--cached", "--name-only").splitlines()
+                self.assertIn("source.py", staged)
+                self.assertFalse(any(path.startswith(".loop/") for path in staged), staged)
+                self.assertEqual((folder / ".loop/hypothesis").read_text(), "runtime output")
+
+    def test_builder_brief_names_safe_staging_and_runtime_rule(self):
+        text = builder_prompt.brief(4, "spec", {"files": []}, "")
+        self.assertIn('python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage', text)
+        self.assertIn("Never stage or force-add `.loop/`", text)
+
+    def stage_command(self, folder):
+        return subprocess.run(
+            [sys.executable, str(Path(builder_prompt.__file__)), "--stage"],
+            cwd=folder, capture_output=True, text=True, check=False)
+
+    def test_staging_from_subdirectory_keeps_deletions_and_ignored_files(self):
+        folder = self.p.root
+        (folder / "src").mkdir()
+        (folder / ".gitignore").write_text("ignored.txt\n")
+        git(folder, "add", ".gitignore")
+        git(folder, "commit", "--quiet", "-m", "Ignore build output")
+        (folder / "README.md").unlink()
+        (folder / "src/new.py").write_text("value = 1\n")
+        (folder / "ignored.txt").write_text("build output")
+        (folder / ".loop").mkdir(exist_ok=True)
+        (folder / ".loop/hypothesis").write_text("runtime output")
+        result = self.stage_command(folder / "src")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(folder, "diff", "--cached", "--name-status").splitlines(),
+                         ["D\tREADME.md", "A\tsrc/new.py"])
+
+    def test_staging_refuses_runtime_files_already_in_the_index(self):
+        folder = self.p.root
+        (folder / ".loop").mkdir(exist_ok=True)
+        (folder / ".loop/why.md").write_text("runtime output")
+        git(folder, "add", "--force", ".loop/why.md")
+        before = git(folder, "diff", "--cached")
+        (folder / "new.py").write_text("value = 1\n")
+        result = self.stage_command(folder)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(".loop/ files are already staged", result.stderr)
+        self.assertEqual(git(folder, "diff", "--cached"), before)
 
     def claimed(self):
         n = self.p.piece()

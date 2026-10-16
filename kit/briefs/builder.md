@@ -63,7 +63,10 @@ DATA>>>
 1. Read the spec and the Exit check files.
 2. Build the smallest change that makes every Exit check pass.
 3. Run the Exit checks often.
-4. Commit your work on this branch with plain messages. Do not push.
+4. Stage your work with
+   `python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`.
+   This stages project changes and excludes `.loop/`. Check `git diff --cached`
+   before committing on this branch with a plain message. Do not push.
 5. Write `.loop/why.md` with exactly two short paragraphs: why this change;
    then what could go wrong. Do not include implementation notes.
 6. Stop when the Exit checks pass, and say in two or three lines what you built
@@ -93,6 +96,9 @@ next line. Stop. The run returns the piece to shaping for the person to fix.
 
 ## Never
 
+- Never stage or force-add `.loop/` files. Hypotheses, explanations, outcomes
+  and logs are runtime files. Leave them untracked and use the staging command
+  above instead of `git add`. The gate refuses runtime files in a change.
 - Never push, and never run `gh`. The run does that after the gate checks you.
 - Never change a file under `.claude/` or `.githooks/`.
 - Never weaken a project check to pass: no lint rule turned off, no test

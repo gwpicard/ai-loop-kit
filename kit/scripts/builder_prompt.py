@@ -1,8 +1,11 @@
-"""Build the instructions and project context for one builder attempt."""
+"""Build the instructions, context and safe staging command for a builder."""
 from __future__ import annotations
 
+import argparse
 import ast
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -108,3 +111,26 @@ def research_brief(ready: dict) -> str:
              + (" [possibly stale]" if item["id"] in stale else "")
              for item in ready.get("research", [])]
     return "\n".join(lines) or "- No outside facts were used."
+
+
+def stage() -> int:
+    """Stage project changes from any subdirectory, excluding root runtime files."""
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "-z", "--", ":(top).loop"],
+        capture_output=True, check=False)
+    if staged.returncode:
+        sys.stderr.buffer.write(staged.stderr)
+        return staged.returncode
+    if staged.stdout:
+        print("refused: .loop/ files are already staged; do not commit them.", file=sys.stderr)
+        return 2
+    return subprocess.run(
+        ["git", "add", "-A", "--", ":/", ":(top,exclude).loop"], check=False).returncode
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stage", action="store_true", required=True,
+                        help="stage project changes without .loop/ runtime files")
+    parser.parse_args()
+    sys.exit(stage())
