@@ -94,11 +94,11 @@ class SandboxTest(unittest.TestCase):
                 "## The loop\nSecret paths: private/keys.json\n")
             with patch.object(loopkit, "project_root", return_value=root), \
                  patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True), \
-                 patch.object(agents.subprocess, "Popen") as popen:
+                 patch.object(agents, "subprocess") as process:
                 agents.start_session("codex", "brief", root, role="builder",
                                      walk_away=True)
 
-        args = popen.call_args.args[0]
+        args = process.Popen.call_args.args[0]
         self.assertNotIn("--sandbox", args)
         configs = [args[index + 1] for index, value in enumerate(args[:-1])
                    if value == "--config"]
@@ -113,6 +113,7 @@ class SandboxTest(unittest.TestCase):
     def test_builder_environment_drops_secret_shaped_variables(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            git(root, "init", "--quiet")
             with patch.object(loopkit, "project_root", return_value=root), \
                  patch.dict("os.environ", {
                      "PATH": "/usr/bin", "OPENAI_API_KEY": "hidden",
@@ -120,11 +121,11 @@ class SandboxTest(unittest.TestCase):
                      "PUBLIC_ENDPOINT": "https://example.test",
                      "GIT_CONFIG_KEY_0": "core.autocrlf",
                  }, clear=True), \
-                 patch.object(agents.subprocess, "Popen") as popen:
+                 patch.object(agents, "subprocess") as process:
                 agents.start_session("codex", "brief", root, role="builder")
-                builder_env = popen.call_args.kwargs["env"]
+                builder_env = process.Popen.call_args.kwargs["env"]
                 agents.start_session("codex", "brief", root, role="reviewer")
-                reviewer_env = popen.call_args.kwargs["env"]
+                reviewer_env = process.Popen.call_args.kwargs["env"]
         for env in (builder_env, reviewer_env):
             self.assertNotIn("OPENAI_API_KEY", env)
             self.assertNotIn("APP_SECRET", env)

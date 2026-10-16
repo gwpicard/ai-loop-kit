@@ -393,8 +393,17 @@ Why each role is separate:
 `AGENTS.md` chooses the backend for builders, reviewers and critics. Claude
 Code is the default. The ready record freezes the choice, and
 `run.py --agent codex` overrides it for one run. Interactive skills stay in
-Claude Code. Codex runs `codex exec --json` with workspace-write rooted at the
-build folder and network disabled. Every Codex session ignores the user's
+Claude Code. Codex runs `codex exec --json` with a workspace write boundary
+and network disabled. Builders may write the build folder, its git directory
+and a kit-prepared `.loop/tmp` directory, which is also their `TMPDIR`. In a
+linked worktree they may also write the shared object store and their current
+branch's ref, ref lock and reflog. Other worktrees and branches receive no
+extra write access. System temp directories receive no extra write access.
+The builder brief lists the allowed paths and permission settings. A refusal
+that needs outside help returns an `environment` outcome with the path and
+setting responsible. Walk-away secret denials still apply.
+
+Every Codex session ignores the user's
 config file and disables plugins and apps so their MCP servers do not start.
 Codex has no guard hook and no Edit denies, so only the gate holds the rules
 after the session.
