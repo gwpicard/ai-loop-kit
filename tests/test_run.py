@@ -808,6 +808,23 @@ class RunTest(unittest.TestCase):
                     if r.get("move") == "give-back"][-1]
         self.assertEqual(handback["cause"], "other")
 
+    def test_pull_request_creation_error_is_not_a_person_rejection(self):
+        def fail_create_pr(*args, **kwargs):
+            raise RuntimeError("GitHub is unavailable")
+
+        with patch.object(self.p.gh, "create_pr", side_effect=fail_create_pr):
+            n, result = self.build("good", attempts=1)
+        self.assertIn("GitHub is unavailable", result)
+        rejection = [r for r in records(self.p.gh.comments(n))
+                     if r.get("move") == "reject"][-1]
+        self.assertEqual(rejection["cause"], "pull-request-failed")
+        self.assertEqual(rejection["type"], "environment")
+        self.assertEqual(rejection["reason"], "pull request creation failed after submit")
+        self.assertEqual(rejection["attempts"], 1)
+        self.assertGreater(rejection["seconds"], 0)
+        self.assertEqual(rejection["kit"], "1.1.0")
+        self.assertRegex(rejection["date"], r"^\d{4}-\d{2}-\d{2}$")
+
     def test_a_pushed_branch_is_never_rewritten(self):
         os.environ["FAKE_MODE"] = "good"
         n = self.p.piece()

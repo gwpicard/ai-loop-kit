@@ -478,7 +478,9 @@ def quality_probe_path(root: Path, piece: int, command: str, main_commit: str) -
 
 def _cause(name: str, reason: str, reason_type: str) -> str:
     text = reason.lower()
-    if name == "reject":
+    if name == "reject" and "pull request creation failed" in text:
+        cause = "pull-request-failed"
+    elif name == "reject":
         cause = "person-rejected"
     elif name == "pull-back":
         cause = "person-request"
@@ -490,7 +492,9 @@ def _cause(name: str, reason: str, reason_type: str) -> str:
         cause = "idle"
     elif "stale" in text or "main changed" in text:
         cause = "stale-after-main"
-    elif "importerror" in text or "module not found" in text or "import error" in text:
+    elif ("importerror" in text or "modulenotfounderror" in text
+          or "no module named" in text or "module not found" in text
+          or "import error" in text):
         cause = "import-error"
     elif "flaky" in text:
         cause = "keep-flaky"

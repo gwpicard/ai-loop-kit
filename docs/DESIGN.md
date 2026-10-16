@@ -676,7 +676,7 @@ scripts are most of the rest.
 | playbook | How a builder works on a kind of piece, such as "reproduce the bug first" for a fix; it never decides done |
 | quality floor | The project's craft checks every piece must pass, set at setup and frozen at ready |
 | ratchet | A check that passes when the branch is not worse than `main` |
-| cause | The short word in a hand-back record that says why, such as `keep-flaky` or `prepare-failed` |
+| cause | The hand-back's short reason, such as `keep-flaky`, `prepare-failed`, `import-error` or `pull-request-failed` |
 | bar | The judge files plus every helper and `conftest.py` they rely on, frozen by a hash at ready |
 | gate | `gate.py`, the only script that moves a piece and the only one that decides |
 | run | `run.py`, the script that claims, builds, reviews and opens pull requests |

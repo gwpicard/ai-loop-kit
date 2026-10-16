@@ -545,6 +545,16 @@ class GateTest(unittest.TestCase):
         self.assertEqual(rejection["attempts"], 2)
         self.assertEqual(rejection["seconds"], 8.25)
 
+    def test_module_not_found_text_records_an_import_error_cause(self):
+        n = self.p.piece()
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        gate.move(self.p.gh, self.p.root, n, "shaping",
+                  reason="ModuleNotFoundError: No module named 'pkg'",
+                  reason_type="environment")
+        handback = records(self.p.gh.comments(n))[-1]
+        self.assertEqual(handback["cause"], "import-error")
+
     def test_gate_stop_writes_a_marker_only_for_a_live_lock(self):
         with self.assertRaises(Refused):
             gate.request_stop(self.p.root)
