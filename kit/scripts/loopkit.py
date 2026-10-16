@@ -915,8 +915,8 @@ class GitHub:
         return [d["name"] for d in data]
 
     def signed_in(self) -> bool:
-        return subprocess.run(["gh", "auth", "status"], cwd=self.root,
-                              capture_output=True).returncode == 0
+        self._gh("auth", "status", "--active")
+        return True
 
     def main_protection(self) -> str:
         """Report main's protection without turning a missing rule into a doctor failure."""

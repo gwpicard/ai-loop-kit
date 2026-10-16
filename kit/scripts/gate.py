@@ -685,7 +685,12 @@ def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
     if not add(bool(origin), "the project has an origin",
                "create the GitHub repository and add it as origin"):
         return checks
-    if not add(gh.signed_in(), "gh is signed in", "run: gh auth login"):
+    try:
+        signed_in = gh.signed_in()
+    except RuntimeError as error:
+        add(False, str(error), "run: gh auth login")
+        return checks
+    if not add(signed_in, "gh is signed in", "run: gh auth login"):
         return checks
     try:
         main = main_ref(root)
