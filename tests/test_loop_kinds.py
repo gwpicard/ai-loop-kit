@@ -1,4 +1,4 @@
-"""Goal and gauntlet judges used by the ready gate and run loop."""
+"""Exit checks used by the ready gate and run loop."""
 from __future__ import annotations
 
 import tempfile
@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import critic
 import gate
+import loopkit
 import measure
 import run
 from helpers import KIT, SPEC, Project, git
@@ -16,6 +17,45 @@ from loopkit import Refused, parse_spec
 
 
 class LoopKindSpecTest(unittest.TestCase):
+    def test_exit_section_parses_tests_measure_and_combined_checks(self):
+        body = SPEC.replace(
+            "## Judge\nCommand: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
+            "## Exit\n### Tests\nCommand: `python3 judge_add.py`\nFiles:\n- judge_add.py\n")
+        tests = parse_spec(body)
+        self.assertEqual([check["type"] for check in tests.checks], ["tests"])
+
+        measure_body = SPEC.replace(
+            "## Judge\nCommand: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
+            "## Exit\n### Measure\nCommand: `python3 bench.py`\nTarget: `< 10`\n"
+            "Files:\n- bench.py\n")
+        measured = parse_spec(measure_body)
+        self.assertEqual(measured.checks[0]["type"], "measure")
+        self.assertEqual(measured.checks[0]["target"], "< 10")
+
+        combined = parse_spec(body.replace(
+            "## Exit\n### Tests", "## Exit\n### Measure\nCommand: `python3 bench.py`\n"
+            "Target: `< 10`\nFiles:\n- bench.py\n\n### Tests"))
+        self.assertEqual([check["type"] for check in combined.checks],
+                         ["measure", "tests"])
+
+    def test_exit_checks_require_files_and_old_kind_remains_one_check(self):
+        body = SPEC.replace(
+            "## Judge\nCommand: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
+            "## Exit\n### Tests\nCommand: `python3 judge_add.py`\n")
+        with self.assertRaisesRegex(Refused, "Files"):
+            parse_spec(body)
+        legacy = parse_spec(SPEC)
+        self.assertEqual(len(legacy.checks), 1)
+        self.assertEqual(legacy.checks[0]["type"], "tests")
+
+    def test_fix_playbook_reaches_builder_without_changing_the_check(self):
+        spec = parse_spec(SPEC + "Playbook: fix\n")
+        self.assertEqual(spec.playbook, "fix")
+        brief = run.brief(7, SPEC, {
+            "checks": list(spec.checks), "files": spec.files, "playbook": spec.playbook,
+        }, "")
+        self.assertIn("reproduce the reported bug", brief)
+
     def test_goal_spec_and_builder_brief_keep_research_together(self):
         body = SPEC.replace("Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
                             "Kind: goal\nMeasure: `python3 bench.py`\nTarget: `< 200`\n"
@@ -28,7 +68,7 @@ class LoopKindSpecTest(unittest.TestCase):
         self.assertEqual(spec.research[0]["id"], "R1")
         brief = run.brief(7, body, {
             "kind": "goal", "measure": spec.measure, "target": spec.target, "files": [],
-            "research": list(spec.research),
+            "checks": list(spec.checks), "research": list(spec.research),
         }, "")
         self.assertIn("Measure: python3 bench.py", brief)
         self.assertIn("R1: The API supports batching", brief)
@@ -161,30 +201,63 @@ class PackageFilesTest(unittest.TestCase):
 
 
 class GateHooksTest(unittest.TestCase):
+    def test_tests_only_measure_only_and_combined_exit_checks_at_ready(self):
+        test_check = {"type": "tests", "command": "judge", "files": ["judge.py"]}
+        measure_check = {"type": "measure", "command": "bench", "target": "< 10",
+                         "files": ["bench.py"]}
+        with patch.object(loopkit, "run_judge", return_value=(1, "FAIL test_D1_feature")):
+            records, _ = loopkit.exit_ready(Path.cwd(), (test_check,), {"D1": "feature"}, ())
+        self.assertEqual([record["type"] for record in records], ["tests"])
+        with patch.object(measure, "ready", return_value=("median 11", {"main_median": 11})):
+            records, _ = loopkit.exit_ready(Path.cwd(), (measure_check,), {"D1": "feature"}, ())
+        self.assertEqual(records[0]["main_median"], 11)
+        with patch.object(loopkit, "run_judge", return_value=(1, "FAIL test_D1_feature")), \
+                patch.object(measure, "ready", return_value=("median 11", {"main_median": 11})):
+            records, _ = loopkit.exit_ready(Path.cwd(), (test_check, measure_check),
+                                             {"D1": "feature", "D2": "target"}, ())
+        self.assertEqual([record["type"] for record in records], ["tests", "measure"])
+
+    def test_tests_only_measure_only_and_combined_exit_checks_at_submit(self):
+        test_check = {"type": "tests", "command": "judge"}
+        measure_check = {"type": "measure", "command": "bench"}
+        with patch.object(loopkit, "run_judge", return_value=(0, "passed")):
+            code, _ = loopkit.exit_attempt(Path.cwd(), [test_check])
+        self.assertEqual(code, 0)
+        with patch.object(measure, "judge_attempt", return_value=(0, "target met")):
+            code, _ = loopkit.exit_attempt(Path.cwd(), [measure_check])
+        self.assertEqual(code, 0)
+        with patch.object(loopkit, "run_judge", return_value=(0, "passed")), \
+                patch.object(measure, "judge_attempt", return_value=(0, "target met")):
+            code, output = loopkit.exit_attempt(Path.cwd(), [test_check, measure_check])
+        self.assertEqual(code, 0)
+        self.assertIn("Tests exit check", output)
+        self.assertIn("Measure exit check", output)
+
     def test_goal_ready_records_main_measurements_and_requires_a_miss(self):
         spec = parse_spec(SPEC.replace(
             "Command: `python3 judge_add.py`\nFiles:\n- judge_add.py\n",
             "Kind: goal\nMeasure: `bench`\nTarget: `< 10`\nFiles:\n- bench.py\n"))
         with patch.object(measure, "measure_values", return_value=[10, 12, 11]):
-            _, output, record = gate._kind_ready_judge(Path.cwd(), spec)
+            records, output = loopkit.exit_ready(Path.cwd(), spec.checks,
+                                                  spec.done_when, spec.stays)
         self.assertIn("median 11", output)
-        self.assertEqual(record["main_median"], 11)
+        self.assertEqual(records[0]["main_median"], 11)
         with patch.object(measure, "measure_values", return_value=[1, 1, 1]):
             with self.assertRaises(Refused):
-                gate._kind_ready_judge(Path.cwd(), spec)
+                loopkit.exit_ready(Path.cwd(), spec.checks, spec.done_when, spec.stays)
 
     def test_goal_attempt_requires_a_fresh_hypothesis(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             (folder / ".loop").mkdir()
-            ready = {"kind": "goal", "measure": "bench", "target": "< 10"}
+            ready = [{"type": "measure", "measure": "bench", "target": "< 10"}]
             with patch.object(measure, "measure_values", return_value=[1, 1, 1]):
-                code, output = gate._kind_attempt_judge(folder, ready)
+                code, output = loopkit.exit_attempt(folder, ready)
             self.assertNotEqual(code, 0)
             self.assertIn("hypothesis", output)
             (folder / ".loop" / "hypothesis").write_text("cache repeated work")
             with patch.object(measure, "measure_values", return_value=[9, 8, 9]):
-                code, output = gate._kind_attempt_judge(folder, ready)
+                code, output = loopkit.exit_attempt(folder, ready)
             self.assertEqual(code, 0)
             self.assertIn("Hypothesis: cache repeated work", output)
 
@@ -208,8 +281,9 @@ class RunBriefTest(unittest.TestCase):
     def test_goal_brief_requires_hypothesis_before_code_changes(self):
         brief = run.brief(7, "## Contract\n- D1: target met", {
             "kind": "goal", "measure": "python3 bench.py", "files": [],
-            "approach": "", "command": "", "contract": {}}, "")
-        self.assertIn("Before changing code in every attempt", brief)
+            "approach": "", "command": "", "contract": {},
+            "checks": [{"type": "measure", "command": "python3 bench.py", "target": "< 10"}]}, "")
+        self.assertIn("Before changing code", brief)
         self.assertIn(".loop/hypothesis", brief)
         self.assertIn("Measure: python3 bench.py", brief)
 

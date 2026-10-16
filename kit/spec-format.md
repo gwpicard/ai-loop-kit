@@ -19,11 +19,13 @@ Optional. Name the files, interface, tools and constraints when they help.
 - D1: When I run `habits add read`, then `habits list` shows read.
 - D2 (stays): Without `--title`, the output is unchanged.
 
-## Judge
-Kind: feature
+## Exit
+### Tests
 Command: `python -m pytest tests/judge/test_piece_add.py -q`
 Files:
 - tests/judge/test_piece_add.py
+
+## Judge
 Keep: `python -m pytest`
 # Optional: allow this named file to cross 1,000 lines.
 Large file: src/generated.py
@@ -39,36 +41,44 @@ gate refuses a malformed finding. At claim, it reports findings older than
 30 days as possibly stale. The builder and contract reviewer receive the
 findings.
 
-Use `Kind: feature` for new behaviour, `Kind: fix` for a bug, `Kind: scaffold`
-for the first piece in an empty project, `Kind: goal` for a measured target,
-and `Kind: gauntlet` when a critic must compare an artefact with a reference.
-A fix starts with the bug in its first Contract item. `Done when` remains
-accepted as the old name for `Contract`.
+An `## Exit` section contains one or more checks. Use `### Tests` with
+`Command:` and `Files:`, `### Measure` with `Command:`, `Target:` and
+`Files:`, or `### Critics` with `Capture:`, `Reference:`, `Criteria:` and
+`Files:`. Every check must be unmet on main for the right reason. A piece may
+combine check types. `Keep:` remains in `## Judge` and must pass on main and
+after every attempt. `Playbook: fix` guides the builder and has no gate effect.
+`Done when` remains accepted as the old name for `Contract`.
 
-## Goal judge
+Old specs with `## Judge` and `Kind:` remain accepted as one check. A fix
+starts with the bug in its first Contract item. Old `Kind: scaffold`,
+`Kind: goal` and `Kind: gauntlet` specs retain their existing behaviour.
 
-A goal judge uses `Measure:` and `Target:` instead of a test command. `Files:`
-names the measure script and its support files. The command must print one
-finite number on its last non-empty line. The gate runs it three times and uses
-the median. The target uses `<`, `<=`, `>` or `>=` followed by a number. At
-ready, the median on main must miss the target. Before changing code, each
-attempt writes one hypothesis to `.loop/hypothesis`. An attempt passes when the
-median meets the target and `Keep:` passes. The pull request records the main
-and attempt values and the hypotheses tried.
+## Measure check
+
+A Measure check uses `Command:` and `Target:`. `Files:` names the measure
+script and its support files. The command must print one finite number on its
+last non-empty line. The gate runs it three times and uses the median. The
+target uses `<`, `<=`, `>` or `>=` followed by a number. At ready, the median
+on main must miss the target. Before changing code, each attempt writes one
+hypothesis to `.loop/hypothesis`. An attempt passes when the median meets the
+target and `Keep:` passes. The pull request records the main and attempt values
+and the hypotheses tried.
 
 ```markdown
-## Judge
-Kind: goal
-Measure: `python bench.py`
+## Exit
+### Measure
+Command: `python bench.py`
 Target: < 200
 Files:
 - bench.py
+
+## Judge
 Keep: `python -m pytest`
 ```
 
-## Gauntlet judge
+## Critics check
 
-A gauntlet judge uses `Capture:` to make artefact files under
+A Critics check uses `Capture:` to make artefact files under
 `.loop/capture/`, `Reference:` to name a project path or URL, and a non-empty
 list of `Criteria:`. `Files:` names the capture script, its support files and
 any local reference files. The gate freezes these files in the bar. Three
@@ -78,7 +88,8 @@ and `Keep:` passes. The pull request records each verdict and the order shown
 to each critic.
 
 ```markdown
-Kind: gauntlet
+## Exit
+### Critics
 Capture: `python3 render.py`
 Reference: `docs/example.png`
 Criteria:
@@ -87,6 +98,9 @@ Criteria:
 Files:
 - render.py
 - docs/example.png
+
+## Judge
+Keep: `python -m pytest`
 ```
 
 ## Fix example
@@ -101,11 +115,14 @@ Out of scope:
 ## Contract
 - D1: When I add a second habit, then the first remains in the saved list.
 
-## Judge
-Kind: fix
+## Exit
+### Tests
 Command: `python -m pytest tests/judge/test_piece_retains_habit.py -q`
 Files:
 - tests/judge/test_piece_retains_habit.py
+
+## Judge
+Playbook: fix
 ```
 
 ## What the gate checks at ready
@@ -120,8 +137,10 @@ Files:
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
   unless its path is named with `Large file:`.
 
-Goal and gauntlet readiness checks use their measurement or critic instead of
-judge files. Goal and gauntlet still run `Keep:` on main and after each attempt.
+Every check in `## Exit` runs on main at ready and after each attempt. Measure
+checks use the median of three runs. Critics checks use three blind verdicts.
+Every check's `Files:` list is included in the frozen bar. Legacy goal and
+gauntlet specs keep the same readiness and attempt rules.
 
 The gate records a hash of the spec and of the judge bar. A change after ready
 means the piece must go back through shaping and ready.

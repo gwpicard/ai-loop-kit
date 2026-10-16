@@ -230,11 +230,10 @@ the right reason.
 A scaffold piece is no longer an exception: its check is that the test
 runner runs, which is unmet while no runner exists.
 
-**Today** a piece names one check with `Kind:` (feature, fix, scaffold, goal
-or gauntlet). **Planned for 1.2:** an `## Exit` section lists one or more
-checks, so a piece can need both tests and a speed target, and `Kind:` still
-parses as one check. Each check names the files it runs, and they join the
-bar.
+An `## Exit` section lists one or more checks: tests, a measure or critics.
+A piece can combine them. Each check names the files it runs, and those files
+join the frozen bar. Old `Kind:` specs still parse as one check. `Playbook:`
+guides the builder and does not affect the gate.
 
 A goal attempt writes one hypothesis to `.loop/hypothesis` first. A capture
 that succeeds but writes no files is refused with a clear message. Critics
@@ -291,7 +290,7 @@ person can read what will be checked, and the gate can check it.
 `Settings: may change` in the Judge section lets a piece change check
 settings. `Large file: <path>` lets a named file grow past 1,000 lines.
 
-### Risks and Exit (planned for 1.2)
+### Risks (planned for 1.2)
 
 Walk-throughs of real projects showed that most failures start before the
 build: an open choice nobody answered, two pieces editing one shared file, an

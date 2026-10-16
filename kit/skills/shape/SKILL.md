@@ -36,8 +36,9 @@ Use the KIT path above in every command. Write it out in full. Read
    from the project's AGENTS.md, exactly, so what works today must still
    work. Mark a Contract item that already holds today as `(stays)`; never
    bend a test so it fails on main. Put rules the gate must enforce in
-   Contract or Judge. Add `Settings: may change` only when the piece is about
-   the project's lint, test or CI settings.
+   Contract or Exit. Use `Playbook: fix` for fix guidance. Add
+   `Settings: may change` only when the piece is about the project's lint,
+   test or CI settings.
    Done when: the person says yes to the spec.
    Once the person approves the Intent, Out of scope, Approach and Contract, do not change those words without asking for approval again. For a `fix`, first reproduce the bug and make the first Contract item say what fails now and what should happen.
 5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
@@ -46,7 +47,11 @@ Use the KIT path above in every command. Write it out in full. Read
    If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`, change the judge files, and commit the change on top.
    Done when: `git log main..piece/<n>` shows one commit holding only the judge files (for a piece that came back, the newest commit holds only the judge change), and you are back on main.
    Save the judge-writer response, including its `<verdict>` block, to a temporary file and run `python3 "<KIT>/scripts/run.py" --verdict-kind judge-writer --verdict-file <file>`. If the verdict is missing or invalid, stop shaping and report the printed `next:` line.
-7. Run the project's Test command on the piece branch. It fails, because the judge fails; read the output and fix every other error that names a judge file, such as lint, type or format errors. Then check it with `python3 "<KIT>/scripts/gate.py" check <n>`. Fix what it names, on the piece branch.
+7. Run the project's Test command on the piece branch. An Exit Tests check
+   fails on main; a Measure or Critics check uses its own baseline. Read the
+   output and fix errors in the check files, such as lint, type or format
+   errors. Then run `python3 "<KIT>/scripts/gate.py" check <n>` and fix what it
+   names on the piece branch.
    Done when: it prints `ok`.
 8. If the approved spec needs an edit while shaping, write the full revised body to a temporary file and use `python3 "<KIT>/scripts/gate.py" spec <n> --body-file <file>`. Get the person's approval before replacing an approved contract. Move it with `python3 "<KIT>/scripts/gate.py" move <n> ready`.
    Done when: the piece is in ready, or you have reported the refusal and its `next:` line.
@@ -54,8 +59,9 @@ Use the KIT path above in every command. Write it out in full. Read
 ## Rules
 - Never change a `state:` label by hand. Only the gate moves a piece.
 - Never write the code the piece asks for. Shaping writes the spec and the judge only.
-- Use `Kind: scaffold` only when the judge cannot fail on main, such as a test runner that does not exist yet. If the judge can fail on main, leave Kind out so the gate checks it.
-- Use `Kind: goal` when a repeatable numeric measurement decides the result. Specify `Measure:` and `Target:` instead of test files. Use `Kind: gauntlet` when tests cannot judge the result, and specify `Capture:`, `Reference:` and at least one `Criteria:` item. Follow the examples and ready rules in `<KIT>/spec-format.md`.
+- Use `## Exit` for the checks that decide when the piece is done. Add one or more `### Tests`, `### Measure` or `### Critics` checks. Every check must be unmet on main for the right reason, and each check names its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
+- Keep `Playbook: fix` as builder guidance. A fix reproduces the reported bug first and finds its cause. Playbook text does not affect the gate.
+- Old issues with `## Judge` and `Kind:` remain accepted as one check. Do not use the old format for new specs.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.
 - After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --type spec-unclear --reason "<why>"`, then shape it again.
 - If the gate refuses, report the refusal in plain words and take the `next:` step. Never reach the same result another way.

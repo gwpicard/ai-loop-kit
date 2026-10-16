@@ -226,18 +226,21 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
     files = "\n".join(f"- `{f}`" for f in ready["files"]) or "- (none: the command is the judge)"
     command = ready.get("command", "")
     kind_rules = ""
-    if ready.get("kind") == "goal":
-        command = "Measure: " + ready["measure"]
-        kind_rules = ("Before changing code in every attempt, write one testable hypothesis to "
-                      "`.loop/hypothesis`. The gate measures the result three times and uses "
-                      "the median. Meet Target and Keep to pass.\n")
-        files = "- (the measured value is the judge)"
-    elif ready.get("kind") == "gauntlet":
-        command = "Capture: " + ready["capture"]
-        kind_rules = ("The gate captures your result and runs three fresh blind critics against "
-                      "the named reference. Do not change the reference or criteria.\n")
-        files = "- (the captured artefact is the judge)"
+    if ready.get("checks"):
+        command = "\n".join(
+            f"{check['type'].title()}: " + check.get("command", check.get("capture", ""))
+            for check in ready["checks"])
+        if any(check["type"] == "measure" for check in ready["checks"]):
+            kind_rules += ("Before changing code, write one testable hypothesis to "
+                           "`.loop/hypothesis`. The gate measures the result three times "
+                           "and uses the median. Meet every Measure target and Keep check.\n")
+        if any(check["type"] == "critics" for check in ready["checks"]):
+            kind_rules += ("The gate captures your result and runs three fresh blind critics "
+                           "against each named reference. Do not change references or criteria.\n")
     earlier = last_failure or "This is the first attempt."
+    playbook = ("For a fix, reproduce the reported bug before changing code, then find and "
+                "address its cause. This is work guidance. The gate checks only the Exit "
+                "and Keep checks.\n" if ready.get("playbook") == "fix" else "")
     if came_back:
         earlier = ("This piece was built before and came back for these reasons:\n"
                    f"{came_back}\nThe branch still holds that earlier build. Change it so the "
@@ -245,6 +248,7 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
     for key, value in {"PIECE": str(n), "SPEC": body.strip(),
                        "APPROACH": ready.get("approach", "") or "No approach was supplied.",
                        "RESEARCH": research_brief(ready),
+                       "PLAYBOOK": playbook,
                        "COMMAND": command,
                        "FILES": files,
                        "DEPENDENTS": "\n".join(f"- `{f}`" for f in dependent_files(
@@ -497,7 +501,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         started = time.monotonic()
         started_at = datetime.now(timezone.utc)
         (folder / ".loop" / "outcome").unlink(missing_ok=True)
-        if ready.get("kind") == "goal":
+        if any(check["type"] == "measure" for check in ready.get("checks", [])):
             (folder / ".loop" / "hypothesis").unlink(missing_ok=True)
         log(f"piece {n}: attempt {k} of {attempts} (log: {logfile.relative_to(root)})")
         domains = walkaway.approved_domains(root) if walk_away else None
@@ -554,12 +558,17 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         finally:
             clean_quality_outputs(folder, record_quality_outputs(folder))
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
-        if ready.get("kind") in ("goal", "gauntlet"):
+        if ready.get("checks"):
             kind_history.append(f"Attempt {k}: {output.strip()}")
-            baseline = (f"Main measurement: {ready['main_measurements']}; median "
-                        f"{ready['main_median']}\n" if ready.get("kind") == "goal" else
-                        f"Main gauntlet: {ready['main_verdicts']}\n")
-            output += "\n\n" + baseline + "Attempt history:\n" + "\n".join(kind_history)
+            baselines = []
+            for check in ready["checks"]:
+                if check["type"] == "measure":
+                    baselines.append(f"Main measurement: {check['main_measurements']}; "
+                                     f"median {check['main_median']}")
+                elif check["type"] == "critics":
+                    baselines.append(f"Main critics: {check['main_verdicts']}")
+            output += ("\n\n" + "\n".join(baselines) + "\nAttempt history:\n"
+                       + "\n".join(kind_history))
         wrong_reason = re.search(
             r"\b(?:SyntaxError|IndentationError|ModuleNotFoundError|ImportError|"
             r"FileNotFoundError)\b|ERROR collecting|\bcommand not found\b",
