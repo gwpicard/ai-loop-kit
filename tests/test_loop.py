@@ -509,6 +509,22 @@ class GateTest(unittest.TestCase):
         self.assertIn("pieces started: 2", report)
         self.assertIn("passed on the first attempt: 1 / 2 (50%)", report)
 
+    def test_report_does_not_count_a_restart_as_a_first_attempt_pass(self):
+        n = self.p.piece()
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="Prepare failed",
+                  reason_type="environment")
+        self.ready(n)
+        gate.move(self.p.gh, self.p.root, n, "building")
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "habits.py").write_text(GOOD_CODE)
+        gate.move(self.p.gh, self.p.root, n, "approval", folder=self.p.root,
+                  pr="https://example.test/pr/1", attempts=1, seconds=3.5)
+        report = gate.report(self.p.gh)
+        self.assertIn("pieces started: 1", report)
+        self.assertIn("passed on the first attempt: 0 / 1 (0%)", report)
+
     def test_person_handbacks_record_their_cause_and_prior_attempts(self):
         n = self.p.piece()
         self.ready(n)

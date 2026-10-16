@@ -830,11 +830,17 @@ def report(gh: GitHub) -> str:
                 continue
             seen[n] = set()
             issue_records = records(gh.comments(n))
+            claimed = False
+            first_build_outcome = False
             for record in issue_records:
                 if record.get("move") == "claim":
                     started.add(n)
-                if record.get("move") == "submit" and record.get("attempts") == 1:
-                    first_pass.add(n)
+                    claimed = True
+                elif claimed and not first_build_outcome and record.get("move") in (
+                        "give-back", "submit"):
+                    first_build_outcome = True
+                    if record.get("move") == "submit" and record.get("attempts") == 1:
+                        first_pass.add(n)
                 kind = record.get("type")
                 if (record.get("move") not in NEEDS_TYPE and record.get("move") != "judge-gap") or \
                         kind not in REASON_TYPES:
