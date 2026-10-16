@@ -419,11 +419,18 @@ def _is_test_support(name: str) -> bool:
 
 def keep_passes_without_judge(folder: Path, ready: dict,
                               failures: tuple[str, str]) -> tuple[bool, str]:
-    """Probe only when both failures locate a diagnostic in the same judge file."""
+    """Probe only when both failures locate an error in the same judge file."""
+    traceback = (r"^Traceback \(most recent call last\):\n"
+                 r"(?:[ \t]+[^\n]*\n|\n)+\w+(?:\.\w+)*(?::[^\n]*)?$")
     for name in ready["files"]:
         path = rf"(?:{re.escape(str(folder))}/)?{re.escape(name)}"
-        diagnostic = rf'^\s*(?:{path}:(?:\d+:|\s+\S)|File "{path}", line \d+)'
-        if all(re.search(diagnostic, output, re.MULTILINE) for output in failures):
+        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*'
+                      rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
+        frame = rf'^[ \t]+File "{path}", line \d+'
+        if all(re.search(diagnostic, output, re.MULTILINE) or
+               any(re.search(frame, block, re.MULTILINE)
+                   for block in re.findall(traceback, output, re.MULTILINE))
+               for output in failures):
             break
     else:
         return False, ""

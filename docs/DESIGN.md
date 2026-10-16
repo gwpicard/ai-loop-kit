@@ -448,10 +448,11 @@ pushed branch.
 | `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names, including unittest `FAIL:` and `ERROR:` headers. The gate blames the bar only when both failures locate a diagnostic in the same judge file and Keep passes without judge files, with nothing skipped | A judge that breaks the project's lint can never pass |
 | Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
 
-The diagnostic must name a judge file in a lint location or Python traceback.
-A passing test's name is not evidence. The no-judge result includes that
-run's own output. Without this evidence, Keep fails the attempt without a
-`bar-wrong` diagnosis.
+The diagnostic must name a judge file in an explicit lint error (`error`,
+`fatal` or an `E`/`F` code followed by three or four digits) or an exception
+traceback. A warning, informational location or passing test's name is not
+evidence. The no-judge result includes that run's own output. Without this
+evidence, Keep fails the attempt without a `bar-wrong` diagnosis.
 
 **Quality commands** belong to the project, not the kit, so the kit works for
 any stack. Setup offers CRAP for Python (a limit of 30 on changed functions,

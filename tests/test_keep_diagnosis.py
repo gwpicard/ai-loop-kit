@@ -1,6 +1,7 @@
 """Keep reports test names and only blames the judge with supporting evidence."""
 from __future__ import annotations
 
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -44,13 +45,40 @@ class KeepDiagnosisTests(unittest.TestCase):
         self.assertNotIn(gate.BAR_WRONG, output)
         self.assertIn("test_random", output)
 
+    def test_harmless_judge_warning_does_not_explain_independent_failures(self):
+        (self.p.root / "keep_probe.py").write_text(textwrap.dedent('''\
+            import pathlib
+            import unittest
+            import warnings
+
+            counter = pathlib.Path("keep_draws")
+            draw = int(counter.read_text()) + 1 if counter.exists() else 1
+            counter.write_text(str(draw))
+            if pathlib.Path("judge_add.py").exists():
+                warnings.simplefilter("always", DeprecationWarning)
+                warnings.warn_explicit("old API", DeprecationWarning, "judge_add.py", 2)
+
+            class ExistingTests(unittest.TestCase):
+                def test_independent(self):
+                    self.assertGreater(draw, 2)
+
+            unittest.main()
+        '''))
+        self.ready["keep"] = "python3 keep_probe.py"
+        passed, output = gate.judge(self.p.root, self.ready)
+        self.assertFalse(passed)
+        self.assertIn("DeprecationWarning: old API", output)
+        self.assertIn("FAIL: test_independent", output)
+        self.assertNotIn(gate.BAR_WRONG, output)
+        self.assertEqual((self.p.root / "keep_draws").read_text(), "2")
+
     def test_no_judge_section_contains_the_no_judge_run_output(self):
         judge_file = self.p.root / "judge_add.py"
         original = judge_file.read_bytes()
 
         def keep(folder, command, timeout, protected_paths):
             if judge_file.exists():
-                return 1, "judge_add.py: assertion inside a loop\nFAILED (failures=1)"
+                return 1, "judge_add.py: error: assertion inside a loop\nFAILED (failures=1)"
             return 0, "Existing suite: OK\nKeep took: 0.125 seconds"
 
         with patch.object(gate, "run_keep", side_effect=keep):
@@ -63,7 +91,7 @@ class KeepDiagnosisTests(unittest.TestCase):
 
     def test_probe_requires_the_same_judge_diagnostic_in_both_failures(self):
         with patch.object(gate, "run_keep", side_effect=[
-                (1, "judge_add.py: assertion inside a loop"),
+                (1, "judge_add.py: error: assertion inside a loop"),
                 (1, "FAIL: test_random (suite.Example.test_random)"),
                 (0, "OK")]) as keep:
             passed, output = gate.judge(self.p.root, self.ready)
@@ -72,7 +100,8 @@ class KeepDiagnosisTests(unittest.TestCase):
         self.assertEqual(keep.call_count, 2)
 
     def test_skipped_or_failed_probe_does_not_prove_the_bar_is_wrong(self):
-        failure = '  File "' + str(self.p.root / "judge_add.py") + '", line 4\n'
+        failure = ('Traceback (most recent call last):\n  File "' +
+                   str(self.p.root / "judge_add.py") + '\", line 4\nAssertionError: bad judge\n')
         for probe in [(0, "OK (skipped=1)"), (1, "FAIL: test_existing")]:
             with self.subTest(probe=probe), patch.object(gate, "run_keep", side_effect=[
                     (1, failure), (1, failure), probe]) as keep:
@@ -81,6 +110,32 @@ class KeepDiagnosisTests(unittest.TestCase):
             self.assertNotIn(gate.BAR_WRONG, output)
             self.assertEqual(keep.call_count, 3)
             self.assertTrue((self.p.root / "judge_add.py").is_file())
+
+    def test_explicit_lint_errors_and_exception_tracebacks_support_diagnosis(self):
+        failures = ["judge_add.py:2:3: E501 line too long\n",
+                    "judge_add.py:2: error: bad assertion\n",
+                    'Traceback (most recent call last):\n'
+                    '  File "judge_add.py", line 4\n    assert False\nAssertionError\n']
+        for failure in failures:
+            with self.subTest(failure=failure), patch.object(gate, "run_keep", side_effect=[
+                    (1, failure), (1, failure), (0, "OK")]):
+                passed, output = gate.judge(self.p.root, self.ready)
+            self.assertFalse(passed)
+            self.assertIn(gate.BAR_WRONG, output)
+
+    def test_information_and_bare_frames_are_not_failure_evidence(self):
+        for message in ["judge_add.py:2: note: old API",
+                        "judge_add.py:2: warning: old API",
+                        "judge_add.py:2: W123 old API",
+                        "judge_add.py: informational message",
+                        '  File "judge_add.py", line 4']:
+            failure = message + "\nFAIL: test_independent (suite.ExistingTests)\n"
+            with self.subTest(message=message), patch.object(gate, "run_keep", side_effect=[
+                    (1, failure), (1, failure), (0, "OK")]) as keep:
+                passed, output = gate.judge(self.p.root, self.ready)
+            self.assertFalse(passed)
+            self.assertNotIn(gate.BAR_WRONG, output)
+            self.assertEqual(keep.call_count, 2)
 
     def test_existing_runner_names_remain_available(self):
         self.assertEqual(gate.failing_test_names(
