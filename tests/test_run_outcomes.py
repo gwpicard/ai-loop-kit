@@ -31,6 +31,8 @@ class BuilderOutcomeTest(unittest.TestCase):
                         if r.get("move") == "give-back")
         test_run.RunTest.assert_handback_record(self, handback, reason_type="spec-unclear",
                                                 cause="spec-unclear", attempts=1)
+        self.assertIn("Citation: habits.py:1", handback["reason"])
+        self.assertEqual(len(handback["reason"].split("\nCitation:")[0]), 500)
 
     def test_spec_unclear_accepts_spaces_in_file_citation(self):
         with tempfile.TemporaryDirectory() as directory:

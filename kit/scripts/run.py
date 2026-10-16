@@ -545,7 +545,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             if outcome_kind in ("needs-answer", "spec-unclear"):
                 record_attempt_timing(logfile, started_at, time.monotonic() - started)
                 if outcome_reason:
-                    reason = outcome_reason[:500]
+                    reason = outcome_reason
                     _hand_back(gh, root, n, reason, "spec-unclear", metrics,
                                cause=outcome_kind)
                     gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {reason}")

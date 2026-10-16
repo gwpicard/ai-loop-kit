@@ -80,9 +80,10 @@ FAKE_CLAUDE = textwrap.dedent('''\
                     printf '%s\\n' 'needs-answer' \\
                       'Should this limiter use shared storage?' > .loop/outcome ;;
       spec-unclear) mkdir -p .loop
-                    printf '%s\\n' 'spec-unclear' \\
-                      'Reason: The required interface is unspecified.' \\
-                      'Citation: habits.py:1' > .loop/outcome ;;
+                    printf 'spec-unclear\\nReason: ' > .loop/outcome
+                    printf 'The required interface is unspecified ' >> .loop/outcome
+                    python3 -c 'print("x" * 600)' >> .loop/outcome
+                    printf 'Citation: habits.py:1\\n' >> .loop/outcome ;;
       uncited-spec-unclear) mkdir -p .loop
                     printf '%s\\n' 'spec-unclear' \\
                       'Reason: The required interface is unspecified.' > .loop/outcome ;;
