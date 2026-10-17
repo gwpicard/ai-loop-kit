@@ -123,25 +123,23 @@ def codex_permission_args(folder: Path, writable: Optional[list[Path]] = None,  
 
     work = folder.resolve()
     workspace_rules = {".": "write"}
-    if deny_secrets:
-        workspace_rules.update({".env*": "deny", ".env.example": "read"})
-    absolute_rules = {str(path): "write" for path in (writable or [])}
-    for raw in loop_settings(work).get("secret paths", []) if deny_secrets else []:
-        path = Path(raw)
-        target = (path if path.is_absolute() else work / path).resolve()
-        try:
-            relative = target.relative_to(work).as_posix()
-        except ValueError:
-            absolute_rules[str(target)] = "deny"
-        else:
-            workspace_rules[relative] = "deny"
-
     filesystem = {
         ":tmpdir": "write" if writable else "deny",
         ":slash_tmp": "deny",
         ":workspace_roots": workspace_rules,
-        **absolute_rules,
+        **{str(path): "write" for path in (writable or [])},
     }
+    if deny_secrets:
+        workspace_rules.update({".env*": "deny", ".env.example": "read"})
+        filesystem.update({str(Path.home() / name): "deny"
+                           for name in (".ssh", ".aws", ".config", "Library/Keychains")})
+    for raw in loop_settings(work).get("secret paths", []) if deny_secrets else []:
+        path = Path(raw)
+        target = (path if path.is_absolute() else work / path).resolve()
+        if target.is_relative_to(work):
+            workspace_rules[target.relative_to(work).as_posix()] = "deny"
+        else:
+            filesystem[str(target)] = "deny"
 
     def toml_value(value):
         if isinstance(value, dict):
@@ -302,8 +300,10 @@ def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
         statuses = [int(results[key]) for key in ("write", "ssh_read", "network")]
     except (ValueError, KeyError, TypeError):
         return False, "Codex sandbox probe returned invalid shell exit codes"
-    if any(code == 0 for code in statuses):
-        return False, "Codex sandbox allowed a home write, SSH read or outside network request"
+    failed = [name for name, code in zip(
+        ("write (~/sandbox-probe)", "read (~/.ssh)", "network"), statuses) if code == 0]
+    if failed:
+        return False, "Codex sandbox allowed: " + ", ".join(failed)
     return True, "Codex sandbox blocked the home write, SSH read and outside network request"
 
 

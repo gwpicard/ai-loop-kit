@@ -256,7 +256,7 @@ class AgentSessionTest(unittest.TestCase):
                                      clear=True):
                     active, detail = sandbox.codex_probe(root)
                 self.assertFalse(active)
-                self.assertIn("allowed a home write", detail)
+                self.assertIn("~/.ssh", detail)
 
 
 if __name__ == "__main__":

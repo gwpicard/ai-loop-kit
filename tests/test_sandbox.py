@@ -110,6 +110,30 @@ class SandboxTest(unittest.TestCase):
         self.assertIn('"private/keys.json"="deny"', profile)
         self.assertIn("permissions.ai-loop.network.enabled=false", profile)
 
+    def test_codex_walkaway_denies_home_credentials_without_project_secret_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "workspace"
+            root.mkdir()
+            home = Path(temp) / "home"
+            home.mkdir()
+            git(root, "init", "--quiet")
+            for role in ("probe", "builder"):
+                with patch.object(Path, "home", return_value=home), \
+                     patch.object(loopkit, "project_root", return_value=root), \
+                     patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True), \
+                     patch.object(agents, "subprocess") as process:
+                    agents.start_session("codex", "brief", root, role=role,
+                                         walk_away=True)
+                args = process.Popen.call_args.args[0]
+                profile = next(args[index + 1] for index, value in enumerate(args[:-1])
+                               if value == "--config" and args[index + 1].startswith(
+                                   "permissions.ai-loop.filesystem="))
+                for name in (".ssh", ".aws", ".config", "Library/Keychains"):
+                    with self.subTest(role=role, path=name):
+                        self.assertIn(f'{json.dumps(str(home / name))}="deny"', profile)
+                self.assertNotIn(f'{json.dumps(str(home))}="read"', profile)
+                self.assertNotIn(f'{json.dumps(str(home))}="write"', profile)
+
     def test_builder_environment_drops_secret_shaped_variables(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
