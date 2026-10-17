@@ -443,26 +443,28 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             return f"piece {n}: back to shaping, {reason}"
         outcome = folder / ".loop" / "outcome"
         if outcome.is_file():
-            outcome_kind, outcome_reason = walkaway.builder_outcome(outcome)
-            if outcome_kind == "environment" and outcome_reason:
-                outcome_reason = agents.environment_evidence(logfile)
+            outcome_kind, report = walkaway.builder_outcome(outcome)
+            outcome_reason = (agents.environment_evidence(logfile)
+                              if outcome_kind == "environment" and report else report)
             if outcome_kind in ("needs-answer", "spec-unclear", "environment"):
                 record_attempt_timing(logfile, started_at, time.monotonic() - started)
                 if outcome_reason:
-                    reason = outcome_reason
                     reason_type = "environment" if outcome_kind == "environment" else "spec-unclear"
-                    _hand_back(gh, root, n, reason, reason_type, metrics,
+                    _hand_back(gh, root, n, outcome_reason, reason_type, metrics,
                                cause="" if outcome_kind == "environment" else outcome_kind)
-                    gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {reason}")
-                    return f"piece {n}: back to shaping, {outcome_kind}: {reason}"
+                    gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {outcome_reason}")
+                    return f"piece {n}: back to shaping, {outcome_kind}: {outcome_reason}"
                 commit_leftovers(folder, n, k)
                 needed = ("log evidence from a failed tool" if outcome_kind == "environment"
                           else "a question or a cited reason")
-                last_failure = f"{outcome_kind} needs {needed}; this attempt failed."
+                failure = f"{outcome_kind} needs {needed}; this attempt failed.\n{report}".strip()
+                if outcome_kind == "environment" and failure == last_failure:
+                    reason = "two identical environment reports in a row; " + failure
+                    _hand_back(gh, root, n, reason, "builder-failed", metrics)
+                    return f"piece {n}: back to shaping, {reason}"
+                last_failure = failure
                 gh.comment(n, f"**Run:** attempt {k} reported {last_failure}")
-                if k < attempts:
-                    continue
-                break
+                continue
             lines = outcome.read_text(errors="replace").splitlines()
             if lines and lines[0].strip() == "bar-wrong" and "\n".join(lines[1:]).strip():
                 reason = "\n".join(lines[1:]).strip()[:500]
@@ -582,7 +584,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 "the person asked the run to stop"
             _hand_back(gh, root, n, reason, "stopped", metrics)
             return f"piece {n}: back to shaping, {reason}"
-    reason = (last_failure if last_failure.startswith("environment needs log evidence") else
+    reason = (last_failure.splitlines()[0] if last_failure.startswith("environment needs") else
               f"the judge still fails after {attempts} attempts; see the comments above")
     _hand_back(gh, root, n, reason, "builder-failed", metrics)
     return f"piece {n}: back to shaping, needs you"

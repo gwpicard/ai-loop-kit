@@ -19,6 +19,54 @@ from loopkit import records
 
 
 class BuilderEnvironmentTest(unittest.TestCase):
+    def test_brief_continues_after_successful_command_warnings(self):
+        prompt = run.brief(1, "spec", {"files": []}, "", backend="codex")
+        self.assertIn("A warning from a command that exited 0 is not an environment failure",
+                      prompt)
+        self.assertIn("carry on", prompt)
+        self.assertIn("An environment outcome needs a failed command", prompt)
+
+    def test_repeated_unsupported_environment_reports_stop_after_two_attempts(self):
+        self._unsupported_environment_reports(["Git warned."] * 3, 2)
+
+    def test_different_environment_reports_do_not_stop_early(self):
+        self._unsupported_environment_reports(["Git warned.", "An env path warned.",
+                                               "Git warned."], 3)
+
+    def test_environment_reports_must_be_consecutive(self):
+        self._unsupported_environment_reports(["Git warned.", None, "Git warned."], 3)
+
+    def _unsupported_environment_reports(self, reasons, expected_attempts):
+        run_fixtures.RunFixture.setUp(self)
+
+        def builder(folder, prompt, files, logfile, *args, **kwargs):
+            (folder / ".loop").mkdir(exist_ok=True)
+            reason = reasons[build.call_count - 1]
+            if reason is None:
+                return ""
+            (folder / ".loop" / "outcome").write_text("environment\n" + reason + "\n")
+            logfile.with_suffix(".jsonl").write_text(json.dumps({
+                "type": "item.completed", "item": {
+                    "type": "command_execution", "exit_code": 0,
+                    "aggregated_output": "warning: unable to access ~/.config/git/ignore: "
+                                         "Operation not permitted\n"
+                                         ".env.local: Operation not permitted"}}))
+            return ""
+
+        with patch.object(run, "build_once", side_effect=builder) as build, \
+                patch("gate.judge", return_value=(False, "AssertionError: missing")) as judge:
+            n, result = run_fixtures.RunFixture.build(self, "good", attempts=3)
+        self.assertEqual(build.call_count, expected_attempts)
+        handback = next(r for r in records(self.p.gh.comments(n))
+                        if r.get("move") == "give-back")
+        self.assertEqual(handback["type"], "builder-failed")
+        self.assertEqual(handback["attempts"], expected_attempts)
+        self.assertIn("log evidence", handback["reason"])
+        if expected_attempts == 2:
+            self.assertIn("two identical environment reports in a row", result)
+            self.assertIn("Git warned.", handback["reason"])
+        self.assertEqual(judge.call_count, reasons.count(None))
+
     def test_successful_batch_with_shell_refusal_hands_back_without_judging(self):
         run_fixtures.RunFixture.setUp(self)
         output = self._shell_refusal_output(1, 62)

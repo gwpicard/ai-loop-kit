@@ -131,8 +131,8 @@ def codex_permission_args(folder: Path, writable: Optional[list[Path]] = None,  
     }
     if deny_secrets:
         workspace_rules.update({".env*": "deny", ".env.example": "read"})
-        filesystem.update({str(Path.home() / name): "deny"
-                           for name in (".ssh", ".aws", ".config", "Library/Keychains")})
+        filesystem.update({str(Path.home() / name): "deny" for name in (
+            ".ssh", ".aws", ".config/gh", ".config/gcloud", "Library/Keychains")})
     for raw in loop_settings(work).get("secret paths", []) if deny_secrets else []:
         path = Path(raw)
         target = (path if path.is_absolute() else work / path).resolve()
@@ -147,12 +147,10 @@ def codex_permission_args(folder: Path, writable: Optional[list[Path]] = None,  
                                   for key, item in value.items()) + "}"
         return json.dumps(value)
 
-    return [
-        "--config", 'default_permissions="ai-loop"',
-        "--config", 'permissions.ai-loop.extends=":workspace"',
-        "--config", f"permissions.ai-loop.filesystem={toml_value(filesystem)}",
-        "--config", "permissions.ai-loop.network.enabled=false",
-    ]
+    return ["--config", 'default_permissions="ai-loop"',
+            "--config", 'permissions.ai-loop.extends=":workspace"',
+            "--config", f"permissions.ai-loop.filesystem={toml_value(filesystem)}",
+            "--config", "permissions.ai-loop.network.enabled=false"]
 
 
 def guard_tool_input(tool: str, data: dict, folder: Path) -> Optional[str]:

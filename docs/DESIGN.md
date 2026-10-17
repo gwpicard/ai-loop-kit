@@ -637,6 +637,13 @@ During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
 with `caffeinate`, waits once for a reported usage limit, and at the end
 writes `.loop/summary.md` and posts it to a tracking issue. It never merges.
 
+Codex denies credential folders such as `~/.ssh`, `~/.aws`, `~/.config/gh`,
+`~/.config/gcloud` and `~/Library/Keychains`. Other config folders remain
+readable, including `~/.config/git`. The builder brief says to carry on after
+a warning from a command that exited successfully. An environment outcome
+needs a failed command in the tool log. Two identical unsupported environment
+reports in a row stop the piece as `builder-failed`, with the reason recorded.
+
 ## 10. The boundary
 
 | Rule | Held by |
