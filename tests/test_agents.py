@@ -174,11 +174,11 @@ class AgentSessionTest(unittest.TestCase):
         self.assertEqual(agents.event_text(events), "<verdict>{}</verdict>")
 
     def test_codex_json_events_reset_the_idle_clock(self):
-        import review
+        import session
 
         events = [json.dumps({"type": "item.completed", "item": {
             "type": "agent_message", "text": "working"}}) for _ in range(5)]
-        status, output = pump_events(review, events, idle_seconds=2,
+        status, output = pump_events(session, events, idle_seconds=2,
                                      backend="codex", clock_step=.75)
         self.assertEqual(status, "")
         self.assertEqual(output.count("working"), 5)

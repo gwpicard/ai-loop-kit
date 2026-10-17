@@ -79,12 +79,6 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     if backend == "claude":
         args = _claude_args(work, prompt, role, disallowed or [], settings_allowed,
                             walk_away, domains)
-        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
-                             protected_exceptions=protected_exceptions),
-               "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
-               "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
-        if walk_away:
-            env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     else:
         cli = os.environ.get("LOOP_CODEX", "codex")
         # Ignoring config.toml alone still loads installed plugins and app MCP servers.
@@ -117,10 +111,12 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
             args += ["--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
         else:
             args += [prompt]
-        env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
-                             protected_exceptions=protected_exceptions),
-               "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
-               "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
+    env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
+                         protected_exceptions=protected_exceptions),
+           "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
+           "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
+    if backend == "claude" and walk_away:
+        env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     if backend == "codex" and writable:
         env["TMPDIR"] = str(writable[0])
     return subprocess.Popen(args, cwd=working, stdout=subprocess.PIPE,
