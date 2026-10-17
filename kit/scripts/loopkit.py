@@ -597,16 +597,8 @@ def loop_settings(folder: Path) -> dict:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":
                 out.setdefault(key, []).append(value) if value else None
-            elif key == "protected paths":
+            elif key in {"protected paths", "secret paths"}:
                 out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
-            elif key == "waiting limit":
-                out[key] = value
-            elif key == "idle limit":
-                out[key] = value
-            elif key == "secret paths":
-                out[key] = [p.strip().strip("`") for p in value.split(",") if p.strip()]
-            elif key == "keep limit":
-                out[key] = value
             elif key == "agent":
                 out[key] = value.lower()
             else:

@@ -16,10 +16,59 @@ import risk_checks
 import run
 import walkaway
 from helpers import GOOD_CODE, Project, git
-from loopkit import record_text
+from loopkit import loop_settings, record_text
 
 
 class RuntimeThinningTest(unittest.TestCase):
+    def test_ready_freezes_one_settings_snapshot(self):
+        for prepare in ("", "printf prepared"):
+            with self.subTest(prepare=prepare):
+                project = Project()
+                self.addCleanup(project.close)
+                project.loop_section("printf tested", prepare)
+                agents_file = project.root / "AGENTS.md"
+                agents_file.write_text(agents_file.read_text() +
+                    "Keep: printf kept\nQuality: printf first\nQuality: printf second\n"
+                    "Standards: STANDARDS.md\nProtected paths: src/private, src/auth\n"
+                    "Idle limit: 7\nWaiting limit: 4\nKeep limit: 20\nAgent: CoDeX\n"
+                    "Sandbox domains: registry.npmjs.org\nSecret paths: .env, keys\n")
+                git(project.root, "add", "AGENTS.md")
+                git(project.root, "commit", "--quiet", "-m", "Set loop inputs")
+                git(project.root, "push", "--quiet", "origin", "main")
+                number = project.piece()
+                with patch.object(gate, "loop_settings", wraps=loop_settings) as read:
+                    gate.move(project.gh, project.root, number, "ready")
+                ready = gate.last_record(project.gh.comments(number), "ready")
+                expected = {
+                    "test": "printf tested", "prepare": prepare, "keep": "printf kept",
+                    "quality": ["printf first", "printf second"],
+                    "standards": "STANDARDS.md", "protected_paths": ["src/private", "src/auth"],
+                    "idle_limit": "7", "waiting_limit": "4", "keep_limit": "20", "agent": "codex",
+                }
+                self.assertEqual({key: ready[key] for key in expected}, expected)
+                read.assert_called_once_with(project.root)
+                settings = loop_settings(project.root)
+                self.assertEqual(settings["sandbox domains"], "registry.npmjs.org")
+                self.assertEqual(settings["secret paths"], [".env", "keys"])
+                folder = run.worktree(project.root, number)
+                (folder / "AGENTS.md").write_text("## The loop\nAgent: claude\nKeep: false\n")
+                git(folder, "add", "AGENTS.md")
+                git(folder, "commit", "--quiet", "-m", "Change loop inputs")
+                passed, output = gate.judge(folder, ready)
+                self.assertFalse(passed)
+                self.assertEqual(output, "the build changed frozen files: AGENTS.md")
+                self.assertEqual({key: ready[key] for key in expected}, expected)
+
+    def test_ready_retains_setting_defaults(self):
+        project = Project()
+        self.addCleanup(project.close)
+        number = project.piece()
+        ready = gate.check_ready(project.gh, project.root, project.gh.issue(number))
+        expected = {"test": "", "prepare": "", "keep": "", "quality": [], "standards": "",
+                    "protected_paths": [], "idle_limit": "10", "waiting_limit": "3",
+                    "keep_limit": "15", "agent": "claude"}
+        self.assertEqual({key: ready[key] for key in expected}, expected)
+
     def test_typed_moves_are_reachable(self):
         self.assertLessEqual(gate.NEEDS_TYPE, set(gate.MOVES.values()))
 
