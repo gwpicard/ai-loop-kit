@@ -30,6 +30,8 @@ from run_start import (
     worktrees,
 )
 
+from extras import require_extras
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from proposed_quality import apply as apply_proposed_quality
 
@@ -128,6 +130,13 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         checks.append((True, f"warning: {kind}: {leftover} ({detail})",
                        f"The person may remove this folder only after checking it: {leftover}."))
 
+    try:
+        require_extras(loop_settings(root), {"quality": extra_quality or [],
+                                            "prepare": proposed_prepare or "",
+                                            "test": proposed_test or ""})
+    except Refused as error:
+        add(False, error.reason, error.next_step)
+        return checks
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
     folder = tmp / "main"
     try:

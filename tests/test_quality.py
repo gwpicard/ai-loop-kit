@@ -13,7 +13,8 @@ KIT = Path(__file__).resolve().parents[1] / "kit"
 
 
 def load(name: str):
-    path = KIT / "quality" / name
+    owner = KIT.parent / "extras" if name.startswith("mutmut") else KIT
+    path = owner / "quality" / name
     spec = importlib.util.spec_from_file_location(path.stem.replace("-", "_"), path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

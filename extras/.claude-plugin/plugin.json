@@ -1,0 +1,11 @@
+{
+  "name": "ai-loop-kit-extras",
+  "description": "Optional experimental mutation tools for AI Loop Kit.",
+  "author": {
+    "name": "Guillaume Picard"
+  },
+  "homepage": "https://github.com/gwpicard/ai-loop-kit",
+  "repository": "https://github.com/gwpicard/ai-loop-kit",
+  "license": "MIT",
+  "version": "1.3.0"
+}

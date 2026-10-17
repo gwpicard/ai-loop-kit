@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TOTAL_BUDGET = 6117
+TOTAL_BUDGET = 6211
 
 
 def python_lines(root):
@@ -26,7 +26,8 @@ def check_sizes(counts, total_budget=TOTAL_BUDGET):
 
 class SizeInventoryTest(unittest.TestCase):
     def test_kit_python_budgets_and_install_size(self):
-        counts = python_lines(ROOT / "kit")
+        counts = {f"{owner}/{name}": lines for owner in ("kit", "extras")
+                  for name, lines in python_lines(ROOT / owner).items()}
         marketplace = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
         plugin = next(p for p in marketplace["plugins"] if p["name"] == "ai-loop-kit")
         installed = python_lines(ROOT / plugin["source"])

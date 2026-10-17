@@ -40,6 +40,7 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      record_text, records, repo_root, rev,
                      run_judge, run_keep, sh, skipped_tests, spec_hash)
 from doctor import doctor as doctor
+from extras import require_extras
 from doctor import quality_on_fresh_main
 from gate_cli import build_parser as build_parser
 import critic  # noqa: E402
@@ -106,6 +107,8 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     """The ready gate. Returns the record to write. Refuses on any gap."""
     n = issue["number"]
     spec = parse_spec(issue["body"] or "")
+    settings = loop_settings(root)
+    require_extras(settings, {"checks": spec.checks, "keep": spec.keep})
     branch = branch_name(n)
     head = rev(root, branch)
     if head is None:
@@ -115,7 +118,6 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     bar = bar_hash_at(root, head, spec.files, bar_files) if spec.files else ""
     main = main_ref(root)
     main_sha = rev(root, main)
-    settings = loop_settings(root)
     keep_limit = keep_limit_seconds(settings)
     keep_command = spec.keep or settings.get("keep", "")
     keep_output = ""
@@ -554,6 +556,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
                      f"ready piece {conflict['issue']}.")
     elif name == "claim":
         ready = check_frozen(issue, comments)
+        require_extras(ready, loop_settings(root))
         check_claim_bar(root, n, ready)
         stale = claim_stale_research(ready)
         if stale:
