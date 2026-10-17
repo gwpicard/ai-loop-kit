@@ -231,6 +231,64 @@ class AgentSessionTest(unittest.TestCase):
             self.assertEqual(len(results), 3)
             self.assertTrue(all(item["winner"] in {"ours", "reference"} for item in results))
 
+    def run_codex_probe(self, messages):
+        import sandbox
+
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            (home / ".ssh").mkdir()
+            sessions = [mock.Mock(returncode=0, communicate=mock.Mock(return_value=(
+                json.dumps({"type": "item.completed", "item": {
+                    "type": "agent_message", "text": message}}).encode(), None)))
+                for message in messages]
+            with mock.patch.object(Path, "home", return_value=home), \
+                    mock.patch.object(sandbox, "PROBE_PATH", home / "sandbox-probe"), \
+                    mock.patch.object(sandbox.shutil, "which", return_value="/usr/bin/curl"), \
+                    mock.patch.object(agents, "start_session", side_effect=sessions) as start:
+                result = sandbox.codex_probe(home)
+            return result, start.call_count
+
+    def test_codex_probe_retries_once_after_an_unreadable_answer(self):
+        good = '<probe>{"write":1,"ssh_read":1,"network":7}</probe>'
+        for unreadable in ("No final probe line", '<probe>{"write":</probe>',
+                           '<probe>{"write":1}</probe>',
+                           '<probe>{"write":"blocked","ssh_read":1,"network":7}</probe>'):
+            with self.subTest(answer=unreadable):
+                (active, detail), calls = self.run_codex_probe([unreadable, good])
+                self.assertTrue(active, detail)
+                self.assertEqual(calls, 2)
+                self.assertIn("retried", detail.lower())
+
+    def test_codex_probe_stops_after_two_unreadable_answers(self):
+        for answer, reason in (("No probe line", "did not return"),
+                               ('<probe>{"write":"bad"}</probe>', "invalid")):
+            with self.subTest(answer=answer):
+                (active, detail), calls = self.run_codex_probe([answer, answer])
+                self.assertFalse(active)
+                self.assertEqual(calls, 2)
+                self.assertIn(reason, detail)
+                self.assertIn("retried", detail.lower())
+
+    def test_codex_probe_never_retries_a_readable_zero_code(self):
+        for boundary in ("write", "ssh_read", "network"):
+            with self.subTest(boundary=boundary):
+                codes = dict.fromkeys(("write", "ssh_read", "network"), 1)
+                codes[boundary] = 0
+                (active, detail), calls = self.run_codex_probe([
+                    "<probe>" + json.dumps(codes) + "</probe>"])
+                self.assertFalse(active)
+                self.assertEqual(calls, 1)
+                self.assertIn("allowed", detail)
+                self.assertNotIn("retried", detail.lower())
+
+    def test_codex_probe_refuses_a_leak_after_an_unreadable_answer(self):
+        (active, detail), calls = self.run_codex_probe([
+            "No probe line", '<probe>{"write":1,"ssh_read":0,"network":7}</probe>'])
+        self.assertFalse(active)
+        self.assertEqual(calls, 2)
+        self.assertIn("~/.ssh", detail)
+        self.assertIn("retried", detail.lower())
+
     def test_codex_walkaway_probe_requires_every_boundary_to_block(self):
         import sandbox
 
