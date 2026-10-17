@@ -20,6 +20,7 @@ from loopkit import (CHECK_FILES, Refused, main_ref, prepare,
                      record_prepare_outputs, rev, sh, untracked_paths)
 from procs import AttemptIdle, _untrack_process, track_process
 from run import commit_leftovers, idle_limit_seconds
+from spec import _section
 
 KIT = Path(__file__).resolve().parent.parent
 ATTEMPT_TIMEOUT = 40 * 60
@@ -338,16 +339,8 @@ def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
 
 def contract_research(body: str) -> str:
     """Return the approved Research section for the contract reviewer."""
-    lines = body.splitlines()
-    for index, line in enumerate(lines):
-        if line.strip().lower() == "## research":
-            section = [line]
-            for rest in lines[index + 1:]:
-                if rest.startswith("## "):
-                    break
-                section.append(rest)
-            return "\n".join(section)
-    return "No outside findings."
+    section = _section(body, "Research", include_heading=True)
+    return "\n".join(section) if section is not None else "No outside findings."
 
 
 def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
@@ -407,16 +400,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     contract_parts = []
     body = issue["body"] or ""
     for section in ("Intent", "Approach", "Contract", "Done when"):
-        lines = body.splitlines()
-        for index, line in enumerate(lines):
-            if line.strip().lower() == f"## {section}".lower():
-                part = [line]
-                for rest in lines[index + 1:]:
-                    if rest.startswith("## "):
-                        break
-                    part.append(rest)
-                contract_parts.extend(part)
-                break
+        contract_parts.extend(_section(body, section, include_heading=True) or [])
     contract = "\n".join(contract_parts)
     contract_folder = folder.parent / f"review-contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
     contract_branch = f"review/contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
