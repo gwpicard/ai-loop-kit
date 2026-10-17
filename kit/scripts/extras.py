@@ -29,7 +29,7 @@ def require_extras(*configs: dict) -> None:
     """Refuse requested optional commands, including those in frozen records."""
     for config in configs:
         commands = [config.get(key, "") for key in
-                    ("command", "capture", "keep", "test", "prepare")]
+                    ("command", "capture", "measure", "keep", "test", "prepare")]
         commands.extend(config.get("quality", []))
         if any(MUTATION_COMMAND.search(command) for command in commands):
             mutation_root()

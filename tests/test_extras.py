@@ -76,6 +76,15 @@ try:
         else:
             raise AssertionError("ready accepted the missing extra")
         shell.assert_not_called()
+    import extras
+    legacy = {"kind": "goal", "command": "",
+              "measure": "python3 mutmut-check.py origin/main"}
+    try:
+        extras.require_extras(legacy)
+    except Refused as error:
+        assert "mutation extra is not installed" in error.reason
+    else:
+        raise AssertionError("legacy goal record with a mutation measure was accepted")
 finally:
     p.close()
 '''
