@@ -22,7 +22,7 @@ from spec import _section
 from spec import parse_research_section as parse_research_section
 from spec import parse_spec as parse_spec
 
-from extras import require_extras
+from extras import critics, require_extras
 
 STATES = ("shaping", "ready", "building", "approval", "done", "dropped")
 STATE_PREFIX = "state:"
@@ -454,7 +454,6 @@ def skipped_tests(output: str) -> bool:
 def exit_ready(folder: Path, checks: tuple, contract: dict,
                stays: tuple) -> tuple[list[dict], str]:
     """Prove every Exit check is unmet on main and save its baseline."""
-    import critic
     import measure
 
     records, outputs = [], []
@@ -502,7 +501,7 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
             output, baseline = measure.ready(folder, check["command"], check["target"])
             check.update(baseline)
         else:
-            output, baseline = critic.ready(folder, check["capture"], check["reference"],
+            output, baseline = critics().ready(folder, check["capture"], check["reference"],
                                             list(check["criteria"]))
             check.update(baseline)
         records.append(check)
@@ -513,7 +512,6 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
 def exit_attempt(folder: Path, checks: list[dict],
                  protected_paths: list[str] | None = None) -> tuple[int, str]:
     """Run every frozen Exit check after an attempt."""
-    import critic
     import measure
 
     results = []
@@ -529,7 +527,7 @@ def exit_attempt(folder: Path, checks: list[dict],
             code, output = measure.judge_attempt(folder, check,
                                                   protected_paths=protected_paths)
         else:
-            code, output = critic.judge_attempt(folder, check,
+            code, output = critics().judge_attempt(folder, check,
                                                  protected_paths=protected_paths)
         results.append(f"{check['type'].title()} exit check (exit {code}):\n{output.strip()}")
         if code:

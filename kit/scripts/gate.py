@@ -40,10 +40,9 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      record_text, records, repo_root, rev,
                      run_judge, run_keep, sh, skipped_tests, spec_hash)
 from doctor import doctor as doctor
-from extras import require_extras
+from extras import critics, require_extras
 from doctor import quality_on_fresh_main
 from gate_cli import build_parser as build_parser
-import critic  # noqa: E402
 import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
@@ -93,7 +92,7 @@ def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
     if ready.get("kind") == "goal":
         return measure.judge_attempt(folder, ready)
     if ready.get("kind") == "gauntlet":
-        return critic.judge_attempt(folder, ready)
+        return critics().judge_attempt(folder, ready)
     return -1, ""
 
 
