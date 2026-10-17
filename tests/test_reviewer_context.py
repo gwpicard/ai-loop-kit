@@ -124,6 +124,41 @@ class ReviewerContextTest(RunFixture, unittest.TestCase):
                 self.assertEqual(len(parsed), 1)
                 self.assertTrue(parsed[0].startswith("Frozen baseline conflict ("))
 
+    def test_manifest_check_settings_keep_their_source_line_numbers(self):
+        from review import frozen_baseline, parse_contract_findings
+
+        manifests = {
+            "package.json": '{\n  "name": "demo",\n  "scripts": {\n'
+                            '    "test": "node --test"\n  }\n}\n',
+            "pyproject.toml": '# metadata\n[project]\nname = "demo"\n\n'
+                              '[tool.pytest.ini_options]\naddopts = "-q"\n',
+        }
+        for directory in ("", "web/"):
+            for name, text in manifests.items():
+                path = self.p.root / (directory + name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+        git(self.p.root, "add", ".")
+        git(self.p.root, "commit", "--quiet", "-m", "Add manifest check settings")
+        ready = {"commit": git(self.p.root, "rev-parse", "HEAD").strip(), "files": []}
+        (self.p.root / "package.json").write_text('{}\n')
+        baseline = frozen_baseline(self.p.root, ready)
+        diff = "+++ b/habits.py\n@@ -0,0 +1 @@\n+x\n"
+        for directory in ("", "web/"):
+            for name, number, expected in (
+                    ("package.json", 4, '    "test": "node --test"'),
+                    ("pyproject.toml", 5, '[tool.pytest.ini_options]'),
+                    ("pyproject.toml", 6, 'addopts = "-q"')):
+                citation = f"{directory}{name}:{number}"
+                with self.subTest(citation=citation):
+                    self.assertEqual(baseline.get(citation), expected)
+                    finding = {"citation": "D1", "hunk": "habits.py:1", "finding": "conflict",
+                               "baseline_conflict": citation}
+                    output = "<verdict>" + json.dumps({"findings": [finding]}) + "</verdict>"
+                    result = parse_contract_findings(output, SPEC, diff, baseline)
+                    self.assertEqual(len(result), 1)
+                    self.assertTrue(result[0].startswith("Frozen baseline conflict ("))
+
     def test_uncited_baseline_claim_stays_a_contract_finding(self):
         from review import parse_contract_findings
         finding = {"citation": "D1", "hunk": "habits.py:1", "finding": "missing",

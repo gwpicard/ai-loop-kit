@@ -159,8 +159,8 @@ def _finding_text(finding: dict, text: str, baseline: dict[str, str] | None) -> 
 
 def frozen_baseline(folder: Path, ready: dict) -> dict[str, str]:
     """Read numbered baseline lines from the commit approved at ready."""
-    patterns = [*CHECK_FILES, ready.get("standards", ""),
-                *ready.get("bar_files", ready.get("files", []))]
+    patterns = [*CHECK_FILES, "package.json", "pyproject.toml",
+                ready.get("standards", ""), *ready.get("bar_files", ready.get("files", []))]
     paths = sh(["git", "ls-tree", "-rz", "--name-only", ready["commit"]], folder).stdout.split("\0")
     return {f"{path}:{i}": line
             for path in paths if path and any(

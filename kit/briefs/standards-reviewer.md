@@ -45,6 +45,9 @@ Cite these exact names:
 DATA>>>
 
 ## Frozen baseline
+
+In package.json and pyproject.toml, only check settings are frozen; other
+fields give context.
 <<<DATA
 {{BASELINE}}
 DATA>>>

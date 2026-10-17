@@ -402,7 +402,9 @@ Why each role is separate:
   frozen baseline. The run checks that citation against a non-empty line in
   a frozen file at ready. Check-setting patterns match tracked paths in that
   commit, including configuration files in subfolders. Validly cited conflicts
-  appear separately in the pull request and do not count as judge gaps. The reviewer judges the
+  appear separately in the pull request and do not count as judge gaps.
+  The context includes numbered package manifests from that commit. Only
+  their check settings are frozen; the other fields give context. The reviewer judges the
   contradiction; the script checks the citation (code and words).
 - **The gate and the run are scripts.** A coordinator agent forgets and
   drifts; a script does the same thing every time.
