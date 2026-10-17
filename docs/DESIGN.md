@@ -786,11 +786,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The kit has about 4,900 Python lines in `kit/`. The target is about 2,500, so
-that a person can read it in one sitting. It uses the Python standard library
-only and supports Python 3.9 or later. The core (gate, spec parser, run,
-guard, test lint, pull request) is about 3,000 lines; the previews and quality
-scripts are most of the rest.
+The kit has 6,003 Python lines in `kit/`, including previews and quality
+scripts. The default plugin installs that whole directory, so its Python
+size is also 6,003 lines. It uses the Python standard library only and
+supports Python 3.9 or later.
+
+`tests/test_size_inventory.py` counts every Python file under `kit/`,
+including any optional modules. It fails above 800 lines per file or 6,003
+lines in total. The suite reports the total and the default-install size
+separately. The total budget follows the measured size; a smaller budget
+needs a measured reduction first.
 
 ## Words used in this file
 
