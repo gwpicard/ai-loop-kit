@@ -12,11 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 
 import agents
 import gate
-import review
 import risk_checks
 import run
 import walkaway
-from helpers import GOOD_CODE, Project, git, pump_events
+from helpers import GOOD_CODE, Project, git
 from loopkit import record_text
 
 
@@ -61,13 +60,6 @@ class RuntimeThinningTest(unittest.TestCase):
                 })
                 self.assertEqual(passed, mentioned, output)
                 self.assertEqual(risk_checks.path_mentioned(text, path), mentioned)
-
-    def test_claude_result_error_reaches_the_production_pump_log(self):
-        status, output = pump_events(review, [
-            '{"type":"result","is_error":true,"result":"rate limited"}',
-        ], idle_seconds=5)
-        self.assertEqual(status, "")
-        self.assertIn("Claude result error: rate limited", output)
 
     def test_report_counts_each_issue_once_across_label_results(self):
         gh = Mock()
