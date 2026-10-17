@@ -364,7 +364,7 @@ Nobody edits a closed issue to keep it current.
 | Judge writer | a fresh subagent | the contract and the code, not the shaping chat | judge files on `piece/<n>`, and a JSON verdict |
 | Builder | a fresh Claude Code (or Codex, **preview**) session per attempt | the contract, research, the judge, the last failure | code on the piece branch, `.loop/why.md`, optionally `.loop/outcome` |
 | Standards reviewer | a fresh session after the gate passes | the diff, plus the project's standards file or a baseline of Fowler's code smells | small checked fixes, follow-ups, a JSON verdict |
-| Contract reviewer | another fresh session | Intent, Out of scope, Approach, Contract, Research and the diff | missing items or scope creep, a JSON verdict |
+| Contract reviewer | another fresh session | Intent, Out of scope, Approach, Contract, Research, build diff, frozen baseline and gate evidence | missing items or scope creep, a JSON verdict |
 | Critic (**preview**) | three fresh sessions, gauntlet only | the criteria and two artefacts | a JSON verdict for each comparison |
 | Gate | `gate.py`, a script | everything | every decision and record |
 | Run | `run.py`, a script | the ready pieces | attempts, reviews, pull requests |
@@ -387,14 +387,25 @@ Why each role is separate:
   right?". The contract reviewer asks "is it the right thing?". Kept apart, a
   pass on one cannot hide a fail on the other. Every finding must cite a rule,
   a smell or a contract line, and a changed hunk, or it is dropped (code). The
-  reviewers print one tagged JSON verdict; the run never guesses a verdict
+  review diffs start at the ready commit, so shaping files are baseline,
+  not build changes. The contract reviewer also sees the attempt gate output,
+  including critic verdicts. Both reviewers see numbered frozen baseline
+  lines. The reviewers print one tagged JSON verdict; the run never guesses a verdict
   from free text [Sandcastle].
 - **The standards reviewer may commit a non-test fix.** The fix is kept only
   if the judge passes again; otherwise its commits are dropped and the
   builder's judged commit goes forward (code).
 - **Contract findings are advisory.** They are recorded as `judge-gap` and put
   at the top of the pull request. They do not stop the pull request (code). A
-  missing item means the judge was weak.
+  missing item means the judge was weak. A reviewer can mark a finding with
+  `baseline_conflict: "path:line"` when following it would contradict the
+  frozen baseline. The run checks that citation against a non-empty line in
+  a frozen file at ready. Check-setting patterns match tracked paths in that
+  commit, including configuration files in subfolders. Validly cited conflicts
+  appear separately in the pull request and do not count as judge gaps.
+  The context includes numbered package manifests from that commit. Only
+  their check settings are frozen; the other fields give context. The reviewer judges the
+  contradiction; the script checks the citation (code and words).
 - **The gate and the run are scripts.** A coordinator agent forgets and
   drifts; a script does the same thing every time.
 - **The person approves the two moments that need taste:** the contract and
@@ -600,7 +611,9 @@ files and the scanner's ignored directories. An empty result means that
 this scan found no importers. Built-in review rules have explicit names in
 the reviewer brief; findings under these names still need a changed hunk.
 When a rejected piece reuses an open pull request, submit must pass before
-the run refreshes its title, body and judged-commit evidence. An update
+the run refreshes its title, body and judged-commit evidence. The evidence
+lists tests separately from frozen exit-support files. Output longer than
+5,000 characters keeps only complete trailing lines and says it was cut. An update
 failure returns the piece to shaping as `environment`, with cause
 `pull-request-failed`.
 

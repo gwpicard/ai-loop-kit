@@ -18,6 +18,17 @@ FAKE_CLAUDE = textwrap.dedent('''\
     # A stand-in for claude -p. FAKE_MODE picks how it behaves.
     if [ "$LOOP_REVIEWER" = 1 ]; then
       case "$FAKE_REVIEW_MODE:$*" in
+        baseline-conflict:*"Standards reviewer brief"*)
+          printf '%s' '<verdict>{"findings":[{"rule":"Reuse existing helpers",' \
+            '"hunk":"habits.py:1","finding":"Read only the future guide,' \
+            ' contradicting the frozen test command.","baseline_conflict":"AGENTS.md:4"}],' \
+            '"follow_ups":[],"changes":"none"}</verdict>'
+          exit 0 ;;
+        baseline-conflict:*)
+          printf '%s' '<verdict>{"findings":[{"citation":"D1","hunk":"habits.py:1",' \
+            '"finding":"Read only the future guide, contradicting the frozen test command.",' \
+            '"baseline_conflict":"AGENTS.md:4"}]}</verdict>'
+          exit 0 ;;
         contract-gap:*"Contract reviewer brief"*)
           echo '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1","finding":"D1 is not met."}]}</verdict>'
           exit 0 ;;

@@ -47,7 +47,7 @@ class SandboxTest(unittest.TestCase):
             run.review_piece(Path("/repo"), Path("/repo/build"), 4, 1,
                              issue, {"research": []}, True, ["pypi.org"])
         reviewer.assert_called_once_with(Path("/repo"), Path("/repo/build"), 4, 1,
-                                         issue, {"research": []}, True, ["pypi.org"])
+                                         issue, {"research": []}, True, ["pypi.org"], "")
         self.assertIn("R1: The API supports batching", review.contract_research(body))
 
     def test_version_gate_requires_221285(self):

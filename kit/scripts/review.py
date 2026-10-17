@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Optional
 
 import gate
-from loopkit import (CHECK_FILES, Refused, main_ref, prepare,
+from loopkit import (CHECK_FILES, Refused, prepare,
                      record_prepare_outputs, rev, sh, untracked_paths)
 from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
@@ -73,23 +74,19 @@ def _last_verdict(output: str, reviewer: str) -> dict:
         raise ValueError(f"bad verdict JSON: {error}") from error
     if not isinstance(data, dict):
         raise ValueError("verdict must be a JSON object")
-    if reviewer == "standards":
-        if not isinstance(data.get("findings"), list) or not isinstance(data.get("follow_ups"), list) \
-                or not isinstance(data.get("changes"), str):
-            raise ValueError("standards verdict needs findings, follow_ups and changes")
-        for finding in data["findings"]:
-            if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
-                                                    for key in ("rule", "hunk", "finding")):
-                raise ValueError("each standards finding needs rule, hunk and finding strings")
-        if any(not isinstance(item, str) for item in data["follow_ups"]):
-            raise ValueError("standards follow_ups must be strings")
-    elif reviewer == "contract":
+    if reviewer in ("standards", "contract"):
         if not isinstance(data.get("findings"), list):
-            raise ValueError("contract verdict needs a findings list")
+            raise ValueError(f"{reviewer} verdict needs a findings list")
+        keys = ("rule" if reviewer == "standards" else "citation", "hunk", "finding")
         for finding in data["findings"]:
             if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
-                                                    for key in ("citation", "hunk", "finding")):
-                raise ValueError("each contract finding needs citation, hunk and finding strings")
+                                                    for key in keys):
+                raise ValueError(f"each {reviewer} finding needs {', '.join(keys)} strings")
+        if reviewer == "standards" and (
+                not isinstance(data.get("follow_ups"), list)
+                or any(not isinstance(item, str) for item in data["follow_ups"])
+                or not isinstance(data.get("changes"), str)):
+            raise ValueError("standards verdict needs follow_ups strings and changes")
     elif reviewer == "judge-writer":
         if not isinstance(data.get("judge_files"), list) or not all(
                 isinstance(item, str) for item in data["judge_files"]):
@@ -110,7 +107,8 @@ def _logged_verdict(logfile: Path, reviewer: str) -> dict:
                       f"read {logfile} and correct the review output")
 
 
-def parse_standards_findings(output: str, standards: str, diff: str) -> list[str]:
+def parse_standards_findings(output: str, standards: str, diff: str,
+                             baseline: dict[str, str] | None = None) -> list[str]:
     """Keep only findings that cite a rule or smell and a changed hunk."""
     hunks = _diff_hunks(diff)
     allowed = {name.casefold() for name in (*BASELINE_SMELLS, *BUILTIN_RULES)}
@@ -124,23 +122,18 @@ def parse_standards_findings(output: str, standards: str, diff: str) -> list[str
         if not rule or rule.casefold() not in allowed and rule.casefold() not in standard_rules:
             continue
         if _valid_hunk(hunk, hunks):
-            findings.append(f"{rule} at {hunk}: {description}")
+            findings.append(_finding_text(finding, f"{rule} at {hunk}: {description}", baseline))
     return findings
 
 
-def parse_contract_findings(output: str, body: str, diff: str) -> list[str]:
+def parse_contract_findings(output: str, body: str, diff: str,
+                            baseline: dict[str, str] | None = None) -> list[str]:
     """Keep contract findings that cite an approved line and a changed hunk."""
     data = _last_verdict(output, "contract")
     ids = set(re.findall(r"\b(D\d+)\b", body))
-    out_of_scope = []
-    in_scope = False
-    for line in body.splitlines():
-        if line.strip().lower().startswith("out of scope:"):
-            in_scope = True
-        elif line.startswith("## "):
-            in_scope = False
-        elif in_scope and re.match(r"^\s*[-*]\s+\S", line):
-            out_of_scope.append(line.strip()[1:].strip())
+    scope = re.search(r"(?im)^\s*out of scope:\s*\n([\s\S]*)",
+                      "\n".join(_section(body, "Intent") or []))
+    out_of_scope = re.findall(r"(?m)^\s*[-*]\s+(\S.*)", scope[1]) if scope else []
     findings = []
     hunks = _diff_hunks(diff)
     for finding in data.get("findings", []):
@@ -153,8 +146,28 @@ def parse_contract_findings(output: str, body: str, diff: str) -> list[str]:
             continue
         if not (cited_id and cited_id.group(1) in ids) and not cites_scope:
             continue
-        findings.append(f"{citation} at {hunk}: {detail}")
+        findings.append(_finding_text(finding, f"{citation} at {hunk}: {detail}", baseline))
     return findings
+
+
+def _finding_text(finding: dict, text: str, baseline: dict[str, str] | None) -> str:
+    citation = finding.get("baseline_conflict", "")
+    if isinstance(citation, str) and baseline and citation in baseline:
+        return f"Frozen baseline conflict ({citation}: {baseline[citation]}): {text}"
+    return text
+
+
+def frozen_baseline(folder: Path, ready: dict) -> dict[str, str]:
+    """Read numbered baseline lines from the commit approved at ready."""
+    patterns = [*CHECK_FILES, "package.json", "pyproject.toml",
+                ready.get("standards", ""), *ready.get("bar_files", ready.get("files", []))]
+    paths = sh(["git", "ls-tree", "-rz", "--name-only", ready["commit"]], folder).stdout.split("\0")
+    return {f"{path}:{i}": line
+            for path in paths if path and any(
+                fnmatch(path if "/" in p else Path(path).name, p) for p in patterns)
+            for i, line in enumerate(
+                sh(["git", "show", f"{ready['commit']}:{path}"], folder).stdout.splitlines(), 1)
+            if line.strip()}
 
 
 def _review_prompt(name: str, values: dict[str, str]) -> str:
@@ -184,119 +197,92 @@ def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
     prefixes = (f"review/standards-{n}-{k}-", f"review/contract-{n}-{k}-")
     output = sh(["git", "worktree", "list", "--porcelain"], root).stdout.splitlines()
     path = ""
-    to_remove = []
     for line in output:
         if line.startswith("worktree "):
             path = line[9:]
         elif line.startswith("branch refs/heads/"):
             branch = line[len("branch refs/heads/"):]
             if branch.startswith(prefixes):
-                to_remove.append((path, branch))
-    for path, branch in to_remove:
-        sh(["git", "worktree", "remove", "--force", path], root, check=False)
-        sh(["git", "branch", "-D", branch], root, check=False)
+                sh(["git", "worktree", "remove", "--force", path], root, check=False)
+                sh(["git", "branch", "-D", branch], root, check=False)
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                  ready: dict, walk_away: bool = False,
-                 domains: Optional[list[str]] = None) -> dict:
+                 domains: Optional[list[str]] = None, evidence: str = "") -> dict:
     try:
-        return _review_piece(root, folder, n, k, issue, ready, walk_away, domains)
+        return _review_piece(root, folder, n, k, issue, ready, walk_away, domains, evidence)
     finally:
         _cleanup_review_worktrees(root, n, k)
 
 
 def contract_research(body: str) -> str:
     """Return the approved Research section for the contract reviewer."""
-    section = _section(body, "Research", include_heading=True)
-    return "\n".join(section) if section is not None else "No outside findings."
+    return "\n".join(_section(body, "Research", include_heading=True) or ["No outside findings."])
 
 
 def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                   ready: dict, walk_away: bool = False,
-                  domains: Optional[list[str]] = None) -> dict:
-    """Run one standards review and one contract review in fresh sessions."""
-    main = main_ref(folder)
-    diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
+                  domains: Optional[list[str]] = None, evidence: str = "") -> dict:
+    """Run both reviewers against the approved baseline and checked attempt."""
+    base, body = ready["commit"], issue["body"] or ""
+    baseline = frozen_baseline(folder, ready)
     standards_path = ready.get("standards", "")
     standards = (folder / standards_path).read_text(errors="replace") if standards_path else ""
-    standards_context = standards or "No project standards file is named. Use the built-in baseline."
-    standards_folder = folder.parent / f"review-standards-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    standards_branch = f"review/standards-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    judged = rev(folder, "HEAD")
-    sh(["git", "worktree", "add", "--quiet", "-b", standards_branch,
-        str(standards_folder), judged], root)
-    before = untracked_paths(standards_folder)
-    before_dirs = {child.name for child in standards_folder.iterdir() if child.is_dir()}
-    prepared, prepare_output = prepare(standards_folder, ready.get("prepare", ""),
-                                      ready.get("protected_paths", []))
-    if not prepared:
-        raise Refused(f"Prepare failed in the standards review folder:\n{prepare_output[-1200:]}")
-    record_prepare_outputs(standards_folder, before, before_dirs)
+    context = {"STANDARDS": standards or "Use the built-in baseline.",
+               "CONTRACT": "\n".join(line for section in
+                   ("Intent", "Approach", "Contract", "Done when")
+                   for line in (_section(body, section, include_heading=True) or [])),
+               "RESEARCH": contract_research(body), "EVIDENCE": evidence,
+               "BASELINE": "\n".join(f"{key}: {line}" for key, line in baseline.items()),
+               "READY_COMMIT": base}
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    standards_log = logs / f"piece-{n}-standards-review.log"
-    denied = list(ready.get("files", [])) + ["tests/**", "**/test_*", "**/*_test.py",
-               "**/*.test.*", "**/*.spec.*", "**/conftest.py"]
-    denied += CHECK_FILES
-    denied += ready.get("protected_paths", [])
-    standards_status = _review_session(standards_folder, _review_prompt("standards-reviewer.md", {
-        "STANDARDS": standards_context, "DIFF": diff}), standards_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
-        walk_away, domains, ready.get("agent", "claude"))
-    if standards_status == "idle":
-        raise AttemptIdle(f"standards reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
-                          f"see {standards_log}")
-    commit_leftovers(standards_folder, n, k)
-    standard_output = standards_log.read_text(errors="replace")
-    standards_verdict = _logged_verdict(standards_log, "standards")
-    standard_findings = parse_standards_findings(standard_output, standards_context, diff)
-    standard_head = rev(standards_folder, "HEAD")
-    reviewer_note = "Standards review ran once."
-    if standard_head != judged:
-        passed, output = gate.judge(standards_folder, ready)
-        if passed:
-            sh(["git", "merge", "--ff-only", "--quiet", standards_branch], folder)
-            passed, output = gate.judge(folder, ready)
-        if passed:
-            commits = sh(["git", "log", "--oneline", f"{judged}..HEAD"], folder).stdout.strip()
-            reviewer_note += " Reviewer fixes kept:\n" + (commits or "none")
-        else:
-            reviewer_note += " Reviewer fixes were dropped because a submit check failed:\n" + output[-1200:]
-    follow_ups = standards_verdict["follow_ups"]
-
-    final_diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{main}...HEAD"], folder).stdout
-    contract_parts = []
-    body = issue["body"] or ""
-    for section in ("Intent", "Approach", "Contract", "Done when"):
-        contract_parts.extend(_section(body, section, include_heading=True) or [])
-    contract = "\n".join(contract_parts)
-    contract_folder = folder.parent / f"review-contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    contract_branch = f"review/contract-{n}-{k}-{uuid.uuid4().hex[:8]}"
-    sh(["git", "worktree", "add", "--quiet", "-b", contract_branch,
-        str(contract_folder), rev(folder, "HEAD")], root)
-    before = untracked_paths(contract_folder)
-    before_dirs = {child.name for child in contract_folder.iterdir() if child.is_dir()}
-    prepared, prepare_output = prepare(contract_folder, ready.get("prepare", ""),
-                                       ready.get("protected_paths", []))
-    if not prepared:
-        raise Refused(f"Prepare failed in the contract review folder:\n{prepare_output[-1200:]}")
-    record_prepare_outputs(contract_folder, before, before_dirs)
-    contract_log = logs / f"piece-{n}-contract-review.log"
-    contract_status = _review_session(contract_folder, _review_prompt("contract-reviewer.md", {
-        "CONTRACT": contract, "RESEARCH": contract_research(body),
-        "DIFF": final_diff}), contract_log, denied,
-        idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
-        walk_away, domains, ready.get("agent", "claude"))
-    if contract_status == "idle":
-        raise AttemptIdle(f"contract reviewer idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; "
-                          f"see {contract_log}")
-    contract_output = contract_log.read_text(errors="replace")
-    _logged_verdict(contract_log, "contract")
-    contract_findings = parse_contract_findings(contract_output, issue["body"], final_diff)
-    # Contract reviewers are read-only. Their branch is never merged.
-    return {"standards_findings": standard_findings,
-            "contract_findings": contract_findings,
-            "follow_ups": follow_ups, "reviewer_note": reviewer_note}
-
-
+    denied = [*ready.get("files", []), *CHECK_FILES, *ready.get("protected_paths", []),
+              "tests/**", "**/test_*", "**/*_test.py", "**/*.test.*",
+              "**/*.spec.*", "**/conftest.py"]
+    results = {"reviewer_note": "Standards review ran once.", "baseline_conflicts": []}
+    for role in ("standards", "contract"):
+        diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{base}..HEAD"], folder).stdout
+        target = folder.parent / f"review-{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
+        branch = f"review/{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
+        judged = rev(folder, "HEAD")
+        sh(["git", "worktree", "add", "--quiet", "-b", branch, str(target), judged], root)
+        before = untracked_paths(target)
+        before_dirs = {child.name for child in target.iterdir() if child.is_dir()}
+        prepared, output = prepare(target, ready.get("prepare", ""),
+                                   ready.get("protected_paths", []))
+        if not prepared:
+            raise Refused(f"Prepare failed in the {role} review folder:\n{output[-1200:]}")
+        record_prepare_outputs(target, before, before_dirs)
+        logfile = logs / f"piece-{n}-{role}-review.log"
+        if _review_session(target, _review_prompt(f"{role}-reviewer.md", {
+            **context, "DIFF": diff}), logfile, denied,
+            idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
+            walk_away, domains, ready.get("agent", "claude")) == "idle":
+            raise AttemptIdle(f"{role} reviewer idle; see {logfile}")
+        verdict = _logged_verdict(logfile, role)
+        output = logfile.read_text(errors="replace")
+        parser = parse_standards_findings if role == "standards" else parse_contract_findings
+        findings = parser(output, standards if role == "standards" else body, diff, baseline)
+        results[f"{role}_findings"] = []
+        for finding in findings:
+            key = ("baseline_conflicts" if finding.startswith("Frozen baseline conflict (")
+                   else f"{role}_findings")
+            results[key].append(finding)
+        if role == "contract":
+            continue  # The contract reviewer is read-only; never merge its branch.
+        results["follow_ups"] = verdict["follow_ups"]
+        commit_leftovers(target, n, k)
+        if rev(target, "HEAD") != judged:
+            passed, output = gate.judge(target, ready)
+            if passed:
+                sh(["git", "merge", "--ff-only", "--quiet", branch], folder)
+                passed, output = gate.judge(folder, ready)
+            if passed:
+                commits = sh(["git", "log", "--oneline", f"{judged}..HEAD"], folder).stdout.strip()
+                results["reviewer_note"] += " Reviewer fixes kept:\n" + (commits or "none")
+            else:
+                results["reviewer_note"] += (" Reviewer fixes were dropped because a submit check "
+                                             "failed:\n" + output[-1200:])
+    return results
