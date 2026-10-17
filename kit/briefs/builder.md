@@ -87,10 +87,10 @@ then either `Citation: Command: <command> (exit <non-zero status>)` or
 `Citation: <file path>:<line>`. Without a reason and citation, the run counts
 `spec-unclear` as a failed attempt.
 
-If cleanup is blocked by permissions or the environment, write `.loop/outcome`
-with `environment` on its first line and the blocked path and reason on the
-next line. Stop. The run checks the tool log and reports the observed failure.
-A report without tool evidence counts as a failed attempt.
+A warning from a command that exited 0 is not an environment failure; carry on.
+An environment outcome needs a failed command. Write `environment` in
+`.loop/outcome`, then the blocked path and reason. Stop. The run checks the
+tool log; unsupported reports count as failed attempts.
 
 ## Never
 
