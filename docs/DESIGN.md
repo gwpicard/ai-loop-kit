@@ -583,6 +583,15 @@ run.py
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
 - **Build location.** The run prints the full worktree path before it starts
   a builder.
+- **Worktree cleanup.** Moves to shaping, approval, done or dropped try to
+  release the build folder. Ignored artefacts such as `node_modules` do not
+  prevent removal. Uncommitted work and commits not merged into `main` keep
+  the folder. Review cleanup checks against the piece branch instead. Probe
+  cleanup first restores its injected judge files or proposed settings when
+  their working and staged contents still match the injection. It preserves
+  later edits and any other unfinished work. Every failed removal prints the folder and
+  reason. Doctor lists leftover worktrees with their size in bytes and a
+  safe-to-remove verdict, including folders outside the project.
 - **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
   attempts.
 - **How the builder stops.** `.loop/outcome` accepts `bar-wrong`,
@@ -808,13 +817,13 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The kit has 6,007 Python lines in `kit/`, including previews and quality
+The kit has 6,117 Python lines in `kit/`, including previews and quality
 scripts. The default plugin installs that whole directory, so its Python
-size is also 6,007 lines. It uses the Python standard library only and
+size is also 6,117 lines. It uses the Python standard library only and
 supports Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/`,
-including any optional modules. It fails above 800 lines per file or 6,007
+including any optional modules. It fails above 800 lines per file or 6,117
 lines in total. The suite reports the total and the default-install size
 separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.

@@ -84,6 +84,13 @@ class CriticFailureTest(unittest.TestCase):
 
         return project, number
 
+    def release_merged_folder(self, project, number):
+        self.assertTrue(project.folder(number).exists())
+        git(project.root, "merge", "--quiet", f"piece/{number}")
+        git(project.root, "push", "--quiet", "origin", "main")
+        run.release_worktree(project.root, number)
+        self.assertFalse(project.folder(number).exists())
+
     def test_invalid_answer_survives_release_of_the_build_folder(self):
         project, number = self.gauntlet_project()
         response = "START OF CRITIC ANSWER\n" + "detail\n" * 800 + verdict("Colour")
@@ -94,7 +101,7 @@ class CriticFailureTest(unittest.TestCase):
             result = run.build_piece(project.gh, project.root, number, 1)
 
         self.assertIn("back to shaping", result)
-        self.assertFalse(project.folder(number).exists())
+        self.release_merged_folder(project, number)
         logfile = project.root / ".loop" / "logs" / f"piece-{number}-attempt-1.log"
         self.assertIn(response, logfile.read_text())
         self.assertIn("missing: ['Readable labels.']", logfile.read_text())
@@ -121,7 +128,7 @@ class CriticFailureTest(unittest.TestCase):
                 self.assertEqual(process.communicate.call_count, 4, result)
                 self.assertIn("back to shaping", result)
                 self.assertEqual(gate.state_of(project.gh.issue(number)), "shaping")
-                self.assertFalse(project.folder(number).exists())
+                self.release_merged_folder(project, number)
                 self.assertEqual(len(project.gh.prs), int(existing_pr))
                 logfile = project.root / ".loop" / "logs" / f"piece-{number}-attempt-1.log"
                 evidence = logfile.read_text()
