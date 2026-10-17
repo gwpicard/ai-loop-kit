@@ -18,47 +18,49 @@ from pathlib import Path
 from unittest.mock import patch
 
 import run
+import procs
 from loopkit import Refused, run_judge
 from run_fixtures import RunFixture
 
 
 class RunTest(RunFixture, unittest.TestCase):
     def test_activity_stamp_skips_generated_build_directories(self):
-        import review
+        import session
         root = Path(self.p.tmp.name) / "activity"
         generated = root / "build" / "large"
         generated.mkdir(parents=True)
         (generated / "output.bin").write_text("x")
-        before = review._folder_activity_stamp(root)
+        before = session._folder_activity_stamp(root)
         future = time.time() + 10
         os.utime(generated / "output.bin", (future, future))
-        self.assertEqual(review._folder_activity_stamp(root), before)
+        self.assertEqual(session._folder_activity_stamp(root), before)
 
     def test_activity_stamp_is_polled_at_most_twice_per_second(self):
-        import review
+        import session
         script = Path(self.p.tmp.name) / "activity-child.py"
         script.write_text("import time; time.sleep(.55); print('done', flush=True)\n")
         proc = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, start_new_session=True)
-        with patch.object(review, "_folder_activity_stamp", wraps=review._folder_activity_stamp) as stamp:
+        with patch.object(session, "_folder_activity_stamp",
+                          wraps=session._folder_activity_stamp) as stamp:
             with (Path(self.p.tmp.name) / "activity.log").open("w") as output:
-                review._pump_session(proc, output, 2, hard_seconds=5,
+                session._pump_session(proc, output, 2, hard_seconds=5,
                                      activity_path=Path(self.p.tmp.name))
         self.assertLessEqual(stamp.call_count, 2)
 
     def test_claude_result_errors_are_logged(self):
-        import review
-        status, output = pump_events(review, [
+        import session
+        status, output = pump_events(session, [
             '{"type":"result","is_error":true,"result":"rate limited"}',
         ], idle_seconds=5)
         self.assertEqual(status, "")
         self.assertIn("Claude result error: rate limited", output)
 
     def test_claude_events_reset_idle_and_logs_keep_assistant_text(self):
-        import review
+        import session
         events = [json.dumps({"type": "assistant", "message": {
             "content": [{"type": "text", "text": "hello"}]}}) for _ in range(5)]
-        status, output = pump_events(review, events, idle_seconds=2, clock_step=.75)
+        status, output = pump_events(session, events, idle_seconds=2, clock_step=.75)
         self.assertEqual(status, "")
         self.assertEqual(output.count("hello"), 5)
         self.assertNotIn('"type":"assistant"', output)
@@ -77,7 +79,8 @@ class RunTest(RunFixture, unittest.TestCase):
                 proc.stdout.close()
         self.addCleanup(cleanup_group)
         from io import StringIO
-        from review import _pump_session
+
+        from session import _pump_session
         output = StringIO()
         finished = threading.Event()
         errors = []
@@ -149,7 +152,7 @@ class RunTest(RunFixture, unittest.TestCase):
                 sleeper.kill()
             sleeper.wait()
         self.addCleanup(stop_sleeper)
-        run.track_process(sleeper, self.p.root)
+        procs.track_process(sleeper, self.p.root)
         self.assertTrue(run.kill_active_processes())
         sleeper.wait(timeout=2)
         self.assertNotEqual(sleeper.returncode, 0)

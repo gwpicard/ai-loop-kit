@@ -33,7 +33,7 @@ class SandboxTest(unittest.TestCase):
             process = subprocess.Popen(
                 [sys.executable, "-c", f"print({event!r})"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
-            with patch.object(review.agents, "start_session", return_value=process):
+            with patch.object(agents, "start_session", return_value=process):
                 status = review._review_session(folder, "brief", logfile, [], 5,
                                                walk_away=True, domains=["pypi.org"])
 

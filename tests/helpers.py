@@ -15,7 +15,7 @@ KIT = Path(__file__).resolve().parent.parent / "kit"
 sys.path.insert(0, str(KIT / "scripts"))
 
 
-def pump_events(review, events: list[str], idle_seconds: float,
+def pump_events(session, events: list[str], idle_seconds: float,
                 backend: str = "claude", clock_step: float = 0.75) -> tuple[str, str]:
     """Pump queued lines through a pipe while advancing a controlled clock."""
     read_fd, write_fd = os.pipe()
@@ -42,7 +42,7 @@ def pump_events(review, events: list[str], idle_seconds: float,
 
     def pump():
         try:
-            statuses.append(review._pump_session(
+            statuses.append(session._pump_session(
                 process, output, idle_seconds, hard_seconds=10,
                 backend=backend, clock=clock))
         except BaseException as error:

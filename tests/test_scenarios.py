@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 import gate
 import review
 import run
+import session
 from loopkit import main_ref, rev
 
 
@@ -62,14 +63,14 @@ class ScenarioTest(unittest.TestCase):
     def test_idle_events_keep_a_session_alive_and_silence_stops_it(self):
         events = [json.dumps({"type": "assistant", "message": {
             "content": [{"type": "text", "text": "working"}]}}) for _ in range(20)]
-        status, output = pump_events(review, events, idle_seconds=1, clock_step=.25)
+        status, output = pump_events(session, events, idle_seconds=1, clock_step=.25)
         self.assertEqual(status, "")
         self.assertEqual(output.count("working"), 20)
         silent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"],
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                   start_new_session=True)
         with (self.p.root / "silent.log").open("w") as output:
-            status = review._pump_session(silent, output, 1, hard_seconds=5)
+            status = session._pump_session(silent, output, 1, hard_seconds=5)
         self.assertEqual(status, "idle")
 
     def test_builder_streaming_logs_events_and_passes(self):

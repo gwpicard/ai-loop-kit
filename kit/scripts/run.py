@@ -19,12 +19,11 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import agents  # noqa: E402
-import sandbox  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
@@ -35,7 +34,8 @@ from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,
 from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    cache_main_ref_for_piece as _cache_main_for_piece,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
-                   kill_active_processes, lock_path, release_lock, track_process)
+                   kill_active_processes, lock_path, release_lock)
+from session import run_session
 
 DEFAULT_IDLE_LIMIT = 10 * 60
 
@@ -179,22 +179,15 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                walk_away: bool = False, domains: Optional[list[str]] = None,
                result_event: Optional[dict] = None,
                append_log: bool = False, backend: str = "claude",
-               protected_exceptions: Optional[list[str]] = None) -> str:  # noqa: UP045
-    events = logfile.with_suffix(".jsonl").open("ab" if append_log else "wb")
-    with logfile.open("a" if append_log else "w") as out, events as event_log:
-        proc = agents.start_session(
-            backend, prompt, folder, role="builder", disallowed=files,
-            settings_allowed=settings, protected_paths=protected_paths,
-            protected_exceptions=protected_exceptions,
-            contract=contract,
-            walk_away=walk_away, domains=domains)
-        track_process(proc)
-        from review import _pump_session
-        status = _pump_session(proc, out, idle_seconds, activity_path=folder,
-                               result_event=result_event, backend=backend, event_log=event_log)
-        if walk_away and result_event is not None and sandbox.usage_limit_event(result_event):
-            return "usage-limit"
-        return status
+               protected_exceptions: list[str] | None = None,
+               on_wait: Callable[[int], None] | None = None) -> str:
+    return run_session(
+        folder, prompt, logfile, idle_seconds, role="builder", backend=backend,
+        append_log=append_log, result_event=result_event, on_wait=on_wait,
+        raw_events=logfile.with_suffix(".jsonl"), disallowed=files,
+        settings_allowed=settings, protected_paths=protected_paths,
+        protected_exceptions=protected_exceptions, contract=contract,
+        walk_away=walk_away, domains=domains)
 
 
 def builder_words(logfile: Path) -> str:
@@ -422,38 +415,25 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         domains = walkaway.approved_domains(root) if walk_away else None
         if walk_away:
             walkaway.write_heartbeat(root, n, k)
-        result_event = {}
         prompt = brief(n, issue["body"], ready, last_failure, came_back, folder,
                        backend=ready["agent"])
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
-        idle_status = build_once(folder, prompt, ready["files"], logfile,
-                                 ready.get("settings", False),
-                                 idle_limit_seconds(folder, ready.get("idle_limit")),
-                                 ready.get("protected_paths", []), build_contract,
-                                 walk_away, domains,
-                                 result_event, backend=ready["agent"],
-                                 protected_exceptions=ready.get("risks", {}).get(
-                                     "protected_paths", []))
+        idle_status = build_once(
+            folder, prompt, ready["files"], logfile, ready.get("settings", False),
+            idle_limit_seconds(folder, ready.get("idle_limit")),
+            ready.get("protected_paths", []), build_contract, walk_away, domains,
+            {}, backend=ready["agent"],
+            protected_exceptions=ready.get("risks", {}).get("protected_paths", []),
+            on_wait=lambda seconds: log(
+                f"piece {n}: usage limit; waiting {seconds} seconds before one retry"))
         if idle_status == "usage-limit":
-            wait_seconds = sandbox.reset_wait_seconds(result_event)
-            log(f"piece {n}: usage limit; waiting {wait_seconds} seconds before one retry")
-            time.sleep(wait_seconds)
-            result_event = {}
-            idle_status = build_once(folder, prompt, ready["files"], logfile,
-                                     ready.get("settings", False),
-                                     idle_limit_seconds(folder, ready.get("idle_limit")),
-                                     ready.get("protected_paths", []), build_contract,
-                                     walk_away, domains,
-                                     result_event, append_log=True, backend=ready["agent"],
-                                     protected_exceptions=ready.get("risks", {}).get(
-                                         "protected_paths", []))
-            if idle_status == "usage-limit":
-                reason = "Claude Code remained rate limited after one reset wait; retry this walk-away run"
-                gh.comment(n, f"**Run:** {reason}")
-                _hand_back(gh, root, n, reason, "environment", metrics)
-                return f"piece {n}: back to shaping, {reason}"
+            reason = ("Claude Code remained rate limited after one reset wait; "
+                      "retry this walk-away run")
+            gh.comment(n, f"**Run:** {reason}")
+            _hand_back(gh, root, n, reason, "environment", metrics)
+            return f"piece {n}: back to shaping, {reason}"
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
