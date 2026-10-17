@@ -128,9 +128,12 @@ class SandboxTest(unittest.TestCase):
                 profile = next(args[index + 1] for index, value in enumerate(args[:-1])
                                if value == "--config" and args[index + 1].startswith(
                                    "permissions.ai-loop.filesystem="))
-                for name in (".ssh", ".aws", ".config", "Library/Keychains"):
+                for name in (".ssh", ".aws", ".config/gh", ".config/gcloud",
+                             "Library/Keychains"):
                     with self.subTest(role=role, path=name):
                         self.assertIn(f'{json.dumps(str(home / name))}="deny"', profile)
+                self.assertNotIn(f'{json.dumps(str(home / ".config"))}="deny"', profile)
+                self.assertNotIn(f'{json.dumps(str(home / ".config/git"))}="deny"', profile)
                 self.assertNotIn(f'{json.dumps(str(home))}="read"', profile)
                 self.assertNotIn(f'{json.dumps(str(home))}="write"', profile)
 
