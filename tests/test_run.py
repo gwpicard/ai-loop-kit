@@ -1,152 +1,24 @@
-"""End-to-end checks for the run loop."""
+"""Build lifecycle, evidence and hand-backs."""
 from __future__ import annotations
+
+from helpers import GOOD_CODE, KIT, SPEC, git
+
+# isort: split
 
 import json
 import os
-import signal
-import stat
 import subprocess
-import sys
-import threading
-import textwrap
-import time
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
-from helpers import GOOD_CODE, JUDGE, KIT, SPEC, Project, git, pump_events
 import gate
 import run
-from loopkit import Refused, changed_check_settings, parse_spec, records, run_judge
+from loopkit import Refused, changed_check_settings, records
+from run_fixtures import RunFixture
 
 
-FAKE_CLAUDE = textwrap.dedent('''\
-    #!/bin/sh
-    # A stand-in for claude -p. FAKE_MODE picks how it behaves.
-    if [ "$LOOP_REVIEWER" = 1 ]; then
-      case "$FAKE_REVIEW_MODE:$*" in
-        contract-gap:*"Contract reviewer brief"*)
-          echo '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1","finding":"D1 is not met."}]}</verdict>'
-          exit 0 ;;
-        bad-verdict:*)
-          echo '<verdict>{bad json}</verdict>'
-          exit 0 ;;
-        standard-fix:*"Standards reviewer brief"*)
-          printf '\\n# reviewed\\n' >> habits.py
-          git add habits.py && git commit --quiet -m "Review fix"
-          echo '<verdict>{"findings":[],"follow_ups":[],"changes":"small local fix"}</verdict>'
-          exit 0 ;;
-        node-standard-fix:*"Standards reviewer brief"*)
-          printf '\\n// reviewed\\n' >> src/app.js
-          git add src/app.js && git commit --quiet -m "Review fix"
-          echo '<verdict>{"findings":[],"follow_ups":[],"changes":"small local fix"}</verdict>'
-          exit 0 ;;
-        standard-break:*"Standards reviewer brief"*)
-          printf 'def add(items, name):\\n    return items\\n' > habits.py
-          git add habits.py && git commit --quiet -m "Bad review fix"
-          echo '<verdict>{"findings":[],"follow_ups":[],"changes":"broken local fix"}</verdict>'
-          exit 0 ;;
-        review-idle:*) sleep 5 ;;
-        *)
-          case "$*" in
-            *"Standards reviewer brief"*) echo '<verdict>{"findings":[],"follow_ups":[],"changes":"none"}</verdict>' ;;
-            *) echo '<verdict>{"findings":[]}</verdict>' ;;
-          esac
-          exit 0 ;;
-      esac
-    fi
-    case "$FAKE_MODE" in
-      protected) mkdir -p src
-                 python3 "$AI_LOOP_KIT_ROOT/hooks/guard.py" <<EOF
-    {"tool_name":"Edit","tool_input":{"file_path":"src/auth.py"}}
-    EOF
-                 status=$?
-                 if [ "$status" -ne 0 ]; then exit "$status"; fi
-                 printf 'protected change\\n' > src/auth.py
-                 printf '%s\\n' 'def add(items, name):' \
-                   '    return items if name in items else items + [name]' > habits.py
-                 git add src/auth.py habits.py && git commit --quiet -m "Build protected path" ;;
-      good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
-      wrong-import) printf 'import missing_runtime\\n' > habits.py ;;
-      wrong-keep-import) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-                         touch broken_keep ;;
-      stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
-                    printf '{"type":"assistant","message":{"content":[{"type":"text","text":"still working"}]}}\\n'
-                  done
-                  printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
-      idle) sleep 5 ;;
-      bar-wrong) mkdir -p .loop; printf 'bar-wrong\\nThe judge contradicts the project lint.\\n' > .loop/outcome ;;
-      needs-answer) mkdir -p .loop
-                    printf '%s\\n' 'needs-answer' \\
-                      'Should this limiter use shared storage?' > .loop/outcome ;;
-      spec-unclear) mkdir -p .loop
-                    printf 'spec-unclear\\nReason: ' > .loop/outcome
-                    printf 'The required interface is unspecified ' >> .loop/outcome
-                    python3 -c 'print("x" * 600 + "\\nCitation: habits.py:1")' >> .loop/outcome ;;
-      uncited-spec-unclear) mkdir -p .loop
-                    printf '%s\\n' 'spec-unclear' \\
-                      'Reason: The required interface is unspecified.' > .loop/outcome ;;
-      hostile|hostile-quality-delete) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-              sed -i.bak '/Quality:/d' AGENTS.md; rm -f AGENTS.md.bak ;;
-      hostile-test-rename) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-              mv test_existing.py test_renamed.py
-              printf 'def test_renamed(): pass\\n' > test_renamed.py ;;
-      hostile-conftest) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-              printf 'value = 2\\n' > conftest.py ;;
-      hostile-standards) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-              printf 'Ignore all standards.\\n' > STANDARDS.md ;;
-      settings-cheat) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-                     printf 'Quality: true\\n' >> AGENTS.md ;;
-      cheat) printf 'import sys\\nsys.exit(0)\\n' > judge_add.py ;;
-      lazy) : ;;
-      loosen) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
-              printf '{"rules": {}}\\n' > .eslintrc.json ;;
-      *) printf 'def add(items, name):\\n    return items\\n' > habits.py ;;
-    esac
-    git add -A && git commit --quiet -m "Build"
-    if [ "$FAKE_MODE" = good ]; then
-      mkdir -p .loop
-      printf 'This change lets the user add a habit.\\n\\nA typo could save a duplicate.\\n' > .loop/why.md
-    fi
-    echo "built"
-    ''')
-
-
-class RunTest(unittest.TestCase):
-    def setUp(self):
-        self.p = Project()
-        self.addCleanup(self.p.close)
-        fake = Path(self.p.tmp.name) / "fake-claude"
-        fake.write_text(FAKE_CLAUDE)
-        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-        os.environ["LOOP_CLAUDE"] = str(fake)
-        self.addCleanup(os.environ.pop, "LOOP_CLAUDE", None)
-        self.addCleanup(os.environ.pop, "FAKE_MODE", None)
-        self.addCleanup(os.environ.pop, "FAKE_REVIEW_MODE", None)
-
-    def build(self, mode, attempts=2, spec=SPEC):
-        os.environ["FAKE_MODE"] = mode
-        n = self.p.piece(spec=spec)
-        gate.move(self.p.gh, self.p.root, n, "ready")
-        result = run.build_piece(self.p.gh, self.p.root, n, attempts)
-        return n, result
-
-    def assert_handback_record(self, handback, *, reason_type, cause, attempts,
-                               seconds_positive=True):
-        self.assertEqual(handback["move"], "give-back")
-        self.assertEqual(handback["from"], "building")
-        self.assertEqual(handback["to"], "shaping")
-        self.assertEqual(handback["type"], reason_type)
-        self.assertTrue(handback["reason"])
-        self.assertEqual(handback["cause"], cause)
-        self.assertEqual(handback["attempts"], attempts)
-        if seconds_positive:
-            self.assertGreater(handback["seconds"], 0)
-        else:
-            self.assertGreaterEqual(handback["seconds"], 0)
-        self.assertEqual(handback["kit"], "1.3.0")
-        self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
-
+class RunTest(RunFixture, unittest.TestCase):
     def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
         setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
         builder = (KIT / "briefs" / "builder.md").read_text()
@@ -164,37 +36,6 @@ class RunTest(unittest.TestCase):
         self.assertIn("rename stale tests", judge_writer)
         self.assertIn("non-test project code", standards_reviewer)
 
-    def test_activity_stamp_skips_generated_build_directories(self):
-        import review
-        root = Path(self.p.tmp.name) / "activity"
-        generated = root / "build" / "large"
-        generated.mkdir(parents=True)
-        (generated / "output.bin").write_text("x")
-        before = review._folder_activity_stamp(root)
-        future = time.time() + 10
-        os.utime(generated / "output.bin", (future, future))
-        self.assertEqual(review._folder_activity_stamp(root), before)
-
-    def test_activity_stamp_is_polled_at_most_twice_per_second(self):
-        import review
-        script = Path(self.p.tmp.name) / "activity-child.py"
-        script.write_text("import time; time.sleep(.55); print('done', flush=True)\n")
-        proc = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, start_new_session=True)
-        with patch.object(review, "_folder_activity_stamp", wraps=review._folder_activity_stamp) as stamp:
-            with (Path(self.p.tmp.name) / "activity.log").open("w") as output:
-                review._pump_session(proc, output, 2, hard_seconds=5,
-                                     activity_path=Path(self.p.tmp.name))
-        self.assertLessEqual(stamp.call_count, 2)
-
-    def test_claude_result_errors_are_logged(self):
-        import review
-        from io import StringIO
-        output = StringIO()
-        review._write_claude_log_line(
-            output, '{"type":"result","is_error":true,"result":"rate limited"}')
-        self.assertIn("rate limited", output.getvalue())
-
     def test_ready_search_retries_brief_github_label_lag(self):
         from unittest.mock import Mock
         gh = Mock()
@@ -204,85 +45,6 @@ class RunTest(unittest.TestCase):
             self.assertEqual(run.ready_pieces(gh), [12])
         self.assertEqual(gh.issues_with_label.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
-
-    def test_standard_citation_must_be_a_whole_rule_or_known_smell(self):
-        diff = "diff --git a/app.js b/app.js\n+++ b/app.js\n@@ -0,0 +1 @@\n+x\n"
-        verdict = ('<verdict>{"findings":[{"rule":"clear names","hunk":"app.js:1",'
-                   '"finding":"ok"},{"rule":"names","hunk":"app.js:1",'
-                   '"finding":"substring only"},{"rule":"", "hunk":"app.js:1",'
-                   '"finding":"empty"}],"follow_ups":[],"changes":"none"}</verdict>')
-        from review import parse_standards_findings
-        self.assertEqual(parse_standards_findings(
-            verdict, "clear names\n", diff), ["clear names at app.js:1: ok"])
-        heading = ('<verdict>{"findings":[{"rule":"# Style","hunk":"app.js:1",'
-                   '"finding":"heading citation"}],"follow_ups":[],"changes":"none"}</verdict>')
-        self.assertEqual(parse_standards_findings(heading, "# Style\nclear names\n", diff),
-                         ["# Style at app.js:1: heading citation"])
-
-    def test_claude_events_reset_idle_and_logs_keep_assistant_text(self):
-        import review
-        events = [json.dumps({"type": "assistant", "message": {
-            "content": [{"type": "text", "text": "hello"}]}}) for _ in range(5)]
-        status, output = pump_events(review, events, idle_seconds=2, clock_step=.75)
-        self.assertEqual(status, "")
-        self.assertEqual(output.count("hello"), 5)
-        self.assertNotIn('"type":"assistant"', output)
-
-    def test_pump_stops_group_when_child_keeps_pipe_open_after_parent_exits(self):
-        script = ("import subprocess,sys; "
-                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
-                  "print('parent finished', flush=True)")
-        proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, start_new_session=True)
-        def cleanup_group():
-            if proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
-            if proc.stdout:
-                proc.stdout.close()
-        self.addCleanup(cleanup_group)
-        from io import StringIO
-        from review import _pump_session
-        output = StringIO()
-        finished = threading.Event()
-        errors = []
-
-        def pump():
-            try:
-                _pump_session(proc, output, idle_seconds=30, hard_seconds=40)
-            except BaseException as error:
-                errors.append(error)
-            finally:
-                finished.set()
-
-        started = time.monotonic()
-        worker = threading.Thread(target=pump)
-        worker.start()
-        finished_promptly = finished.wait(5)
-        if not finished_promptly:
-            os.killpg(proc.pid, signal.SIGKILL)
-            worker.join(3)
-        self.assertTrue(finished_promptly, "the output pipe stayed open after the child exit")
-        self.assertEqual(errors, [])
-        self.assertLess(time.monotonic() - started, 5)
-        self.assertIn("parent finished", output.getvalue())
-
-    def test_all_claude_sessions_request_stream_json(self):
-        fake = Path(self.p.tmp.name) / "argv-claude"
-        fake.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\"\n")
-        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-        os.environ["LOOP_CLAUDE"] = str(fake)
-        logfile = Path(self.p.tmp.name) / "session.log"
-        run.build_once(self.p.root, "brief", [], logfile)
-        self.assertIn("--output-format stream-json --verbose", logfile.read_text())
-
-    def test_last_tagged_verdict_accepts_a_code_fence_and_checks_fields(self):
-        output = ('<verdict>{"findings":[],"follow_ups":[],"changes":"old"}</verdict>\n'
-                  '<verdict>```json\n{"findings":[],"follow_ups":[],"changes":"none"}\n```</verdict>')
-        from review import _last_verdict
-        self.assertEqual(_last_verdict(output, "standards")["changes"], "none")
-        with self.assertRaises(ValueError):
-            _last_verdict("<verdict>{bad}</verdict>", "contract")
 
     def test_missing_judge_writer_verdict_file_prints_next_step(self):
         from contextlib import redirect_stderr
@@ -296,17 +58,6 @@ class RunTest(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("next:", errors.getvalue())
         self.assertNotIn("Traceback", errors.getvalue())
-
-    def test_run_lock_refuses_live_runs_and_takes_over_dead_ones(self):
-        lock = run.acquire_lock(self.p.root)
-        with self.assertRaises(Refused) as r:
-            run.acquire_lock(self.p.root)
-        self.assertIn("another run is live", r.exception.reason)
-        run.release_lock(lock)
-        lock.write_text('{"pid": 2147483647, "started_at": 0}\n')
-        taken = run.acquire_lock(self.p.root)
-        self.assertEqual(taken, lock)
-        run.release_lock(taken)
 
     def test_run_recovers_building_pieces_to_shaping(self):
         n = self.p.piece()
@@ -336,11 +87,6 @@ class RunTest(unittest.TestCase):
         self.assert_handback_record(handback, reason_type="environment", cause="other",
                                     attempts=1)
         self.assertFalse(saved.exists())
-
-    def test_judge_timeout_returns_a_clear_failure(self):
-        code, output = run_judge(self.p.root, "sleep 2", timeout=0.1)
-        self.assertEqual(code, 124)
-        self.assertIn("past 0.1 seconds", output)
 
     def test_quality_outputs_are_recorded_and_removed_between_attempts(self):
         folder = self.p.root
@@ -387,13 +133,6 @@ class RunTest(unittest.TestCase):
         self.assert_handback_record(handback, reason_type="environment",
                                     cause="quality-failed", attempts=1)
         self.assertIn("Quality check also fails on main", handback["reason"])
-
-    def test_both_reviewers_run_without_a_project_standards_file(self):
-        n, result = self.build("good", attempts=1)
-        self.assertIn("pull request ready", result)
-        logs = self.p.root / ".loop" / "logs"
-        self.assertTrue((logs / f"piece-{n}-standards-review.log").is_file())
-        self.assertTrue((logs / f"piece-{n}-contract-review.log").is_file())
 
     def test_pull_request_contains_facts_evidence_and_the_builder_reason(self):
         n, result = self.build("good", attempts=1)
@@ -531,28 +270,6 @@ class RunTest(unittest.TestCase):
         self.assert_handback_record(handback, reason_type="bar-wrong",
                                     cause="stale-after-main", attempts=0)
 
-    def test_idle_reviewer_is_recorded_as_builder_failed(self):
-        os.environ["FAKE_REVIEW_MODE"] = "review-idle"
-        self.p.loop_section("true")
-        agents = self.p.root / "AGENTS.md"
-        agents.write_text(agents.read_text() + "Idle limit: 1\n")
-        git(self.p.root, "add", "AGENTS.md")
-        git(self.p.root, "commit", "--quiet", "-m", "Set short idle limit")
-        git(self.p.root, "push", "--quiet", "origin", "main")
-        with patch("review.idle_limit_seconds", return_value=1):
-            n, result = self.build("good", attempts=1)
-        self.assertIn("standards reviewer idle", result)
-        self.assertIn("builder-failed: 1", gate.report(self.p.gh))
-
-    def test_bad_reviewer_verdict_fails_with_raw_tail_and_environment_record(self):
-        os.environ["FAKE_REVIEW_MODE"] = "bad-verdict"
-        n, result = self.build("good", attempts=1)
-        self.assertIn("invalid verdict", result)
-        self.assertIn("environment: 1", gate.report(self.p.gh))
-        log = self.p.root / ".loop" / "logs" / f"piece-{n}-standards-review.log"
-        self.assertIn("<verdict>{bad json}</verdict>", log.read_text())
-        self.assertIn("Raw tail:", log.read_text())
-
     def test_dirty_build_folder_is_refused_without_cleaning_it(self):
         os.environ["FAKE_MODE"] = "good"
         n = self.p.piece()
@@ -567,46 +284,6 @@ class RunTest(unittest.TestCase):
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
         self.assert_handback_record(handback, reason_type="environment",
                                     cause="dirty-worktree", attempts=0)
-
-    def test_standards_reviewer_changes_are_committed_and_judged(self):
-        (self.p.root / "standards.md").write_text("Use small local changes.\n")
-        self.p.loop_section("true")
-        agents = self.p.root / "AGENTS.md"
-        agents.write_text(agents.read_text() + "Standards: standards.md\n")
-        git(self.p.root, "add", "AGENTS.md", "standards.md")
-        git(self.p.root, "commit", "--quiet", "-m", "Add review standards")
-        git(self.p.root, "push", "--quiet", "origin", "main")
-        os.environ["FAKE_REVIEW_MODE"] = "standard-fix"
-        n, result = self.build("good", attempts=1)
-        self.assertIn("pull request ready", result)
-        self.assertIn("reviewed", (self.p.folder(n) / "habits.py").read_text())
-        changed_by_reviewer = git(self.p.folder(n), "show", "--format=", "--name-only", "HEAD").strip()
-        self.assertEqual(changed_by_reviewer, "habits.py")
-        self.assertIn("Reviewer fixes kept", self.p.gh.prs[f"piece/{n}"]["body"])
-
-    def test_failing_reviewer_fixes_are_left_out_of_the_pull_request(self):
-        self.p.loop_section("true")
-        agents = self.p.root / "AGENTS.md"
-        agents.write_text(agents.read_text() + "Standards: standards.md\n")
-        (self.p.root / "standards.md").write_text("Use small local changes.\n")
-        git(self.p.root, "add", "AGENTS.md", "standards.md")
-        git(self.p.root, "commit", "--quiet", "-m", "Add review standards")
-        git(self.p.root, "push", "--quiet", "origin", "main")
-        os.environ["FAKE_REVIEW_MODE"] = "standard-break"
-        n, result = self.build("good", attempts=1)
-        self.assertIn("pull request ready", result)
-        self.assertIn("return items if", (self.p.folder(n) / "habits.py").read_text())
-        self.assertIn("Reviewer fixes were dropped", self.p.gh.prs[f"piece/{n}"]["body"])
-
-    def test_contract_review_gap_is_recorded_and_heads_the_pull_request(self):
-        os.environ["FAKE_REVIEW_MODE"] = "contract-gap"
-        n, result = self.build("good", attempts=1)
-        self.assertIn("pull request ready", result)
-        body = self.p.gh.prs[f"piece/{n}"]["body"]
-        self.assertTrue(body.startswith("## Contract review findings"))
-        self.assertIn("D1 is not met", body)
-        self.assertTrue(any("judge-gap" in comment for comment in self.p.gh.comments(n)))
-        self.assertIn("judge-gap: 1", gate.report(self.p.gh))
 
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")
@@ -803,38 +480,11 @@ class RunTest(unittest.TestCase):
                                     cause="stopped", attempts=1)
         self.assertTrue(handback["reason"].startswith("Attempt 1 failed."))
 
-    def test_run_refuses_lock_with_a_live_orphan_process_group(self):
-        sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
-        def stop_sleeper():
-            if sleeper.poll() is None:
-                sleeper.kill()
-            sleeper.wait()
-        self.addCleanup(stop_sleeper)
-        lock = run.lock_path(self.p.root)
-        lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.write_text(json.dumps({"pid": 2147483647, "started_at": 0,
-                                    "children": [sleeper.pid]}))
-        with self.assertRaises(Refused) as refused:
-            run.acquire_lock(self.p.root)
-        self.assertIn("orphan", refused.exception.reason)
-
     def test_quality_probe_cache_key_includes_command_and_main_commit(self):
         base = gate.quality_probe_path(self.p.root, 7, "coverage run", "main-a")
         self.assertEqual(base, gate.quality_probe_path(self.p.root, 7, "coverage run", "main-a"))
         self.assertNotEqual(base, gate.quality_probe_path(self.p.root, 7, "mutmut", "main-a"))
         self.assertNotEqual(base, gate.quality_probe_path(self.p.root, 7, "coverage run", "main-b"))
-
-    def test_run_kills_tracked_process_groups_on_interrupt(self):
-        sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
-        def stop_sleeper():
-            if sleeper.poll() is None:
-                sleeper.kill()
-            sleeper.wait()
-        self.addCleanup(stop_sleeper)
-        run.track_process(sleeper, self.p.root)
-        self.assertTrue(run.kill_active_processes())
-        sleeper.wait(timeout=2)
-        self.assertNotEqual(sleeper.returncode, 0)
 
     def test_an_error_after_the_claim_gives_the_piece_back(self):
         def broken(*args, **kwargs):
@@ -946,19 +596,6 @@ class RunTest(unittest.TestCase):
         gate.move(self.p.gh, self.p.root, n, "ready")
         self.assertIn("pull request ready", run.build_piece(self.p.gh, self.p.root, n, 1))
         self.assertTrue((old / "habits.py").exists())
-
-    def conflict_with_main(self, mode):
-        """Build a piece, then change the same lines on main, then send it round again."""
-        n, _ = self.build("good")
-        (self.p.root / "habits.py").write_text("def add(items, name):\n    raise NotImplementedError(name)\n\n\ndef count(items):\n    return len(items)\n")
-        git(self.p.root, "add", "habits.py")
-        git(self.p.root, "commit", "--quiet", "-m", "Main changes habits.py")
-        git(self.p.root, "push", "--quiet", "origin", "main")
-        gate.move(self.p.gh, self.p.root, n, "shaping", reason="conflicts with main",
-                  reason_type="conflict")
-        gate.move(self.p.gh, self.p.root, n, "ready")
-        os.environ["FAKE_MODE"] = mode
-        return n, run.build_piece(self.p.gh, self.p.root, n, 1)
 
     def test_the_builder_resolves_a_conflict_with_main(self):
         n, result = self.conflict_with_main("good")

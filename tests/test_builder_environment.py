@@ -13,8 +13,8 @@ from helpers import git
 # isort: split
 import agents
 import run
+import run_fixtures
 import sandbox
-import test_run
 from loopkit import records
 
 
@@ -51,7 +51,7 @@ class BuilderEnvironmentTest(unittest.TestCase):
                                   "index.lock").exists())
 
     def test_run_returns_nonzero_after_environment_handback(self):
-        test_run.RunTest.setUp(self)
+        run_fixtures.RunFixture.setUp(self)
         n = self.p.piece()
         import gate
         gate.move(self.p.gh, self.p.root, n, "ready")
@@ -85,7 +85,7 @@ class BuilderEnvironmentTest(unittest.TestCase):
 
     def _environment_report(self, failed, error=(
             "fatal: Unable to create /piece/git/index.lock: Operation not permitted")):
-        test_run.RunTest.setUp(self)
+        run_fixtures.RunFixture.setUp(self)
         def builder(folder, prompt, files, logfile, *args, **kwargs):
             (folder / ".loop").mkdir(exist_ok=True)
             (folder / ".loop" / "outcome").write_text(
@@ -98,7 +98,7 @@ class BuilderEnvironmentTest(unittest.TestCase):
             logfile.with_suffix(".jsonl").write_text(json.dumps(event) + "\n")
             return ""
         with patch.object(run, "build_once", side_effect=builder):
-            n, result = test_run.RunTest.build(self, "good", attempts=1)
+            n, result = run_fixtures.RunFixture.build(self, "good", attempts=1)
         handback = next(r for r in records(self.p.gh.comments(n))
                         if r.get("move") == "give-back")
         self.assertNotIn("here-document", handback["reason"])
