@@ -1,6 +1,6 @@
 {
   "name": "ai-loop-kit-extras",
-  "description": "Optional experimental mutation tools for AI Loop Kit.",
+  "description": "Optional experimental mutation tools and preview gauntlet critics for AI Loop Kit.",
   "author": {
     "name": "Guillaume Picard"
   },

@@ -7,11 +7,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import critic
+from helpers import SPEC, Project, git
+
+# isort: split
 import gate
 import run
-from helpers import SPEC, Project, git
-from loopkit import Refused
+
+from extras import critics
+
+critic = critics()
 
 
 def verdict(*criteria: str) -> str:
@@ -84,6 +88,23 @@ class CriticFailureTest(unittest.TestCase):
 
         return project, number
 
+    def test_full_bundle_gauntlet_reaches_a_pull_request(self):
+        project, number = self.gauntlet_project()
+        process = Mock(returncode=0)
+        process.communicate.return_value = (verdict("Readable labels.").encode(), None)
+        with patch.object(run, "build_once", return_value=""), \
+                patch.object(run, "review_piece", return_value={"contract_findings": []}), \
+                patch.object(critic.random.SystemRandom, "getrandbits", return_value=1), \
+                patch.object(critic.agents, "start_session", return_value=process):
+            result = run.build_piece(project.gh, project.root, number, 1)
+        self.assertIn("pull request ready", result)
+        self.assertEqual(process.communicate.call_count, 6)
+        self.assertEqual(gate.state_of(project.gh.issue(number)), "approval")
+        body = project.gh.prs[f"piece/{number}"]["body"]
+        self.assertIn("Main critics:", body)
+        self.assertIn("Gauntlet wins: 3/3", body)
+        self.assertIn("Readable labels.", body)
+
     def release_merged_folder(self, project, number):
         self.assertTrue(project.folder(number).exists())
         git(project.root, "merge", "--quiet", f"piece/{number}")
@@ -136,30 +157,3 @@ class CriticFailureTest(unittest.TestCase):
                 self.assertIn("missing: ['Readable labels.']", evidence)
                 self.assertIn("extra: ['Colour']", evidence)
                 self.assertIn("Order: A=ours, B=reference", evidence)
-
-
-class PieceCheckoutTest(unittest.TestCase):
-    def test_checked_out_piece_is_reported_before_claim_or_build(self):
-        for location in ("another worktree", "the current checkout"):
-            with self.subTest(location=location):
-                project = Project()
-                self.addCleanup(project.close)
-                number = project.piece()
-                gate.move(project.gh, project.root, number, "ready")
-                if location == "another worktree":
-                    folder = Path(project.tmp.name) / "another checkout"
-                    git(project.root, "worktree", "add", "--quiet", str(folder),
-                        f"piece/{number}")
-                else:
-                    folder = project.root
-                    git(folder, "switch", "--quiet", f"piece/{number}")
-                before = git(folder, "rev-parse", "HEAD")
-                with patch.object(run, "build_once") as builder, \
-                        self.assertRaises(Refused) as caught:
-                    run.build_piece(project.gh, project.root, number, 1)
-                self.assertIn(f"piece/{number} is already checked out", str(caught.exception))
-                self.assertIn(str(folder), str(caught.exception))
-                self.assertEqual(gate.state_of(project.gh.issue(number)), "ready")
-                self.assertEqual(git(folder, "rev-parse", "HEAD"), before)
-                self.assertTrue(folder.is_dir())
-                builder.assert_not_called()

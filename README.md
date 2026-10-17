@@ -30,10 +30,10 @@ In Claude Code, run:
 /ai-loop-kit:setup
 ```
 
-### Optional mutation tools
+### Optional mutation tools and gauntlet critics
 
-The default plugin leaves out the experimental mutation implementation.
-To add it, run:
+The default plugin leaves out the experimental mutation tools and gauntlet
+critics. To add them, run:
 
 ```text
 /plugin install ai-loop-kit-extras@ai-loop-kit
@@ -48,8 +48,10 @@ run, or prefix each command with that assignment. Then run
 keep working. A source checkout uses the sibling `extras/` directory by
 default. An explicit environment value takes precedence.
 
-If the extra is missing, ready and claim refuse any command requesting its
-helpers. No check is skipped. All other previews remain in the default plugin.
+If the required extra is missing, ready and claim refuse mutation commands
+and gauntlet pieces, including `### Critics` exit checks. The refusal names
+the missing capability and its installation steps. The other previews remain
+in the default plugin.
 
 ### What you need
 

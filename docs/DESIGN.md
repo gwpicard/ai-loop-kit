@@ -120,7 +120,9 @@ Each core part exists because a real failure showed it was needed.
 
 Everything else is an extra. Extras are useful, but the promise holds
 without them: the two reviewers, quality commands, walk-away runs, goal and
-gauntlet judges, the researcher and the Codex backend.
+gauntlet judges, the researcher and the Codex backend. Mutation tools and
+gauntlet critics live in the optional `ai-loop-kit-extras` plugin. The
+default plugin refuses a piece that needs either capability when it is absent.
 
 ## 4. The engine: states and moves
 
@@ -234,6 +236,11 @@ An `## Exit` section lists one or more checks: tests, a measure or critics.
 A piece can combine them. Each check names the files it runs, and those files
 join the frozen bar. Old `Kind:` specs still parse as one check. `Playbook:`
 guides the builder and does not affect the gate.
+
+Critics checks and legacy gauntlet pieces require the optional extras plugin
+and its critic brief. Ready and claim refuse them before running checks or
+starting a builder when that extra is missing. Parsing and freezing capture
+files stay in the default plugin.
 
 A goal attempt writes one hypothesis to `.loop/hypothesis` first. The brief
 tells the builder to stop before editing code if writing it fails. A capture
@@ -516,7 +523,9 @@ paths delegate to the extra. Ready and claim refuse a requested mutation
 helper when the extra is absent, before any worktree or session starts.
 They also check frozen Quality commands, so uninstalling the extra after
 ready cannot weaken a contract. Walk-away checks this before doctor can
-start a sandbox probe session. Other previews stay in the default plugin.
+start a sandbox probe session. Gauntlet critics use the same plugin path.
+Their code, brief and tests live in `extras/`; the full suite runs their
+tests too. Other previews stay in the default plugin.
 Mutation testing with mutmut 3.8 or later is **experimental**: it needs
 configured source paths and in-process tests, because subprocess tests give no mutation
 or coverage evidence [mutmut]. Doctor runs Test, then each Quality command, on
@@ -828,15 +837,17 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 5,988 Python lines in `kit/`, including the remaining
-previews and quality entry points. The optional mutation plugin has 223 lines
-in `extras/`. Together they have 6,211 Python lines. The kit uses the Python
-standard library only and supports Python 3.9 or later.
+The default plugin has 5,813 Python lines in `kit/`, including the remaining
+previews and quality entry points. The optional mutation tools and gauntlet
+critics have 420 runtime lines in `extras/`. Together they have 6,233 runtime
+Python lines. The kit uses the Python standard library only and supports
+Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
-`extras/`. It fails above 800 lines per file or 6,211
-lines in total. The suite reports the total and the default-install size
-separately. The total budget follows the measured size; a smaller budget
+`extras/`. It checks extra test files against the 800-line file ceiling but
+excludes them from the runtime total. It fails above 800 lines per file or
+6,233 runtime lines in total. The suite reports the total and the
+default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
 ## Words used in this file

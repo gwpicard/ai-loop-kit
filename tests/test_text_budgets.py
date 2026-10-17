@@ -11,7 +11,7 @@ BUDGETS = {
     "agents/researcher.md": 229,
     "briefs/builder.md": 665,
     "briefs/contract-reviewer.md": 156,
-    "briefs/critic.md": 90,
+    "extras/briefs/critic.md": 90,
     "briefs/standards-reviewer.md": 370,
     "skills/run/SKILL.md": 300,
     "skills/run/references/walk-away.md": 220,
@@ -44,6 +44,7 @@ class TextBudgetTest(unittest.TestCase):
                  *KIT.joinpath("briefs").rglob("*.md"),
                  *KIT.joinpath("agents").rglob("*.md"), KIT / "spec-format.md"]
         texts = {str(path.relative_to(KIT)): path.read_text() for path in paths}
+        texts["extras/briefs/critic.md"] = (KIT.parent / "extras/briefs/critic.md").read_text()
         check_budgets(texts)
 
     def test_one_word_overflow_is_refused_for_every_file(self):

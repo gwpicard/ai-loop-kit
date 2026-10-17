@@ -15,7 +15,7 @@ class RunAllTests(unittest.TestCase):
             capture = Path(temporary) / "arguments"
             python = bin_dir / "python3"
             python.write_text(
-                '#!/bin/sh\nprintf "%s\\n" "$*" > "$RUN_ALL_CAPTURE"\n'
+                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUN_ALL_CAPTURE"\n'
             )
             python.chmod(0o755)
             environment = os.environ.copy()
@@ -35,7 +35,8 @@ class RunAllTests(unittest.TestCase):
             arguments = capture.read_text().strip().split()
             self.assertEqual(
                 arguments,
-                ["-m", "unittest", "discover", "-q", "-p", "test_*.py"],
+                ["-m", "unittest", "discover", "-q", "-p", "test_*.py",
+                 "-m", "unittest", "discover", "-s", "extras/tests", "-q", "-p", "test_*.py"],
                 result.stdout + result.stderr,
             )
 
