@@ -16,6 +16,13 @@ import walkaway
 from loopkit import GitHub, Refused, last_record, repo_root
 
 
+def retry_conflict(gh: GitHub, root: Path, number: int) -> None:
+    """Return a conflicting piece through the existing gates before retrying."""
+    gate.move(gh, root, number, "shaping", reason_type="conflict",
+              reason="conflicts with main")
+    gate.move(gh, root, number, "ready")
+
+
 def main(argv: Optional[list[str]] = None, api=None) -> int:
     if api is None:
         import run as api
@@ -28,6 +35,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                    help="run only after the unattended sandbox checks pass")
     p.add_argument("--agent", choices=("claude", "codex"),
                    help="override the ready record's non-interactive agent for this run")
+    p.add_argument("--retry-conflict", type=int, metavar="PIECE",
+                   help="move a conflicting piece through shaping and ready, then retry it")
     args = p.parse_args(argv)
     if args.verdict_kind or args.verdict_file:
         try:
@@ -66,6 +75,14 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
     awake = walkaway.keep_awake(root) if args.walk_away else nullcontext()
     awake.__enter__()
     try:
+        if args.retry_conflict is not None:
+            try:
+                retry_conflict(gh, root, args.retry_conflict)
+            except Refused as error:
+                print(f"refused: {error.reason}", file=sys.stderr)
+                print(f"next: {error.next_step}", file=sys.stderr)
+                return 2
+            args.pieces = [args.retry_conflict]
         gate.ignore_loop_folder(root)
         removed_reviews = api.cleanup_interrupted_reviews(root)
         if removed_reviews:

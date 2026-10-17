@@ -686,6 +686,19 @@ The skills hold judgement and conversation. Every rule that must hold lives
 in a script, a hook or the gate. All gate commands print one `next:` step
 when they refuse.
 
+The run skill loads `run-recovery` only for interruptions, orphan processes,
+run locks, dirty folders, conflicts, stops or environment hand-backs. It loads
+`reject-handling` only when the person rejects a pull request. Both support
+skills use `user-invocable: false` and remain available to the model.
+`run.py --retry-conflict <n>` sequences the existing conflict hand-back and
+ready checks under the run lock before retrying. A refused check stops it.
+Walk-away guidance is a conditional reference. The ordinary run skill loads
+265 source words, down from 903, counting frontmatter and command snippets
+with `len(text.split())`. Runtime output and project data add variable text.
+The word-budget test caps every skill, reference, agent definition and brief,
+and their combined total. Unchanged files keep their present ceilings until
+their own thinning change.
+
 Doctor checks GitHub sign-in with `gh auth status --active`. An expired
 inactive account does not block setup. If an active account fails, doctor
 keeps the CLI's error message, including the account and host.

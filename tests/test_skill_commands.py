@@ -44,7 +44,7 @@ class SkillCommandTest(unittest.TestCase):
 
     def test_every_documented_gate_command_parses(self):
         found = 0
-        for skill in sorted((KIT / "skills").glob("*/SKILL.md")):
+        for skill in sorted((KIT / "skills").rglob("*.md")):
             text = skill.read_text()
             for snippet in re.findall(r"`([^`]*\bgate\.py\b[^`]*)`", text):
                 match = re.search(r"\bgate\.py\s+(.+)", snippet)
@@ -62,7 +62,7 @@ class SkillCommandTest(unittest.TestCase):
         self.assertGreater(found, 0, "no gate commands were found in the skills")
 
     def test_run_skill_classifies_rejected_pull_requests(self):
-        text = (KIT / "skills" / "run" / "SKILL.md").read_text()
+        text = (KIT / "skills" / "reject-handling" / "SKILL.md").read_text()
 
         self.assertIn("was something missing from the contract", text.lower())
         self.assertIn("--type judge-gap", text)
