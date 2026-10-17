@@ -624,7 +624,9 @@ failure returns the piece to shaping as `environment`, with cause
 
 - Claude Code 2.1.285 or later, or a working Codex.
 - A live probe: a real session must fail to write to the home folder, read
-  `~/.ssh` and reach an outside host.
+  `~/.ssh` and reach an outside host. Codex retries once if its answer has no
+  readable probe line or has invalid exit codes. The result says it retried.
+  A readable zero code or an observed home write refuses without a retry.
 - Confirmed `Sandbox domains:` (package registries only). The gate reads the
   list from the loop section of `AGENTS.md` and passes it to Claude's strict
   network allowlist.
@@ -806,13 +808,13 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The kit has 6,003 Python lines in `kit/`, including previews and quality
+The kit has 6,007 Python lines in `kit/`, including previews and quality
 scripts. The default plugin installs that whole directory, so its Python
-size is also 6,003 lines. It uses the Python standard library only and
+size is also 6,007 lines. It uses the Python standard library only and
 supports Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/`,
-including any optional modules. It fails above 800 lines per file or 6,003
+including any optional modules. It fails above 800 lines per file or 6,007
 lines in total. The suite reports the total and the default-install size
 separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.

@@ -279,30 +279,34 @@ def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
         "`curl --noproxy '*' -Is --max-time 8 https://example.com >/dev/null 2>&1; echo $?`. "
         "Do not print file contents."
     )
-    try:
-        proc = agents.start_session("codex", prompt, folder, role="probe",
-                                    walk_away=True)
-        output, _ = proc.communicate(timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return False, f"Codex sandbox probe could not run: {error}"
-    if PROBE_PATH.exists():
-        return False, "Codex sandbox allowed a write outside the build folder; ~/sandbox-probe exists"
-    if proc.returncode:
-        return False, f"Codex sandbox probe exited {proc.returncode}: {output.decode(errors='replace')[-500:].strip()}"
-    text = agents.event_text(output)
-    match = re.search(r"<probe>\s*(\{.*?\})\s*</probe>", text, re.I | re.S)
-    if not match:
-        return False, "Codex sandbox probe did not return all three shell exit codes"
-    try:
-        results = json.loads(match.group(1))
-        statuses = [int(results[key]) for key in ("write", "ssh_read", "network")]
-    except (ValueError, KeyError, TypeError):
-        return False, "Codex sandbox probe returned invalid shell exit codes"
-    failed = [name for name, code in zip(
-        ("write (~/sandbox-probe)", "read (~/.ssh)", "network"), statuses) if code == 0]
-    if failed:
-        return False, "Codex sandbox allowed: " + ", ".join(failed)
-    return True, "Codex sandbox blocked the home write, SSH read and outside network request"
+    for attempt in range(2):
+        label = "Codex sandbox" + (" (retried once after an unreadable answer)" if attempt else "")
+        try:
+            proc = agents.start_session("codex", prompt, folder, role="probe", walk_away=True)
+            output, _ = proc.communicate(timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return False, f"{label} probe could not run: {error}"
+        if PROBE_PATH.exists():
+            return False, f"{label} allowed a home write; ~/sandbox-probe exists"
+        if proc.returncode:
+            detail = output.decode(errors="replace")[-500:].strip()
+            return False, f"{label} probe exited {proc.returncode}: {detail}"
+        text = agents.event_text(output)
+        match = re.search(r"<probe>\s*(\{.*?\})\s*</probe>", text, re.I | re.S)
+        try:
+            results = json.loads(match.group(1)) if match else {}
+            statuses = [int(results[key]) for key in ("write", "ssh_read", "network")]
+        except (ValueError, KeyError, TypeError):
+            if attempt:
+                reason = ("returned invalid shell exit codes" if match else
+                          "did not return all three shell exit codes")
+                return False, f"{label} probe {reason}"
+            continue
+        failed = [name for name, code in zip(
+            ("write (~/sandbox-probe)", "read (~/.ssh)", "network"), statuses) if code == 0]
+        if failed:
+            return False, f"{label} allowed: " + ", ".join(failed)
+        return True, f"{label} blocked the home write, SSH read and outside network request"
 
 
 def usage_limit_event(event: dict) -> bool:
