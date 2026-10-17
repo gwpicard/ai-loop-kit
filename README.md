@@ -30,6 +30,27 @@ In Claude Code, run:
 /ai-loop-kit:setup
 ```
 
+### Optional mutation tools
+
+The default plugin leaves out the experimental mutation implementation.
+To add it, run:
+
+```text
+/plugin install ai-loop-kit-extras@ai-loop-kit
+/ai-loop-kit-extras:setup
+```
+
+The extra's setup shows its installed path. Export
+`AI_LOOP_KIT_EXTRAS_ROOT="<that path>"` in the shell that starts the gate or
+run, or prefix each command with that assignment. Then run
+`/ai-loop-kit:setup` to agree and check the mutation Quality command. Existing
+`$AI_LOOP_KIT_ROOT/quality/mutmut-check.py` and `mutmut-changed.py` commands
+keep working. A source checkout uses the sibling `extras/` directory by
+default. An explicit environment value takes precedence.
+
+If the extra is missing, ready and claim refuse any command requesting its
+helpers. No check is skipped. All other previews remain in the default plugin.
+
 ### What you need
 
 - `git` and `gh` signed in to GitHub

@@ -13,7 +13,9 @@ from typing import Optional
 
 import gate
 import walkaway
-from loopkit import GitHub, Refused, last_record, repo_root
+from loopkit import STATE_PREFIX, GitHub, Refused, last_record, loop_settings, repo_root
+
+from extras import require_extras
 
 
 def retry_conflict(gh: GitHub, root: Path, number: int) -> None:
@@ -52,6 +54,16 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
     root = repo_root(Path.cwd())
     gh = GitHub(root)
     if args.walk_away:
+        try:
+            selected = args.pieces or ([args.retry_conflict] if args.retry_conflict is not None
+                                      else [i["number"] for i in
+                                            gh.issues_with_label(STATE_PREFIX + "ready")])
+            require_extras(loop_settings(root), *(last_record(gh.comments(n), "ready") or {}
+                                                 for n in selected))
+        except Refused as error:
+            print(f"refused: {error.reason}", file=sys.stderr)
+            print(f"next: {error.next_step}", file=sys.stderr)
+            return 2
         checks = gate.doctor(gh, root, walk_away=True, agent=args.agent)
         for ok, what, fix in checks:
             print(f"{'ok  ' if ok else 'FAIL'} {what}")

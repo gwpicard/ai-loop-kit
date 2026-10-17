@@ -16,7 +16,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 class ModuleRegexTest(unittest.TestCase):
     def test_every_module_level_regex_compiles(self):
-        for index, path in enumerate(sorted(KIT.rglob("*.py"))):
+        paths = sorted(KIT.rglob("*.py")) + sorted((ROOT / "extras").rglob("*.py"))
+        for index, path in enumerate(paths):
             name = f"_kit_regex_check_{index}_{path.stem.replace('-', '_')}"
             spec = importlib.util.spec_from_file_location(name, path)
             self.assertIsNotNone(spec, path)

@@ -506,8 +506,19 @@ evidence, Keep fails the attempt without a `bar-wrong` diagnosis.
 **Quality commands** belong to the project, not the kit, so the kit works for
 any stack. Setup offers CRAP for Python (a limit of 30 on changed functions,
 from coverage.py JSON) [CRAP], and ESLint `complexity` for Node. Mutation
-testing with mutmut 3.8 or later is **experimental**: it needs configured
-source paths and in-process tests, because subprocess tests give no mutation
+testing uses the optional `ai-loop-kit-extras` plugin. Install it with
+`/plugin install ai-loop-kit-extras@ai-loop-kit`, then run
+`/ai-loop-kit-extras:setup`. Set `AI_LOOP_KIT_EXTRAS_ROOT` to the installed
+extra's path in the shell that starts each gate or run command. A source
+checkout uses its sibling `extras/` directory unless that variable is set.
+The existing `quality/mutmut-check.py` and `quality/mutmut-changed.py` command
+paths delegate to the extra. Ready and claim refuse a requested mutation
+helper when the extra is absent, before any worktree or session starts.
+They also check frozen Quality commands, so uninstalling the extra after
+ready cannot weaken a contract. Walk-away checks this before doctor can
+start a sandbox probe session. Other previews stay in the default plugin.
+Mutation testing with mutmut 3.8 or later is **experimental**: it needs
+configured source paths and in-process tests, because subprocess tests give no mutation
 or coverage evidence [mutmut]. Doctor runs Test, then each Quality command, on
 a fresh copy of `main` before setup accepts it.
 
@@ -808,13 +819,13 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The kit has 6,007 Python lines in `kit/`, including previews and quality
-scripts. The default plugin installs that whole directory, so its Python
-size is also 6,007 lines. It uses the Python standard library only and
-supports Python 3.9 or later.
+The default plugin has 5,878 Python lines in `kit/`, including the remaining
+previews and quality entry points. The optional mutation plugin has 223 lines
+in `extras/`. Together they have 6,101 Python lines. The kit uses the Python
+standard library only and supports Python 3.9 or later.
 
-`tests/test_size_inventory.py` counts every Python file under `kit/`,
-including any optional modules. It fails above 800 lines per file or 6,007
+`tests/test_size_inventory.py` counts every Python file under `kit/` and
+`extras/`. It fails above 800 lines per file or 6,101
 lines in total. The suite reports the total and the default-install size
 separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.

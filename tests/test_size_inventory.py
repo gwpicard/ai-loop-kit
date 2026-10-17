@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TOTAL_BUDGET = 6007
+TOTAL_BUDGET = 6101
 
 
 def python_lines(root):
@@ -26,7 +26,8 @@ def check_sizes(counts, total_budget=TOTAL_BUDGET):
 
 class SizeInventoryTest(unittest.TestCase):
     def test_kit_python_budgets_and_install_size(self):
-        counts = python_lines(ROOT / "kit")
+        counts = {f"{owner}/{name}": lines for owner in ("kit", "extras")
+                  for name, lines in python_lines(ROOT / owner).items()}
         marketplace = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
         plugin = next(p for p in marketplace["plugins"] if p["name"] == "ai-loop-kit")
         installed = python_lines(ROOT / plugin["source"])
@@ -50,10 +51,10 @@ class SizeInventoryTest(unittest.TestCase):
 
     def test_total_budget_refuses_growth_across_small_files(self):
         counts = {f"scripts/part{n}.py": 750 for n in range(8)}
-        counts["quality/tail.py"] = 7
+        counts["quality/tail.py"] = TOTAL_BUDGET - 6000
         check_sizes(counts)
         counts["extras/new.py"] = 1
-        with self.assertRaisesRegex(AssertionError, "6008.*6007"):
+        with self.assertRaisesRegex(AssertionError, f"{TOTAL_BUDGET + 1}.*{TOTAL_BUDGET}"):
             check_sizes(counts)
 
 

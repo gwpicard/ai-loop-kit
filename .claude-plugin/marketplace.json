@@ -9,6 +9,11 @@
       "name": "ai-loop-kit",
       "source": "./kit",
       "description": "Shape software pieces, build them in runs and check the results."
+    },
+    {
+      "name": "ai-loop-kit-extras",
+      "source": "./extras",
+      "description": "Optional experimental mutation tools for AI Loop Kit."
     }
   ]
 }

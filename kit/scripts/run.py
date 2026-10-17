@@ -36,6 +36,7 @@ from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
                    kill_active_processes, lock_path, release_lock)
 from session import run_session
+from extras import require_extras
 
 DEFAULT_IDLE_LIMIT = 10 * 60
 
@@ -299,6 +300,7 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     issue = gh.issue(n)
     log(f"piece {n}: {issue['title']}")
     ready = last_record(gh.comments(n), "ready") or {}
+    require_extras(ready, loop_settings(root))
     services = ready.get("risks", {}).get("needs_services", [])
     if walk_away and services:
         raise Refused("walk-away is refused because the piece needs services: " +

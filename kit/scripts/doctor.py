@@ -23,6 +23,8 @@ from loopkit import (
     sh,
 )
 
+from extras import require_extras
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from proposed_quality import apply as apply_proposed_quality
 
@@ -104,6 +106,13 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
                        f"warning: old in-project worktrees can break project tests: {folders}",
                        f"The person may remove these folders after checking them: {folders}."))
 
+    try:
+        require_extras(loop_settings(root), {"quality": extra_quality or [],
+                                            "prepare": proposed_prepare or "",
+                                            "test": proposed_test or ""})
+    except Refused as error:
+        add(False, error.reason, error.next_step)
+        return checks
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
     folder = tmp / "main"
     try:

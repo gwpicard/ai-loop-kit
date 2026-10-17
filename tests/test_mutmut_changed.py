@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / "kit" / "quality" / "mutmut-changed.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "extras" / "quality" / "mutmut-changed.py"
 
 
 def load_helper():
