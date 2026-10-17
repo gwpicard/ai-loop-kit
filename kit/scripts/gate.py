@@ -66,7 +66,7 @@ for _s in ("shaping", "ready", "building", "approval"):
 
 # Moves that need a reason, because they send work back or end it.
 NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
-NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen", "stopped"}
+NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen"}
 
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
@@ -848,14 +848,14 @@ def report(gh: GitHub) -> str:
     counts: dict[str, int] = {}
     cause_counts: dict[str, int] = {}
     pieces: dict[int, list[str]] = {}
-    seen: dict[int, set[str]] = {}
+    seen: set[int] = set()
     started, first_pass = set(), set()
     for state in STATES:
         for issue in gh.issues_with_label(STATE_PREFIX + state, closed_too=True):
             n = issue["number"]
             if n in seen:
                 continue
-            seen[n] = set()
+            seen.add(n)
             issue_records = records(gh.comments(n))
             claimed = False
             first_build_outcome = False

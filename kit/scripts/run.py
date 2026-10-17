@@ -15,7 +15,6 @@ import hashlib
 import json
 import os
 import re
-import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -28,19 +27,16 @@ import agents  # noqa: E402
 import sandbox  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
-                     changed_check_settings,
                      clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
-                     records, repo_root, sh, untracked_paths)
+                     records, sh, untracked_paths)
 from run_start import cleanup_interrupted_reviews, ready_pieces  # noqa: E402
 from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,F401
-from procs import (AttemptIdle, _ACTIVE_GROUPS, _untrack_process, acquire_lock,
+from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    cache_main_ref_for_piece as _cache_main_for_piece,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
-                   kill_active_processes, lock_path, process_alive,
-                   process_group_alive, release_lock, track_process)
+                   kill_active_processes, lock_path, release_lock, track_process)
 
-ATTEMPT_TIMEOUT = 40 * 60
 DEFAULT_IDLE_LIMIT = 10 * 60
 
 

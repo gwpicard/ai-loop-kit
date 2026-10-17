@@ -48,11 +48,11 @@ class RunTest(RunFixture, unittest.TestCase):
 
     def test_claude_result_errors_are_logged(self):
         import review
-        from io import StringIO
-        output = StringIO()
-        review._write_claude_log_line(
-            output, '{"type":"result","is_error":true,"result":"rate limited"}')
-        self.assertIn("rate limited", output.getvalue())
+        status, output = pump_events(review, [
+            '{"type":"result","is_error":true,"result":"rate limited"}',
+        ], idle_seconds=5)
+        self.assertEqual(status, "")
+        self.assertIn("Claude result error: rate limited", output)
 
     def test_claude_events_reset_idle_and_logs_keep_assistant_text(self):
         import review

@@ -284,11 +284,6 @@ def _folder_activity_stamp(folder: Optional[Path]) -> float:
     return newest
 
 
-def _write_claude_log_line(out, line: str) -> None:
-    """Keep stream-json transport out of the human-readable session log."""
-    out.write(agents.log_line(line, "claude"))
-
-
 def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
                     idle_seconds: int, protected_paths: Optional[list[str]] = None,
                     walk_away: bool = False, domains: Optional[list[str]] = None,

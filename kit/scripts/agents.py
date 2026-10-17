@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 from typing import Optional, Union
 
 from loopkit import CHECK_FILES, command_env
+from risk_checks import path_mentioned
 
 KIT = Path(__file__).resolve().parent.parent
 
@@ -75,7 +75,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     if role == "builder" and contract is not None:
         contract_text = " ".join(contract.values())
         protected_paths = [path for path in (protected_paths or [])
-                           if not _mentions_path(contract_text, path)]
+                           if not path_mentioned(contract_text, path)]
     if backend == "claude":
         args = _claude_args(work, prompt, role, disallowed or [], settings_allowed,
                             walk_away, domains)
@@ -125,12 +125,6 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         env["TMPDIR"] = str(writable[0])
     return subprocess.Popen(args, cwd=working, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, env=env, start_new_session=True)
-
-
-def _mentions_path(text: str, path: str) -> bool:
-    """Match a path name on component boundaries in contract prose."""
-    return re.search(rf"(?<![A-Za-z0-9_.-]){re.escape(path.rstrip('/'))}(?![A-Za-z0-9_.-])",
-                     text) is not None
 
 
 def event_text(output: Union[str, bytes], backend: str = "codex") -> str:
