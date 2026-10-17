@@ -12,6 +12,7 @@ import os
 import re
 import signal
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -348,6 +349,16 @@ def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]
         exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
                            + "\n".join(missing) + "\n")
     return sorted(recorded)
+
+
+def run_keep(folder: Path, command: str, timeout: int,
+             protected_paths: list[str] | None = None) -> tuple[int, str]:
+    """Run Keep with its limit and report the elapsed seconds."""
+    started = time.monotonic()
+    code, output = run_judge(folder, command, timeout=timeout,
+                             protected_paths=protected_paths)
+    elapsed = time.monotonic() - started
+    return code, f"{output.rstrip()}\nKeep took: {elapsed:.3f} seconds".lstrip()
 
 
 def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT,

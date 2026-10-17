@@ -18,7 +18,6 @@ record on the issue for every move it makes.
 """
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import hashlib
 import json
@@ -26,22 +25,22 @@ import re
 import shutil
 import sys
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
-                     clean_quality_outputs, keep_limit_seconds, loop_settings,
+                     keep_limit_seconds, loop_settings,
                      exit_attempt, exit_ready, parse_spec, prepare,
-                     record_quality_outputs, record_text, records, repo_root, rev,
-                     run_judge, sh, skipped_tests, spec_hash)
-from proposed_quality import apply as apply_proposed_quality  # noqa: E402
+                     record_text, records, repo_root, rev,
+                     run_judge, run_keep, sh, skipped_tests, spec_hash)
+from doctor import doctor as doctor
+from doctor import quality_on_fresh_main
+from gate_cli import build_parser as build_parser
 import critic  # noqa: E402
 import measure  # noqa: E402
 from testlint import lint_files  # noqa: E402
@@ -99,18 +98,6 @@ def check_times(output: str) -> list[float]:
     return [float(value) for value in re.findall(
         r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
 
-
-def run_keep(folder: Path, command: str, timeout: int,
-             protected_paths: Optional[list[str]] = None) -> tuple[int, str]:
-    """Run Keep with its limit and report the elapsed seconds."""
-    started = time.monotonic()
-    code, output = run_judge(folder, command, timeout=timeout,
-                             protected_paths=protected_paths)
-    elapsed = time.monotonic() - started
-    return code, f"{output.rstrip()}\nKeep took: {elapsed:.3f} seconds".lstrip()
-
-
-# ---------------------------------------------------------------- checks
 
 def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     """The ready gate. Returns the record to write. Refuses on any gap."""
@@ -646,42 +633,6 @@ def init(gh: GitHub, root: Path) -> None:
     ignore_loop_folder(root)
 
 
-def quality_on_fresh_main(root: Path, main: str, command: str,
-                          test_command: str = "",
-                          protected_paths: Optional[list[str]] = None,
-                          prepare_command: Optional[str] = None,
-                          proposed_quality: str = "") -> tuple[bool, str]:
-    """Run Test, then one Quality command in its own prepared copy of main."""
-    tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
-    folder = tmp / "main"
-    try:
-        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        if proposed_quality:
-            apply_proposed_quality(folder / "AGENTS.md", proposed_quality,
-                                   prepare_command, test_command)
-            settings = loop_settings(folder)
-            command = settings.get("quality", [command])[-1]
-            test_command = settings.get("test", "")
-        ok, output = prepare(folder, command=prepare_command,
-                             protected_paths=protected_paths)
-        if not ok:
-            return False, "Prepare failed:\n" + output.strip()[-800:]
-        if test_command:
-            code, test_output = run_judge(folder, test_command,
-                                          protected_paths=protected_paths)
-            if code:
-                return False, "Test command failed before Quality:\n" + test_output.strip()[-800:]
-        code, output = run_judge(folder, command, protected_paths=protected_paths)
-        clean_quality_outputs(folder, record_quality_outputs(folder))
-        return code == 0, output
-    finally:
-        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
-        try:
-            tmp.rmdir()
-        except OSError:
-            pass
-
-
 # Files that tools make while tests run. A run must never commit them.
 GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/",
              ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage",
@@ -715,117 +666,6 @@ def ignore_loop_folder(root: Path) -> None:
     if missing:
         exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n")
                            + "\n".join(missing) + "\n")
-
-
-def doctor(gh: GitHub, root: Path, extra_quality: Optional[list[str]] = None,
-           proposed_prepare: Optional[str] = None,
-           proposed_test: Optional[str] = None,
-           walk_away: bool = False,
-           agent: Optional[str] = None) -> list[tuple[bool, str, str]]:
-    """Setup's checks, in code. Each is (passed, what, next step)."""
-    checks: list[tuple[bool, str, str]] = []
-
-    def add(ok: bool, what: str, fix: str) -> bool:
-        checks.append((ok, what, "" if ok else fix))
-        return ok
-
-    origin = sh(["git", "remote", "get-url", "origin"], root, check=False).stdout.strip()
-    if not add(bool(origin), "the project has an origin",
-               "create the GitHub repository and add it as origin"):
-        return checks
-    try:
-        signed_in = gh.signed_in()
-    except RuntimeError as error:
-        add(False, str(error), "run: gh auth login")
-        return checks
-    if not add(signed_in, "gh is signed in", "run: gh auth login"):
-        return checks
-    try:
-        main = main_ref(root)
-        add(main == "origin/main", "main has a commit on origin", "push a first commit to main")
-    except Refused as r:
-        add(False, "main has a commit on origin", r.next_step)
-        return checks
-    protection = gh.main_protection() if hasattr(gh, "main_protection") else "unknown"
-    checks.append((True, f"main branch protection: {protection}", ""))
-    have = set(gh.labels())
-    add(all(STATE_PREFIX + s in have for s in STATES), "the state labels exist", "run: gate.py init")
-
-    old_worktrees = root / ".loop" / "worktrees"
-    if old_worktrees.is_dir() and any(old_worktrees.iterdir()):
-        folders = ", ".join(
-            (child.relative_to(root).as_posix() for child in sorted(old_worktrees.iterdir())))
-        checks.append((True, f"warning: old in-project worktrees can break project tests: {folders}",
-                       f"The person may remove these folders after checking them: {folders}."))
-
-    tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
-    folder = tmp / "main"
-    try:
-        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        settings = loop_settings(folder)
-        try:
-            keep_timeout = keep_limit_seconds(settings)
-        except Refused as refusal:
-            add(False, "AGENTS.md has a valid Keep limit", refusal.next_step)
-            return checks
-        if not add("test" in settings, "AGENTS.md on main names the Test command",
-                   "merge setup's AGENTS.md section, with a 'Test command:' line"):
-            return checks
-        if "prepare" in settings:
-            ok, output = prepare(folder)
-            if not add(ok, f"Prepare passes on a fresh copy of main ({settings['prepare']})",
-                       "fix the Prepare command:\n" + output.strip()[-800:]):
-                return checks
-        keep_command = settings.get("keep", settings["test"])
-        if keep_command == settings["test"]:
-            code, output = run_keep(folder, keep_command, timeout=keep_timeout)
-            check_name = f"the tests pass on a fresh copy of main ({settings['test']})"
-        else:
-            code, output = run_judge(folder, settings["test"])
-            add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
-                "fix the Test command or the environment, or add a Prepare command:\n"
-                + output.strip()[-800:])
-            code, output = run_keep(folder, keep_command, timeout=keep_timeout)
-            check_name = f"Keep passes on a fresh copy of main ({keep_command})"
-        duration = next((line for line in output.splitlines()
-                         if line.startswith("Keep took: ")), "")
-        if duration:
-            check_name += f" ({duration.removeprefix('Keep took: ')})"
-        if code == 124:
-            fix = ("increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
-                   + output.strip()[-800:])
-        else:
-            fix = ("fix the Keep command or the environment, or add a Prepare command:\n"
-                   + output.strip()[-800:])
-        add(code == 0, check_name, fix)
-        for command in settings.get("quality", []):
-            qok, qoutput = quality_on_fresh_main(
-                root, main, command, settings["test"],
-                prepare_command=settings.get("prepare", ""))
-            if "no changed Python functions found" in qoutput:
-                add(True, f"Quality mutation check could not be exercised on main ({command})", "")
-            else:
-                add(qok, f"Quality command passes on a fresh copy of main ({command})",
-                    f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
-        for command in extra_quality or []:
-            qprepare = (proposed_prepare if proposed_prepare is not None
-                        else settings.get("prepare", ""))
-            qtest = proposed_test if proposed_test is not None else settings["test"]
-            qok, qoutput = quality_on_fresh_main(
-                root, main, command, qtest, prepare_command=qprepare,
-                proposed_quality=command)
-            if "no changed Python functions found" in qoutput:
-                add(True, f"Quality mutation check could not be exercised on main ({command})", "")
-            else:
-                add(qok, f"Proposed Quality command passes on a fresh copy of main ({command})",
-                    f"Quality check failed: {command}\n{qoutput.strip()[-800:]}")
-    finally:
-        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
-        shutil.rmtree(tmp, ignore_errors=True)
-    if walk_away and all(ok for ok, _, _ in checks):
-        import walkaway
-        checks.extend(walkaway.preflight(gh, root, baseline_checked=True, agent=agent))
-    return checks
 
 
 def status(gh: GitHub, root: Optional[Path] = None) -> str:
@@ -911,84 +751,9 @@ def request_stop(root: Path) -> str:
     return "the run will stop after the current attempt"
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="gate.py", description=__doc__.split("\n\n")[0])
-    sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("init")
-    c = sub.add_parser("capture")
-    c.add_argument("--title", required=True)
-    c.add_argument("--body-file", required=True)
-    ck = sub.add_parser("check")
-    ck.add_argument("n", type=int)
-    m = sub.add_parser("move")
-    m.add_argument("n", type=int)
-    m.add_argument("to", choices=STATES)
-    m.add_argument("--reason", default="")
-    m.add_argument("--type", dest="reason_type", choices=REASON_TYPES, default="")
-    s = sub.add_parser("spec")
-    s.add_argument("n", type=int)
-    s.add_argument("--body-file", required=True)
-    sub.add_parser("sync")
-    sub.add_parser("status")
-    d = sub.add_parser("doctor")
-    d.add_argument("--quality-command", action="append", default=[],
-                   help="also dry-run this proposed Quality command on fresh main")
-    d.add_argument("--prepare-command",
-                   help="use this proposed Prepare command for doctor dry-runs")
-    d.add_argument("--test-command",
-                   help="use this proposed Test command for doctor dry-runs")
-    d.add_argument("--walk-away", action="store_true",
-                   help="also check the active sandbox and unattended-run prerequisites")
-    sub.add_parser("report")
-    sub.add_parser("stop")
-    return p
-
-
 def main(argv: Optional[list[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
-
-    root = repo_root(Path.cwd())
-    gh = GitHub(root)
-    try:
-        if args.cmd == "init":
-            init(gh, root)
-            print("ok: labels made, .loop/ ignored locally")
-        elif args.cmd == "capture":
-            n = capture(gh, args.title, Path(args.body_file).read_text())
-            print(f"ok: captured piece {n} in shaping")
-        elif args.cmd == "check":
-            issue = gh.issue(args.n)
-            rec = check_ready(gh, root, issue)
-            print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
-        elif args.cmd == "move":
-            print("ok: " + move(gh, root, args.n, args.to, args.reason,
-                                  args.reason_type))
-        elif args.cmd == "spec":
-            replace_spec(gh, args.n, Path(args.body_file).read_text())
-            print(f"ok: piece {args.n} spec replaced")
-        elif args.cmd == "sync":
-            print("\n".join(sync(gh, root)) or "ok: nothing merged since the last sync")
-        elif args.cmd == "status":
-            print(status(gh, root))
-        elif args.cmd == "doctor":
-            checks = doctor(gh, root, args.quality_command,
-                            args.prepare_command, args.test_command, args.walk_away)
-            for ok, what, fix in checks:
-                print(f"{'ok  ' if ok else 'FAIL'} {what}")
-                if fix:
-                    print(f"     next: {fix}")
-            if not all(ok for ok, _, _ in checks):
-                return 2
-        elif args.cmd == "report":
-            print(report(gh))
-        elif args.cmd == "stop":
-            print("ok: " + request_stop(root))
-    except Refused as r:
-        print(f"refused: {r.reason}", file=sys.stderr)
-        if r.next_step:
-            print(f"next: {r.next_step}", file=sys.stderr)
-        return 2
-    return 0
+    from gate_cli import main as cli_main
+    return cli_main(argv, api=sys.modules[__name__])
 
 
 if __name__ == "__main__":

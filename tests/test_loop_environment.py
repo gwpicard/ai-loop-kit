@@ -10,7 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import doctor
 import gate
+import loopkit
 from loop_fixtures import GateFixture
 from loopkit import Refused, command_env, run_judge
 
@@ -144,7 +146,8 @@ class GateTest(GateFixture, unittest.TestCase):
                 return 124, "the judge ran past 60 seconds"
             return 0, ""
 
-        with patch.object(gate, "run_judge", side_effect=run_slow_keep):
+        with patch.object(loopkit, "run_judge", side_effect=run_slow_keep), \
+                patch.object(doctor, "run_judge", side_effect=run_slow_keep):
             checks = gate.doctor(self.p.gh, self.p.root)
         failed_keep = next((check for check in checks if not check[0] and "Keep" in check[1]), None)
         self.assertIsNotNone(failed_keep, checks)
@@ -192,7 +195,7 @@ class GateTest(GateFixture, unittest.TestCase):
         gate.init(self.p.gh, self.p.root)
         self.p.loop_section("true", prepare="touch old-prepare")
         proposed_quality = "printf proposed"
-        with patch.object(gate, "quality_on_fresh_main", return_value=(True, "")) as probe:
+        with patch.object(doctor, "quality_on_fresh_main", return_value=(True, "")) as probe:
             gate.doctor(self.p.gh, self.p.root, extra_quality=[proposed_quality],
                         proposed_prepare="touch new-prepare", proposed_test="test -f new-test")
         probe.assert_called_once()
@@ -219,8 +222,8 @@ class GateTest(GateFixture, unittest.TestCase):
         self.assertEqual(output, "FAIL a.js")
 
     def test_keep_output_records_elapsed_seconds(self):
-        with patch.object(gate.time, "monotonic", side_effect=[10.0, 12.5]), \
-                patch.object(gate, "run_judge", return_value=(0, "passed")):
+        with patch.object(loopkit.time, "monotonic", side_effect=[10.0, 12.5]), \
+                patch.object(loopkit, "run_judge", return_value=(0, "passed")):
             code, output = gate.run_keep(self.p.root, "true", timeout=1200)
         self.assertEqual(code, 0)
         self.assertEqual(output, "passed\nKeep took: 2.500 seconds")
