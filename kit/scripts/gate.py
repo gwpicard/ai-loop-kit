@@ -25,6 +25,7 @@ import re
 import shutil
 import sys
 import tempfile
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -47,6 +48,7 @@ from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 from frozen import frozen_file_reason
+from run_start import release_worktree, remove_worktree  # isort: skip
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -157,8 +159,9 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         if spec.kind in ("goal", "gauntlet"):
             kind_record.update(check_records[0])
     finally:
-        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
-        shutil.rmtree(tmp, ignore_errors=True)
+        remove_worktree(root, folder)
+        with suppress(OSError):
+            tmp.rmdir()
 
     # exit_ready has checked each type on main, including assertion failures for tests.
     if spec.stays:
@@ -605,6 +608,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             gh.close(n, "completed")
         elif to == "dropped":
             gh.close(n, "not planned")
+    if to in ("shaping", "approval", "done", "dropped"):
+        release_worktree(root, n)
     return note
 
 

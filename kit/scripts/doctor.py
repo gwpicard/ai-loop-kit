@@ -1,7 +1,7 @@
 """Setup diagnostics for a project's loop settings and environment."""
 from __future__ import annotations
 
-import shutil
+import os
 import sys
 import tempfile
 from contextlib import suppress
@@ -22,6 +22,7 @@ from loopkit import (
     run_keep,
     sh,
 )
+from run_start import remove_worktree, worktree_reason, worktrees
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from proposed_quality import apply as apply_proposed_quality
@@ -56,7 +57,7 @@ def quality_on_fresh_main(root: Path, main: str, command: str,
         clean_quality_outputs(folder, record_quality_outputs(folder))
         return code == 0, output
     finally:
-        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
+        remove_worktree(root, folder)
         with suppress(OSError):
             tmp.rmdir()
 
@@ -97,12 +98,24 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         "run: gate.py init")
 
     old_worktrees = root / ".loop" / "worktrees"
-    if old_worktrees.is_dir() and any(old_worktrees.iterdir()):
-        folders = ", ".join(
-            child.relative_to(root).as_posix() for child in sorted(old_worktrees.iterdir()))
-        checks.append((True,
-                       f"warning: old in-project worktrees can break project tests: {folders}",
-                       f"The person may remove these folders after checking them: {folders}."))
+    leftovers = {Path(entry["worktree"]) for entry in worktrees(root)[1:]}
+    if old_worktrees.is_dir():
+        leftovers.update(old_worktrees.iterdir())
+    for leftover in sorted(leftovers):
+        if leftover.resolve() == root.resolve():
+            continue
+        try:
+            size = sum((Path(home) / name).lstat().st_size
+                       for home, _, files in os.walk(leftover) for name in files)
+            reason = worktree_reason(root, leftover)
+            verdict = f"no ({reason})" if reason else "yes"
+            detail = f"{size} bytes; safe to remove: {verdict}"
+        except OSError as error:
+            detail = f"size unavailable; safe to remove: no ({error})"
+        kind = ("old in-project worktrees" if leftover.parent == old_worktrees
+                else "leftover worktree")
+        checks.append((True, f"warning: {kind}: {leftover} ({detail})",
+                       f"The person may remove this folder only after checking it: {leftover}."))
 
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-"))
     folder = tmp / "main"
@@ -165,8 +178,9 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         for command in extra_quality or []:
             probe(command, proposed=True)
     finally:
-        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
-        shutil.rmtree(tmp, ignore_errors=True)
+        remove_worktree(root, folder)
+        with suppress(OSError):
+            tmp.rmdir()
     if walk_away and all(ok for ok, _, _ in checks):
         import walkaway
         checks.extend(walkaway.preflight(gh, root, baseline_checked=True, agent=agent))

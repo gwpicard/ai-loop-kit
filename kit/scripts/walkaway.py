@@ -18,6 +18,8 @@ import sandbox
 from loopkit import (STATE_PREFIX, loop_settings, main_ref, prepare, run_judge,
                      secret_env_names, sh)
 
+from run_start import remove_worktree
+
 MIN_FREE_BYTES = 10 * 1024 ** 3
 STALE_AFTER_SECONDS = 10 * 60
 
@@ -114,7 +116,7 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
                 if test_code:
                     checks[-1] = (False, checks[-1][1] + ": " + test_output[-300:].strip(), checks[-1][2])
             finally:
-                sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
+                remove_worktree(root, folder)
         except Exception as error:
             checks.append(_check(False, f"main baseline could not be checked: {str(error)[:200]}",
                                  "run gate.py doctor and resolve its failures"))

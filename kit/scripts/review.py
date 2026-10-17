@@ -15,6 +15,7 @@ from loopkit import (CHECK_FILES, Refused, prepare,
 from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
 from session import run_session
+from run_start import cleanup_interrupted_reviews
 from spec import _section
 
 KIT = Path(__file__).resolve().parent.parent
@@ -195,16 +196,7 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
 
 def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
     prefixes = (f"review/standards-{n}-{k}-", f"review/contract-{n}-{k}-")
-    output = sh(["git", "worktree", "list", "--porcelain"], root).stdout.splitlines()
-    path = ""
-    for line in output:
-        if line.startswith("worktree "):
-            path = line[9:]
-        elif line.startswith("branch refs/heads/"):
-            branch = line[len("branch refs/heads/"):]
-            if branch.startswith(prefixes):
-                sh(["git", "worktree", "remove", "--force", path], root, check=False)
-                sh(["git", "branch", "-D", branch], root, check=False)
+    cleanup_interrupted_reviews(root, prefixes)
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
