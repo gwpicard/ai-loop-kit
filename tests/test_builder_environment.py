@@ -19,6 +19,89 @@ from loopkit import records
 
 
 class BuilderEnvironmentTest(unittest.TestCase):
+    def test_successful_batch_with_shell_refusal_hands_back_without_judging(self):
+        run_fixtures.RunFixture.setUp(self)
+        output = self._shell_refusal_output(1, 62)
+
+        def builder(folder, prompt, files, logfile, *args, **kwargs):
+            (folder / ".loop").mkdir(exist_ok=True)
+            (folder / ".loop" / "outcome").write_text(
+                "environment\nThe shell could not create a temporary file.\n")
+            (folder / "guide.md").write_text("Unfinished guide.\n")
+            logfile.with_suffix(".jsonl").write_text(json.dumps({
+                "type": "item.completed", "item": {
+                    "type": "command_execution", "exit_code": 0,
+                    "aggregated_output": output}}) + "\n")
+            return ""
+
+        with patch.object(run, "build_once", side_effect=builder) as build, \
+                patch("gate.judge") as judge, \
+                patch.object(run, "review_piece") as review, \
+                patch.object(run, "open_pull_request") as pull_request, \
+                patch.object(run, "commit_leftovers", wraps=run.commit_leftovers) as commit:
+            n, result = run_fixtures.RunFixture.build(self, "good", attempts=3)
+        self.assertEqual(build.call_count, 1)
+        handback = next(r for r in records(self.p.gh.comments(n))
+                        if r.get("move") == "give-back")
+        self.assertEqual(handback["type"], "environment")
+        self.assertEqual(handback["attempts"], 1)
+        self.assertIn(output.splitlines()[0], handback["reason"])
+        self.assertNotIn("... ok", handback["reason"])
+        self.assertIn("environment", result)
+        judge.assert_not_called()
+        review.assert_not_called()
+        pull_request.assert_not_called()
+        commit.assert_not_called()
+
+    @staticmethod
+    def _shell_refusal_output(*line_numbers):
+        return "".join(
+            f"zsh:{number}: can't create temp file for here document: "
+            "operation not permitted\n" for number in line_numbers
+        ) + ("test_add (tests.test_calc.CalcTest.test_add) ... ok\n"
+             "test_sum_range (tests.test_calc.CalcTest.test_sum_range) ... ok\n"
+             "test_sum_range_rejects_non_integer_bounds "
+             "(tests.test_calc.CalcTest.test_sum_range_rejects_non_integer_bounds) ... ok\n"
+             "test_subtract_numbers "
+             "(tests.test_mutation_inprocess.SubtractAdapterTest.test_subtract_numbers) ... ok\n"
+             "test_zero (tests.test_mutation_inprocess.SubtractAdapterTest.test_zero) ... ok\n"
+             "\n----------------------------------------------------------------------\n"
+             "Ran 5 tests in 0.000s\n\nOK\n")
+
+    def test_successful_command_evidence_keeps_only_zsh_refusal_lines(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            logfile = Path(temporary) / "builder.log"
+            for numbers in [(1, 62), (2, 51)]:
+                with self.subTest(numbers=numbers):
+                    output = self._shell_refusal_output(*numbers)
+                    logfile.with_suffix(".jsonl").write_text(json.dumps({
+                        "type": "item.completed", "item": {
+                            "type": "command_execution", "exit_code": 0,
+                            "aggregated_output": output}}))
+                    self.assertEqual(agents.environment_evidence(logfile),
+                                     "Observed tool failure: " +
+                                     "\n".join(output.splitlines()[:2]))
+
+    def test_successful_output_and_agent_prose_are_not_shell_refusal_evidence(self):
+        denial = self._shell_refusal_output(1).splitlines()[0]
+        cases = [
+            ("item.completed", "agent_message", denial),
+            ("item.completed", "command_execution", "Operation not permitted"),
+            ("item.completed", "command_execution", "Ran 5 tests in 0.000s\n\nOK\n"),
+            ("item.completed", "command_execution", "The shell reported " + denial),
+            ("item.completed", "command_execution", denial + " but continued"),
+            ("item.started", "command_execution", denial),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            logfile = Path(temporary) / "builder.log"
+            for event_type, item_type, output in cases:
+                with self.subTest(event=event_type, item=item_type, output=output):
+                    logfile.with_suffix(".jsonl").write_text(json.dumps({
+                        "type": event_type, "item": {
+                            "type": item_type, "exit_code": 0,
+                            "text": output, "aggregated_output": output}}))
+                    self.assertEqual(agents.environment_evidence(logfile), "")
+
     def test_codex_leaves_staging_to_runner_and_runner_excludes_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary).resolve() / "repo"

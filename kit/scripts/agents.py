@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional, Union
@@ -179,11 +180,11 @@ def log_line(line: str, backend: str) -> str:
 
 
 def environment_evidence(logfile: Path) -> str:
-    """Read observed environment errors from failed tools, never agent prose."""
+    """Read observed tool failures, including shell refusals in successful batches."""
     events = logfile.with_suffix(".jsonl")
     if not events.is_file():
         return ""
-    failures = []
+    outputs = []
     for line in events.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -192,21 +193,20 @@ def environment_evidence(logfile: Path) -> str:
         if not isinstance(event, dict):
             continue
         item = event.get("item", {})
-        outputs = []
-        if event.get("type") == "item.completed" and isinstance(item, dict) and \
-                item.get("type") == "command_execution" and \
-                isinstance(item.get("exit_code"), int) and item["exit_code"] != 0:
-            outputs.append(str(item.get("aggregated_output", "")))
+        if isinstance(item, dict) and item.get("type") == "command_execution" and \
+                event.get("type") == "item.completed" and isinstance(item.get("exit_code"), int):
+            output = str(item.get("aggregated_output", ""))
+            outputs.extend(text for text in output.splitlines() if item["exit_code"] != 0 or
+                           re.fullmatch(r"zsh:[0-9]+: can't create temp file for here document: "
+                                        r"operation not permitted", text))
         message = event.get("message", {})
         if event.get("type") == "user" and isinstance(message, dict):
             for block in message.get("content", []):
                 if isinstance(block, dict) and block.get("type") == "tool_result" and \
                         block.get("is_error"):
                     content = block.get("content", "")
-                    if isinstance(content, list):
-                        content = "\n".join(str(part.get("text", "")) for part in content
-                                            if isinstance(part, dict))
-                    outputs.append(str(content))
-        failures.extend(text.strip() for output in outputs for text in output.splitlines()
-                        if text.strip())
+                    outputs.append("\n".join(str(part.get("text", "")) for part in content
+                                             if isinstance(part, dict))
+                                   if isinstance(content, list) else str(content))
+    failures = [text.strip() for output in outputs for text in output.splitlines() if text.strip()]
     return ("Observed tool failure: " + "\n".join(failures[-3:]))[:500] if failures else ""
