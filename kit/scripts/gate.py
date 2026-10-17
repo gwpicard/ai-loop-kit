@@ -181,7 +181,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         if untested:
             raise Refused(f"no judge test names {', '.join(untested)}",
                           "give every (stays) item a test with its ID in the name")
-    agent = loop_settings(root).get("agent", "claude")
+    agent = settings.get("agent", "claude")
     if agent not in {"claude", "codex"}:
         raise Refused(f"Agent must be claude or codex, not {agent!r}",
                       "set `Agent: claude` or `Agent: codex` in the loop section of AGENTS.md")
@@ -193,19 +193,19 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "keep_limit": settings.get("keep limit", "15"),
             "check_seconds": check_times(keep_output + "\n" + output),
             **kind_record,
-            "test": loop_settings(root).get("test", ""),
-            "prepare": loop_settings(root).get("prepare", ""),
-            "quality": loop_settings(root).get("quality", []),
-            "standards": loop_settings(root).get("standards", ""),
-            "idle_limit": loop_settings(root).get("idle limit", "10"),
-            "waiting_limit": loop_settings(root).get("waiting limit", "3"),
+            "test": settings.get("test", ""),
+            "prepare": settings.get("prepare", ""),
+            "quality": settings.get("quality", []),
+            "standards": settings.get("standards", ""),
+            "idle_limit": settings.get("idle limit", "10"),
+            "waiting_limit": settings.get("waiting limit", "3"),
             "agent": agent,
             "stays": list(spec.stays),
             "research": list(spec.research),
             "risks": {key: list(value) for key, value in spec.risks.items()},
             "shared_conflicts": shared_conflicts,
             "settings": spec.settings,
-            "protected_paths": loop_settings(root).get("protected paths", []),
+            "protected_paths": settings.get("protected paths", []),
             "large_files": list(spec.large_files),
             "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
