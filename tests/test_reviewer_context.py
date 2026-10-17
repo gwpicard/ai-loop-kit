@@ -94,6 +94,36 @@ class ReviewerContextTest(RunFixture, unittest.TestCase):
         self.assertNotIn("Standards findings:", body)
         self.assertNotIn("## Contract review findings", body)
 
+    def test_pattern_matched_settings_are_frozen_baseline_conflicts(self):
+        import gate
+        from review import frozen_baseline, parse_contract_findings
+
+        paths = ("vitest.config.ts", "web/vitest.config.js", ".eslintrc.json",
+                 "web/.eslintrc.cjs", ".github/workflows/check.yml")
+        for path in paths:
+            target = self.p.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("frozen baseline setting\n")
+        git(self.p.root, "add", ".")
+        git(self.p.root, "commit", "--quiet", "-m", "Add baseline settings")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        (self.p.root / paths[0]).write_text("unapproved working copy\n")
+        (self.p.root / "jest.config.js").write_text("not in the ready commit\n")
+        baseline = frozen_baseline(self.p.root, ready)
+        self.assertNotIn("jest.config.js:1", baseline)
+        diff = "+++ b/habits.py\n@@ -0,0 +1 @@\n+x\n"
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertEqual(baseline.get(f"{path}:1"), "frozen baseline setting")
+                finding = {"citation": "D1", "hunk": "habits.py:1", "finding": "conflict",
+                           "baseline_conflict": f"{path}:1"}
+                output = "<verdict>" + json.dumps({"findings": [finding]}) + "</verdict>"
+                parsed = parse_contract_findings(output, SPEC, diff, baseline)
+                self.assertEqual(len(parsed), 1)
+                self.assertTrue(parsed[0].startswith("Frozen baseline conflict ("))
+
     def test_uncited_baseline_claim_stays_a_contract_finding(self):
         from review import parse_contract_findings
         finding = {"citation": "D1", "hunk": "habits.py:1", "finding": "missing",

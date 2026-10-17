@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Optional
 
@@ -158,15 +159,15 @@ def _finding_text(finding: dict, text: str, baseline: dict[str, str] | None) -> 
 
 def frozen_baseline(folder: Path, ready: dict) -> dict[str, str]:
     """Read numbered baseline lines from the commit approved at ready."""
-    paths = list(dict.fromkeys([*CHECK_FILES, ready.get("standards", ""),
-                               *ready.get("bar_files", ready.get("files", []))]))
-    lines = {}
-    for path in filter(None, paths):
-        result = sh(["git", "show", f"{ready['commit']}:{path}"], folder, check=False)
-        if result.returncode == 0:
-            lines.update((f"{path}:{i}", line) for i, line in
-                         enumerate(result.stdout.splitlines(), 1) if line.strip())
-    return lines
+    patterns = [*CHECK_FILES, ready.get("standards", ""),
+                *ready.get("bar_files", ready.get("files", []))]
+    paths = sh(["git", "ls-tree", "-rz", "--name-only", ready["commit"]], folder).stdout.split("\0")
+    return {f"{path}:{i}": line
+            for path in paths if path and any(
+                fnmatch(path if "/" in p else Path(path).name, p) for p in patterns)
+            for i, line in enumerate(
+                sh(["git", "show", f"{ready['commit']}:{path}"], folder).stdout.splitlines(), 1)
+            if line.strip()}
 
 
 def _review_prompt(name: str, values: dict[str, str]) -> str:
