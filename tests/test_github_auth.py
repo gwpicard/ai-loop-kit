@@ -55,6 +55,6 @@ class GitHubAuthTest(unittest.TestCase):
     def failed_doctor(self, message):
         origin = subprocess.CompletedProcess([], 0, "git@github.com:example/project.git\n")
         failure = subprocess.CompletedProcess([], 1, "", message)
-        with patch("gate.sh", return_value=origin), \
+        with patch("doctor.sh", return_value=origin), \
                 patch("loopkit.subprocess.run", return_value=failure):
             return gate.doctor(GitHub(Path.cwd()), Path.cwd())

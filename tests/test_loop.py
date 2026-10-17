@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import gate
+import loopkit
 import run
 from loop_fixtures import GateFixture
 from loopkit import Refused, records
@@ -105,7 +106,8 @@ class GateTest(GateFixture, unittest.TestCase):
                 return (0, "passed") if timeout == 1200 else (124, "timed out")
             return 1, "FAIL D1 D2"
 
-        with patch.object(gate, "run_judge", side_effect=run_slow_keep):
+        with patch.object(gate, "run_judge", side_effect=run_slow_keep), \
+                patch.object(loopkit, "run_judge", side_effect=run_slow_keep):
             self.ready(n)
         self.assertIn(("slow keep", 1200), observed)
         ready = gate.last_record(self.p.gh.comments(n), "ready")
@@ -448,7 +450,8 @@ class GateTest(GateFixture, unittest.TestCase):
                 return 0, "ok test_D1_add_appends\\nok test_D2_add_skips_duplicates"
             return next(keep_runs)
 
-        with patch.object(gate, "run_judge", side_effect=run_flaky_keep):
+        with patch.object(gate, "run_judge", side_effect=run_flaky_keep), \
+                patch.object(loopkit, "run_judge", side_effect=run_flaky_keep):
             passed, output = gate.judge(self.p.root, ready)
 
         self.assertTrue(passed, output)
