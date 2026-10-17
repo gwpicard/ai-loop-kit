@@ -13,7 +13,7 @@ from helpers import Project, git
 # isort: split
 import gate
 import run
-from test_run import FAKE_CLAUDE
+from run_fixtures import FAKE_CLAUDE
 
 
 class FrozenEvidenceTest(unittest.TestCase):

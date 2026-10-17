@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from helpers import KIT, git, pump_events
 from test_audit import audit
-import test_run as run_test_fixture
+import run_fixtures as run_test_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kit" / "scripts"))
 import gate
@@ -26,10 +26,10 @@ from loopkit import main_ref, rev
 
 class ScenarioTest(unittest.TestCase):
     def setUp(self):
-        run_test_fixture.RunTest.setUp(self)
+        run_test_fixture.RunFixture.setUp(self)
 
     def build(self, mode: str, attempts: int = 2):
-        return run_test_fixture.RunTest.build(self, mode, attempts)
+        return run_test_fixture.RunFixture.build(self, mode, attempts)
 
     def test_hostile_builder_passes_judge_but_cannot_change_loop_settings(self):
         n, result = self.build("settings-cheat", attempts=1)
