@@ -167,9 +167,10 @@ def came_back_reason(comments: list[str]) -> str:
 
 
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict,
-                 walk_away: bool = False, domains: Optional[list[str]] = None) -> dict:
+                 walk_away: bool = False, domains: Optional[list[str]] = None,
+                 evidence: str = "") -> dict:
     import review
-    return review.review_piece(root, folder, n, k, issue, ready, walk_away, domains)
+    return review.review_piece(root, folder, n, k, issue, ready, walk_away, domains, evidence)
 
 
 def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
@@ -547,7 +548,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
             review = review_piece(root, folder, n, k, issue, ready, walk_away,
-                                  walkaway.approved_domains(root) if walk_away else None)
+                                  walkaway.approved_domains(root) if walk_away else None, output)
             if review["contract_findings"]:
                 reason = "; ".join(review["contract_findings"])
                 gh.comment(n, record_text({"move": "judge-gap", "type": "judge-gap",

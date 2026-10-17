@@ -23,8 +23,13 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
                       for area, files in sorted(grouped.items())) or "- No tracked files changed."
     added = sh(["git", "diff", "--no-renames", "--name-only", "--diff-filter=A", f"{main}...HEAD"],
                folder).stdout.splitlines()
-    tests = [p for p in added if "test" in p.lower() or Path(p).name.startswith("test_")
-             or p in ready.get("files", [])]
+    checks = ready.get("checks", [])
+    test_files = {p for check in checks if check["type"] == "tests" for p in check["files"]}
+    if not checks and ready.get("kind", "feature") in ("feature", "fix", "scaffold"):
+        test_files.update(ready.get("files", []))
+    support = set(ready.get("files", [])) - test_files
+    tests = [p for p in added if p not in support and ("test" in p.lower() or p in test_files)]
+    support_text = ", ".join(f"`{p}`" for p in sorted(support)) or "none"
     tests_text = ", ".join(f"`{p}`" for p in tests) if tests else "none added"
     manifests = [p for p in paths if Path(p).name in
                  {"package.json", "pyproject.toml", "requirements.txt", "requirements-dev.txt"}
@@ -72,9 +77,14 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
         ", ".join(f"`{p}`" for p in importers) if importers else "none found in this scan")
     why_path = folder / ".loop" / "why.md"
     why = why_path.read_text(errors="replace").strip() if why_path.is_file() else "Why: not supplied.\n\nWhat could go wrong: not supplied."
-    evidence = (f"- Judge, Keep and Quality output:\n\n```text\n{output.strip()[-5000:]}\n```\n"
+    shown = output.strip()
+    if len(shown) > 5000:
+        tail = shown[-5000:] if shown[-5001] == "\n" else shown[-5000:].partition("\n")[2]
+        shown = "[Evidence truncated; earlier lines omitted.]\n" + tail
+    evidence = (f"- Judge, Keep and Quality output:\n\n```text\n{shown}\n```\n"
                 f"- Bar hash: `{ready['bar']}`\n- Judged commit: `{rev(folder, 'HEAD')}`\n"
-                f"- Tests added: {tests_text}\n- New dependencies: {dependency_text}\n- {revert}")
+                f"- Tests added: {tests_text}\n- Frozen exit-support files: {support_text}\n"
+                f"- New dependencies: {dependency_text}\n- {revert}")
     facts = ("## What changed\n\n" + areas + "\n\n## Risk\n\n" + risk_text +
              "\n\n## Why and what could go wrong\n\n" + why + "\n")
     return facts, evidence
@@ -97,6 +107,9 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
     if review.get("standards_findings"):
         body += "\nStandards findings:\n" + "\n".join(
             f"- {finding}" for finding in review["standards_findings"]) + "\n"
+    if review.get("baseline_conflicts"):
+        body += "\n## Frozen baseline conflicts\n\n" + "\n".join(
+            f"- {finding}" for finding in review["baseline_conflicts"]) + "\n"
     if review.get("follow_ups"):
         body += "\n## Follow-up pieces\n\n" + "\n".join(
             f"- {finding}" for finding in review["follow_ups"]) + "\n"
