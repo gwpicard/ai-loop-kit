@@ -11,9 +11,7 @@ person to merge. Three failures send the piece back to shaping with the reason.
 """
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import re
 import sys
 import time
@@ -29,7 +27,8 @@ from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
                      last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, untracked_paths)
-from run_start import cleanup_interrupted_reviews, ready_pieces  # noqa: E402
+from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
+                       release_worktree as release_worktree, worktree_home)
 from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,F401
 from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    cache_main_ref_for_piece as _cache_main_for_piece,
@@ -214,39 +213,6 @@ def restore_bar(folder: Path, ready: dict) -> None:
         commit_leftovers(folder, 0, 0)
 
 
-def worktree_home(root: Path) -> Path:
-    """Build folders live outside the project, so its own tools (lint, test
-    discovery) never see them."""
-    base = os.environ.get("LOOP_WORKTREES") or str(
-        Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ai-loop-kit" / "worktrees")
-    key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:8]
-    return Path(base) / f"{root.name}-{key}"
-
-
-def existing_worktree(root: Path, n: int) -> Optional[Path]:
-    """Find a piece's build folder, refusing a checkout owned by someone else."""
-    path = None
-    for line in sh(["git", "worktree", "list", "--porcelain"], root).stdout.splitlines():
-        if line.startswith("worktree "):
-            path = Path(line[len("worktree "):])
-        elif line == f"branch refs/heads/{branch_name(n)}" and path:
-            owned = (worktree_home(root) / f"piece-{n}",
-                     root / ".loop" / "worktrees" / f"piece-{n}")
-            if path.resolve() not in {folder.resolve() for folder in owned}:
-                raise Refused(f"{branch_name(n)} is already checked out at {path}",
-                              "finish work there and switch that checkout to another branch")
-            return path
-    return None
-
-
-def release_worktree(root: Path, n: int) -> None:
-    """Remove a piece's build folder when the piece goes back to shaping, so
-    shaping can switch to its branch. Git refuses if the folder holds changes."""
-    folder = existing_worktree(root, n)
-    if folder:
-        sh(["git", "worktree", "remove", str(folder)], root, check=False)
-
-
 def dirty_folder_reason(folder: Path) -> str:
     dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
     if not dirty:
@@ -324,8 +290,6 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
             _hand_back(gh, root, n, reason, "environment", metrics)
         result = f"piece {n}: back to shaping, {reason}"
     state = gate.state_of(gh.issue(n))
-    if state == "shaping":
-        release_worktree(root, n)
     if state != "building":
         _run_metrics_path(root, n).unlink(missing_ok=True)
     return result

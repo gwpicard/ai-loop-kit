@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TOTAL_BUDGET = 6101
+TOTAL_BUDGET = 6211
 
 
 def python_lines(root):
@@ -51,7 +51,7 @@ class SizeInventoryTest(unittest.TestCase):
 
     def test_total_budget_refuses_growth_across_small_files(self):
         counts = {f"scripts/part{n}.py": 750 for n in range(8)}
-        counts["quality/tail.py"] = TOTAL_BUDGET - 6000
+        counts["quality/tail.py"] = TOTAL_BUDGET - sum(counts.values())
         check_sizes(counts)
         counts["extras/new.py"] = 1
         with self.assertRaisesRegex(AssertionError, f"{TOTAL_BUDGET + 1}.*{TOTAL_BUDGET}"):
