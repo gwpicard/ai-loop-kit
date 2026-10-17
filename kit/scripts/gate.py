@@ -48,7 +48,8 @@ from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 from frozen import frozen_file_reason
-from run_start import release_worktree, remove_worktree  # isort: skip
+from run_start import (capture_probe_files, release_worktree, remove_worktree,  # isort: skip
+                       restore_probe_files)
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -133,6 +134,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     # Run the judge on today's main, with only the judge files added.
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
     folder = tmp / "main"
+    before_injection = injected = {}
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         ok, poutput = (True, "") if spec.kind == "scaffold" else prepare(folder)
@@ -148,7 +150,9 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
                 raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
                               "fix main first, or correct the Keep: command")
         if bar_files:
+            before_injection = capture_probe_files(folder, bar_files)
             sh(["git", "checkout", head, "--", *bar_files], folder)
+            injected = capture_probe_files(folder, bar_files)
         lint = lint_files([folder / f for f in spec.files], folder,
                           " ".join(spec.done_when.values()))
         if lint:
@@ -159,6 +163,8 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         if spec.kind in ("goal", "gauntlet"):
             kind_record.update(check_records[0])
     finally:
+        if injected:
+            restore_probe_files(folder, before_injection, injected)
         remove_worktree(root, folder)
         with suppress(OSError):
             tmp.rmdir()

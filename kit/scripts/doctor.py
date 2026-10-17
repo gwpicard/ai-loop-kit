@@ -22,7 +22,13 @@ from loopkit import (
     run_keep,
     sh,
 )
-from run_start import remove_worktree, worktree_reason, worktrees
+from run_start import (
+    capture_probe_files,
+    remove_worktree,
+    restore_probe_files,
+    worktree_reason,
+    worktrees,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from proposed_quality import apply as apply_proposed_quality
@@ -36,11 +42,14 @@ def quality_on_fresh_main(root: Path, main: str, command: str,
     """Run Test, then one Quality command in its own prepared copy of main."""
     tmp = Path(tempfile.mkdtemp(prefix="loop-doctor-quality-"))
     folder = tmp / "main"
+    before_injection = injected = {}
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         if proposed_quality:
+            before_injection = capture_probe_files(folder, ["AGENTS.md"])
             apply_proposed_quality(folder / "AGENTS.md", proposed_quality,
                                    prepare_command, test_command)
+            injected = capture_probe_files(folder, ["AGENTS.md"])
             settings = loop_settings(folder)
             command = settings.get("quality", [command])[-1]
             test_command = settings.get("test", "")
@@ -57,6 +66,8 @@ def quality_on_fresh_main(root: Path, main: str, command: str,
         clean_quality_outputs(folder, record_quality_outputs(folder))
         return code == 0, output
     finally:
+        if injected:
+            restore_probe_files(folder, before_injection, injected)
         remove_worktree(root, folder)
         with suppress(OSError):
             tmp.rmdir()

@@ -82,6 +82,43 @@ def remove_worktree(root: Path, folder: Path, merged_into: str = "main") -> bool
     return False
 
 
+def _probe_file(path: Path) -> tuple:
+    if path.is_symlink():
+        return os.readlink(path), 0
+    if path.is_file():
+        return path.read_bytes(), path.stat().st_mode
+    return None, -1 if path.exists() else 0
+
+
+def capture_probe_files(folder: Path, names: list[str]) -> dict:
+    return {"head": rev(folder, "HEAD"),
+            "index": sh(["git", "write-tree"], folder).stdout.strip(),
+            "files": {name: _probe_file(folder / name) for name in names}}
+
+
+def restore_probe_files(folder: Path, before: dict, injected: dict) -> None:
+    """Undo only injected files whose working and staged contents still match."""
+    if rev(folder, "HEAD") != injected["head"]:
+        return
+    for name, expected in injected["files"].items():
+        path = folder / name
+        if _probe_file(path) != expected or sh(
+                ["git", "diff", "--cached", "--quiet", injected["index"], "--", name],
+                folder, check=False).returncode:
+            continue
+        if sh(["git", "diff", "--cached", "--quiet", before["index"], "--", name],
+              folder, check=False).returncode:
+            sh(["git", "restore", "--source=" + before["index"], "--staged", "--", name], folder)
+        data, mode = before["files"][name]
+        if path.is_symlink() or data is None or isinstance(data, str):
+            path.unlink(missing_ok=True)
+        if isinstance(data, str):
+            path.symlink_to(data)
+        elif data is not None:
+            path.write_bytes(data)
+            path.chmod(mode)
+
+
 def release_worktree(root: Path, n: int) -> None:
     try:
         folder = existing_worktree(root, n)

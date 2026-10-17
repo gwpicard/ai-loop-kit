@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 from helpers import Project, git
@@ -145,6 +146,70 @@ class WorktreeCleanupTest(unittest.TestCase):
             removed = run_start.remove_worktree(self.p.root, self.p.root)
         self.assertFalse(removed)
         self.assertTrue((self.p.root / "README.md").exists())
+
+    def test_successful_readiness_probes_remove_injected_judge_files(self):
+        self.p.loop_section(
+            "true", prepare="mkdir -p node_modules; touch node_modules/installed.js")
+        before = git(self.p.root, "worktree", "list", "--porcelain")
+        for _ in range(2):
+            record = gate.check_ready(self.p.gh, self.p.root, self.p.gh.issue(self.n))
+            self.assertEqual(record["move"], "ready")
+            self.assertEqual(git(self.p.root, "worktree", "list", "--porcelain"), before)
+
+    def test_successful_quality_proposal_removes_its_probe(self):
+        import doctor
+        for agents_exists in (True, False):
+            with self.subTest(agents_exists=agents_exists):
+                if not agents_exists:
+                    git(self.p.root, "rm", "AGENTS.md")
+                    git(self.p.root, "commit", "--quiet", "-m", "Remove loop settings")
+                    git(self.p.root, "push", "--quiet", "origin", "main")
+                before = git(self.p.root, "worktree", "list", "--porcelain")
+                passed, output = doctor.quality_on_fresh_main(
+                    self.p.root, "main", "true", proposed_quality="true")
+                self.assertTrue(passed, output)
+                self.assertEqual(git(self.p.root, "worktree", "list", "--porcelain"), before)
+
+    def test_readiness_probe_keeps_edits_after_injection(self):
+        original = gate.exit_ready
+        for name, staged in (("notes.txt", False), ("judge_add.py", False),
+                             ("judge_add.py", True)):
+            with self.subTest(path=name, staged=staged):
+                folders = []
+
+                def edit_after_check(folder, *args, name=name, staged=staged, folders=folders):
+                    result = original(folder, *args)
+                    path = folder / name
+                    injected = path.read_bytes() if staged else None
+                    path.write_text("later work\n")
+                    if staged:
+                        git(folder, "add", name)
+                        # Keep the injected working file while changing only its index entry.
+                        path.write_bytes(injected)
+                    folders.append(folder)
+                    return result
+
+                with patch.object(gate, "exit_ready", side_effect=edit_after_check):
+                    gate.check_ready(self.p.gh, self.p.root, self.p.gh.issue(self.n))
+                folder = folders[0]
+                self.assertTrue(folder.exists())
+                if staged:
+                    self.assertEqual(git(folder, "show", f":{name}"), "later work")
+                else:
+                    self.assertEqual((folder / name).read_text(), "later work\n")
+                self.assertIn(str(folder.resolve()),
+                              git(self.p.root, "worktree", "list", "--porcelain"))
+
+    def test_quality_probe_keeps_later_changes_to_its_settings(self):
+        import doctor
+        command = "printf 'later work\\n' >> AGENTS.md"
+        before = {entry["worktree"] for entry in run_start.worktrees(self.p.root)}
+        passed, output = doctor.quality_on_fresh_main(
+            self.p.root, "main", command, proposed_quality=command)
+        self.assertTrue(passed, output)
+        leftover = next(entry["worktree"] for entry in run_start.worktrees(self.p.root)
+                        if entry["worktree"] not in before)
+        self.assertTrue((Path(leftover) / "AGENTS.md").read_text().endswith("later work\n"))
 
     def test_probe_removal_failure_is_reported(self):
         import doctor

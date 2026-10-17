@@ -587,7 +587,9 @@ run.py
   release the build folder. Ignored artefacts such as `node_modules` do not
   prevent removal. Uncommitted work and commits not merged into `main` keep
   the folder. Review cleanup checks against the piece branch instead. Probe
-  cleanup follows the same rule. Every failed removal prints the folder and
+  cleanup first restores its injected judge files or proposed settings when
+  their working and staged contents still match the injection. It preserves
+  later edits and any other unfinished work. Every failed removal prints the folder and
   reason. Doctor lists leftover worktrees with their size in bytes and a
   safe-to-remove verdict, including folders outside the project.
 - **Stop.** `gate.py stop` writes `.loop/stop`. The run checks it between
