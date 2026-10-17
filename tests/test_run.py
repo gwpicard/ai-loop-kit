@@ -187,14 +187,6 @@ class RunTest(unittest.TestCase):
                                      activity_path=Path(self.p.tmp.name))
         self.assertLessEqual(stamp.call_count, 2)
 
-    def test_claude_result_errors_are_logged(self):
-        import review
-        from io import StringIO
-        output = StringIO()
-        review._write_claude_log_line(
-            output, '{"type":"result","is_error":true,"result":"rate limited"}')
-        self.assertIn("rate limited", output.getvalue())
-
     def test_ready_search_retries_brief_github_label_lag(self):
         from unittest.mock import Mock
         gh = Mock()

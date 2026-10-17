@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,11 +55,8 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         if settings_errors:
             checks[-1] = (False, checks[-1][1] + ": " + "; ".join(settings_errors), checks[-1][2])
 
-        config = root / "kit" / "hooks" / "hooks.json"
         guard = root / "kit" / "hooks" / "guard.py"
-        wired = config.is_file() and guard.is_file() and "guard.py" in config.read_text(errors="replace")
-        wired = wired or guard.is_file()
-        checks.append(_check(wired, "the kit guard hook is available to sessions",
+        checks.append(_check(guard.is_file(), "the kit guard hook is available to sessions",
                              "restore kit/hooks/guard.py and the run session hook"))
 
         bypass = any(os.environ.get(key) for key in
