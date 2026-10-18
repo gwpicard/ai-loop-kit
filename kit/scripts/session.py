@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 import agents
 import sandbox
-from loopkit import sh
+from loopkit import sh, untracked_paths
 from procs import _untrack_process, track_process
 
 
@@ -31,17 +31,18 @@ def _judge_start(folder: Path, data: dict) -> tuple:
         raise ValueError("judge-writer requires the piece/<n> branch")
     if sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout:
         raise ValueError("judge-writer requires a clean working tree; keep existing work")
-    return files, branch, sh(["git", "rev-parse", "HEAD"], folder).stdout.strip()
+    return (files, branch, sh(["git", "rev-parse", "HEAD"], folder).stdout.strip(),
+            untracked_paths(folder))
 
 
 def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
     """Accept only declared judge changes, then commit them on the piece branch."""
-    files, branch, base = baseline
+    files, branch, base, before = baseline
     if sh(["git", "branch", "--show-current"], folder).stdout.strip() != branch:
         raise ValueError("judge-writer changed the piece branch")
     changed = sh(["git", "diff", "--name-only", "--no-renames", "-z", base], folder).stdout
-    untracked = sh(["git", "ls-files", "--others", "--exclude-standard", "-z"], folder).stdout
-    unexpected = (set(changed.split("\0")) | set(untracked.split("\0"))) - {"", *files}
+    untracked = untracked_paths(folder) - before
+    unexpected = (set(changed.split("\0")) | untracked) - {"", *files}
     reported = verdict["judge_files"]
     if unexpected or not reported or not set(reported) <= set(files):
         raise ValueError("judge-writer wrote or reported paths outside the approved Exit Files")
@@ -51,7 +52,8 @@ def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
     sh(["git", "add", "--", *files], folder)
     if sh(["git", "diff", "--cached", "--quiet"], folder, check=False).returncode:
         sh(["git", "commit", "-m", "Write the approved judge"], folder)
-    if sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout:
+    if (sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout
+            or untracked_paths(folder) - before):
         raise ValueError("judge-writer left uncommitted work; keep it for shaping")
 
 

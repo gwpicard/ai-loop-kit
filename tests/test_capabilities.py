@@ -71,14 +71,15 @@ class CapabilityTest(unittest.TestCase):
         return path
 
     def invoke(self, folder, backend, role, data, answer, exit_code=0, tail="", tool_event=""):
-        helpers.git(folder, "init", "--quiet")
-        if role == "judge-writer" and not (folder / ".gitignore").exists():
-            (folder / ".gitignore").write_text(
-                "input.json\nfake-agent\nargs.json\nanswer.*\n")
-            helpers.git(folder, "add", ".gitignore")
-            helpers.git(folder, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+        working = folder / "project" if role == "judge-writer" else folder
+        working.mkdir(exist_ok=True)
+        helpers.git(working, "init", "--quiet")
+        if role == "judge-writer" and not (working / ".gitignore").exists():
+            (working / ".gitignore").write_text("# Project ignores\n")
+            helpers.git(working, "add", ".gitignore")
+            helpers.git(working, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
                         "commit", "--quiet", "-m", "Start")
-            helpers.git(folder, "switch", "--quiet", "-c", "piece/1")
+            helpers.git(working, "switch", "--quiet", "-c", "piece/1")
         source = folder / "input.json"
         source.write_text(json.dumps(data))
         output = folder / "answer.txt"
@@ -92,7 +93,7 @@ class CapabilityTest(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(helpers.KIT / "scripts/session.py"),
              "--role", role, "--agent", backend, "--input", str(source),
-             "--output", str(output), "--folder", str(folder)],
+             "--output", str(output), "--folder", str(working)],
             env=env, capture_output=True, text=True, timeout=10, check=False)
         return result, output
 

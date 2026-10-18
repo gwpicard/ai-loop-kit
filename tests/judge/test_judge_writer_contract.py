@@ -18,15 +18,18 @@ from loopkit import Refused, exit_ready, run_judge
 
 class JudgeWriterContractTest(unittest.TestCase):
     def setUp(self):
+        self.new_project()
+        self.judge = "tests/judge/test_habits.py"
+        self.data = {"Intent": "Add a habit", "Approach": "",
+                     "Contract": "D1: adding a habit appends it.", "Files": self.judge}
+        self.brief = (KIT / "briefs/judge-writer.md").read_text()
+
+    def new_project(self):
         self.project = Project()
         self.addCleanup(self.project.close)
         self.root = self.project.root
         self.base = self.root.parent
         git(self.root, "switch", "--quiet", "-c", "piece/1")
-        self.judge = "tests/judge/test_habits.py"
-        self.data = {"Intent": "Add a habit", "Approach": "",
-                     "Contract": "D1: adding a habit appends it.", "Files": self.judge}
-        self.brief = (KIT / "briefs/judge-writer.md").read_text()
 
     def invoke(self, backend, writes=None, files=None):
         fake = self.base / "fake-agent"
@@ -78,6 +81,25 @@ class JudgeWriterContractTest(unittest.TestCase):
                     self.assertEqual(git(self.root, "log", "--format=%s", "main..HEAD"), "")
                     (self.root / "wrong.py").unlink(missing_ok=True)
 
+    def test_D1_D3_new_ignored_judges_and_helpers_are_refused(self):
+        for backend in ("claude", "codex"):
+            for unexpected in ("tests/judge/test_wrong.py", ".loop/helper.py"):
+                with self.subTest(backend=backend, unexpected=unexpected):
+                    self.new_project()
+                    ignore = self.root / ".gitignore"
+                    ignore.write_text(ignore.read_text() + "tests/judge/test_wrong.py\n")
+                    git(self.root, "add", ".gitignore")
+                    git(self.root, "commit", "--quiet", "-m", "Ignore a judge path")
+                    before = git(self.root, "rev-parse", "HEAD")
+                    writes = {self.judge: "# approved judge\n", unexpected: "# undeclared\n"}
+                    result, output = self.invoke(backend, writes)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("outside the approved Exit Files", result.stderr)
+                    self.assertFalse(output.exists())
+                    self.assertEqual(git(self.root, "rev-parse", "HEAD"), before)
+                    self.assertEqual((self.root / unexpected).read_text(), "# undeclared\n")
+                    self.assertEqual((self.root / self.judge).read_text(), "# approved judge\n")
+
     def test_D1_paths_outside_the_project_are_refused_before_launch(self):
         outside = self.base / "outside.py"
         outside.write_text("Keep this file\n")
@@ -116,6 +138,9 @@ class JudgeWriterContractTest(unittest.TestCase):
             exit_ready(self.root, checks, {"D1": "add a habit"}, ())
 
     def test_D3_success_commits_only_judges_and_leaves_shared_tree_clean(self):
+        existing = self.root / ".loop" / "existing.py"
+        existing.parent.mkdir()
+        existing.write_text("# keep existing ignored files\n")
         for backend in ("claude", "codex"):
             with self.subTest(backend=backend):
                 result, _ = self.invoke(backend, {self.judge: f"# {backend} judge\n"})
@@ -125,6 +150,7 @@ class JudgeWriterContractTest(unittest.TestCase):
                 git(self.root, "switch", "--quiet", "main")
                 self.assertEqual(git(self.root, "status", "--porcelain"), "")
                 self.assertFalse((self.root / self.judge).exists())
+                self.assertEqual(existing.read_text(), "# keep existing ignored files\n")
                 git(self.root, "switch", "--quiet", "piece/1")
         self.assertEqual(git(self.root, "rev-list", "--count", "main..HEAD"), "2")
 
