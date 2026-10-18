@@ -24,4 +24,5 @@ jobs:
       - run: |
           git config --global user.email checks@example.invalid
           git config --global user.name checks
+      - run: python -m pip install pytest
       - run: tests/run-all.sh
