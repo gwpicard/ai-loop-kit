@@ -15,6 +15,9 @@ repositories. They answer four questions after every change to the kit:
    Install the kit from this repository with `claude --plugin-dir <kit>`.
 2. Do the steps as a person would: `/ai-loop-kit:setup`, `/ai-loop-kit:shape`,
    `/ai-loop-kit:run`, then merge on GitHub and run `gate.py sync`.
+   During the attended rehearsal, open the printed `.loop/dashboard.html`
+   path and check that both pieces update through to their final states,
+   with the last attempts and pull request links visible.
 3. Write down every time you had to step in by hand. That is a hand repair.
 4. In the test repository, run:
 
