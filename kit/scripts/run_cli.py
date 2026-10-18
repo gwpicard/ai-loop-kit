@@ -6,11 +6,12 @@ import argparse
 import json
 import signal
 import sys
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import dashboard
 import gate
 import walkaway
 from loopkit import STATE_PREFIX, GitHub, Refused, last_record, loop_settings, repo_root
@@ -82,7 +83,24 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
     results = []
     summary_results = []
     awake = walkaway.keep_awake(root) if args.walk_away else nullcontext()
-    awake.__enter__()
+    pieces = list(args.pieces)
+    page_warned = False
+
+    def render_page():
+        nonlocal page_warned
+        if not (root / ".loop" / "events.jsonl").is_file():
+            return
+        try:
+            dashboard.render(root, gh, pieces)
+        except Exception:
+            if not page_warned:
+                print("warning: could not write .loop/dashboard.html", file=sys.stderr)
+                page_warned = True
+
+    watching = ExitStack()
+    watching.enter_context(awake)
+    watching.enter_context(dashboard.watch_run_events(root, render_page))
+    print(f"Run page: {root / '.loop' / 'dashboard.html'}")
     try:
         gate.run_event(root, "run-start", reason="started")
         if args.retry_conflict is not None:
@@ -99,6 +117,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         results.extend(api.recover_building(gh, root))
         gate.sync(gh, root)
         pieces = args.pieces or api.ready_pieces(gh, api.log)
+        render_page()
         if not pieces:
             print("Nothing is ready. Shape a piece first.")
             return 0
@@ -146,7 +165,6 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             except Exception as error:
                 api.log(f"could not save or post the run summary: {error}")
         try:
-            if args.walk_away:
-                awake.__exit__(None, None, None)
+            watching.close()
         finally:
             api.release_lock(lock)

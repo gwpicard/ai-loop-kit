@@ -627,6 +627,14 @@ run.py
   copies no free text, environment values or builder output. GitHub labels
   remain the source of truth. A write failure warns once per project in the
   process and leaves the run and gate moves running.
+- **Local run page.** The run writes `.loop/dashboard.html` after each event
+  and prints its full path. The run skill reports that path. The static page
+  includes all its data and refreshes every five seconds without a server.
+  It shows each selected piece's last recorded state, attempt, UTC time and
+  pull request link, plus the run state and last event. Earlier runs are
+  excluded. A visible notice reports disagreements with the GitHub labels,
+  which remain the source of truth, or a failed GitHub check. Text is escaped.
+  A page write failure warns and leaves the run running.
 - **Idle limit.** An attempt stops after ten minutes with no output and no
   file change in the build folder (`Idle limit:` changes it). The hard limit
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
@@ -866,16 +874,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 5,813 Python lines in `kit/`, including the remaining
+The default plugin has 5,940 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,233 runtime
+critics have 420 runtime lines in `extras/`. Together they have 6,360 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,233 runtime lines in total. The suite reports the total and the
+6,360 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

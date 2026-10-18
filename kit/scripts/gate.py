@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
@@ -75,24 +76,6 @@ BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselve
 
 LABEL_COLOURS = {"shaping": "c5def5", "ready": "0e8a16", "building": "fbca04",
                  "approval": "5319e7", "done": "006b75", "dropped": "cccccc"}
-_EVENT_WARNED: set[Path] = set()
-
-
-def run_event(root: Path, event: str, piece: int | None = None,
-              state: str = "", attempt: int = 0, reason: str = "") -> None:
-    """Append public metadata only. Callers supply fixed event names and reasons."""
-    try:
-        path = root / ".loop" / "events.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as output:
-            output.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(),
-                                     "piece": piece, "event": event, "state": state,
-                                     "attempt": attempt, "reason": reason}) + "\n")
-    except OSError:
-        if root not in _EVENT_WARNED:
-            _EVENT_WARNED.add(root)
-            print("warning: could not write .loop/events.jsonl", file=sys.stderr)
-
 
 def state_of(issue: dict) -> str:
     states = [lab[len(STATE_PREFIX):] for lab in issue["labels"] if lab.startswith(STATE_PREFIX)]
