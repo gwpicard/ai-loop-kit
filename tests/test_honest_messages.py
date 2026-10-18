@@ -9,7 +9,6 @@ from helpers import GOOD_CODE, SPEC, Project, git
 
 # isort: split
 # Helpers adds the kit scripts to the import path.
-import critic
 import gate
 import pr
 import review
@@ -70,23 +69,6 @@ class HonestMessagesTest(unittest.TestCase):
                 self.assertIn("Measure on main: median 100.0 misses target < 10", note)
                 self.assertNotIn("naming every spec ID", note)
 
-    def test_combined_ready_reports_tests_and_critics(self):
-        body = SPEC.replace("## Judge", "## Exit\n### Tests") + (
-            "\n### Critics\nCapture: `python3 render.py`\nReference: reference.txt\n"
-            "Criteria:\n- Readable\nFiles:\n- render.py\n- reference.txt\n")
-        n = self.p.piece(spec=body)
-        git(self.p.root, "switch", "--quiet", f"piece/{n}")
-        (self.p.root / "render.py").write_text(
-            "import os\nfrom pathlib import Path\n"
-            "(Path(os.environ['LOOP_CAPTURE_DIR']) / 'result.txt').write_text('main')\n")
-        (self.p.root / "reference.txt").write_text("reference\n")
-        git(self.p.root, "add", "render.py", "reference.txt")
-        git(self.p.root, "commit", "--quiet", "-m", "Add critics check")
-        git(self.p.root, "switch", "--quiet", "main")
-        with patch.object(critic, "judge", return_value=[{"winner": "reference"}] * 3):
-            note = gate.move(self.p.gh, self.p.root, n, "ready")
-        self.assertIn("naming every spec ID", note)
-        self.assertIn("Critics on main: 0/3 wins; fewer than the required 2", note)
 
     def test_builtin_test_review_finding_reaches_the_pull_request(self):
         n, folder = self.build_folder()

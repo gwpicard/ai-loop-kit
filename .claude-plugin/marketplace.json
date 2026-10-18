@@ -13,7 +13,7 @@
     {
       "name": "ai-loop-kit-extras",
       "source": "./extras",
-      "description": "Optional experimental mutation tools for AI Loop Kit."
+      "description": "Optional experimental mutation tools and preview gauntlet critics for AI Loop Kit."
     }
   ]
 }
