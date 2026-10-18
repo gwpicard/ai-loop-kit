@@ -446,10 +446,14 @@ adapter chooses `sonnet`; the brief does not name a model. Judge writing
 starts on a clean `piece/<n>` branch. After validating the tagged verdict,
 the launcher checks that only approved Exit files changed and commits them.
 It compares untracked files, including ignored files, with the starting
-baseline. Outside the approved paths, additions, removals and changes to
-contents, file types, symbolic links or permissions are refused.
-A successful session leaves no uncommitted files in the shared working tree.
-Refused work is kept for shaping to inspect.
+baseline. Judge-writer sessions set `PYTHONDONTWRITEBYTECODE=1`. The path and
+clean-tree checks ignore `*.pyc`, including bytecode in `__pycache__/`.
+Other additions, removals and changes to contents, file types, symbolic links
+or permissions outside the approved paths are refused. The refusal names
+the first unexpected path and asks the person to inspect it against the
+approved Exit files. A successful session leaves only stray bytecode
+uncommitted in the shared working tree. Refused work is kept for shaping to
+inspect.
 
 Research takes only `question`. Judge writing takes approved `Intent`,
 `Approach`, `Contract` and `Files` strings, plus the code in the working folder.
@@ -884,16 +888,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 5,940 Python lines in `kit/`, including the remaining
+The default plugin has 6,013 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,360 runtime
+critics have 420 runtime lines in `extras/`. Together they have 6,433 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,360 runtime lines in total. The suite reports the total and the
+6,433 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

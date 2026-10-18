@@ -106,6 +106,8 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                          protected_exceptions=protected_exceptions),
            "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
            "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
+    if role == "judge-writer":
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
     if backend == "claude" and walk_away:
         env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     if backend == "codex" and writable:
