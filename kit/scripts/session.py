@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 import agents
 import sandbox
-from loopkit import bar_hash_in, sh, untracked_paths
+from loopkit import Refused, bar_hash_in, sh, untracked_paths
 from procs import _untrack_process, track_process
 
 
@@ -22,10 +22,18 @@ def _judge_untracked(folder: Path, files: list[str]) -> dict:
     """Record unapproved untracked files without following symbolic links."""
     states = {}
     for name in untracked_paths(folder) - set(files):
+        if name.endswith(".pyc"):
+            continue
         path = folder / name
         states[name] = (path.lstat().st_mode, os.readlink(path) if path.is_symlink()
                         else bar_hash_in(folder, [name]))
     return states
+
+
+def _judge_dirty(folder: Path) -> bool:
+    """Ignore bytecode, including files inside __pycache__, when checking work."""
+    return bool(sh(["git", "status", "--porcelain", "--untracked-files=all",
+                    "--", ".", ":(exclude)*.pyc"], folder).stdout)
 
 
 def _judge_start(folder: Path, data: dict) -> tuple:
@@ -39,7 +47,7 @@ def _judge_start(folder: Path, data: dict) -> tuple:
     branch = sh(["git", "branch", "--show-current"], folder).stdout.strip()
     if not re.fullmatch(r"piece/[1-9]\d*", branch):
         raise ValueError("judge-writer requires the piece/<n> branch")
-    if sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout:
+    if _judge_dirty(folder):
         raise ValueError("judge-writer requires a clean working tree; keep existing work")
     return (files, branch, sh(["git", "rev-parse", "HEAD"], folder).stdout.strip(),
             _judge_untracked(folder, files))
@@ -51,21 +59,30 @@ def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
     if sh(["git", "branch", "--show-current"], folder).stdout.strip() != branch:
         raise ValueError("judge-writer changed the piece branch")
     changed = sh(["git", "diff", "--name-only", "--no-renames", "-z", base], folder).stdout
+    committed = sh(["git", "log", "--format=", "--name-only", "--no-renames", "-z",
+                    f"{base}..HEAD"], folder).stdout
     untracked = _judge_untracked(folder, files)
     altered = {name for name in before.keys() | untracked.keys()
                if before.get(name) != untracked.get(name)}
-    unexpected = (set(changed.split("\0")) | altered) - {"", *files}
+    unexpected = {name for name in changed.split("\0") if name and not name.endswith(".pyc")}
+    unexpected = (unexpected | altered | set(committed.split("\0"))) - {"", *files}
     reported = verdict["judge_files"]
-    if unexpected or not reported or not set(reported) <= set(files):
-        raise ValueError("judge-writer wrote or reported paths outside the approved Exit Files")
+    unexpected |= set(reported) - set(files)
+    if unexpected:
+        path = sorted(unexpected)[0]
+        raise Refused("judge-writer wrote or reported paths outside the approved Exit Files: "
+                      + path,
+                      f"inspect {path} against the approved Exit Files; keep the work in shaping")
+    if not reported:
+        raise ValueError("judge-writer reported no approved Exit Files")
     if any(not (folder / name).is_file() or
            not (folder / name).resolve().is_relative_to(folder.resolve()) for name in files):
         raise ValueError("judge-writer must produce the approved Exit Files inside the project")
     sh(["git", "add", "--", *files], folder)
-    if sh(["git", "diff", "--cached", "--quiet"], folder, check=False).returncode:
-        sh(["git", "commit", "-m", "Write the approved judge"], folder)
-    if (sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout
-            or _judge_untracked(folder, files) != before):
+    if sh(["git", "diff", "--cached", "--quiet", "--", *files],
+          folder, check=False).returncode:
+        sh(["git", "commit", "--only", "-m", "Write the approved judge", "--", *files], folder)
+    if _judge_dirty(folder) or _judge_untracked(folder, files) != before:
         raise ValueError("judge-writer left uncommitted work; keep it for shaping")
 
 
@@ -223,6 +240,8 @@ def main() -> int:
         events = log.with_suffix(".jsonl")
         result = {}
         backend = agents.selected(args.folder, args.agent)
+        if args.role == "judge-writer":
+            os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
         status = run_session(args.folder, prompt, log, 300, role=args.role,
                              backend=backend, result_event=result, raw_events=events)
         status = status or (agents.environment_evidence(log) if args.role == "researcher" else "")
@@ -237,9 +256,10 @@ def main() -> int:
                 raise ValueError(f"researcher requires web-search and web-open: {gaps or text}")
         args.output.write_text(text)
         return 0
-    except (OSError, ValueError, RuntimeError) as error:
-        parser.exit(2, f"refused: {error}\n"
-                       "next: restore the capability; leave the piece in shaping\n")
+    except (OSError, ValueError, RuntimeError, Refused) as error:
+        next_step = (error.next_step if isinstance(error, Refused) else
+                     "restore the capability; leave the piece in shaping")
+        parser.exit(2, f"refused: {error}\nnext: {next_step}\n")
 
 
 if __name__ == "__main__":
