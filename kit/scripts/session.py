@@ -240,6 +240,8 @@ def main() -> int:
         events = log.with_suffix(".jsonl")
         result = {}
         backend = agents.selected(args.folder, args.agent)
+        if args.role == "judge-writer":
+            os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
         status = run_session(args.folder, prompt, log, 300, role=args.role,
                              backend=backend, result_event=result, raw_events=events)
         status = status or (agents.environment_evidence(log) if args.role == "researcher" else "")
