@@ -75,6 +75,23 @@ BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselve
 
 LABEL_COLOURS = {"shaping": "c5def5", "ready": "0e8a16", "building": "fbca04",
                  "approval": "5319e7", "done": "006b75", "dropped": "cccccc"}
+_EVENT_WARNED: set[Path] = set()
+
+
+def run_event(root: Path, event: str, piece: int | None = None,
+              state: str = "", attempt: int = 0, reason: str = "") -> None:
+    """Append public metadata only. Callers supply fixed event names and reasons."""
+    try:
+        path = root / ".loop" / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as output:
+            output.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(),
+                                     "piece": piece, "event": event, "state": state,
+                                     "attempt": attempt, "reason": reason}) + "\n")
+    except OSError:
+        if root not in _EVENT_WARNED:
+            _EVENT_WARNED.add(root)
+            print("warning: could not write .loop/events.jsonl", file=sys.stderr)
 
 
 def state_of(issue: dict) -> str:
@@ -611,6 +628,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         remove.append(NEEDS_YOU)
     gh.comment(n, record_text(record, note))
     gh.set_labels(n, add, remove)
+    run_event(root, name, n, to, int(attempts or record.get("attempts", 0)),
+              reason_type if reason_type in REASON_TYPES else name)
     if issue.get("state", "OPEN") == "OPEN":
         if to == "done":
             gh.close(n, "completed")
@@ -621,10 +640,12 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     return note
 
 
-def capture(gh: GitHub, title: str, body: str) -> int:
+def capture(gh: GitHub, title: str, body: str, root: Path | None = None) -> int:
     n = gh.create_issue(title, body, [STATE_PREFIX + "shaping"])
     gh.comment(n, record_text({"move": "capture", "from": "new", "to": "shaping"},
                               "new → shaping (capture)."))
+    if root is not None:
+        run_event(root, "capture", n, "shaping", reason="capture")
     return n
 
 
