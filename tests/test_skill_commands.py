@@ -32,7 +32,9 @@ class SkillCommandTest(unittest.TestCase):
         ruff = (KIT.parent / "ruff.toml").read_text()
 
         self.assertIn("numbered Contract items", shape)
-        self.assertEqual(shape.count("<KIT>/agents/researcher.md"), 1)
+        self.assertIn("session.py\" --role researcher", shape)
+        self.assertIn("session.py\" --role judge-writer", shape)
+        self.assertIn("If web tools are unavailable, stop shaping", shape)
         self.assertNotIn("researcher subagent", shape)
         self.assertNotIn("under Notes", shape)
         self.assertEqual(setup.count("**Quality commands**"), 1)

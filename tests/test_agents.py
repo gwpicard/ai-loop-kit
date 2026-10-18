@@ -134,12 +134,12 @@ class AgentSessionTest(unittest.TestCase):
             self.assertEqual(called["argv"], [
                 "exec", "--json", "--disable", "plugins", "--disable", "apps",
                 "--sandbox", "workspace-write",
-                "--config", 'approval_policy="never"', "--cd", str(root.resolve()),
-                "--ignore-user-config", "--ephemeral", "--config",
+                "--config", 'approval_policy="never"', "--config",
                 "sandbox_workspace_write.network_access=false", "--config",
                 "sandbox_workspace_write.writable_roots=[]", "--config",
                 "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
-                "sandbox_workspace_write.exclude_tmpdir_env_var=true", "brief",
+                "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                "--cd", str(root.resolve()), "--ignore-user-config", "--ephemeral", "brief",
             ])
             self.assertEqual(agents.event_text(output.decode()), "<verdict>{}</verdict>")
 

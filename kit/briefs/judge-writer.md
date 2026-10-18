@@ -1,9 +1,3 @@
----
-name: judge-writer
-description: Writes acceptance tests from an approved Intent and Contract.
-model: sonnet
----
-
 # Judge writer
 
 Write the judge files for the approved piece. You receive its Intent,
@@ -33,8 +27,8 @@ judge fail on main because the requested behaviour is missing, not because
 the test cannot collect or import. For a fix, reproduce the existing bug
 first. For a scaffold, write a judge that runs and passes.
 
-Commit only the judge files on `piece/<n>`. The shaper runs the project's
-Test command on the judge files, then runs `gate.py check`.
+Leave the judge files uncommitted. The shaper commits them on the piece
+branch, runs the project Test command, then runs `gate.py check`.
 
 Finish with one tagged JSON block in this shape:
 <verdict>{"judge_files":["path/to/judge.py"],"tests_per_id":true,"notes":"short summary"}</verdict>

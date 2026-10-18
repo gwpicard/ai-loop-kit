@@ -30,6 +30,7 @@ def version_ok(value: str) -> bool:
 def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
     """Return strict per-session sandbox settings for one build worktree."""
     home = Path.home()
+    credentials = ["~/.ssh", "~/.config/gh", "~/Library/Keychains"]
     caches = [home / ".npm", home / ".cache" / "pip"]
     temp = Path(tempfile.gettempdir())
     work = folder.resolve()
@@ -47,48 +48,37 @@ def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
             "filesystem": {
                 "allowWrite": [str(work), str(temp), *(str(path) for path in caches)],
                 "allowRead": [str(work), str(temp), *(str(path) for path in caches)],
-                "denyRead": [str(home / ".ssh"), str(home / ".config" / "gh"),
-                             str(home / "Library" / "Keychains"), *denied_paths],
+                "denyRead": [*(str(Path(path).expanduser()) for path in credentials),
+                             *denied_paths],
             },
             "credentials": {
-                "files": [
-                    {"path": "~/.ssh", "mode": "deny"},
-                    {"path": "~/.config/gh", "mode": "deny"},
-                    {"path": "~/Library/Keychains", "mode": "deny"},
-                ],
-                "envVars": [
-                    {"name": name, "mode": "deny"}
-                    for name in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN")
-                ],
+                "files": [{"path": path, "mode": "deny"} for path in credentials],
+                "envVars": [{"name": name, "mode": "deny"}
+                            for name in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN")],
             },
             "network": {"strictAllowlist": True, "allowedDomains": sorted(set(domains or []))},
         },
         "permissions": {
             "blockReadsOutsideWorkingDirectories": True,
             "deny": [
-                "Read(~/.ssh/**)", "Read(~/.config/gh/**)",
-                "Read(~/Library/Keychains/**)", "Bash(git push *)", "Bash(gh *)",
+                *(f"Read({path}/**)" for path in credentials), "Bash(git push *)", "Bash(gh *)",
                 *(f"Read({path})" for path in denied_paths),
             ],
         },
     }
 
 
-def claude_args(folder: Path, domains: Optional[list[str]] = None) -> list[str]:
-    settings = json.dumps(settings_for(folder, domains), separators=(",", ":"))
-    return ["--settings", settings, "--strict-mcp-config", "--mcp-config",
-            '{"mcpServers":{}}']
-
-
-def session_settings(folder: Path, domains: Optional[list[str]] = None) -> dict:
+def session_settings(folder: Path, domains: Optional[list[str]] = None,
+                     walk_away: bool = True) -> dict:
     """Combine the existing guard with a walk-away file-tool boundary."""
     guard = Path(__file__).resolve().parents[1] / "hooks" / "guard.py"
     boundary = Path(__file__).resolve()
+    commands = [f'python3 "{guard}"']
+    if walk_away:
+        commands.append(f'python3 "{boundary}" guard')
     hooks = [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [
-        {"type": "command", "command": f'python3 "{guard}"'},
-        {"type": "command", "command": f'python3 "{boundary}" guard'},
-    ]}]
-    settings = settings_for(folder, domains)
+        {"type": "command", "command": command} for command in commands]}]
+    settings = settings_for(folder, domains) if walk_away else {}
     settings["hooks"] = {"PreToolUse": hooks}
     return settings
 
@@ -229,7 +219,7 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     )
     args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
             "--permission-mode", "acceptEdits", "--tools", "Bash",
-            *claude_args(folder, domains)]
+            "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
     try:
         result = subprocess.run(args, cwd=folder, capture_output=True, text=True,
                                 timeout=timeout, check=False,
@@ -245,11 +235,7 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     if result.returncode:
         return False, f"Claude sandbox probe exited {result.returncode}: {output[-500:].strip()}"
     results = []
-    for line in output.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
+    for event in agents.json_events(output):
         if event.get("type") == "user":
             results.extend(event.get("message", {}).get("content", []))
     text = "\n".join(str(result.get("content", "")) for result in results
