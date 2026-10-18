@@ -26,7 +26,8 @@ class JudgeBytecodeTest(unittest.TestCase):
         git(self.root, "commit", "--quiet", "-m", "Use a project without ignore rules")
         git(self.root, "switch", "--quiet", "-c", "piece/1")
 
-    def invoke(self, backend, extra=None, reported=None, force_bytecode=False):
+    def invoke(self, backend, extra=None, reported=None, force_bytecode=False,
+               commit_files=False):
         fake = self.base / "fake-agent"
         fake.write_text(
             f"#!{sys.executable}\n"
@@ -43,6 +44,10 @@ class JudgeBytecodeTest(unittest.TestCase):
             "subprocess.run([sys.executable, '-c', \"import runpy, sys; sys.pycache_prefix = None; "
             "runpy.run_path('tests/judge/test_subject.py')['test_D1_value']()\"],\n"
             "    env=env, check=True)\n"
+            "if os.environ['COMMIT_FILES'] == '1':\n"
+            "    subprocess.run(['git', 'add', '--', *json.loads(os.environ['WRITES'])],\n"
+            "        check=True)\n"
+            "    subprocess.run(['git', 'commit', '-m', 'Write judge files'], check=True)\n"
             "text = os.environ['ANSWER']\n"
             "event = ({'type': 'assistant', 'message': {'content': [\n"
             "    {'type': 'text', 'text': text}]}} if '-p' in sys.argv else\n"
@@ -61,6 +66,7 @@ class JudgeBytecodeTest(unittest.TestCase):
         env = {**os.environ, "LOOP_CLAUDE": str(fake), "LOOP_CODEX": str(fake),
                "WRITES": json.dumps(writes), "ENV_RECORD": str(self.base / "env.txt"),
                "FORCE_BYTECODE": "1" if force_bytecode else "0",
+               "COMMIT_FILES": "1" if commit_files else "0",
                "ANSWER": "<verdict>" + json.dumps(verdict) + "</verdict>"}
         env.pop("PYTHONDONTWRITEBYTECODE", None)
         result = subprocess.run(
@@ -137,6 +143,26 @@ class JudgeBytecodeTest(unittest.TestCase):
         self.assertEqual(git(self.root, "diff", "--name-only", "main...HEAD"), self.judge)
         self.assertEqual(git(self.root, "diff", "--cached", "--name-only"), path.name)
         self.assertEqual(path.read_bytes(), b"keep staged bytecode")
+
+    def test_D4_writer_committed_bytecode_is_refused(self):
+        name = "unapproved.pyc"
+        for backend in ("claude", "codex"):
+            with self.subTest(backend=backend):
+                before = git(self.root, "rev-parse", "HEAD")
+                text = f"{backend} cache"
+                result, output = self.invoke(backend, {name: text}, commit_files=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("outside the approved Exit Files: " + name, result.stderr)
+                self.assertFalse(output.exists())
+                self.assertNotEqual(git(self.root, "rev-parse", "HEAD"), before)
+                self.assertEqual(git(self.root, "show", "HEAD:" + name), text)
+                self.assertEqual((self.root / name).read_text(), text)
+
+    def test_D4_writer_can_commit_only_approved_files(self):
+        result, output = self.invoke("codex", commit_files=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(output.is_file())
+        self.assertEqual(git(self.root, "diff", "--name-only", "main...HEAD"), self.judge)
 
 
 if __name__ == "__main__":

@@ -59,11 +59,13 @@ def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
     if sh(["git", "branch", "--show-current"], folder).stdout.strip() != branch:
         raise ValueError("judge-writer changed the piece branch")
     changed = sh(["git", "diff", "--name-only", "--no-renames", "-z", base], folder).stdout
+    committed = sh(["git", "log", "--format=", "--name-only", "--no-renames", "-z",
+                    f"{base}..HEAD"], folder).stdout
     untracked = _judge_untracked(folder, files)
     altered = {name for name in before.keys() | untracked.keys()
                if before.get(name) != untracked.get(name)}
     unexpected = {name for name in changed.split("\0") if name and not name.endswith(".pyc")}
-    unexpected = (unexpected | altered) - set(files)
+    unexpected = (unexpected | altered | set(committed.split("\0"))) - {"", *files}
     reported = verdict["judge_files"]
     unexpected |= set(reported) - set(files)
     if unexpected:
