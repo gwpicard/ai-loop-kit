@@ -453,7 +453,10 @@ sandbox and command tools disabled. Other sessions keep their existing
 network policy. Walk-away research is refused. A missing executable, failed
 session, missing web tool or invalid output stops shaping with a `next:`
 step. Research must return dated source lines accepted by the existing
-Research parser; the gate's ready checks still apply.
+Research parser. Before accepting them, the launcher checks raw tool-failure
+evidence from either backend. A failed web tool refuses research even when
+the final answer is valid and the process exits successfully. The gate's
+ready checks still apply.
 
 Each builder attempt keeps the raw event stream, including tool calls and their
 results, in a `.jsonl` file beside its readable `.log` file under `.loop/logs/`.

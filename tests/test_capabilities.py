@@ -57,6 +57,7 @@ class CapabilityTest(unittest.TestCase):
             " if '-p' in sys.argv else {'type':'item.completed','item':"
             "{'type':'agent_message','text':text}})\n"
             "intro = json.loads(json.dumps(event))\n"
+            "if os.environ.get('TOOL_EVENT'): print(os.environ['TOOL_EVENT'])\n"
             "if '-p' in sys.argv: intro['message']['content'][0]['text'] = 'Checking sources'\n"
             "else: intro['item']['text'] = 'Checking sources'\n"
             "print(json.dumps(intro))\n"
@@ -67,7 +68,7 @@ class CapabilityTest(unittest.TestCase):
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
         return path
 
-    def invoke(self, folder, backend, role, data, answer, exit_code=0, tail=""):
+    def invoke(self, folder, backend, role, data, answer, exit_code=0, tail="", tool_event=""):
         helpers.git(folder, "init", "--quiet")
         source = folder / "input.json"
         source.write_text(json.dumps(data))
@@ -75,7 +76,7 @@ class CapabilityTest(unittest.TestCase):
         fake = self.fake_cli(folder)
         env = {**os.environ, "LOOP_CLAUDE": str(fake), "LOOP_CODEX": str(fake),
                "ARGS": str(folder / "args.json"), "ANSWER": answer,
-               "EXIT_CODE": str(exit_code), "TAIL_EVENT": tail}
+               "EXIT_CODE": str(exit_code), "TAIL_EVENT": tail, "TOOL_EVENT": tool_event}
         result = subprocess.run(
             [sys.executable, str(helpers.KIT / "scripts/session.py"),
              "--role", role, "--agent", backend, "--input", str(source),
@@ -156,6 +157,39 @@ class CapabilityTest(unittest.TestCase):
                     self.assertIn("next:", result.stderr)
                     self.assertIn("web-search", result.stderr)
                     self.assertIn("web-open", result.stderr)
+
+    def test_unavailable_web_tool_cannot_be_hidden_by_valid_research(self):
+        finding = "- R1: Supported (source: https://example.test/api, read: 2026-10-15)"
+        error = "WebSearch tool is unavailable on this backend"
+        fixtures = [
+            ("claude", {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "search", "is_error": True,
+                 "content": error}]}}, error),
+            ("claude", {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "fetch", "is_error": True,
+                 "content": [{"type": "text", "text": error}]}]}}, error),
+            ("claude", {"type": "user", "message": {"content": [
+                {"type": "tool_result", "is_error": True,
+                 "content": [{"type": "text", "text": ""}]}]}}, "tool result failed"),
+            ("codex", {"type": "item.completed", "item": {
+                "type": "web_search", "status": "failed", "error": error}}, error),
+            ("codex", {"type": "item.completed", "item": {
+                "type": "web_search", "status": "failed"}}, "web_search failed"),
+        ]
+        for backend, event, reason in fixtures:
+            with self.subTest(backend=backend, event=event), \
+                    tempfile.TemporaryDirectory() as temporary:
+                result, output = self.invoke(Path(temporary), backend, "researcher",
+                                             {"question": "Check it"}, finding,
+                                             tool_event=json.dumps(event))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(output.exists(), "failed research must not publish findings")
+                self.assertIn(reason, result.stderr)
+                self.assertIn("web-search", result.stderr)
+                self.assertIn("next:", result.stderr)
+                events = output.with_suffix(".jsonl").read_text()
+                self.assertIn(json.dumps(event), events)
+                self.assertIn(finding, events)
 
 
 if __name__ == "__main__":

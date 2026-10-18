@@ -165,15 +165,15 @@ def log_line(line: str, backend: str, result_event: dict | None = None) -> str:
 def environment_evidence(logfile: Path) -> str:
     """Read observed tool failures, including shell refusals in successful batches."""
     events = logfile.with_suffix(".jsonl")
-    if not events.is_file():
-        return ""
     outputs = []
-    for event in json_events(events.read_text(errors="replace")):
+    for event in json_events(events.read_text(errors="replace") if events.is_file() else ""):
         item = event.get("item", {})
-        if isinstance(item, dict) and item.get("type") == "command_execution" and \
-                event.get("type") == "item.completed" and isinstance(item.get("exit_code"), int):
-            output = str(item.get("aggregated_output", ""))
-            outputs.extend(text for text in output.splitlines() if item["exit_code"] != 0 or
+        kind = item.get("type") if isinstance(item, dict) else ""
+        if event.get("type") == "item.completed" and (
+                (kind == "command_execution" and isinstance(item.get("exit_code"), int)) or
+                (kind == "web_search" and (item.get("error") or item.get("status") == "failed"))):
+            output = str(item.get("aggregated_output", item.get("error") or f"{kind} failed"))
+            outputs.extend(text for text in output.splitlines() if item.get("exit_code", 1) or
                            re.fullmatch(r"zsh:[0-9]+: can't create temp file for here document: "
                                         r"operation not permitted", text))
         message = event.get("message", {})
@@ -181,9 +181,10 @@ def environment_evidence(logfile: Path) -> str:
             for block in message.get("content", []):
                 if isinstance(block, dict) and block.get("type") == "tool_result" and \
                         block.get("is_error"):
-                    content = block.get("content", "")
-                    outputs.append("\n".join(str(part.get("text", "")) for part in content
-                                             if isinstance(part, dict))
-                                   if isinstance(content, list) else str(content))
+                    content = block.get("content") or ""
+                    text = ("\n".join(str(part.get("text", "")) for part in content
+                                     if isinstance(part, dict))
+                            if isinstance(content, list) else str(content))
+                    outputs.append(text or "tool result failed")
     failures = [text.strip() for output in outputs for text in output.splitlines() if text.strip()]
     return ("Observed tool failure: " + "\n".join(failures[-3:]))[:500] if failures else ""

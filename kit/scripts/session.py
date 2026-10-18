@@ -111,10 +111,8 @@ def _folder_activity_stamp(folder: Optional[Path]) -> float:
         dirs[:] = [d for d in dirs if d not in {
             ".git", ".venv", "node_modules", "dist", "build", "__pycache__"}]
         for name in (*dirs, *files):
-            try:
+            with suppress(OSError):
                 newest = max(newest, (Path(current) / name).stat().st_mtime)
-            except OSError:
-                continue
     return newest
 
 
@@ -173,6 +171,7 @@ def main() -> int:
         backend = agents.selected(args.folder, args.agent)
         status = run_session(args.folder, prompt, log, 300, role=args.role,
                              backend=backend, result_event=result, raw_events=events)
+        status = status or (agents.environment_evidence(log) if args.role == "researcher" else "")
         text = agents.event_text(events.read_text(), backend)
         if status or result.get("is_error") or result.get("type") == "turn.failed":
             raise ValueError(f"{args.role} requires {tools}: {status or result}; see {log}")
