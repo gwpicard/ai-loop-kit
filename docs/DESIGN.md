@@ -445,8 +445,9 @@ has fixed JSON input fields, required tools and an output format in
 adapter chooses `sonnet`; the brief does not name a model. Judge writing
 starts on a clean `piece/<n>` branch. After validating the tagged verdict,
 the launcher checks that only approved Exit files changed and commits them.
-It compares new untracked files, including ignored files, with the starting
-baseline. Existing ignored files are kept; new undeclared files are refused.
+It compares untracked files, including ignored files, with the starting
+baseline. Outside the approved paths, additions, removals and changes to
+contents, file types, symbolic links or permissions are refused.
 A successful session leaves no uncommitted files in the shared working tree.
 Refused work is kept for shaping to inspect.
 

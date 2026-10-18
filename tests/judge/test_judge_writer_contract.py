@@ -31,7 +31,7 @@ class JudgeWriterContractTest(unittest.TestCase):
         self.base = self.root.parent
         git(self.root, "switch", "--quiet", "-c", "piece/1")
 
-    def invoke(self, backend, writes=None, files=None):
+    def invoke(self, backend, writes=None, files=None, deletes=()):
         fake = self.base / "fake-agent"
         fake.write_text(
             f"#!{sys.executable}\n"
@@ -41,6 +41,8 @@ class JudgeWriterContractTest(unittest.TestCase):
             "    path = pathlib.Path(name)\n"
             "    path.parent.mkdir(parents=True, exist_ok=True)\n"
             "    path.write_text(text)\n"
+            "for name in json.loads(os.environ['DELETES']):\n"
+            "    pathlib.Path(name).unlink()\n"
             "text = os.environ['ANSWER']\n"
             "event = ({'type':'assistant','message':{'content':[{'type':'text','text':text}]}}\n"
             " if '-p' in sys.argv else {'type':'item.completed','item':\n"
@@ -54,6 +56,7 @@ class JudgeWriterContractTest(unittest.TestCase):
         env = {**os.environ, "LOOP_CLAUDE": str(fake), "LOOP_CODEX": str(fake),
                "PROMPT": str(self.base / "prompt.txt"),
                "WRITES": json.dumps(writes if writes is not None else {self.judge: "# judge\n"}),
+               "DELETES": json.dumps(deletes),
                "ANSWER": "<verdict>" + json.dumps(verdict) + "</verdict>"}
         result = subprocess.run(
             [sys.executable, str(KIT / "scripts/session.py"), "--role", "judge-writer",
@@ -99,6 +102,30 @@ class JudgeWriterContractTest(unittest.TestCase):
                     self.assertEqual(git(self.root, "rev-parse", "HEAD"), before)
                     self.assertEqual((self.root / unexpected).read_text(), "# undeclared\n")
                     self.assertEqual((self.root / self.judge).read_text(), "# approved judge\n")
+
+    def test_D1_existing_ignored_helpers_cannot_change(self):
+        for backend in ("claude", "codex"):
+            for change in ("overwrite", "delete"):
+                with self.subTest(backend=backend, change=change):
+                    self.new_project()
+                    helper = ".loop/existing-helper.py"
+                    path = self.root / helper
+                    path.parent.mkdir()
+                    path.write_text("# before\n")
+                    before = git(self.root, "rev-parse", "HEAD")
+                    writes = {self.judge: "# approved judge\n"}
+                    if change == "overwrite":
+                        writes[helper] = "# after!\n"
+                    result, output = self.invoke(
+                        backend, writes, deletes=[helper] if change == "delete" else [])
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("outside the approved Exit Files", result.stderr)
+                    self.assertFalse(output.exists())
+                    self.assertEqual(git(self.root, "rev-parse", "HEAD"), before)
+                    if change == "overwrite":
+                        self.assertEqual(path.read_text(), "# after!\n")
+                    else:
+                        self.assertFalse(path.exists())
 
     def test_D1_paths_outside_the_project_are_refused_before_launch(self):
         outside = self.base / "outside.py"
