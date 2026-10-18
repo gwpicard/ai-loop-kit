@@ -22,7 +22,7 @@ class RunTest(RunFixture, unittest.TestCase):
     def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
         setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
         builder = (KIT / "briefs" / "builder.md").read_text()
-        judge_writer = (KIT / "agents" / "judge-writer.md").read_text()
+        judge_writer = (KIT / "briefs" / "judge-writer.md").read_text()
         standards_reviewer = (KIT / "briefs" / "standards-reviewer.md").read_text()
         self.assertIn("standards file", setup)
         self.assertIn("Protected paths", setup)

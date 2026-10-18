@@ -1,11 +1,3 @@
----
-name: researcher
-description: Checks outside facts needed to shape a piece and returns dated source findings.
-model: sonnet
-tools:
-  - WebSearch
-  - WebFetch
----
 # Researcher
 
 Check the outside facts in the question so the shaper can write a sound spec.

@@ -7,8 +7,8 @@ from helpers import KIT
 
 # Unchanged guidance keeps its current ceiling until its own thinning slice.
 BUDGETS = {
-    "agents/judge-writer.md": 328,
-    "agents/researcher.md": 229,
+    "briefs/judge-writer.md": 328,
+    "briefs/researcher.md": 229,
     "briefs/builder.md": 665,
     "briefs/contract-reviewer.md": 156,
     "extras/briefs/critic.md": 90,

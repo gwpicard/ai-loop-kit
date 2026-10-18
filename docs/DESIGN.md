@@ -367,8 +367,8 @@ Nobody edits a closed issue to keep it current.
 | Role | What it is | Sees | Produces |
 | --- | --- | --- | --- |
 | Shaper | the shape skill, with the person | the code, the person | Intent, Approach, Contract |
-| Researcher (**preview**) | a fresh `sonnet` subagent with web tools only | the question, web pages as data | findings with source URLs and read dates |
-| Judge writer | a fresh subagent | the contract and the code, not the shaping chat | judge files on `piece/<n>`, and a JSON verdict |
+| Researcher (**preview**) | a fresh Claude or Codex session through the shared launcher | the question, web pages as data | findings with source URLs and read dates |
+| Judge writer | a fresh Claude or Codex session through the shared launcher | the contract and the code, not the shaping chat | uncommitted judge files on `piece/<n>`, and a JSON verdict |
 | Builder | a fresh Claude Code (or Codex, **preview**) session per attempt | the contract, research, the judge, the last failure | code on the piece branch, `.loop/why.md`, optionally `.loop/outcome` |
 | Standards reviewer | a fresh session after the gate passes | the diff, plus the project's standards file or a baseline of Fowler's code smells | small checked fixes, follow-ups, a JSON verdict |
 | Contract reviewer | another fresh session | Intent, Out of scope, Approach, Contract, Research, build diff, frozen baseline and gate evidence | missing items or scope creep, a JSON verdict |
@@ -419,11 +419,12 @@ Why each role is separate:
   the merge. Everything in between is checked by a script.
 
 **Backend (preview).** `Agent: claude|codex` in the loop section of
-`AGENTS.md` chooses the backend for builders, reviewers and critics. Claude
+`AGENTS.md` chooses the backend for every launched role. Claude
 Code is the default. The ready record freezes the choice, and
 `run.py --agent codex` overrides it for one run. Interactive skills stay in
-Claude Code. Codex runs `codex exec --json` with a workspace write boundary
-and network disabled. Builders may write the build folder, its git directory
+Claude Code. Codex build and review sessions use `codex exec --json` with a
+workspace write boundary and network disabled. Builders may write the build
+folder, its git directory
 and a kit-prepared `.loop/tmp` directory, which is also their `TMPDIR`. In a
 linked worktree they may also write the shared object store and their current
 branch's ref, ref lock and reflog. Other worktrees and branches receive no
@@ -436,6 +437,26 @@ Every Codex session ignores the user's
 config file and disables plugins and apps so their MCP servers do not start.
 Codex has no guard hook and no Edit denies, so only the gate holds the rules
 after the session.
+
+Shaping starts research and judge writing with `scripts/session.py`, which
+uses the same `agents.start_session` launcher as the build. Each capability
+has fixed JSON input fields, required tools and an output format in
+`agents.CAPABILITIES`. Shared instructions live in `kit/briefs/`. Claude's
+adapter chooses `sonnet`; the brief does not name a model. The shaper commits
+the judge files after the launcher validates the tagged verdict.
+
+Research takes only `question`. Judge writing takes approved `Intent`,
+`Approach` and `Contract` strings, plus the code in the working folder. Extra
+input fields are refused. Claude research enables only WebSearch and
+WebFetch. Codex research enables live native web search with a read-only
+sandbox and command tools disabled. Other sessions keep their existing
+network policy. Walk-away research is refused. A missing executable, failed
+session, missing web tool or invalid output stops shaping with a `next:`
+step. Research must return dated source lines accepted by the existing
+Research parser. Before accepting them, the launcher checks raw tool-failure
+evidence from either backend. A failed web tool refuses research even when
+the final answer is valid and the process exits successfully. The gate's
+ready checks still apply.
 
 Each builder attempt keeps the raw event stream, including tool calls and their
 results, in a `.jsonl` file beside its readable `.log` file under `.loop/logs/`.
