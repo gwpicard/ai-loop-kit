@@ -53,6 +53,8 @@ class CapabilityTest(unittest.TestCase):
             "import json, os, pathlib, sys\n"
             "pathlib.Path(os.environ['ARGS']).write_text(json.dumps(sys.argv[1:]))\n"
             "text = os.environ['ANSWER']\n"
+            "if os.environ.get('JUDGE_SESSION'):\n"
+            "    pathlib.Path('judge.py').write_text('# judge\\n')\n"
             "event = ({'type':'assistant','message':{'content':[{'type':'text','text':text}]}}\n"
             " if '-p' in sys.argv else {'type':'item.completed','item':"
             "{'type':'agent_message','text':text}})\n"
@@ -69,18 +71,29 @@ class CapabilityTest(unittest.TestCase):
         return path
 
     def invoke(self, folder, backend, role, data, answer, exit_code=0, tail="", tool_event=""):
-        helpers.git(folder, "init", "--quiet")
+        working = folder / "project" if role == "judge-writer" else folder
+        working.mkdir(exist_ok=True)
+        helpers.git(working, "init", "--quiet")
+        if role == "judge-writer" and not (working / ".gitignore").exists():
+            (working / ".gitignore").write_text("# Project ignores\n")
+            helpers.git(working, "add", ".gitignore")
+            helpers.git(working, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                        "commit", "--quiet", "-m", "Start")
+            helpers.git(working, "switch", "--quiet", "-c", "piece/1")
         source = folder / "input.json"
         source.write_text(json.dumps(data))
         output = folder / "answer.txt"
         fake = self.fake_cli(folder)
         env = {**os.environ, "LOOP_CLAUDE": str(fake), "LOOP_CODEX": str(fake),
                "ARGS": str(folder / "args.json"), "ANSWER": answer,
-               "EXIT_CODE": str(exit_code), "TAIL_EVENT": tail, "TOOL_EVENT": tool_event}
+               "EXIT_CODE": str(exit_code), "TAIL_EVENT": tail, "TOOL_EVENT": tool_event,
+               "JUDGE_SESSION": "1" if role == "judge-writer" else "",
+               "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+               "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
         result = subprocess.run(
             [sys.executable, str(helpers.KIT / "scripts/session.py"),
              "--role", role, "--agent", backend, "--input", str(source),
-             "--output", str(output), "--folder", str(folder)],
+             "--output", str(output), "--folder", str(working)],
             env=env, capture_output=True, text=True, timeout=10, check=False)
         return result, output
 
@@ -99,7 +112,7 @@ class CapabilityTest(unittest.TestCase):
                     self.assertIn("Open every page", " ".join(args))
 
     def test_judge_cli_uses_approved_fields_and_validates_verdict(self):
-        data = {"Intent": "Keep a habit", "Approach": "",
+        data = {"Intent": "Keep a habit", "Approach": "", "Files": "judge.py",
                 "Contract": "D1: keep the habit"}
         verdict = '<verdict>{"judge_files":["judge.py"],"tests_per_id":true,"notes":"ok"}</verdict>'
         with tempfile.TemporaryDirectory() as temporary:
@@ -118,7 +131,8 @@ class CapabilityTest(unittest.TestCase):
                     self.assertIn("input", result.stderr)
 
     def test_failed_final_event_without_newline_cannot_reuse_a_valid_verdict(self):
-        data = {"Intent": "Keep a habit", "Approach": "", "Contract": "D1: keep it"}
+        data = {"Intent": "Keep a habit", "Approach": "", "Contract": "D1: keep it",
+                "Files": "judge.py"}
         verdict = '<verdict>{"judge_files":["judge.py"],"tests_per_id":true,"notes":"ok"}</verdict>'
         for backend in ("claude", "codex"):
             tail = ({"type": "result", "is_error": True, "result": "tool unavailable"}
@@ -132,7 +146,8 @@ class CapabilityTest(unittest.TestCase):
                 self.assertIn("tool unavailable", result.stderr)
 
     def test_invalid_judge_verdict_stops_both_backends(self):
-        data = {"Intent": "Keep a habit", "Approach": "", "Contract": "D1: keep it"}
+        data = {"Intent": "Keep a habit", "Approach": "", "Contract": "D1: keep it",
+                "Files": "judge.py"}
         for backend in ("claude", "codex"):
             with self.subTest(backend=backend), tempfile.TemporaryDirectory() as temporary:
                 result, output = self.invoke(Path(temporary), backend, "judge-writer", data,

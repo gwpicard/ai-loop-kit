@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -13,7 +14,59 @@ from typing import Callable, Optional
 
 import agents
 import sandbox
+from loopkit import bar_hash_in, sh, untracked_paths
 from procs import _untrack_process, track_process
+
+
+def _judge_untracked(folder: Path, files: list[str]) -> dict:
+    """Record unapproved untracked files without following symbolic links."""
+    states = {}
+    for name in untracked_paths(folder) - set(files):
+        path = folder / name
+        states[name] = (path.lstat().st_mode, os.readlink(path) if path.is_symlink()
+                        else bar_hash_in(folder, [name]))
+    return states
+
+
+def _judge_start(folder: Path, data: dict) -> tuple:
+    """Check the approved write paths and preserve a clean piece baseline."""
+    files = data["Files"].splitlines()
+    root = folder.resolve()
+    if not files or len(files) != len(set(files)) or any(
+            not name.strip() or Path(name).is_absolute() or ".." in Path(name).parts
+            or not (root / name).resolve().is_relative_to(root) for name in files):
+        raise ValueError("judge-writer Files must name exact paths inside the project")
+    branch = sh(["git", "branch", "--show-current"], folder).stdout.strip()
+    if not re.fullmatch(r"piece/[1-9]\d*", branch):
+        raise ValueError("judge-writer requires the piece/<n> branch")
+    if sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout:
+        raise ValueError("judge-writer requires a clean working tree; keep existing work")
+    return (files, branch, sh(["git", "rev-parse", "HEAD"], folder).stdout.strip(),
+            _judge_untracked(folder, files))
+
+
+def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
+    """Accept only declared judge changes, then commit them on the piece branch."""
+    files, branch, base, before = baseline
+    if sh(["git", "branch", "--show-current"], folder).stdout.strip() != branch:
+        raise ValueError("judge-writer changed the piece branch")
+    changed = sh(["git", "diff", "--name-only", "--no-renames", "-z", base], folder).stdout
+    untracked = _judge_untracked(folder, files)
+    altered = {name for name in before.keys() | untracked.keys()
+               if before.get(name) != untracked.get(name)}
+    unexpected = (set(changed.split("\0")) | altered) - {"", *files}
+    reported = verdict["judge_files"]
+    if unexpected or not reported or not set(reported) <= set(files):
+        raise ValueError("judge-writer wrote or reported paths outside the approved Exit Files")
+    if any(not (folder / name).is_file() or
+           not (folder / name).resolve().is_relative_to(folder.resolve()) for name in files):
+        raise ValueError("judge-writer must produce the approved Exit Files inside the project")
+    sh(["git", "add", "--", *files], folder)
+    if sh(["git", "diff", "--cached", "--quiet"], folder, check=False).returncode:
+        sh(["git", "commit", "-m", "Write the approved judge"], folder)
+    if (sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout
+            or _judge_untracked(folder, files) != before):
+        raise ValueError("judge-writer left uncommitted work; keep it for shaping")
 
 
 def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
@@ -165,6 +218,7 @@ def main() -> int:
             raise ValueError(f"{args.role} input requires only: {', '.join(fields)}")
         prompt = (agents.KIT / "briefs" / f"{args.role}.md").read_text()
         prompt += "\n\n" + json.dumps(data) + f"\nReturn {output}."
+        baseline = _judge_start(args.folder, data) if args.role == "judge-writer" else None
         log = args.output.with_suffix(".log")
         events = log.with_suffix(".jsonl")
         result = {}
@@ -176,7 +230,7 @@ def main() -> int:
         if status or result.get("is_error") or result.get("type") == "turn.failed":
             raise ValueError(f"{args.role} requires {tools}: {status or result}; see {log}")
         if args.role == "judge-writer":
-            _last_verdict(text, args.role)
+            _judge_finish(args.folder, baseline, _last_verdict(text, args.role))
         else:
             findings, gaps = parse_research(text.splitlines())
             if gaps or not findings:
