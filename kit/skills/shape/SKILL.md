@@ -56,13 +56,15 @@ Use the KIT path above in every command. Write it out in full. Read
 5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
    Done when: the gate prints the piece number.
 6. Run `git fetch origin main`, then `git switch -c piece/<n> origin/main`.
-   If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`, change the judge files, and commit the change on top.
-   Save JSON containing only the approved `Intent`, `Approach` and `Contract`
-   strings, without shaping chat. Run
+   If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`. The judge writer adds its commit on top.
+   Save JSON containing approved `Intent`, `Approach`, `Contract` and `Files`
+   strings. `Files` lists exact Exit paths, one per line. Exclude shaping chat.
+   Save input and output in the system temp folder. Run
    `python3 "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder .`.
    The fresh session reads `<KIT>/briefs/judge-writer.md` and the project code.
-   It leaves judge files uncommitted. The launcher checks its verdict; report
-   any refusal and `next:` line. Commit only judge files, then `git switch main`.
+   The launcher requires a clean piece branch, checks paths and verdict, and
+   commits judge files. Report any refusal and `next:` line. On success, run
+   `git switch main`.
    Done when: `git log main..piece/<n>` shows the judge commit (the newest
    commit for a returned piece), and you are back on main.
 7. Run the project's Test command on the piece branch. An Exit Tests check

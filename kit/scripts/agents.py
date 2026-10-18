@@ -16,7 +16,8 @@ KIT = Path(__file__).resolve().parent.parent
 CLAUDE_MCP_ARGS = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 CAPABILITIES = {
     "researcher": (("question",), {"web-search", "web-open"}, "dated Research lines"),
-    "judge-writer": (("Intent", "Approach", "Contract"), {"read", "write", "shell"}, "verdict"),
+    "judge-writer": (("Intent", "Approach", "Contract", "Files"),
+                     {"read", "write", "shell"}, "verdict"),
 }
 
 

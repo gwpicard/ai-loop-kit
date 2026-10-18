@@ -368,7 +368,7 @@ Nobody edits a closed issue to keep it current.
 | --- | --- | --- | --- |
 | Shaper | the shape skill, with the person | the code, the person | Intent, Approach, Contract |
 | Researcher (**preview**) | a fresh Claude or Codex session through the shared launcher | the question, web pages as data | findings with source URLs and read dates |
-| Judge writer | a fresh Claude or Codex session through the shared launcher | the contract and the code, not the shaping chat | uncommitted judge files on `piece/<n>`, and a JSON verdict |
+| Judge writer | a fresh Claude or Codex session through the shared launcher | the contract, Exit paths and code, not shaping chat | committed judge files on `piece/<n>`, and a JSON verdict |
 | Builder | a fresh Claude Code (or Codex, **preview**) session per attempt | the contract, research, the judge, the last failure | code on the piece branch, `.loop/why.md`, optionally `.loop/outcome` |
 | Standards reviewer | a fresh session after the gate passes | the diff, plus the project's standards file or a baseline of Fowler's code smells | small checked fixes, follow-ups, a JSON verdict |
 | Contract reviewer | another fresh session | Intent, Out of scope, Approach, Contract, Research, build diff, frozen baseline and gate evidence | missing items or scope creep, a JSON verdict |
@@ -442,12 +442,19 @@ Shaping starts research and judge writing with `scripts/session.py`, which
 uses the same `agents.start_session` launcher as the build. Each capability
 has fixed JSON input fields, required tools and an output format in
 `agents.CAPABILITIES`. Shared instructions live in `kit/briefs/`. Claude's
-adapter chooses `sonnet`; the brief does not name a model. The shaper commits
-the judge files after the launcher validates the tagged verdict.
+adapter chooses `sonnet`; the brief does not name a model. Judge writing
+starts on a clean `piece/<n>` branch. After validating the tagged verdict,
+the launcher checks that only approved Exit files changed and commits them.
+A successful session leaves no uncommitted files in the shared working tree.
+Refused work is kept for shaping to inspect.
 
 Research takes only `question`. Judge writing takes approved `Intent`,
-`Approach` and `Contract` strings, plus the code in the working folder. Extra
-input fields are refused. Claude research enables only WebSearch and
+`Approach`, `Contract` and `Files` strings, plus the code in the working folder.
+`Files` lists the exact Exit paths, one per line. The brief forbids other
+write paths. For a missing subject module, it gives an import stub and an
+assertion inside the test, so the judge fails for the reason the gate accepts.
+Missing dependencies still raise import errors. Extra input fields are
+refused. Claude research enables only WebSearch and
 WebFetch. Codex research enables live native web search with a read-only
 sandbox and command tools disabled. Other sessions keep their existing
 network policy. Walk-away research is refused. A missing executable, failed
