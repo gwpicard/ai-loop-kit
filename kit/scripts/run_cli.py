@@ -48,8 +48,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             print(json.dumps(_logged_verdict(Path(args.verdict_file), args.verdict_kind), sort_keys=True))
             return 0
         except Refused as error:
-            print(f"refused: {error.reason}", file=sys.stderr)
-            print(f"next: {error.next_step}", file=sys.stderr)
+            print(f"refused: {error.reason}\nnext: {error.next_step}", file=sys.stderr)
             return 2
     root = repo_root(Path.cwd())
     gh = GitHub(root)
@@ -61,8 +60,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             require_extras(loop_settings(root), *(last_record(gh.comments(n), "ready") or {}
                                                  for n in selected))
         except Refused as error:
-            print(f"refused: {error.reason}", file=sys.stderr)
-            print(f"next: {error.next_step}", file=sys.stderr)
+            print(f"refused: {error.reason}\nnext: {error.next_step}", file=sys.stderr)
             return 2
         checks = gate.doctor(gh, root, walk_away=True, agent=args.agent)
         for ok, what, fix in checks:
@@ -78,8 +76,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         signal.signal(signal.SIGTERM, api._interrupt_handler)
         signal.signal(signal.SIGINT, api._interrupt_handler)
     except Refused as r:
-        print(f"refused: {r.reason}", file=sys.stderr)
-        print(f"next: {r.next_step}", file=sys.stderr)
+        print(f"refused: {r.reason}\nnext: {r.next_step}", file=sys.stderr)
         return 2
     failed = False
     results = []
@@ -87,12 +84,12 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
     awake = walkaway.keep_awake(root) if args.walk_away else nullcontext()
     awake.__enter__()
     try:
+        gate.run_event(root, "run-start", reason="started")
         if args.retry_conflict is not None:
             try:
                 retry_conflict(gh, root, args.retry_conflict)
             except Refused as error:
-                print(f"refused: {error.reason}", file=sys.stderr)
-                print(f"next: {error.next_step}", file=sys.stderr)
+                print(f"refused: {error.reason}\nnext: {error.next_step}", file=sys.stderr)
                 return 2
             args.pieces = [args.retry_conflict]
         gate.ignore_loop_folder(root)
@@ -118,42 +115,30 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             try:
                 result = api.build_piece(gh, root, n, args.attempts, args.walk_away,
                                          args.agent)
-                results.append(result)
-                failed = gate.state_of(gh.issue(n)) not in ("approval", "done") or failed
-                if args.walk_away:
-                    try:
-                        state = gate.state_of(gh.issue(n))
-                    except Exception:
-                        state = "unknown"
-                    summary_results.append(walkaway.piece_summary(root, n, result, state,
-                                                                  started_at))
+                state = gate.state_of(gh.issue(n))
+                failed = state not in ("approval", "done") or failed
             except Refused as r:
                 failed = True
+                state = "unchanged"
                 result = f"piece {n}: refused: {r.reason}" + (f" (next: {r.next_step})" if r.next_step else "")
-                results.append(result)
-                if args.walk_away:
-                    summary_results.append(walkaway.piece_summary(root, n, result, "unchanged",
-                                                                  started_at))
             except Exception as e:  # keep going with the other pieces
                 failed = True
+                state = "unknown"
                 result = f"piece {n}: stopped by an error: {e}"
-                results.append(result)
-                if args.walk_away:
-                    summary_results.append(walkaway.piece_summary(root, n, result, "unknown",
-                                                                  started_at))
-        print("\nRun finished.")
-        print("\n".join(results))
+            results.append(result)
+            if args.walk_away:
+                summary_results.append(walkaway.piece_summary(root, n, result, state, started_at))
+        print("\nRun finished.\n" + "\n".join(results))
         return int(failed)
     finally:
+        gate.run_event(root, "run-stop", reason="ended")
         if api.stop_requested(root):
             api.clear_stop(root)
         if args.walk_away:
-            finished_at = datetime.now(timezone.utc)
             try:
-                path = walkaway.write_summary(root, summary_results + [
+                summary = walkaway.write_summary(root, summary_results + [
                     result for result in results if not result.startswith("piece ")
-                ], started_at, finished_at)
-                summary = path.read_text()
+                ], started_at, datetime.now(timezone.utc)).read_text()
                 walkaway.post_summary(gh, summary,
                                       mention=any(marker in result for result in results
                                                   for marker in ("back to shaping", "Run paused",

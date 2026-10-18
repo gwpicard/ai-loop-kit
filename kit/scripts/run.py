@@ -279,18 +279,13 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     try:
         result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override,
                                metrics)
-    except AttemptIdle as e:
-        reason = str(e)
-        if gate.state_of(gh.issue(n)) == "building":
-            _hand_back(gh, root, n, reason, "builder-failed", metrics)
-        result = f"piece {n}: back to shaping, {reason}"
     except Exception as e:  # never leave a piece in building
-        reason = f"the run stopped with an error: {str(e).strip()[:300]}"
+        idle = isinstance(e, AttemptIdle)
+        reason = str(e) if idle else f"the run stopped with an error: {str(e).strip()[:300]}"
         if gate.state_of(gh.issue(n)) == "building":
-            _hand_back(gh, root, n, reason, "environment", metrics)
+            _hand_back(gh, root, n, reason, "builder-failed" if idle else "environment", metrics)
         result = f"piece {n}: back to shaping, {reason}"
-    state = gate.state_of(gh.issue(n))
-    if state != "building":
+    if gate.state_of(gh.issue(n)) != "building":
         _run_metrics_path(root, n).unlink(missing_ok=True)
     return result
 

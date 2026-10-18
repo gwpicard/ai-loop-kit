@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None, api=None) -> int:
             api.init(gh, root)
             print("ok: labels made, .loop/ ignored locally")
         elif args.cmd == "capture":
-            n = api.capture(gh, args.title, Path(args.body_file).read_text())
+            n = api.capture(gh, args.title, Path(args.body_file).read_text(), root=root)
             print(f"ok: captured piece {n} in shaping")
         elif args.cmd == "check":
             issue = gh.issue(args.n)
@@ -85,8 +85,7 @@ def main(argv: list[str] | None = None, api=None) -> int:
         elif args.cmd == "stop":
             print("ok: " + api.request_stop(root))
     except Refused as r:
-        print(f"refused: {r.reason}", file=sys.stderr)
-        if r.next_step:
-            print(f"next: {r.next_step}", file=sys.stderr)
+        print(f"refused: {r.reason}" + (f"\nnext: {r.next_step}" if r.next_step else ""),
+              file=sys.stderr)
         return 2
     return 0

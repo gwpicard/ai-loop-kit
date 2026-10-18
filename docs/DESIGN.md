@@ -598,6 +598,14 @@ run.py
 - **Exit status.** The run exits non-zero when a piece fails, including an
   environment hand-back, a refusal or an unexpected error. It continues
   with the other pieces before returning that status.
+- **Local events.** `.loop/events.jsonl` appends one JSON line for each run
+  start, run stop and successful gate move, including capture and hand-back.
+  Each line holds a UTC time, piece number, event name, resulting state,
+  attempt count and short reason. Run boundaries use a null piece, an empty
+  state and attempt zero. Reasons use fixed names or reason types. The file
+  copies no free text, environment values or builder output. GitHub labels
+  remain the source of truth. A write failure warns once per project in the
+  process and leaves the run and gate moves running.
 - **Idle limit.** An attempt stops after ten minutes with no output and no
   file change in the build folder (`Idle limit:` changes it). The hard limit
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
