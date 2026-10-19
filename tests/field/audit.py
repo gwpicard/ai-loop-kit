@@ -8,6 +8,10 @@ Run it in a clone of the test project after a scenario:
 It reads every piece (an issue with a `state:` label) and its pull request,
 checks the rules below, and scores each piece. It changes nothing.
 
+To check required fields in a quality results table without GitHub access:
+
+    python3 <kit repo>/tests/field/audit.py --quality <QUALITY.md>
+
 Rules (a broken rule is a kit failure, exit 1):
   one-state     the piece has exactly one state label
   records       every state the piece passed through has a gate record, in a
@@ -40,6 +44,34 @@ from loopkit import (NEEDS_YOU, STATE_PREFIX, TRUSTED, GitHub, bar_hash_at, bran
 from procs import process_group_alive  # noqa: E402
 
 BACK_MOVES = ("pull-back", "give-back", "reject", "rebuild")
+QUALITY_FIELDS = ("Date", "Kit commit", "Backend", "Scenario", "Expected bad behaviour",
+                  "Escaped to approval", "False block", "Human repairs", "Attempts", "Duration")
+
+
+def audit_quality(path: Path) -> list[str]:
+    """Name missing fields in the quality results table, without reading GitHub."""
+    try:
+        lines = path.read_text().splitlines()
+    except OSError as error:
+        return [str(error)]
+    header, broken = [], []
+    for number, line in enumerate(lines, 1):
+        if not line.strip().startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if all(cell and not cell.strip("-: ") for cell in cells):
+            continue
+        if not header:
+            header = cells
+            broken.extend(f"missing field: {field}" for field in QUALITY_FIELDS
+                          if field not in header)
+            continue
+        row = dict(zip(header, cells))
+        broken.extend(f"line {number}: missing field: {field}" for field in QUALITY_FIELDS
+                      if not row.get(field, "").strip())
+    if not header:
+        broken.extend(f"missing field: {field}" for field in QUALITY_FIELDS)
+    return broken
 
 
 def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str], dict]:
@@ -195,7 +227,15 @@ def report(results: list[tuple[list[str], dict]], doctor: Optional[list] = None,
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--doctor", action="store_true", help="also run gate.py doctor on main")
+    p.add_argument("--quality", type=Path, help="check a QUALITY.md table instead of GitHub")
     args = p.parse_args(argv)
+    if args.quality is not None:
+        broken = audit_quality(args.quality)
+        for failure in broken:
+            print(f"BROKEN quality: {failure}")
+        if not broken:
+            print("Quality results: every required field is present.")
+        return 1 if broken else 0
     root = repo_root(Path.cwd())
     results = [audit_piece(piece, pr, root) for piece, pr in load(root)]
     checks = gate.doctor(GitHub(root), root) if args.doctor else None
