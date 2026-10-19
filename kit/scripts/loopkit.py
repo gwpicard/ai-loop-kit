@@ -451,6 +451,25 @@ def skipped_tests(output: str) -> bool:
                for line in output.splitlines() for pattern in patterns)
 
 
+_WRONG_TEST_REASON = re.compile(
+    r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|ModuleNotFoundError|"
+    r"ImportError|FileNotFoundError):|^ERROR collecting(?:\s|$)", re.MULTILINE)
+
+
+def judge_has_runner_error(output: str, code: int) -> bool:
+    """Recognise a missing test command or a broken test module."""
+    return ((code == 127 and "command not found" in output)
+            or bool(_WRONG_TEST_REASON.search(output)))
+
+
+def judge_assertion_failed(output: str, item: str) -> bool:
+    """Apply the ready gate's failure-line and named-item rule."""
+    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
+    named = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
+    return any(fail_line.search(line) and named.search(line)
+               for line in output.splitlines())
+
+
 def exit_ready(folder: Path, checks: tuple, contract: dict,
                stays: tuple) -> tuple[list[dict], str]:
     """Prove every Exit check is unmet on main and save its baseline."""
@@ -458,10 +477,6 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
 
     records, outputs = [], []
     building = [item for item in contract if item not in stays]
-    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
-    wrong_reason = re.compile(
-        r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|ModuleNotFoundError|"
-        r"ImportError|FileNotFoundError):|^ERROR collecting(?:\s|$)", re.MULTILINE)
     for source in checks:
         check = dict(source)
         if check["type"] == "tests":
@@ -471,17 +486,13 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
             elif code == 0:
                 raise Refused("the judge already passes on main, so there is nothing to build",
                               "make the judge test what the Contract items ask for")
-            if (check.get("legacy_kind") != "scaffold" and
-                    ((code == 127 and "command not found" in output) or
-                     wrong_reason.search(output))):
+            if check.get("legacy_kind") != "scaffold" and judge_has_runner_error(output, code):
                 raise Refused("the judge fails on main for the wrong reason "
                               f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
                               "fix the judge so it fails on an assertion")
             if check.get("legacy_kind") != "scaffold":
-                fail_lines = "\n".join(
-                    line for line in output.splitlines() if fail_line.search(line))
-                named = [item for item in building if re.search(
-                    rf"(?<![A-Za-z0-9]){item}(?![0-9])", fail_lines)]
+                named = [item for item in building
+                         if judge_assertion_failed(output, item)]
                 if not named:
                     raise Refused("the judge fails on main, but its output names no spec ID "
                                   f"({', '.join(building)}):\n{output.strip()[-1500:]}",
@@ -491,8 +502,8 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                 if missing:
                     raise Refused(f"no failing judge test names {', '.join(missing)}",
                                   "give every Contract item at least one failing test")
-                failing_stays = [item for item in stays if re.search(
-                    rf"(?<![A-Za-z0-9]){item}(?![0-9])", fail_lines)]
+                failing_stays = [item for item in stays
+                                 if judge_assertion_failed(output, item)]
                 if failing_stays:
                     raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
                                   "a (stays) item already holds today; test only what it says")
