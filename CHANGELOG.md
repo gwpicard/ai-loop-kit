@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.4.0 (19 October 2026)
+
+- The default install leaves out the experimental mutation tools and gauntlet
+  critics. To use them, run `/plugin install ai-loop-kit-extras@ai-loop-kit`,
+  then `/ai-loop-kit-extras:setup`, and set
+  `AI_LOOP_KIT_EXTRAS_ROOT` to its installed path. Run `/ai-loop-kit:setup`
+  again to agree and check mutation Quality commands. Existing mutation
+  command paths keep working. A source checkout finds the sibling `extras/`
+  folder by default. A missing extra refuses the affected checks before
+  claim or launch; it never weakens the contract.
+- Runs record local events and write a dashboard page with each piece's
+  state, attempt, time and pull request link. The page opens without network
+  access, escapes issue text and flags disagreements with GitHub labels.
+- Research and judge writing use the shared session launcher on Claude or
+  Codex. A missing tool or invalid answer stops shaping with a next step.
+  The judge-writer uses only the approved Exit paths and writes assertion
+  failures that the gate accepts. Its path checks accept named tool cache
+  folders left by real pytest, while refusing committed caches and other
+  unexpected files. Sessions suppress bytecode and the pytest cache.
+- Contract reviewers see changes since ready, frozen baseline lines and the
+  gate's attempt evidence. Findings that cite a valid baseline conflict are
+  kept separate from judge gaps. Pull requests list tests separately from
+  frozen support files, and truncated evidence keeps whole lines.
+- Codex walk-away sessions deny home credential reads while keeping ordinary
+  Git configuration readable. Builders carry on after successful commands
+  with warnings. Two identical unsupported environment reports stop a piece.
+  The sandbox probe retries an unreadable answer once, but never a readable
+  leak. Environment evidence also recognises the observed zsh here-document
+  refusal when the rest of a command exits successfully.
+- Worktree cleanup handles ignored dependencies, keeps unfinished work and
+  reports failed removals. Doctor lists leftover folders with their size and
+  whether they are safe to remove.
+- The spec parser, doctor and command-line handling have separate modules.
+  Session execution has one owner and ready reuses its settings snapshot.
+  Rare run paths load support skills only when needed. The ordinary run
+  skill loads 265 source words, down from 903. Checks cap Python files at
+  800 lines, set text budgets and guard test discovery after file splits.
+- The Claude (Sonnet) attended rehearsal passed, including the dashboard
+  and a hostile piece blocked with no leak. At `7134440`, the third re-proof
+  reached ready without hand edits and opened a pull request after one
+  20-second attempt and both reviews. The Claude reject path and retry after
+  a failed attempt remain unproved. See the [field results](tests/field/RESULTS.md)
+  for this rehearsal, the Codex runs and their limits.
+- Walk-away runs, the researcher, goal and gauntlet checks, and the Codex
+  backend remain previews. Mutation testing remains experimental. No preview
+  became stable or was removed.
+- The kit total did not shrink: runtime Python grew from 5,972 lines in 1.3
+  to 6,435, up 463. The default install has 6,015 lines and the extras add
+  420. Moving code into the extras reduces the default install's share of
+  the bundle; it does not reduce the combined total.
+
 ## 1.3.0 (17 October 2026)
 
 - Fixed the Codex backend sandbox so builders can write temporary files and
