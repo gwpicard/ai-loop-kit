@@ -39,9 +39,8 @@ from proposed_quality import apply as apply_proposed_quality
 def print_checks(checks: list[tuple[bool, str, str]]) -> bool:
     """Print diagnostic marks without making warnings or unknowns blocking."""
     for ok, what, fix in checks:
-        mark = ("warn" if what.startswith("warning:") else
-                "unknown" if what == "main branch protection: unknown" else
-                "ok  " if ok else "FAIL")
+        mark = ("warn" if what.startswith("warning:") else "unknown"
+                if what == "main branch protection: unknown" else "ok  " if ok else "FAIL")
         print(f"{mark} {what}" + (f"\n     next: {fix}" if fix else ""))
     return all(ok for ok, _, _ in checks)
 
@@ -98,10 +97,11 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
     def command_result(code: int, output: str, command: str, name: str) -> None:
         duration = next((line.removeprefix("Keep took: ") for line in output.splitlines()
                          if line.startswith("Keep took: ")), "")
-        fix = ("add tests or fix the test collection settings:\n" if code == 5 else
+        empty = code == 5 and ("no tests ran" in output or "collected 0 items" in output)
+        fix = ("add tests or fix the test collection settings:\n" if empty else
                "increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
                if code == 124 else "fix the command or environment, or add a Prepare command:\n")
-        name = "no tests were collected" if code == 5 else name
+        name = "no tests were collected" if empty else name
         add(code == 0, f"{name} on a fresh copy of main ({command})"
             + (f" ({duration})" if duration else ""), fix + output.strip()[-800:])
 
