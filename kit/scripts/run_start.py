@@ -86,7 +86,11 @@ def _probe_file(path: Path) -> tuple:
     if path.is_symlink():
         return os.readlink(path), 0
     if path.is_file():
-        return path.read_bytes(), path.stat().st_mode
+        try:
+            return path.read_bytes(), path.stat().st_mode
+        except OSError:
+            raise Refused(f"cannot read judge file {path}",
+                          "make the judge file readable, then run ready again") from None
     return None, -1 if path.exists() else 0
 
 

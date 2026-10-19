@@ -1,6 +1,7 @@
 """Ready records explain judge files that test lint could not check."""
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -73,6 +74,24 @@ class TestLintUncheckedTest(unittest.TestCase):
             gate.move(self.p.gh, self.p.root, number, "ready")
 
         self.assertIn(name, caught.exception.reason)
+        self.assertNotIn("Traceback", caught.exception.reason)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can read mode-zero files")
+    def test_D2_snapshot_refuses_unreadable_judge_with_path(self):
+        name = "judge_add.py"
+        path = self.p.root / name
+        path.write_text("print('baseline')\n")
+        git(self.p.root, "add", name)
+        git(self.p.root, "commit", "--quiet", "-m", "Add judge file on main")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        self.p.loop_section("printf baseline", f"chmod 000 {name}")
+        number = self.p.piece()
+
+        with self.assertRaises(Refused) as caught:
+            gate.move(self.p.gh, self.p.root, number, "ready")
+
+        self.assertIn(name, caught.exception.reason)
+        self.assertIn("readable", caught.exception.next_step)
         self.assertNotIn("Traceback", caught.exception.reason)
 
     def test_D3_python_syntax_error_is_still_reported(self):
