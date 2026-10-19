@@ -263,6 +263,8 @@ class Project:
 
     def piece(self, judge: str = JUDGE, spec: str = SPEC) -> int:
         import gate
+        if not (self.root / "AGENTS.md").exists():
+            self.loop_section("printf baseline")
         n = gate.capture(self.gh, "Add a habit", spec)
         git(self.root, "switch", "--quiet", "-c", f"piece/{n}", "main")
         (self.root / "judge_add.py").write_text(judge)

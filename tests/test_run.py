@@ -354,7 +354,7 @@ class RunTest(RunFixture, unittest.TestCase):
         run.commit_leftovers(folder, n, 1)
         passed, output = gate.judge(folder, gate.last_record(self.p.gh.comments(n), "ready"))
         self.assertTrue(passed, output)
-        self.assertIn("Keep: true", output)
+        self.assertIn("Regression: true", output)
 
     def test_a_failing_build_goes_back_to_shaping(self):
         n, result = self.build("bad")

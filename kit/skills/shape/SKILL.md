@@ -32,9 +32,9 @@ Use the KIT path above in every command. Write it out in full. Read
 4. Write the spec in the format of `<KIT>/spec-format.md`, with a test
    name per Contract item, and show it to the person. When a piece adds or
    changes a module, Approach names that module and the interface a caller
-   uses. If the project already has tests, add `Keep:` with the Test command
-   from the project's AGENTS.md, exactly, so what works today must still
-   work. Include all five lines under `## Risks`: Protected paths, New
+   uses. The project's Test command is required. Optional `Keep:` adds
+   checks; it never replaces the full suite. Equal commands run once.
+   Include all five lines under `## Risks`: Protected paths, New
    dependency, Shared files, Needs services and Open choices. Write `none`
    when a line has no entries, and settle every open choice before ready.
    Mark a Contract item that already holds today as `(stays)`; never bend a

@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""The gate: the only code that moves a piece from one state to another.
-
-A piece is a GitHub issue with exactly one `state:` label. The gate allows
-only the moves in MOVES, runs the checks for each one itself, and writes a
-record on the issue for every move it makes.
-
-    gate.py init                       make the labels, ignore .loop/
-    gate.py capture --title T --body-file F
-    gate.py check N                    run the ready checks, move nothing
-    gate.py move N STATE [--reason R] [--type T]
-    gate.py spec N --body-file F       replace a shaping piece's spec
-    gate.py sync                       move merged pieces to done
-    gate.py status                     list the pieces by state
-    gate.py doctor                     check the project is ready for the loop
-    gate.py report                     count typed hand-backs
-    gate.py stop                       stop a live run after its current attempt
-"""
+"""The gate alone moves pieces, runs their checks and records the evidence."""
 from __future__ import annotations
 
 import fnmatch
@@ -45,6 +29,7 @@ from extras import critics, require_extras
 from doctor import quality_on_fresh_main
 from gate_cli import build_parser as build_parser
 import measure  # noqa: E402
+import regression
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
@@ -54,20 +39,15 @@ from run_start import (capture_probe_files, release_worktree, remove_worktree,  
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
-    ("new", "shaping"): "capture",
-    ("shaping", "ready"): "ready",
-    ("ready", "shaping"): "pull-back",
-    ("ready", "building"): "claim",
-    ("building", "shaping"): "give-back",
-    ("building", "approval"): "submit",
-    ("approval", "done"): "merged",
-    ("approval", "shaping"): "reject",
+    ("new", "shaping"): "capture", ("shaping", "ready"): "ready",
+    ("ready", "shaping"): "pull-back", ("ready", "building"): "claim",
+    ("building", "shaping"): "give-back", ("building", "approval"): "submit",
+    ("approval", "done"): "merged", ("approval", "shaping"): "reject",
     ("dropped", "shaping"): "reopen",
 }
 for _s in ("shaping", "ready", "building", "approval"):
     MOVES[(_s, "dropped")] = "drop"
 
-# Moves that need a reason, because they send work back or end it.
 NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
 NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen"}
 
@@ -88,16 +68,13 @@ def state_of(issue: dict) -> str:
 
 
 def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
-    """Run the measurement or blind critic for one completed attempt."""
-    if ready.get("kind") == "goal":
-        return measure.judge_attempt(folder, ready)
-    if ready.get("kind") == "gauntlet":
-        return critics().judge_attempt(folder, ready)
-    return -1, ""
+    if ready.get("kind") not in ("goal", "gauntlet"):
+        return -1, ""
+    adapter = measure if ready["kind"] == "goal" else critics()
+    return adapter.judge_attempt(folder, ready)
 
 
 def check_times(output: str) -> list[float]:
-    """Extract elapsed seconds from Keep checks recorded in command output."""
     return [float(value) for value in re.findall(
         r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
 
@@ -119,6 +96,13 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     main_sha = rev(root, main)
     keep_limit = keep_limit_seconds(settings)
     keep_command = spec.keep or settings.get("keep", "")
+    regression_command = settings.get("test", "")
+    if spec.kind == "scaffold" and not regression_command:
+        regression_command = spec.command
+    if not regression_command:
+        raise Refused("AGENTS.md has no Test command for the required regression check",
+                      "set the Test command in AGENTS.md, then run ready again")
+    regression_main = {"reason": "scaffold: no test runner on main"}
     keep_output = ""
     shared_conflicts = []
     wanted_shared = set(spec.risks.get("shared_files", ()))
@@ -143,10 +127,15 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             raise Refused("the Prepare command fails on a fresh copy of main:\n"
                           f"{poutput.strip()[-1500:]}",
                           "fix the Prepare command in AGENTS.md, then run gate.py doctor")
-        if keep_command:
-            # What must stay the same is checked on main as it is today.
+        if spec.kind != "scaffold":
+            regression_main, keep_output = regression.check(folder, regression_command, keep_limit)
+            if regression_main["reason"]:
+                raise Refused(f"the regression check on main {regression_main['reason']}:\n"
+                              f"{keep_output.strip()[-1500:]}\nCommand: {regression_command}",
+                              "fix main or the Test command and environment, then run ready again")
+        if keep_command and keep_command != regression_command:
             kcode, koutput = run_keep(folder, keep_command, timeout=keep_limit)
-            keep_output = koutput
+            keep_output += "\n" + koutput
             if kcode != 0:
                 raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
                               "fix main first, or correct the Keep: command")
@@ -170,7 +159,6 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         with suppress(OSError):
             tmp.rmdir()
 
-    # exit_ready has checked each type on main, including assertion failures for tests.
     if spec.stays:
         judge_text = "".join(sh(["git", "show", f"{head}:{f}"], root).stdout for f in spec.files)
         untested = [i for i in spec.stays
@@ -183,33 +171,25 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         raise Refused(f"Agent must be claude or codex, not {agent!r}",
                       "set `Agent: claude` or `Agent: codex` in the loop section of AGENTS.md")
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
-            "contract": spec.done_when, "intent": spec.intent, "approach": spec.approach,
-            "playbook": spec.playbook,
-            "files": spec.files, "command": spec.command,
-            "kind": spec.kind, "keep": keep_command,
-            "keep_limit": settings.get("keep limit", "15"),
-            "check_seconds": check_times(keep_output + "\n" + output),
-            **kind_record,
-            "test": settings.get("test", ""),
-            "prepare": settings.get("prepare", ""),
+            "contract": spec.done_when, "keep": keep_command,
+            **{key: getattr(spec, key) for key in
+               ("intent", "approach", "playbook", "files", "command", "kind", "settings")},
+            "regression": regression_command, "regression_limit": keep_limit,
+            "regression_main": regression_main, "keep_limit": settings.get("keep limit", "15"),
+            "check_seconds": check_times(keep_output + "\n" + output), **kind_record,
+            **{key: settings.get(key, "") for key in ("test", "prepare", "standards")},
             "quality": settings.get("quality", []),
-            "standards": settings.get("standards", ""),
             "idle_limit": settings.get("idle limit", "10"),
             "waiting_limit": settings.get("waiting limit", "3"),
-            "agent": agent,
-            "stays": list(spec.stays),
-            "research": list(spec.research),
+            "agent": agent, "stays": list(spec.stays), "research": list(spec.research),
             "risks": {key: list(value) for key, value in spec.risks.items()},
             "shared_conflicts": shared_conflicts,
-            "settings": spec.settings,
             "protected_paths": settings.get("protected paths", []),
-            "large_files": list(spec.large_files),
-            "commit": head, "main": main_sha,
+            "large_files": list(spec.large_files), "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
 
 
 def check_frozen(issue: dict, comments: list[str]) -> dict:
-    """The spec may not change after ready. Returns the ready record."""
     ready = last_record(comments, "ready")
     if ready is None:
         raise Refused(f"piece {issue['number']} has no ready record",
@@ -221,7 +201,7 @@ def check_frozen(issue: dict, comments: list[str]) -> dict:
 
 
 def check_claim_bar(root: Path, n: int, ready: dict) -> None:
-    """Claim is valid only while the judge bar still matches ready."""
+    regression.require_record(ready)
     head = rev(root, branch_name(n))
     if head is None or (ready["files"] and
                         bar_hash_at(root, head, ready["files"],
@@ -232,7 +212,6 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
 
 
 def claim_stale_research(ready: dict) -> list[str]:
-    """Name findings that are more than 30 days old at claim time."""
     return stale_findings(ready.get("research", []))
 
 
@@ -326,7 +305,13 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         return False, f"the judge reported skipped tests:\n{output.strip()[-1500:]}"
     if code != 0:
         return False, output
-    if ready.get("keep"):
+    regression.require_record(ready)
+    regression_result, regression_output = regression.check(
+        folder, ready["regression"], ready["regression_limit"], protected_paths)
+    if regression_result["reason"]:
+        return False, regression_output
+    output += "\n\n" + regression_output
+    if ready.get("keep") and ready["keep"] != ready["regression"]:
         keep_timeout = keep_limit_seconds({"keep limit": ready.get("keep_limit", "15")})
         kcode, koutput = run_keep(folder, ready["keep"], timeout=keep_timeout,
                                   protected_paths=protected_paths)
@@ -413,7 +398,6 @@ def _is_test_support(name: str) -> bool:
 
 def keep_passes_without_judge(folder: Path, ready: dict,
                               failures: tuple[str, str]) -> tuple[bool, str]:
-    """Probe only when both failures locate an error in the same judge file."""
     traceback = (r"^Traceback \(most recent call last\):\n"
                  r"(?:[ \t]+[^\n]*\n|\n)+\w+(?:\.\w+)*(?::[^\n]*)?$")
     for name in ready["files"]:
@@ -448,7 +432,6 @@ def keep_passes_without_judge(folder: Path, ready: dict,
 
 def quality_fails_on_main(folder: Path, command: str, test_command: str = "",
                           protected_paths: Optional[list[str]] = None) -> bool:
-    """Check a failed Quality command in a fresh main worktree."""
     root = repo_root(folder)
     main = main_ref(folder)
     ok, _ = quality_on_fresh_main(root, main, command, test_command, protected_paths)
@@ -460,49 +443,26 @@ def quality_probe_path(root: Path, piece: int, command: str, main_commit: str) -
     return root / ".loop" / f"main-quality-{piece}-{key}.json"
 
 
-# ---------------------------------------------------------------- moves
-
 def _cause(name: str, reason: str, reason_type: str) -> str:
     text = reason.lower()
-    if name == "reject" and "pull request creation failed" in text:
-        cause = "pull-request-failed"
-    elif name == "reject":
-        cause = "person-rejected"
-    elif name == "pull-back":
-        cause = "person-request"
-    elif "prepare" in text:
-        cause = "prepare-failed"
-    elif "rate limit" in text or "usage limit" in text:
-        cause = "usage-limit"
-    elif "idle" in text:
-        cause = "idle"
-    elif "stale" in text or "main changed" in text:
-        cause = "stale-after-main"
-    elif ("importerror" in text or "modulenotfounderror" in text
-          or "no module named" in text or "module not found" in text
-          or "import error" in text):
-        cause = "import-error"
-    elif "flaky" in text:
-        cause = "keep-flaky"
-    elif "conflict" in text or "does not merge" in text:
-        cause = "conflict"
-    elif "judge gap" in text:
-        cause = "judge-gap"
-    elif reason_type == "stopped" or "person asked the run to stop" in text:
-        cause = "stopped"
-    elif "bar" in text or reason_type == "bar-wrong":
-        cause = "bar-wrong"
-    elif "quality" in text:
-        cause = "quality-failed"
-    elif "judge" in text:
-        cause = "judge-failed"
-    elif "dirty" in text or "uncommitted" in text:
-        cause = "dirty-worktree"
-    elif reason_type == "builder-failed":
-        cause = "builder-failed"
-    else:
-        cause = "other"
-    return cause if cause in CAUSES else "other"
+    choices = [
+        (name == "reject" and "pull request creation failed" in text, "pull-request-failed"),
+        (name == "reject", "person-rejected"), (name == "pull-back", "person-request"),
+        ("prepare" in text, "prepare-failed"),
+        ("rate limit" in text or "usage limit" in text, "usage-limit"),
+        ("idle" in text, "idle"), ("stale" in text or "main changed" in text, "stale-after-main"),
+        (any(word in text for word in ("importerror", "modulenotfounderror", "no module named",
+                                      "module not found", "import error")), "import-error"),
+        ("flaky" in text, "keep-flaky"),
+        ("conflict" in text or "does not merge" in text, "conflict"),
+        ("judge gap" in text, "judge-gap"),
+        (reason_type == "stopped" or "person asked the run to stop" in text, "stopped"),
+        ("bar" in text or reason_type == "bar-wrong", "bar-wrong"),
+        ("quality" in text, "quality-failed"), ("judge" in text, "judge-failed"),
+        ("dirty" in text or "uncommitted" in text, "dirty-worktree"),
+        (reason_type == "builder-failed", "builder-failed"),
+    ]
+    return next((cause for matches, cause in choices if matches and cause in CAUSES), "other")
 
 
 def _kit_version() -> str:
@@ -516,7 +476,7 @@ def _kit_version() -> str:
 def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
          reason_type: str = "", folder: Optional[Path] = None, pr: str = "",
          cause: str = "", attempts: Optional[int] = None,
-         seconds: Optional[float] = None) -> str:
+         seconds: Optional[float] = None, evidence: dict | None = None) -> str:
     issue = gh.issue(n)
     frm = state_of(issue)
     name = MOVES.get((frm, to))
@@ -578,6 +538,10 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             record["pr"] = pr
         record["check_seconds"] = check_times(output)
         record["commit"] = rev(folder, "HEAD")
+        record["regression"] = {"command": ready["regression"], "exit": 0,
+                                "commit": record["commit"]}
+        if evidence is not None:
+            evidence["output"] = output
         record["attempts"] = max(0, int(attempts or 0))
         record["seconds"] = round(max(0.0, float(seconds or 0)), 3)
         note += f" The gate ran the judge and it passed. Pull request: {pr}"
@@ -634,8 +598,7 @@ def capture(gh: GitHub, title: str, body: str, root: Path | None = None) -> int:
 
 def sync(gh: GitHub, root: Path) -> list[str]:
     notes = []
-    # The pull request's closing words close the issue when it merges, so a
-    # merged piece may already be closed. Look at closed issues too.
+    # Closing words may close the issue before sync sees the merged pull request.
     for item in gh.issues_with_label(STATE_PREFIX + "approval", closed_too=True):
         found = gh.pr_for_branch(branch_name(item["number"]))
         if found and found["state"] == "MERGED":
@@ -658,7 +621,6 @@ GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/
 
 
 def generated(path: str) -> bool:
-    """Is this path one of the files that tools make?"""
     parts = path.split("/")
     for pattern in GENERATED:
         p = pattern.strip("/")
@@ -672,8 +634,6 @@ def generated(path: str) -> bool:
 
 
 def ignore_loop_folder(root: Path) -> None:
-    """Ignore .loop/ and generated files through git's local exclude file. A
-    builder never edits that file, and the project's own files stay as they are."""
     common = Path(sh(["git", "rev-parse", "--git-common-dir"], root).stdout.strip())
     exclude = (common if common.is_absolute() else root / common) / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
@@ -749,7 +709,6 @@ def report(gh: GitHub) -> str:
 
 
 def replace_spec(gh: GitHub, n: int, body: str) -> None:
-    """Replace a piece's spec only while it is in shaping."""
     issue = gh.issue(n)
     if state_of(issue) != "shaping":
         raise Refused("the spec can only change while a piece is shaping",
@@ -759,7 +718,6 @@ def replace_spec(gh: GitHub, n: int, body: str) -> None:
 
 
 def request_stop(root: Path) -> str:
-    """Ask a live run to stop at its next boundary."""
     loop = root / ".loop"
     if not (loop / "run.lock").is_file():
         raise Refused("there is no run to stop", "start run.py first")

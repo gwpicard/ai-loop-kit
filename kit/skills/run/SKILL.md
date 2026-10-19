@@ -29,3 +29,5 @@ Never build here, merge, change state labels by hand, reset, rewrite or force-pu
 The run refuses branches whose pushed commits are missing locally.
 
 For goal pieces, report main and attempt measurements and every fresh `.loop/hypothesis`. For gauntlet pieces, report three blind verdicts and critic order. The gate puts this evidence in the pull request.
+
+`Test command:` always runs; `Keep:` adds checks. The pull request reports regression results from the final commit.

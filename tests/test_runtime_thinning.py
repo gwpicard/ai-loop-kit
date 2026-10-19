@@ -64,7 +64,8 @@ class RuntimeThinningTest(unittest.TestCase):
         self.addCleanup(project.close)
         number = project.piece()
         ready = gate.check_ready(project.gh, project.root, project.gh.issue(number))
-        expected = {"test": "", "prepare": "", "keep": "", "quality": [], "standards": "",
+        expected = {"test": "printf baseline", "prepare": "", "keep": "", "quality": [],
+                    "standards": "",
                     "protected_paths": [], "idle_limit": "10", "waiting_limit": "3",
                     "keep_limit": "15", "agent": "claude"}
         self.assertEqual({key: ready[key] for key in expected}, expected)

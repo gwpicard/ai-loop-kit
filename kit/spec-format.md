@@ -1,6 +1,6 @@
 # The spec format
 
-A piece is a GitHub issue. Its body is the contract the person approves.
+A piece is a GitHub issue with an approved body.
 
 ```markdown
 ## Intent
@@ -10,7 +10,7 @@ Out of scope:
 - What this piece will not do.
 
 ## Approach
-Optional. Name the files, interface, tools and constraints when they help.
+Optional. Name useful files, interfaces, tools and constraints.
 
 ## Research
 - R1: The API accepts a timeout argument (source: https://example.test/api, read: 2026-10-15)
@@ -61,8 +61,9 @@ An `## Exit` section contains one or more checks. Use `### Tests` with
 `Command:` and `Files:`, `### Measure` with `Command:`, `Target:` and
 `Files:`, or `### Critics` with `Capture:`, `Reference:`, `Criteria:` and
 `Files:`. Every check must be unmet on main for the right reason. A piece may
-combine check types. `Keep:` remains in `## Judge` and must pass on main and
-after every attempt. `Playbook: fix` guides the builder and has no gate effect.
+combine check types. The project's Test command always runs. Optional `Keep:`
+in `## Judge` adds a distinct check; identical commands run once.
+`Playbook: fix` guides the builder and has no gate effect.
 `Done when` remains accepted as the old name for `Contract`.
 
 Old specs with `## Judge` and `Kind:` remain accepted as one check. A fix
@@ -147,7 +148,7 @@ Playbook: fix
   one ID.
 - The judge fails on today's main for each item to build. A `(stays)` item
   passes on main and has a test.
-- `Keep:` passes on main and after the build.
+- The Test command and any distinct `Keep:` pass on main and after the build.
 - `Files:` names the files an exit check runs, inside the project.
 - Each Research line has a source URL and a real read date.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
@@ -158,16 +159,16 @@ checks use the median of three runs. Critics checks use three blind verdicts.
 Every check's `Files:` list is included in the frozen bar. Legacy goal and
 gauntlet specs keep the same readiness and attempt rules.
 
-The gate records a hash of the spec and of the judge bar. A change after ready
+The gate hashes the spec and judge bar. A change after ready
 means the piece must go back through shaping and ready.
 
 ## Project environments
 
-The project's `AGENTS.md` names a Test command and, when needed, a Prepare
-command. The gate runs Prepare in each fresh copy before checks, except for
-scaffold readiness. The run prepares the build folder before each build.
-Write `Keep:` as the plain Test command. Do not put install steps or local
-paths in the spec.
+The project's `AGENTS.md` names the required Test command and optional
+Prepare command. Ready records the regression command, Keep limit and main
+result. Submit reruns it on the final commit. Scaffold readiness skips the
+regression check and Prepare. `Keep:` adds checks; it never replaces the full
+suite. Keep install steps and local paths out of specs.
 
 Quality commands are optional project checks. Setup runs each proposed
 command on a fresh copy of main after applying the proposed loop commands.
