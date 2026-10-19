@@ -131,18 +131,25 @@ class JudgeLoopFolderTest(unittest.TestCase):
         self.assertEqual(git(self.root, "status", "--porcelain"), "")
 
     def test_D2_records_event_when_exclude_cannot_be_updated(self):
-        self.capture()
         exclude = self.root / ".git/info/exclude"
+        events = self.root / ".loop/events.jsonl"
+        events.parent.mkdir()
+        events.write_text("{}\n")
+        self.assertNotIn(b"/.loop/", exclude.read_bytes())
         open_path = Path.open
+        denied = []
 
         def deny_exclude(path, *args, **kwargs):
-            if path == exclude and args == ("ab",):
+            if path.resolve() == exclude.resolve():
+                denied.append(path)
                 raise PermissionError("exclude is read-only")
             return open_path(path, *args, **kwargs)
 
         with patch.object(Path, "open", deny_exclude):
             gate.run_event(self.root, "pull-back", 1, "shaping", reason="pull-back")
-        self.assertEqual(len((self.root / ".loop/events.jsonl").read_text().splitlines()), 2)
+        self.assertEqual(len(denied), 1)
+        self.assertEqual(denied[0].resolve(), exclude.resolve())
+        self.assertEqual(len(events.read_text().splitlines()), 2)
 
 
 if __name__ == "__main__":
