@@ -392,8 +392,14 @@ Why each role is separate:
   they belong to the reviewer [Pocock, code-review], [ETH AGENTS.md].
 - **Two reviewers, two questions.** The standards reviewer asks "is it built
   right?". The contract reviewer asks "is it the right thing?". Kept apart, a
-  pass on one cannot hide a fail on the other. Every finding must cite a rule,
-  a smell or a contract line, and a changed hunk, or it is dropped (code). The
+  pass on one cannot hide a fail on the other. Standards findings need a rule
+  or smell and a changed hunk. Contract findings need an approved Contract ID,
+  Research ID or Out of scope item. Changed code needs a changed hunk. Missing
+  behaviour uses `kind: "missing"`, an approved D item, an existing file line
+  in the judged commit and a description of what is missing. The run collapses
+  findings with the same citation and claim, retaining the first location.
+  It logs every dropped finding with its reason and counts them in the pull
+  request (code). The
   review diffs start at the ready commit, so shaping files are baseline,
   not build changes. The contract reviewer also sees the attempt gate output,
   including critic verdicts. Both reviewers see numbered frozen baseline
@@ -902,16 +908,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,015 Python lines in `kit/`, including the remaining
+The default plugin has 6,064 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,435 runtime
+critics have 420 runtime lines in `extras/`. Together they have 6,484 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,435 runtime lines in total. The suite reports the total and the
+6,484 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

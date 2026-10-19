@@ -16,7 +16,7 @@ from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
 from session import run_session
 from run_start import cleanup_interrupted_reviews
-from spec import _section
+from spec import _ITEM, _section, parse_research_section
 
 KIT = Path(__file__).resolve().parent.parent
 BASELINE_SMELLS = (
@@ -109,45 +109,85 @@ def _logged_verdict(logfile: Path, reviewer: str) -> dict:
 
 
 def parse_standards_findings(output: str, standards: str, diff: str,
-                             baseline: dict[str, str] | None = None) -> list[str]:
+                             baseline: dict[str, str] | None = None,
+                             *, dropped: list[dict] | None = None) -> list[str]:
     """Keep only findings that cite a rule or smell and a changed hunk."""
     hunks = _diff_hunks(diff)
     allowed = {name.casefold() for name in (*BASELINE_SMELLS, *BUILTIN_RULES)}
     standard_rules = {line.strip().casefold() for line in standards.splitlines()
                       if line.strip()}
     verdict = _last_verdict(output, "standards")
-    findings = []
+    candidates = []
     for finding in verdict["findings"]:
         rule, hunk, description = (finding["rule"].strip(), finding["hunk"].strip(),
                                    finding["finding"].strip())
-        if not rule or rule.casefold() not in allowed and rule.casefold() not in standard_rules:
-            continue
-        if _valid_hunk(hunk, hunks):
-            findings.append(_finding_text(finding, f"{rule} at {hunk}: {description}", baseline))
-    return findings
+        reason = ""
+        if not rule or rule.casefold() not in allowed | standard_rules:
+            reason = "rule is not an approved standard or known smell"
+        elif not _valid_hunk(hunk, hunks):
+            reason = "location cites no changed hunk"
+        candidates.append((finding, rule, hunk, description, reason))
+    return _filter_findings(candidates, baseline, dropped)
 
 
 def parse_contract_findings(output: str, body: str, diff: str,
-                            baseline: dict[str, str] | None = None) -> list[str]:
-    """Keep contract findings that cite an approved line and a changed hunk."""
+                            baseline: dict[str, str] | None = None, *,
+                            folder: Path | None = None, judged: str = "HEAD",
+                            dropped: list[dict] | None = None) -> list[str]:
+    """Check approved citations and changed or explicitly missing behaviour."""
     data = _last_verdict(output, "contract")
-    ids = set(re.findall(r"\b(D\d+)\b", body))
+    contract = _section(body, "Contract") or _section(body, "Done when") or []
+    ids = {match[1] for line in contract if (match := _ITEM.match(line))}
+    research = {item["id"] for item in parse_research_section(body)[0]}
     scope = re.search(r"(?im)^\s*out of scope:\s*\n([\s\S]*)",
                       "\n".join(_section(body, "Intent") or []))
     out_of_scope = re.findall(r"(?m)^\s*[-*]\s+(\S.*)", scope[1]) if scope else []
-    findings = []
+    candidates = []
     hunks = _diff_hunks(diff)
     for finding in data.get("findings", []):
-        citation = str(finding.get("citation", ""))
-        hunk = str(finding.get("hunk", ""))
+        citation = str(finding.get("citation", "")).strip()
+        hunk = str(finding.get("hunk", "")).strip()
         detail = str(finding.get("finding", "")).strip()
-        cited_id = re.search(r"\b(D\d+)\b", citation)
+        cited_ids = set(re.findall(r"\b([DR]\d+)\b", citation))
         cites_scope = any(item and item in citation for item in out_of_scope)
-        if not detail or not _valid_hunk(hunk, hunks):
-            continue
-        if not (cited_id and cited_id.group(1) in ids) and not cites_scope:
-            continue
-        findings.append(_finding_text(finding, f"{citation} at {hunk}: {detail}", baseline))
+        reason = ""
+        if not detail:
+            reason = "finding has no description"
+        elif not (cited_ids or cites_scope) or cited_ids - (ids | research):
+            reason = "citation is not in the approved Contract, Research or Out of scope"
+        elif folder and not _location_in_commit(hunk, folder, judged):
+            reason = "location is not an existing file line in the judged commit"
+        elif finding.get("kind", "changed") == "missing":
+            if not cited_ids & ids or folder is None:
+                reason = "missing behaviour needs an approved D item and a judged file location"
+        elif not _valid_hunk(hunk, hunks):
+            reason = "location cites no changed hunk"
+        candidates.append((finding, citation, hunk, detail, reason))
+    return _filter_findings(candidates, baseline, dropped)
+
+
+def _location_in_commit(citation: str, folder: Path, judged: str) -> bool:
+    match = re.fullmatch(r"([^\s|:]+):(\d+)(?:-(\d+))?", citation)
+    if not match or Path(match[1]).is_absolute() or ".." in Path(match[1]).parts:
+        return False
+    content = sh(["git", "cat-file", "blob", f"{judged}:{match[1]}"], folder, check=False)
+    return content.returncode == 0 and 1 <= int(match[2]) <= int(match[3] or match[2]) <= len(
+        content.stdout.splitlines())
+
+
+def _filter_findings(candidates: list, baseline: dict | None,
+                     dropped: list[dict] | None) -> list[str]:
+    findings, seen = [], set()
+    for finding, citation, hunk, detail, reason in candidates:
+        key = (citation.strip(), detail.strip())
+        if not reason and key in seen:
+            reason = "duplicate citation and claim"
+        if reason:
+            if dropped is not None:
+                dropped.append({"finding": finding, "reason": reason})
+        else:
+            seen.add(key)
+            findings.append(_finding_text(finding, f"{citation} at {hunk}: {detail}", baseline))
     return findings
 
 
@@ -233,7 +273,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     denied = [*ready.get("files", []), *CHECK_FILES, *ready.get("protected_paths", []),
               "tests/**", "**/test_*", "**/*_test.py", "**/*.test.*",
               "**/*.spec.*", "**/conftest.py"]
-    results = {"reviewer_note": "Standards review ran once.", "baseline_conflicts": []}
+    results = {"reviewer_note": "Standards review ran once.", "baseline_conflicts": [],
+               "dropped_findings": 0}
     for role in ("standards", "contract"):
         diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{base}..HEAD"], folder).stdout
         target = folder.parent / f"review-{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
@@ -256,7 +297,14 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
         verdict = _logged_verdict(logfile, role)
         output = logfile.read_text(errors="replace")
         parser = parse_standards_findings if role == "standards" else parse_contract_findings
-        findings = parser(output, standards if role == "standards" else body, diff, baseline)
+        dropped = []
+        location = {"folder": folder, "judged": judged} if role == "contract" else {}
+        findings = parser(output, standards if role == "standards" else body, diff, baseline,
+                          dropped=dropped, **location)
+        with logfile.open("a") as out:
+            for item in dropped:
+                out.write("\nDropped finding: " + json.dumps(item) + "\n")
+        results["dropped_findings"] += len(dropped)
         results[f"{role}_findings"] = []
         for finding in findings:
             key = ("baseline_conflicts" if finding.startswith("Frozen baseline conflict (")
@@ -277,4 +325,5 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
             else:
                 results["reviewer_note"] += (" Reviewer fixes were dropped because a submit check "
                                              "failed:\n" + output[-1200:])
+    results["reviewer_note"] += f"\nDropped review findings: {results['dropped_findings']}"
     return results
