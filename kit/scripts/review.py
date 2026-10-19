@@ -392,11 +392,15 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
     """Run one approved-item test in a prepared checkout of the judged commit."""
     source = (reviewer_folder / test_file).read_text(errors="replace")
     checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
-    command = checks[0].get("command", ready.get("command", "")) if checks else ready.get(
-        "command", "")
-    if not command:
+    if checks:
+        checks = [check for check in checks if _test_check_supports_reproducer(check, test_file)]
+    else:
+        command = ready.get("command", "")
+        checks = ([{"command": command, "files": ready.get("files", [])}]
+                  if command else [])
+    if not checks:
         return {"reproduced": False, "source": source,
-                "output": "No approved Exit test command is available."}
+                "output": "No applicable approved Exit test command is available."}
     target = root / ".loop" / "review-reproducers" / f"piece-{n}-{k}-{uuid.uuid4().hex[:8]}"
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -412,20 +416,42 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
         destination = target / test_file
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(reviewer_folder / test_file, destination)
-        approved_files = {path for check in checks for path in check.get("files", [])}
-        adapted, adapt_error = _adapt_exit_command(command, approved_files, test_file.as_posix())
-        if adapt_error:
-            return {"reproduced": False, "source": source, "output": adapt_error}
-        code, output = gate.run_judge(target, adapted,
-                                      protected_paths=ready.get("protected_paths", []))
-        reproduced = code != 0 and not judge_has_runner_error(output, code) \
-            and judge_assertion_failed(output, item)
+        commands = []
+        for check in checks:
+            adapted, adapt_error = _adapt_exit_command(
+                check.get("command", ""), set(check.get("files", [])), test_file.as_posix())
+            if adapt_error:
+                return {"reproduced": False, "source": source, "output": adapt_error}
+            commands.append(adapted)
+        outputs = []
+        reproduced = False
+        for command in commands:
+            code, output = gate.run_judge(target, command,
+                                          protected_paths=ready.get("protected_paths", []))
+            outputs.append(output.strip())
+            if code != 0 and not judge_has_runner_error(output, code) \
+                    and judge_assertion_failed(output, item):
+                reproduced = True
+                break
         return {"reproduced": reproduced, "source": source,
-                "output": output.strip()[-3000:]}
+                "output": "\n\n".join(outputs)[-3000:]}
     finally:
         _remove_untracked_reproducer(target, test_file)
         sh(["git", "worktree", "remove", str(target)], root, check=False)
         sh(["git", "worktree", "prune"], root, check=False)
+
+
+def _test_check_supports_reproducer(check: dict, test_file: Path) -> bool:
+    """Pair a reproducer with a frozen test check for the same language."""
+    groups = {
+        ".py": "python",
+        ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+        ".ts": "javascript", ".tsx": "javascript", ".jsx": "javascript",
+    }
+    language = groups.get(test_file.suffix.lower())
+    return bool(language and any(
+        groups.get(Path(filename).suffix.lower()) == language
+        for filename in check.get("files", [])))
 
 
 def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
