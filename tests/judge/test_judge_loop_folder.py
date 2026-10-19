@@ -118,8 +118,8 @@ class JudgeLoopFolderTest(unittest.TestCase):
         exclude.write_bytes(original)
         self.capture()
         self.assertEqual(exclude.read_bytes(), original + b"/.loop/\n")
-        self.assertEqual(len((self.root / ".loop/events.jsonl").read_text().splitlines()), 1)
-        self.assertEqual(git(self.root, "status", "--porcelain"), "")
+        self.assertEqual((len((self.root / ".loop/events.jsonl").read_text().splitlines()),
+                          git(self.root, "status", "--porcelain")), (1, ""))
 
 
 if __name__ == "__main__":
