@@ -91,6 +91,14 @@ class JudgeLoopFolderTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(git(self.root, "diff", "--name-only", "main...HEAD"), self.judge)
 
+    def test_D2_linked_worktree_uses_the_common_exclude_file(self):
+        linked = self.base / "linked"
+        git(self.root, "worktree", "add", "--quiet", "-b", "piece/2", str(linked), "main")
+        gate.run_event(linked, "capture", 2, "shaping", reason="capture")
+        self.assertEqual(git(linked, "status", "--porcelain"), "")
+        exclude = (self.root / ".git/info/exclude").read_text().splitlines()
+        self.assertEqual(exclude.count("/.loop/"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

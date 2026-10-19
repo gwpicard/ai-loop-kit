@@ -226,12 +226,9 @@ def project_root(folder: Path) -> Path:
 def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
                scrub_secrets: bool = False,
                protected_exceptions: Optional[list[str]] = None) -> dict:  # noqa: UP045
-    """The environment for judge, prepare and agent commands.
-
-    Use only the folder's own .venv. A project checkout's environment must not
-    choose the interpreter for a fresh worktree's Prepare command. Agent
-    sessions can also drop secret-shaped variables.
-    """
+    """Use the folder's `.venv` for judge, Prepare and agent commands. A checkout
+    must not choose a fresh worktree's Prepare interpreter. Agent sessions can
+    also drop secret-shaped variables."""
     env = dict(os.environ)
     if scrub_secrets:
         for name in secret_env_names(env):
@@ -306,8 +303,7 @@ def keep_limit_seconds(settings: dict) -> int:
 
 def prepare(folder: Path, command: Optional[str] = None,
             protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
-    """Run the project's Prepare command in a fresh folder, if it has one.
-    It makes a fresh copy runnable: npm ci, uv sync, docker compose build."""
+    """Run Prepare in a fresh folder, for example `npm ci`, `uv sync` or `docker compose build`."""
     command = command if command is not None else loop_settings(folder).get("prepare")
     if not command:
         return True, ""
