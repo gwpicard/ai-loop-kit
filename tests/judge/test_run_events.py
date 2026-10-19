@@ -62,7 +62,7 @@ class RunEventsTest(unittest.TestCase):
                 number = self.piece(before)
                 self.gh.prs[f"piece/{number}"] = {"state": "MERGED"}
                 ready = {"checks": [], "keep": "", "bar": "", "regression": "true",
-                         "regression_limit": 900}
+                         "regression_limit": 900, "test_lint_unchecked": []}
                 count = len(self.events()) if self.path.exists() else 0
                 with patch.object(gate, "check_ready", return_value=ready), \
                         patch.object(gate, "check_frozen", return_value=ready), \

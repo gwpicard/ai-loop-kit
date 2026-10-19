@@ -502,7 +502,7 @@ removed. A retry within the same attempt appends to both files.
 | The Test command, any distinct `Keep:` and Prepare pass on `main` (scaffold skips the Test command and Prepare) | A red baseline makes every attempt fail for the wrong reason |
 | The judge fails on `main`, not on a syntax, import, file-not-found or command-not-found error | A test that fails for the wrong reason proves nothing |
 | Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
-| Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-to-literal comparison; no skip, `xfail`, `.only` or `.skip`; no private imports; no reading source as text unless the Contract names it | A test can restate the code or never be able to fail [kata] |
+| Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-only comparison; no skip, `xfail`, `.only` or `.skip`; no private imports or unnamed source reads; records unsupported languages and refuses unreadable judges with their paths | Tests must be able to fail [kata], and unchecked judges must stay explicit |
 | The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
 | The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, and the backend | A builder must not change the rules after they were agreed |
 
