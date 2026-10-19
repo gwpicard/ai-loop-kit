@@ -94,6 +94,30 @@ class TestLintUncheckedTest(unittest.TestCase):
         self.assertIn("readable", caught.exception.next_step)
         self.assertNotIn("Traceback", caught.exception.reason)
 
+    @unittest.skipIf(os.geteuid() == 0, "root can read mode-zero directories")
+    def test_D2_snapshot_refuses_inaccessible_judge_directory(self):
+        name = "tests/judge/test_add.py"
+        judge = "print('FAIL D1 add')\nraise SystemExit(1)\n"
+        path = self.p.root / name
+        path.parent.mkdir(parents=True)
+        path.write_text(judge)
+        git(self.p.root, "add", name)
+        git(self.p.root, "commit", "--quiet", "-m", "Add nested judge file")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        self.p.loop_section("printf baseline", "chmod 000 tests/judge")
+        spec = ("## Intent\nAdd a habit.\n\nOut of scope:\n- Editing habits.\n\n"
+                "## Contract\n- D1: adding a habit appends it.\n\n"
+                "## Judge\nCommand: `python3 tests/judge/test_add.py`\n"
+                "Files:\n- tests/judge/test_add.py\n")
+        number = self.p.piece(judge=judge, spec=spec)
+
+        with self.assertRaises(Refused) as caught:
+            gate.move(self.p.gh, self.p.root, number, "ready")
+
+        self.assertIn(name, caught.exception.reason)
+        self.assertIn("readable", caught.exception.next_step)
+        self.assertNotIn("Traceback", caught.exception.reason)
+
     def test_D3_python_syntax_error_is_still_reported(self):
         findings = testlint.python_findings(Path("judge.py"), "def test_broken(:\n")
         self.assertEqual(findings[0][1], "python syntax error")

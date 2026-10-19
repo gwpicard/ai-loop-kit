@@ -83,15 +83,15 @@ def remove_worktree(root: Path, folder: Path, merged_into: str = "main") -> bool
 
 
 def _probe_file(path: Path) -> tuple:
-    if path.is_symlink():
-        return os.readlink(path), 0
-    if path.is_file():
-        try:
+    try:
+        if path.is_symlink():
+            return os.readlink(path), 0
+        if path.is_file():
             return path.read_bytes(), path.stat().st_mode
-        except OSError:
-            raise Refused(f"cannot read judge file {path}",
-                          "make the judge file readable, then run ready again") from None
-    return None, -1 if path.exists() else 0
+        return None, -1 if path.exists() else 0
+    except OSError:
+        raise Refused(f"cannot read judge file {path}",
+                      "make the judge file readable, then run ready again") from None
 
 
 def capture_probe_files(folder: Path, names: list[str]) -> dict:
