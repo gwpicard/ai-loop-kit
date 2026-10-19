@@ -7,6 +7,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from helpers import KIT, Project, git
@@ -120,6 +121,28 @@ class JudgeLoopFolderTest(unittest.TestCase):
         self.assertEqual(exclude.read_bytes(), original + b"/.loop/\n")
         self.assertEqual((len((self.root / ".loop/events.jsonl").read_text().splitlines()),
                           git(self.root, "status", "--porcelain")), (1, ""))
+
+    def test_D2_separates_existing_exclude_rule_without_a_final_newline(self):
+        exclude = self.root / ".git/info/exclude"
+        exclude.write_bytes(b"local-only.txt")
+        (self.root / "local-only.txt").write_text("ignored\n")
+        gate.run_event(self.root, "capture", 1, "shaping", reason="capture")
+        self.assertEqual(exclude.read_bytes(), b"local-only.txt\n/.loop/\n")
+        self.assertEqual(git(self.root, "status", "--porcelain"), "")
+
+    def test_D2_records_event_when_exclude_cannot_be_updated(self):
+        self.capture()
+        exclude = self.root / ".git/info/exclude"
+        open_path = Path.open
+
+        def deny_exclude(path, *args, **kwargs):
+            if path == exclude and args == ("ab",):
+                raise PermissionError("exclude is read-only")
+            return open_path(path, *args, **kwargs)
+
+        with patch.object(Path, "open", deny_exclude):
+            gate.run_event(self.root, "pull-back", 1, "shaping", reason="pull-back")
+        self.assertEqual(len((self.root / ".loop/events.jsonl").read_text().splitlines()), 2)
 
 
 if __name__ == "__main__":

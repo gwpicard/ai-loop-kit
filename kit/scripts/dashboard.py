@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -34,15 +34,16 @@ def run_event(root: Path, event: str, piece: int | None = None,
               state: str = "", attempt: int = 0, reason: str = "") -> None:
     """Append public metadata only. Callers supply fixed event names and reasons."""
     try:
-        result = sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
-                     "info/exclude"], root, check=False)
-        if result.returncode == 0:
-            exclude = Path(result.stdout.strip())
-            exclude.parent.mkdir(parents=True, exist_ok=True)
-            text = exclude.read_bytes() if exclude.exists() else b""
-            if b"/.loop/" not in text.splitlines():
-                with exclude.open("ab") as out:
-                    out.write(b"/.loop/\n" + (b"" if not text or text.endswith(b"\n") else b"\n"))
+        with suppress(OSError):
+            result = sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
+                         "info/exclude"], root, check=False)
+            if result.returncode == 0:
+                exclude = Path(result.stdout.strip())
+                exclude.parent.mkdir(parents=True, exist_ok=True)
+                text = exclude.read_bytes() if exclude.exists() else b""
+                if b"/.loop/" not in text.splitlines():
+                    with exclude.open("ab") as out:
+                        out.write((b"\n" if text and text[-1:] != b"\n" else b"") + b"/.loop/\n")
         path = root / ".loop" / "events.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as output:
@@ -53,7 +54,6 @@ def run_event(root: Path, event: str, piece: int | None = None,
         if root not in _EVENT_WARNED:
             _EVENT_WARNED.add(root)
             print("warning: could not write .loop/events.jsonl", file=sys.stderr)
-
     if root in _EVENT_OBSERVERS:
         _EVENT_OBSERVERS[root]()
 
