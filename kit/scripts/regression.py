@@ -12,9 +12,9 @@ def check(folder: Path, command: str, limit: int,
     code, output = run_keep(folder, command, timeout=limit, protected_paths=protected_paths)
     if code == 124:
         reason = "timed out"
-    elif code in (126, 127) or re.search(
+    elif code in (126, 127) or (code != 0 and re.search(
             r"No module named|command not found|not recognized|: [^\n]+: not found|"
-            r"can't open file|No such file or directory", output, re.I):
+            r"can't open file|No such file or directory", output, re.I)):
         reason = "test runner is missing or could not start"
     elif re.search(r"Ran 0 tests|no tests ran|collected 0 items|no tests? (?:files )?found|"
                    r"^#?\s*tests\s+0\s*$", output, re.I | re.M):

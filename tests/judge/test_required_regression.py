@@ -116,6 +116,43 @@ class RequiredRegressionTest(unittest.TestCase):
         self.assertIn("Test command", caught.exception.reason)
         self.assertIn("AGENTS.md", caught.exception.next_step)
 
+    def test_ready_accepts_passing_tests_that_log_expected_file_errors(self):
+        suite = SUITE.replace("        self.assertEqual", """        try:
+            with open("optional-config.json") as config:
+                config.read()
+        except FileNotFoundError as error:
+            print(error)
+        self.assertEqual""")
+        (self.p.root / "regression.py").write_text(suite)
+        git(self.p.root, "add", "regression.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Test optional configuration fallback")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n, ready = self.ready()
+        self.assertEqual(ready["regression_main"]["exit"], 0)
+        self.assertIn("No such file or directory", ready["regression_main"]["output"])
+        self.assertIn("Ran 1 test", ready["regression_main"]["output"])
+        self.assertIn("state:ready", self.p.gh.issue(n)["labels"])
+
+    def test_submit_accepts_passing_tests_that_log_expected_file_errors(self):
+        n, _ = self.ready()
+        folder = self.candidate(n)
+        code = GOOD_CODE + '''\ndef existing():
+    try:
+        with open("optional-config.json") as config:
+            config.read()
+    except FileNotFoundError as error:
+        print(error)
+    return "kept"
+'''
+        (folder / "habits.py").write_text(code)
+        git(folder, "add", "habits.py")
+        git(folder, "commit", "--quiet", "-m", "Preserve behaviour with optional configuration")
+        checked = {}
+        gate.move(self.p.gh, self.p.root, n, "approval", folder=folder, evidence=checked)
+        self.assertIn("No such file or directory", checked["output"])
+        self.assertIn("Ran 1 test", checked["output"])
+        self.assertIn("state:approval", self.p.gh.issue(n)["labels"])
+
     def test_D4_old_ready_record_requires_ready_again(self):
         n, ready = self.ready()
         for key in ("regression", "regression_limit", "regression_main"):
