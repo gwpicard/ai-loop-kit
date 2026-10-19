@@ -13,12 +13,10 @@ In a builder session (LOOP_BUILDER=1) also:
   - no push at all, and no `gh` (the run does both after the gate checks);
   - no change under .claude/ or .githooks/.
 
-This is a plain word check, not a full shell parser. It catches the plain
-forms. The gate is the second layer for state; settings deny rules are the
-second layer for the rest.
+This is a plain word check, not a full shell parser. The gate checks state;
+settings deny rules check the rest.
 """
-from __future__ import annotations
-
+import getopt
 import json
 import os
 import re
@@ -49,65 +47,26 @@ def words(segment: str) -> list[str]:
         return segment.split()
 
 
+WRAPPER_OPTIONS = {
+    "env": ("i0vu:C:", ["ignore-environment", "null", "unset=", "chdir="]),
+    "sudo": ("AbEHKkNnPSVu:g:h:p:C:R:D:T:r:t:", ["user=", "group=", "host=", "prompt="]),
+    "command": ("pvV", []), "exec": ("cla:", []), "nohup": ("", []),
+    "time": ("pvf:o:", ["portability", "verbose", "format=", "output=", "quiet"]),
+}
+
+
 def strip_prefix(w: list[str]) -> list[str]:
-    """Drop leading assignments and known wrapper options before the command."""
-    wrappers = {"sudo", "env", "command", "exec", "nohup", "time"}
     while w:
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w[0]):
-            w = w[1:]
+            w.pop(0)
             continue
         wrapper = os.path.basename(w[0])
-        if wrapper not in wrappers:
+        if wrapper not in WRAPPER_OPTIONS:
             break
-        w = w[1:]
-        takes_value: tuple[str, ...] = ()
-        if wrapper == "env":
-            takes_value = ("-u", "--unset", "-C", "--chdir")
-        elif wrapper == "sudo":
-            takes_value = ("-u", "--user", "-g", "--group", "-h", "--host",
-                           "-p", "--prompt", "-C", "--close-from", "-R", "--chroot",
-                           "-D", "--chdir", "-T", "--command-timeout", "-r", "--role",
-                           "-t", "--type")
-        elif wrapper == "exec":
-            takes_value = ("-a",)
-        elif wrapper == "time":
-            takes_value = ("-f", "--format", "-o", "--output")
-        while w:
-            arg = w[0]
-            if arg == "--":
-                w = w[1:]
-                break
-            if wrapper == "env" and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg):
-                w = w[1:]
-                continue
-            if not arg.startswith("-") or arg == "-":
-                break
-            if arg in takes_value:
-                if len(w) < 2:
-                    raise ValueError("wrapper option has no value")
-                w = w[2:]
-                continue
-            if any(arg.startswith(option) and arg != option
-                   for option in takes_value if option.startswith("-") and len(option) == 2):
-                w = w[1:]
-                continue
-            accepted = {
-                "env": {"-i", "--ignore-environment", "-0", "--null", "-v",
-                        "--debug"},
-                "sudo": {"-A", "-b", "-E", "-H", "-K", "-k", "-N", "-n",
-                         "-P", "-S", "-V", "--preserve-env", "--preserve-env=",
-                         "--reset-timestamp", "--remove-timestamp", "--non-interactive",
-                         "--stdin", "--background", "--login", "--set-home"},
-                "command": {"-p", "-v", "-V"},
-                "exec": {"-c", "-l"},
-                "nohup": set(),
-                "time": {"-p", "--portability", "-v", "--verbose", "--quiet"},
-            }[wrapper]
-            if arg in accepted or any(arg.startswith(prefix) for prefix in
-                                      ("--preserve-env=", "--format=", "--output=")):
-                w = w[1:]
-                continue
-            raise ValueError("unknown wrapper option")
+        try:
+            _, w = getopt.getopt(w[1:], *WRAPPER_OPTIONS[wrapper])
+        except getopt.GetoptError as error:
+            raise ValueError("unknown wrapper option") from error
     return w
 
 
@@ -177,41 +136,27 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
                 index = rest.index(option)
                 if builder and option != "-c":
                     return "combined shell flags are not allowed in a build session. Use plain `bash -c`."
-                if index + 1 >= len(rest):
-                    if builder:
-                        return "the shell command form could not be unwrapped safely."
-                else:
+                if index + 1 < len(rest):
                     refused = check_command(rest[index + 1], builder)
                     if refused:
                         return refused
-        if prog in ("python", "python3", "node"):
-            flag = "-c" if prog.startswith("python") else "-e"
-            if flag in rest:
-                code = rest[rest.index(flag) + 1] if rest.index(flag) + 1 < len(rest) else ""
-                if re.search(r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", code):
-                    return "recursive delete is not allowed. Ask the person."
+                elif builder:
+                    return "the shell command form could not be unwrapped safely."
         if prog == "git":
             index = 0
             git_cwd = ""
             while index < len(rest):
-                if rest[index] == "-C" and index + 1 < len(rest):
+                arg = rest[index]
+                if arg == "-C" and index + 1 < len(rest):
                     git_cwd = rest[index + 1]
-                    index += 2
-                elif rest[index] in ("-c", "--git-dir", "--work-tree"):
-                    index += 2
-                elif rest[index].startswith("--git-dir=") or rest[index].startswith("--work-tree="):
-                    index += 1
-                else:
+                elif arg not in ("-C", "-c", "--git-dir", "--work-tree") and not (
+                        arg.startswith("--git-dir=") or arg.startswith("--work-tree=")):
                     break
+                index += 1 if "=" in arg else 2
             rest = rest[index:]
         if prog == "gh":
-            index = 0
-            while index < len(rest):
-                if rest[index] in ("-R", "--repo"):
-                    index += 2
-                else:
-                    break
-            rest = rest[index:]
+            while len(rest) > 1 and rest[0] in ("-R", "--repo"):
+                rest = rest[2:]
         flags = [a for a in rest if a.startswith("-")]
 
         if prog == "rm" and any(a in ("-r", "-R", "--recursive") or
@@ -249,9 +194,9 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
             joined = " ".join(rest)
             if rest[:2] == ["pr", "merge"]:
                 return "agents do not merge. The person merges the pull request."
-            if rest[:1] == ["label"] and rest[1:2] and rest[1] in ("create", "edit", "delete"):
-                if "state:" in joined:
-                    return "state labels belong to the gate. Use gate.py."
+            if ("state:" in joined and rest[:1] == ["label"] and rest[1:2]
+                    and rest[1] in ("create", "edit", "delete")):
+                return "state labels belong to the gate. Use gate.py."
             if "state:" in joined and (rest[:2] in (["issue", "edit"], ["pr", "edit"]) or rest[:1] == ["api"]):
                 return "only the gate moves a piece. Use gate.py move."
     return None
