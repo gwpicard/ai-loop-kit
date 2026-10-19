@@ -142,11 +142,16 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             before_injection = capture_probe_files(folder, bar_files)
             sh(["git", "checkout", head, "--", *bar_files], folder)
             injected = capture_probe_files(folder, bar_files)
-        lint = lint_files([folder / f for f in spec.files], folder,
-                          " ".join(spec.done_when.values()))
+        lint, test_lint_unchecked = lint_files(
+            [folder / f for f in spec.files], folder, " ".join(spec.done_when.values()))
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
+        unreadable = ", ".join(item["file"] for item in test_lint_unchecked
+                                if item["reason"] == "unreadable")
+        if unreadable:
+            raise Refused("the test lint could not read judge file(s): " + unreadable,
+                          "make the judge files readable, then run gate.py ready again")
         check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
         kind_record = {"checks": check_records}
         if spec.kind in ("goal", "gauntlet"):
@@ -183,6 +188,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "agent": agent, "stays": list(spec.stays), "research": list(spec.research),
             "risks": {key: list(value) for key, value in spec.risks.items()},
             "shared_conflicts": shared_conflicts,
+            "test_lint_unchecked": test_lint_unchecked,
             "protected_paths": settings.get("protected paths", []),
             "large_files": list(spec.large_files), "commit": head, "main": main_sha,
             "spec": spec_hash(issue["body"] or "")}
@@ -506,6 +512,9 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             elif check["type"] == "critics":
                 wins = sum(v["winner"] == "ours" for v in check["main_verdicts"])
                 note += f" Critics on main: {wins}/3 wins; fewer than the required 2."
+        if record["test_lint_unchecked"]:
+            names = ", ".join(item["file"] for item in record["test_lint_unchecked"])
+            note += f" {names} not checked by the test lint."
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."

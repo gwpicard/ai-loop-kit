@@ -502,6 +502,7 @@ removed. A retry within the same attempt appends to both files.
 | The judge fails on `main`, not on a syntax, import, file-not-found or command-not-found error | A test that fails for the wrong reason proves nothing |
 | Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
 | Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-to-literal comparison; no skip, `xfail`, `.only` or `.skip`; no private imports; no reading source as text unless the Contract names it | A test can restate the code or never be able to fail [kata] |
+| Test lint records unsupported judge languages in the ready evidence and message; an unreadable judge file is refused with its path | An unchecked judge must not look as if the linter checked it |
 | The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
 | The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, and the backend | A builder must not change the rules after they were agreed |
 

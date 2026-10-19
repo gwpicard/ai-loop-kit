@@ -219,16 +219,20 @@ def javascript_findings(path: Path, text: str,
 
 
 def lint_files(files: Iterable[Path], project_root: Optional[Path] = None,
-               contract: str = "") -> list[str]:
-    """Return one file:line:rule line for each finding."""
-    out = []
+               contract: str = "") -> tuple[list[str], list[dict[str, str]]]:
+    """Return lint findings and the judge files the linter could not check."""
+    out, unchecked = [], []
+    supported = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
     for path in files:
-        text = path.read_text(errors="replace")
-        if path.suffix == ".py":
-            findings = python_findings(path, text, project_root, contract)
-        elif path.suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
-            findings = javascript_findings(path, text, project_root, contract)
-        else:
+        reason = "unsupported language" if path.suffix not in supported else ""
+        try:
+            text = path.read_text(errors="replace") if not reason else ""
+        except OSError:
+            reason = "unreadable"
+        if reason:
+            unchecked.append({"file": path.name, "reason": reason})
             continue
-        out.extend(f"{path}:{line}: {rule}" for line, rule in findings)
-    return out
+        check = python_findings if path.suffix == ".py" else javascript_findings
+        out.extend(f"{path}:{line}: {rule}" for line, rule in
+                   check(path, text, project_root, contract))
+    return out, unchecked
