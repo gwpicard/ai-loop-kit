@@ -112,6 +112,15 @@ class JudgeLoopFolderTest(unittest.TestCase):
         exclude = (root / ".git/info/exclude").read_text().splitlines()
         self.assertEqual(exclude.count("/.loop/"), 1)
 
+    def test_D2_appends_to_non_utf8_exclude_without_changing_its_bytes(self):
+        exclude = self.root / ".git/info/exclude"
+        original = b"# Local exclusions: caf\xe9\n"
+        exclude.write_bytes(original)
+        self.capture()
+        self.assertEqual(exclude.read_bytes(), original + b"/.loop/\n")
+        self.assertEqual(len((self.root / ".loop/events.jsonl").read_text().splitlines()), 1)
+        self.assertEqual(git(self.root, "status", "--porcelain"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

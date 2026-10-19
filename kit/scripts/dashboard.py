@@ -39,10 +39,11 @@ def run_event(root: Path, event: str, piece: int | None = None,
         if result.returncode == 0:
             exclude = Path(result.stdout.strip())
             exclude.parent.mkdir(parents=True, exist_ok=True)
-            text = exclude.read_text() if exclude.exists() else ""
-            if "/.loop/" not in text.splitlines():
-                exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
-                                   + "/.loop/\n")
+            text = exclude.read_bytes() if exclude.exists() else b""
+            if b"/.loop/" not in text.splitlines():
+                with exclude.open("ab") as output:
+                    output.write((b"" if not text or text.endswith(b"\n") else b"\n")
+                                 + b"/.loop/\n")
         path = root / ".loop" / "events.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as output:
