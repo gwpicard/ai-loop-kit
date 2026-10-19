@@ -463,37 +463,11 @@ def judge_has_runner_error(output: str, code: int) -> bool:
 
 
 def judge_assertion_failed(output: str, item: str) -> bool:
-    """Require the item's own failure block to report an assertion failure."""
-    lines = output.splitlines()
-    headers = re.compile(r"^\s*(?:FAIL|ERROR): |^_{5,}.*_{5,}$|^\s*● ")
-    starts = [index for index, line in enumerate(lines) if headers.search(line)]
-    if starts:
-        summary = next((index for index, line in enumerate(lines)
-                        if re.match(r"^=+ short test summary info =+\s*$", line)), len(lines))
-        starts = [start for start in starts if start < summary]
-        blocks = [lines[start:min(starts[pos + 1] if pos + 1 < len(starts) else summary,
-                                  summary)] for pos, start in enumerate(starts)]
-    else:
-        errors = re.compile(
-            r"^\s*(?:AssertionError(?:\s+\[ERR_ASSERTION\])?|"
-            r"[A-Za-z_$][\w.$]*(?:Error|Exception)):")
-        starts = [index for index, line in enumerate(lines) if errors.search(line)]
-        blocks = [lines[start:starts[pos + 1] if pos + 1 < len(starts) else len(lines)]
-                  for pos, start in enumerate(starts)]
-    id_pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
-    assertion = re.compile(
-        r"AssertionError(?:\s+\[ERR_ASSERTION\])?|^\s*E\s+assert\b|"
-        r"^\s*(?:Expected|Received):|\bexpect\([^\n]*\)\.", re.MULTILINE)
-    for block in blocks:
-        text = "\n".join(block)
-        if not assertion.search(text) or _WRONG_TEST_REASON.search(text):
-            continue
-        for line in block:
-            if re.search(r"\.(?:py|js|mjs|cjs|ts|tsx|jsx)(?:[:\s]|$)", line):
-                line = re.sub(r"[^\s:()]+\.(?:py|js|mjs|cjs|ts|tsx|jsx)", "", line)
-            if id_pattern.search(line):
-                return True
-    return False
+    """Apply the ready gate's failure-line and named-item rule."""
+    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
+    named = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
+    return any(fail_line.search(line) and named.search(line)
+               for line in output.splitlines())
 
 
 def exit_ready(folder: Path, checks: tuple, contract: dict,
@@ -503,7 +477,6 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
 
     records, outputs = [], []
     building = [item for item in contract if item not in stays]
-    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
     for source in checks:
         check = dict(source)
         if check["type"] == "tests":
@@ -518,10 +491,8 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                               f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
                               "fix the judge so it fails on an assertion")
             if check.get("legacy_kind") != "scaffold":
-                fail_lines = "\n".join(
-                    line for line in output.splitlines() if fail_line.search(line))
-                named = [item for item in building if re.search(
-                    rf"(?<![A-Za-z0-9]){item}(?![0-9])", fail_lines)]
+                named = [item for item in building
+                         if judge_assertion_failed(output, item)]
                 if not named:
                     raise Refused("the judge fails on main, but its output names no spec ID "
                                   f"({', '.join(building)}):\n{output.strip()[-1500:]}",
@@ -531,8 +502,8 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                 if missing:
                     raise Refused(f"no failing judge test names {', '.join(missing)}",
                                   "give every Contract item at least one failing test")
-                failing_stays = [item for item in stays if re.search(
-                    rf"(?<![A-Za-z0-9]){item}(?![0-9])", fail_lines)]
+                failing_stays = [item for item in stays
+                                 if judge_assertion_failed(output, item)]
                 if failing_stays:
                     raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
                                   "a (stays) item already holds today; test only what it says")

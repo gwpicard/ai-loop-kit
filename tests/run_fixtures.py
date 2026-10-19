@@ -39,6 +39,16 @@ FAKE_CLAUDE = textwrap.dedent('''\
             '"hunk":"habits.py:1","finding":"D1 is not met.","reproducer":' \
             '{"file":"test_review_D1.py","item":"D1"}}]}</verdict>'
           exit 0 ;;
+        contract-multiple-reproduced:*"Contract reviewer brief"*)
+          printf '%s\\n' 'raise AssertionError("D1")' > test_review_D1.py
+          printf '%s\\n' 'raise AssertionError("D2")' > test_review_D2.py
+          printf '%s' '<verdict>{"findings":[' \
+            '{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1",' \
+            '"finding":"D1 is not met.","reproducer":{"file":"test_review_D1.py",' \
+            '"item":"D1"}},{"citation":"D2: adding a habit twice keeps one.",' \
+            '"hunk":"habits.py:1","finding":"D2 is not met.",' \
+            '"reproducer":{"file":"test_review_D2.py","item":"D2"}}]}</verdict>'
+          exit 0 ;;
         contract-not-reproduced:*"Contract reviewer brief"*)
           printf '%s\\n' 'print("D1 assertion passed")' > test_review_D1.py
           printf '%s' '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.",' \

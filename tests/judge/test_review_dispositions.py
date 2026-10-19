@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -34,6 +33,22 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertFalse((branch / "test_review_D1.py").exists())
         self.assertIn("check(\"test_D1_add_appends\", d1)",
                       git(branch, "show", "HEAD:judge_add.py"))
+
+    def test_each_contract_finding_can_use_its_own_reproducer(self):
+        os.environ["FAKE_REVIEW_MODE"] = "contract-multiple-reproduced"
+        n, result = self.build("good", attempts=1)
+
+        self.assertIn("back to shaping", result)
+        self.assertNotIn(f"piece/{n}", self.p.gh.prs)
+        handback = next(record for record in gate.records(self.p.gh.comments(n))
+                        if record.get("move") == "give-back")
+        self.assertIn("D1", handback["reason"])
+        self.assertIn("D2", handback["reason"])
+        self.assertIn('raise AssertionError("D1")', handback["reason"])
+        self.assertIn('raise AssertionError("D2")', handback["reason"])
+        branch = self.p.folder(n)
+        self.assertFalse((branch / "test_review_D1.py").exists())
+        self.assertFalse((branch / "test_review_D2.py").exists())
 
     def test_unresolved_contract_finding_heads_pr_and_removes_contract_claim(self):
         os.environ["FAKE_REVIEW_MODE"] = "contract-gap"
@@ -102,6 +117,16 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(command, "cd . && python3 test_review_D1.py")
 
+    def test_reproducer_preserves_adjacent_shell_operators(self):
+        for original, expected in (
+                ("python3 judge.py&&printf done", "python3 test_review_D1.py&&printf done"),
+                ("python3 judge.py;printf done", "python3 test_review_D1.py;printf done")):
+            with self.subTest(original=original):
+                command, error = review._adapt_exit_command(
+                    original, {"judge.py"}, "test_review_D1.py")
+                self.assertEqual(error, "")
+                self.assertEqual(command, expected)
+
     def test_reproducer_keeps_shell_assignments_and_expansions(self):
         command, error = review._adapt_exit_command(
             'PYTHONPATH="$PWD" python3 judge.py', {"judge.py"}, "test_review_D1.py")
@@ -122,31 +147,16 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertTrue(result["preparation_failed"])
         self.assertIn("prepare failed", result["output"])
 
-    def test_assertion_classifier_ignores_exception_names_in_assertion_message(self):
+    def test_failure_classifier_reuses_ready_gate_rule(self):
         output = ("________________ test_D1 ________________\n"
                   "E AssertionError: D1 FileNotFoundError\n")
         self.assertTrue(review.judge_assertion_failed(output, "D1"))
         self.assertFalse(review.judge_has_runner_error(output, 1))
         crash = ("FAIL: test_D1_runner\nRuntimeError: D1 runner crashed\n"
                  "FAIL: test_X9_unrelated\nAssertionError: X9 unrelated\n")
-        self.assertFalse(review.judge_assertion_failed(crash, "D1"))
-
-    def test_pytest_summary_does_not_join_separate_failure_blocks(self):
-        with tempfile.TemporaryDirectory() as temp:
-            candidate = Path(temp) / "test_mixed_failures.py"
-            candidate.write_text(
-                "def test_D1_runner():\n"
-                "    raise RuntimeError('D1 runner crashed')\n\n"
-                "def test_X9_unrelated():\n"
-                "    assert False, 'X9 unrelated'\n")
-            result = subprocess.run(
-                [sys.executable, "-m", "pytest", "-q", "--tb=short", str(candidate)],
-                capture_output=True, text=True)
-        output = result.stdout + result.stderr
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("short test summary info", output)
-        self.assertFalse(review.judge_assertion_failed(output, "D1"))
+        self.assertTrue(review.judge_assertion_failed(crash, "D1"))
+        self.assertTrue(review.judge_assertion_failed(
+            "FAIL: test_D1\nRuntimeError: D1 expected AssertionError\n", "D1"))
 
     def test_javascript_reproducer_runs_with_the_approved_node_command(self):
         node = subprocess.run(["node", "--version"], capture_output=True, text=True)

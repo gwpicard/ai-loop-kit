@@ -335,7 +335,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
             added = set(sh(["git", "ls-files", "--others", "--exclude-standard", "-z"],
                            target).stdout.split("\0")) - before_review
             added.discard("")
-            clean_reproducer = not changed and not staged and len(added) == 1
+            clean_reproducer = not changed and not staged
+            used_reproducer_paths = set()
             for finding in verdict_findings:
                 reproducer = finding.get("reproducer")
                 if not reproducer or not any(
@@ -348,6 +349,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                 if (item not in approved_ids or path.is_absolute() or ".." in path.parts
                         or item not in cited_ids or not path.suffix
                         or not clean_reproducer or path.as_posix() not in added
+                        or path.as_posix() in used_reproducer_paths
                         or not (target / path).is_file() or (target / path).is_symlink()):
                     continue
                 if not re.search(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])",
@@ -358,6 +360,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                                                       path, item, n, k)
                     results["contract_reproducers"].append({
                         "file": path.as_posix(), "item": item, **result})
+                    used_reproducer_paths.add(path.as_posix())
                 finally:
                     _remove_untracked_reproducer(target, path)
             continue
@@ -428,23 +431,45 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
 def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
                         ) -> tuple[str, str]:
     """Replace a frozen test target in its shell segment without moving the runner."""
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = []
-        while True:
-            cursor = lexer.instream.tell()
-            token = lexer.get_token()
-            after = lexer.instream.tell()
-            if token == lexer.eof:
+    if "`" in command or "$ (" in command or "$((" in command or "$(" in command:
+        return "", "Could not adapt shell command substitution safely."
+    tokens = []
+    operators = set(";&|()<>")
+    index = 0
+    while index < len(command):
+        if command[index].isspace():
+            index += 1
+            continue
+        start = index
+        if command[index] in operators:
+            while index < len(command) and command[index] in operators:
+                index += 1
+            tokens.append((command[start:index], start, index))
+            continue
+        quote = ""
+        while index < len(command):
+            char = command[index]
+            if char == "\\" and quote != "'":
+                index += 2
+                continue
+            if quote:
+                if char == quote:
+                    quote = ""
+            elif char in "'\"":
+                quote = char
+            elif char.isspace() or char in operators:
                 break
-            raw = command[cursor:after]
-            leading = len(raw) - len(raw.lstrip())
-            end = len(raw.rstrip())
-            tokens.append((token, cursor + leading, cursor + end))
-    except ValueError as error:
-        return "", f"Could not adapt the approved Exit command: {error}"
+            index += 1
+        if quote:
+            return "", "Could not adapt an Exit command with an unclosed quote."
+        raw = command[start:index]
+        try:
+            parsed = shlex.split(raw)
+        except ValueError as error:
+            return "", f"Could not adapt the approved Exit command: {error}"
+        if len(parsed) != 1:
+            return "", "Could not adapt an Exit command argument safely."
+        tokens.append((parsed[0], start, index))
     controls = {"if", "then", "else", "elif", "fi", "for", "while", "until",
                 "do", "done", "case", "esac", "function"}
     operators = re.compile(r"^[;&|()<>]+$")
@@ -460,11 +485,15 @@ def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
                      and not operators.fullmatch(segment[0][0])]
     if controls.intersection(command_heads):
         return "", "Could not adapt a compound shell control command for the reproducer."
+
+    def approved(token: str) -> bool:
+        return token in approved_files or token.removeprefix("./") in approved_files
+
     target = next((segment for segment in segments
-                   if any(token in approved_files for token, _, _ in segment)), None)
+                   if any(approved(token) for token, _, _ in segment)), None)
     if target is None:
         return "", "Could not locate a frozen test file in the approved Exit command."
-    paths = [(start, end) for token, start, end in target if token in approved_files]
+    paths = [(start, end) for token, start, end in target if approved(token)]
     edits = [(paths[0][0], paths[0][1], shlex.quote(test_file))]
     edits.extend((start, end, "") for start, end in paths[1:])
     adapted = command
