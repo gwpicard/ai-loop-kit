@@ -432,34 +432,45 @@ def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
         lexer.whitespace_split = True
         lexer.commenters = ""
-        tokens = list(lexer)
+        tokens = []
+        while True:
+            cursor = lexer.instream.tell()
+            token = lexer.get_token()
+            after = lexer.instream.tell()
+            if token == lexer.eof:
+                break
+            raw = command[cursor:after]
+            leading = len(raw) - len(raw.lstrip())
+            end = len(raw.rstrip())
+            tokens.append((token, cursor + leading, cursor + end))
     except ValueError as error:
         return "", f"Could not adapt the approved Exit command: {error}"
     controls = {"if", "then", "else", "elif", "fi", "for", "while", "until",
                 "do", "done", "case", "esac", "function"}
     operators = re.compile(r"^[;&|()<>]+$")
     segments = [[]]
-    for token in tokens:
+    for entry in tokens:
+        token = entry[0]
         if operators.fullmatch(token):
-            segments.append([token])
+            segments.append([entry])
             segments.append([])
         else:
-            segments[-1].append(token)
-    command_heads = [segment[0] for segment in segments if segment
-                     and not operators.fullmatch(segment[0])]
+            segments[-1].append(entry)
+    command_heads = [segment[0][0] for segment in segments if segment
+                     and not operators.fullmatch(segment[0][0])]
     if controls.intersection(command_heads):
         return "", "Could not adapt a compound shell control command for the reproducer."
     target = next((segment for segment in segments
-                   if any(token in approved_files for token in segment)), None)
+                   if any(token in approved_files for token, _, _ in segment)), None)
     if target is None:
         return "", "Could not locate a frozen test file in the approved Exit command."
-    positions = [index for index, token in enumerate(target) if token in approved_files]
-    target[positions[0]] = test_file
-    for index in reversed(positions[1:]):
-        del target[index]
-    rendered = " ".join(token if operators.fullmatch(token) else shlex.quote(token)
-                         for segment in segments for token in segment)
-    return rendered, ""
+    paths = [(start, end) for token, start, end in target if token in approved_files]
+    edits = [(paths[0][0], paths[0][1], shlex.quote(test_file))]
+    edits.extend((start, end, "") for start, end in paths[1:])
+    adapted = command
+    for start, end, replacement in sorted(edits, reverse=True):
+        adapted = adapted[:start] + replacement + adapted[end:]
+    return adapted, ""
 
 
 def _remove_untracked_reproducer(folder: Path, path: Path) -> None:

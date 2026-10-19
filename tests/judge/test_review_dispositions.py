@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -101,6 +102,13 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(command, "cd . && python3 test_review_D1.py")
 
+    def test_reproducer_keeps_shell_assignments_and_expansions(self):
+        command, error = review._adapt_exit_command(
+            'PYTHONPATH="$PWD" python3 judge.py', {"judge.py"}, "test_review_D1.py")
+
+        self.assertEqual(error, "")
+        self.assertEqual(command, 'PYTHONPATH="$PWD" python3 test_review_D1.py')
+
     def test_prepare_failure_is_reported_without_running_candidate(self):
         (self.p.root / "candidate.py").write_text("raise AssertionError('D1')\n")
         result = review._run_contract_reproducer(
@@ -122,6 +130,23 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         crash = ("FAIL: test_D1_runner\nRuntimeError: D1 runner crashed\n"
                  "FAIL: test_X9_unrelated\nAssertionError: X9 unrelated\n")
         self.assertFalse(review.judge_assertion_failed(crash, "D1"))
+
+    def test_pytest_summary_does_not_join_separate_failure_blocks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp) / "test_mixed_failures.py"
+            candidate.write_text(
+                "def test_D1_runner():\n"
+                "    raise RuntimeError('D1 runner crashed')\n\n"
+                "def test_X9_unrelated():\n"
+                "    assert False, 'X9 unrelated'\n")
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "-q", "--tb=short", str(candidate)],
+                capture_output=True, text=True)
+        output = result.stdout + result.stderr
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("short test summary info", output)
+        self.assertFalse(review.judge_assertion_failed(output, "D1"))
 
     def test_javascript_reproducer_runs_with_the_approved_node_command(self):
         node = subprocess.run(["node", "--version"], capture_output=True, text=True)

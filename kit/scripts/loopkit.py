@@ -468,8 +468,11 @@ def judge_assertion_failed(output: str, item: str) -> bool:
     headers = re.compile(r"^\s*(?:FAIL|ERROR): |^_{5,}.*_{5,}$|^\s*● ")
     starts = [index for index, line in enumerate(lines) if headers.search(line)]
     if starts:
-        blocks = [lines[start:starts[pos + 1] if pos + 1 < len(starts) else len(lines)]
-                  for pos, start in enumerate(starts)]
+        summary = next((index for index, line in enumerate(lines)
+                        if re.match(r"^=+ short test summary info =+\s*$", line)), len(lines))
+        starts = [start for start in starts if start < summary]
+        blocks = [lines[start:min(starts[pos + 1] if pos + 1 < len(starts) else summary,
+                                  summary)] for pos, start in enumerate(starts)]
     else:
         errors = re.compile(
             r"^\s*(?:AssertionError(?:\s+\[ERR_ASSERTION\])?|"
