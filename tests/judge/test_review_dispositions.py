@@ -182,3 +182,34 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
 
         self.assertTrue(result["reproduced"], result["output"])
         self.assertEqual(result["source"], source)
+
+    def test_ruby_reproducer_uses_approved_ruby_check_after_other_runner(self):
+        ruby = subprocess.run(["ruby", "--version"], capture_output=True, text=True,
+                              check=False)
+        if ruby.returncode:
+            self.skipTest("ruby is unavailable")
+        (self.p.root / "judge_add.py").write_text("print('python judge')\n")
+        (self.p.root / "judge_add.rb").write_text("puts 'ruby judge'\n")
+        git(self.p.root, "add", "judge_add.py", "judge_add.rb")
+        git(self.p.root, "commit", "--quiet", "-m", "Add frozen Ruby judge")
+        source = ('require "minitest/autorun"\n'
+                  "class ReviewD1Test < Minitest::Test\n"
+                  "  def test_D1\n"
+                  '    assert false, "FAIL D1"\n'
+                  "  end\n"
+                  "end\n")
+        test_file = Path("test_review_D1.rb")
+        (self.p.root / test_file).write_text(source)
+
+        result = review._run_contract_reproducer(
+            self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"),
+            {"checks": [
+                {"type": "tests", "command": "python3 judge_add.py",
+                 "files": ["judge_add.py"]},
+                {"type": "tests", "command": "ruby judge_add.rb",
+                 "files": ["judge_add.rb"]},
+            ]},
+            test_file, "D1", 1, 1)
+
+        self.assertTrue(result["reproduced"], result["output"])
+        self.assertEqual(result["source"], source)

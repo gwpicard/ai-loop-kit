@@ -392,9 +392,7 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
     """Run one approved-item test in a prepared checkout of the judged commit."""
     source = (reviewer_folder / test_file).read_text(errors="replace")
     checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
-    if checks:
-        checks = [check for check in checks if _test_check_supports_reproducer(check, test_file)]
-    else:
+    if not checks:
         command = ready.get("command", "")
         checks = ([{"command": command, "files": ready.get("files", [])}]
                   if command else [])
@@ -429,8 +427,9 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
             code, output = gate.run_judge(target, command,
                                           protected_paths=ready.get("protected_paths", []))
             outputs.append(output.strip())
-            if code != 0 and not judge_has_runner_error(output, code) \
-                    and judge_assertion_failed(output, item):
+            if judge_has_runner_error(output, code):
+                continue
+            if code != 0 and judge_assertion_failed(output, item):
                 reproduced = True
                 break
         return {"reproduced": reproduced, "source": source,
@@ -439,19 +438,6 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
         _remove_untracked_reproducer(target, test_file)
         sh(["git", "worktree", "remove", str(target)], root, check=False)
         sh(["git", "worktree", "prune"], root, check=False)
-
-
-def _test_check_supports_reproducer(check: dict, test_file: Path) -> bool:
-    """Pair a reproducer with a frozen test check for the same language."""
-    groups = {
-        ".py": "python",
-        ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-        ".ts": "javascript", ".tsx": "javascript", ".jsx": "javascript",
-    }
-    language = groups.get(test_file.suffix.lower())
-    return bool(language and any(
-        groups.get(Path(filename).suffix.lower()) == language
-        for filename in check.get("files", [])))
 
 
 def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
