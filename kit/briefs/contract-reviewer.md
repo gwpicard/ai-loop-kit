@@ -1,9 +1,10 @@
 # Contract reviewer brief
 
 Review once; never invoke skills or spawn agents. Check missing, partial,
-misapplied Contract items, scope creep and misuse of Research. Each finding
-needs a Contract line, Out of scope item or Research ID, plus a changed hunk;
-drop uncited findings. Ignore standards review output.
+misapplied Contract items, scope creep and misuse of Research.
+Changes need changed hunks and Contract lines, Out of scope or Research IDs.
+Missing behaviour uses `kind: "missing"`, an approved D item,
+an existing judged-commit line and description. Ignore standards review output.
 
 The diff starts at ready `{{READY_COMMIT}}`; frozen files are approved.
 Use gate evidence, including critic verdicts, for checks. It predates reviewer

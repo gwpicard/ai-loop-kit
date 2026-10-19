@@ -908,16 +908,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,069 Python lines in `kit/`, including the remaining
+The default plugin has 6,064 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,489 runtime
+critics have 420 runtime lines in `extras/`. Together they have 6,484 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,489 runtime lines in total. The suite reports the total and the
+6,484 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

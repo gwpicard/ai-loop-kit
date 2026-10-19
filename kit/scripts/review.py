@@ -213,11 +213,6 @@ def frozen_baseline(folder: Path, ready: dict) -> dict[str, str]:
 
 def _review_prompt(name: str, values: dict[str, str]) -> str:
     prompt = (KIT / "briefs" / name).read_text()
-    if name == "contract-reviewer.md":
-        prompt = prompt.replace(
-            "plus a changed hunk;",
-            'plus a changed hunk for changed code. Missing behaviour uses `kind: "missing"`\n'
-            "and needs an approved D item, an existing judged-commit line and a description;")
     prompt = prompt.replace("{{BUILTIN_RULES}}", "\n".join(f"- {rule}" for rule in BUILTIN_RULES))
     for key, value in values.items():
         prompt = prompt.replace("{{" + key + "}}", value)
