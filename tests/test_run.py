@@ -514,7 +514,7 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertEqual(rejection["reason"], "pull request creation failed after submit")
         self.assertEqual(rejection["attempts"], 1)
         self.assertGreater(rejection["seconds"], 0)
-        self.assertEqual(rejection["kit"], "1.3.0")
+        self.assertEqual(rejection["kit"], "1.4.0")
         self.assertRegex(rejection["date"], r"^\d{4}-\d{2}-\d{2}$")
 
     def test_a_pushed_branch_is_never_rewritten(self):
