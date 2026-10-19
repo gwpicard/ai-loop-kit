@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
+import shutil
 import uuid
 from fnmatch import fnmatch
 from pathlib import Path
@@ -11,6 +13,7 @@ from typing import Optional
 
 import gate
 from loopkit import (CHECK_FILES, Refused, prepare,
+                     judge_assertion_failed, judge_has_runner_error,
                      record_prepare_outputs, rev, sh, untracked_paths)
 from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
@@ -83,6 +86,12 @@ def _last_verdict(output: str, reviewer: str) -> dict:
             if not isinstance(finding, dict) or any(not isinstance(finding.get(key), str)
                                                     for key in keys):
                 raise ValueError(f"each {reviewer} finding needs {', '.join(keys)} strings")
+            if reviewer == "contract" and "reproducer" in finding:
+                reproducer = finding["reproducer"]
+                if (not isinstance(reproducer, dict)
+                        or not isinstance(reproducer.get("file"), str)
+                        or not isinstance(reproducer.get("item"), str)):
+                    raise ValueError("a contract reproducer needs file and item strings")
         if reviewer == "standards" and (
                 not isinstance(data.get("follow_ups"), list)
                 or any(not isinstance(item, str) for item in data["follow_ups"])
@@ -104,8 +113,9 @@ def _logged_verdict(logfile: Path, reviewer: str) -> dict:
     except ValueError as error:
         with logfile.open("a") as out:
             out.write(f"\nInvalid {reviewer} verdict: {error}\nRaw tail:\n{output[-2000:]}\n")
-        raise Refused(f"{reviewer} returned an invalid verdict: {error}",
-                      f"read {logfile} and correct the review output")
+        raise Refused(f"{reviewer} returned an invalid verdict: {error}; next: read {logfile} "
+                      "and correct the review output",
+                      f"read {logfile} and correct the review output") from error
 
 
 def parse_standards_findings(output: str, standards: str, diff: str,
@@ -289,8 +299,16 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
             raise Refused(f"Prepare failed in the {role} review folder:\n{output[-1200:]}")
         record_prepare_outputs(target, before, before_dirs)
         logfile = logs / f"piece-{n}-{role}-review.log"
+        role_denied = denied
+        if role == "contract":
+            role_denied = [pattern for pattern in denied
+                           if pattern not in ("tests/**", "**/test_*", "**/*_test.py",
+                                              "**/*.test.*", "**/*.spec.*",
+                                              "**/conftest.py")]
+        before_review = set(sh(["git", "ls-files", "--others", "--exclude-standard", "-z"],
+                               target).stdout.split("\0"))
         if _review_session(target, _review_prompt(f"{role}-reviewer.md", {
-            **context, "DIFF": diff}), logfile, denied,
+            **context, "DIFF": diff}), logfile, role_denied,
             idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
             walk_away, domains, ready.get("agent", "claude")) == "idle":
             raise AttemptIdle(f"{role} reviewer idle; see {logfile}")
@@ -301,17 +319,56 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
         location = {"folder": folder, "judged": judged} if role == "contract" else {}
         findings = parser(output, standards if role == "standards" else body, diff, baseline,
                           dropped=dropped, **location)
+        results["dropped_findings"] += len(dropped)
         with logfile.open("a") as out:
             for item in dropped:
                 out.write("\nDropped finding: " + json.dumps(item) + "\n")
-        results["dropped_findings"] += len(dropped)
+        if role == "contract":
+            results["contract_findings"] = findings
+            results["contract_reproducers"] = []
+            verdict_findings = verdict["findings"]
+            contract = (_section(body, "Contract") or _section(body, "Done when") or [])
+            approved_ids = {match[1] for line in contract
+                            if (match := _ITEM.match(line))}
+            changed = sh(["git", "diff", "--name-only", judged], target).stdout.splitlines()
+            staged = sh(["git", "diff", "--cached", "--name-only"], target).stdout.splitlines()
+            added = set(sh(["git", "ls-files", "--others", "--exclude-standard", "-z"],
+                           target).stdout.split("\0")) - before_review
+            added.discard("")
+            clean_reproducer = not changed and not staged
+            used_reproducer_paths = set()
+            for finding in verdict_findings:
+                reproducer = finding.get("reproducer")
+                if not reproducer or not any(
+                        finding.get("finding", "").strip() in kept
+                        for kept in findings):
+                    continue
+                path = Path(reproducer["file"])
+                item = reproducer["item"]
+                cited_ids = set(re.findall(r"\bD\d+\b", finding.get("citation", "")))
+                if (item not in approved_ids or path.is_absolute() or ".." in path.parts
+                        or item not in cited_ids or not path.suffix
+                        or not clean_reproducer or path.as_posix() not in added
+                        or path.as_posix() in used_reproducer_paths
+                        or not (target / path).is_file() or (target / path).is_symlink()):
+                    continue
+                if not re.search(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])",
+                                 (target / path).read_text(errors="replace")):
+                    continue
+                try:
+                    result = _run_contract_reproducer(root, target, judged, ready,
+                                                      path, item, n, k)
+                    results["contract_reproducers"].append({
+                        "file": path.as_posix(), "item": item, **result})
+                    used_reproducer_paths.add(path.as_posix())
+                finally:
+                    _remove_untracked_reproducer(target, path)
+            continue
         results[f"{role}_findings"] = []
         for finding in findings:
             key = ("baseline_conflicts" if finding.startswith("Frozen baseline conflict (")
                    else f"{role}_findings")
             results[key].append(finding)
-        if role == "contract":
-            continue  # The contract reviewer is read-only; never merge its branch.
         results["follow_ups"] = verdict["follow_ups"]
         commit_leftovers(target, n, k)
         if rev(target, "HEAD") != judged:
@@ -327,3 +384,155 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                                              "failed:\n" + output[-1200:])
     results["reviewer_note"] += f"\nDropped review findings: {results['dropped_findings']}"
     return results
+
+
+def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
+                             ready: dict, test_file: Path,
+                             item: str, n: int, k: int) -> dict:
+    """Run one approved-item test in a prepared checkout of the judged commit."""
+    source = (reviewer_folder / test_file).read_text(errors="replace")
+    checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
+    if not checks:
+        command = ready.get("command", "")
+        checks = ([{"command": command, "files": ready.get("files", [])}]
+                  if command else [])
+    if not checks:
+        return {"reproduced": False, "source": source,
+                "output": "No applicable approved Exit test command is available."}
+    target = root / ".loop" / "review-reproducers" / f"piece-{n}-{k}-{uuid.uuid4().hex[:8]}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        sh(["git", "worktree", "add", "--quiet", "--detach", str(target), judged], root)
+        before_prepare = untracked_paths(target)
+        before_dirs = {child.name for child in target.iterdir() if child.is_dir()}
+        prepared, prepare_output = prepare(target, ready.get("prepare", ""),
+                                           ready.get("protected_paths", []))
+        if not prepared:
+            return {"reproduced": False, "preparation_failed": True, "source": source,
+                    "output": prepare_output.strip()[-3000:]}
+        record_prepare_outputs(target, before_prepare, before_dirs)
+        (target / test_file).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(reviewer_folder / test_file, target / test_file)
+        commands, outputs = [], []
+        for number, check in enumerate(checks, 1):
+            adapted, adapt_error = _adapt_exit_command(
+                check.get("command", ""), set(check.get("files", [])), test_file.as_posix(),
+                expected_suffix=test_file.suffix)
+            if adapt_error:
+                outputs.append(f"Exit check {number} could not be adapted: {adapt_error}")
+                continue
+            commands.append(adapted)
+        if not commands:
+            return {"reproduced": False, "source": source,
+                    "output": "\n".join(outputs)[-3000:]}
+        reproduced = False
+        for command in commands:
+            code, output = gate.run_judge(target, command,
+                                          protected_paths=ready.get("protected_paths", []))
+            outputs.append(output.strip())
+            if judge_has_runner_error(output, code):
+                continue
+            if code != 0 and judge_assertion_failed(output, item):
+                reproduced = True
+                break
+        return {"reproduced": reproduced, "source": source,
+                "output": "\n\n".join(outputs)[-3000:]}
+    finally:
+        _remove_untracked_reproducer(target, test_file)
+        sh(["git", "worktree", "remove", str(target)], root, check=False)
+        sh(["git", "worktree", "prune"], root, check=False)
+
+
+def _adapt_exit_command(command: str, approved_files: set[str], test_file: str,
+                        *, expected_suffix: str = ""
+                        ) -> tuple[str, str]:
+    """Replace a frozen test target in its shell segment without moving the runner."""
+    if "`" in command or "$ (" in command or "$((" in command or "$(" in command:
+        return "", "Could not adapt shell command substitution safely."
+    tokens = []
+    operators = set(";&|()<>")
+    index = 0
+    while index < len(command):
+        if command[index].isspace():
+            index += 1
+            continue
+        start = index
+        if command[index] in operators:
+            while index < len(command) and command[index] in operators:
+                index += 1
+            tokens.append((command[start:index], start, index))
+            continue
+        quote = ""
+        while index < len(command):
+            char = command[index]
+            if char == "\\" and quote != "'":
+                index += 2
+                continue
+            if quote:
+                if char == quote:
+                    quote = ""
+            elif char in "'\"":
+                quote = char
+            elif char.isspace() or char in operators:
+                break
+            index += 1
+        if quote:
+            return "", "Could not adapt an Exit command with an unclosed quote."
+        raw = command[start:index]
+        try:
+            parsed = shlex.split(raw)
+        except ValueError as error:
+            return "", f"Could not adapt the approved Exit command: {error}"
+        if len(parsed) != 1:
+            return "", "Could not adapt an Exit command argument safely."
+        tokens.append((parsed[0], start, index))
+    controls = {"if", "then", "else", "elif", "fi", "for", "while", "until",
+                "do", "done", "case", "esac", "function"}
+    operators = re.compile(r"^[;&|()<>]+$")
+    segments = [[]]
+    for entry in tokens:
+        token = entry[0]
+        if operators.fullmatch(token):
+            segments.append([entry])
+            segments.append([])
+        else:
+            segments[-1].append(entry)
+    command_heads = [segment[0][0] for segment in segments if segment
+                     and not operators.fullmatch(segment[0][0])]
+    if controls.intersection(command_heads):
+        return "", "Could not adapt a compound shell control command for the reproducer."
+
+    def approved(token: str) -> bool:
+        return token in approved_files or token.removeprefix("./") in approved_files
+
+    target = next((segment for segment in segments
+                   if any(approved(token) for token, _, _ in segment)), None)
+    if target is None:
+        return "", "Could not locate a frozen test file in the approved Exit command."
+    paths = [(start, end) for token, start, end in target if approved(token)]
+    if (expected_suffix and
+            Path(next(token for token, _, _ in target if approved(token))).suffix.lower()
+            != expected_suffix.lower()):
+        return "", "The frozen test target is not compatible with the reproducer file type."
+    prefix = "./" if command[paths[0][0]:].lstrip("'\"").startswith("./") else ""
+    edits = [(paths[0][0], paths[0][1], shlex.quote(prefix + test_file))]
+    edits.extend((start, end, "") for start, end in paths[1:])
+    adapted = command
+    for start, end, replacement in sorted(edits, reverse=True):
+        adapted = adapted[:start] + replacement + adapted[end:]
+    return adapted, ""
+
+
+def _remove_untracked_reproducer(folder: Path, path: Path) -> None:
+    """Remove only the named test file and empty directories it created."""
+    status = sh(["git", "status", "--porcelain", "--", path.as_posix()], folder).stdout
+    candidate = folder / path
+    if status.startswith("??") and candidate.is_file():
+        candidate.unlink()
+        parent = candidate.parent
+        while parent != folder:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent

@@ -513,10 +513,20 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             review = review_piece(root, folder, n, k, issue, ready, walk_away,
                                   walkaway.approved_domains(root) if walk_away else None, output)
             if review["contract_findings"]:
-                reason = "; ".join(review["contract_findings"])
-                gh.comment(n, record_text({"move": "judge-gap", "type": "judge-gap",
-                                          "reason": reason},
-                                          "Contract review found a judge gap: " + reason))
+                reproductions = [item for item in review.get("contract_reproducers", [])
+                                 if item.get("reproduced")]
+                if reproductions:
+                    evidence = "\n\n".join(
+                        f"{item['item']} reproducer `{item['file']}` source:\n````python\n"
+                        f"{item.get('source', '')}\n````\n\n"
+                        f"{item['item']} reproducer output:\n````text\n"
+                        f"{item['output']}\n````" for item in reproductions)
+                    reason = ("Contract review reproduced a judge gap: "
+                              + ", ".join(item["item"] for item in reproductions)
+                              + "\n\n" + evidence)
+                    _hand_back(gh, root, n, reason, "judge-gap", metrics,
+                               cause="judge-gap")
+                    return f"piece {n}: back to shaping, contract finding reproduced"
             return open_pull_request(gh, root, folder, n, issue, k, output, review,
                                     time.monotonic() - metrics["started"])
         if output.startswith(gate.BAR_WRONG):

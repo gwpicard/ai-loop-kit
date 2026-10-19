@@ -400,27 +400,28 @@ Why each role is separate:
   behaviour uses `kind: "missing"`, an approved D item, an existing file line
   in the judged commit and a description of what is missing. The run collapses
   findings with the same citation and claim, retaining the first location.
-  It logs every dropped finding with its reason and counts them in the pull
-  request (code). The
-  review diffs start at the ready commit, so shaping files are baseline,
-  not build changes. The contract reviewer also sees the attempt gate output,
+  It logs dropped findings with reasons and counts them in the pull request (code).
+  Review diffs start at the ready commit, so shaping files are baseline, not
+  build changes. The contract reviewer also sees the attempt gate output,
   including critic verdicts. Both reviewers see numbered frozen baseline
   lines. The reviewers print one tagged JSON verdict; the run never guesses a verdict
   from free text [Sandcastle].
 - **The standards reviewer may commit a non-test fix.** The fix is kept only
   if the judge passes again; otherwise its commits are dropped and the
   builder's judged commit goes forward (code).
-- **Contract findings are advisory.** They are recorded as `judge-gap` and put
-  at the top of the pull request. They do not stop the pull request (code). A
-  missing item means the judge was weak. A reviewer can mark a finding with
-  `baseline_conflict: "path:line"` when following it would contradict the
-  frozen baseline. The run checks that citation against a non-empty line in
-  a frozen file at ready. Check-setting patterns match tracked paths in that
-  commit, including configuration files in subfolders. Validly cited conflicts
-  appear separately in the pull request and do not count as judge gaps.
-  The context includes numbered package manifests from that commit. Only
-  their check settings are frozen; the other fields give context. The reviewer judges the
-  contradiction; the script checks the citation (code and words).
+- **Contract findings use evidence.** Reviewers may supply one test file for an
+  approved Contract item. The run executes it with the approved Exit command
+  in a disposable worktree at the judged commit. An assertion naming the item
+  returns the piece to shaping with its test and output in a `judge-gap` record.
+  Missing, passing or unrelated failures leave findings unresolved in the pull
+  request, which makes no claim that the contract is met. Standards stay
+  advisory (code). Reviewers may cite `baseline_conflict: "path:line"`
+  when following a finding would contradict the frozen baseline. The run checks
+  a non-empty line in a frozen file at ready; check-setting patterns match
+  tracked paths, including configuration files in subfolders. Valid conflicts
+  appear separately in the pull request and do not count as judge gaps. Numbered
+  package manifests provide context; only check settings are frozen. Reviewers judge
+  conflicts; scripts check citations in code and prose.
 - **The gate and the run are scripts.** A coordinator agent forgets and
   drifts; a script does the same thing every time.
 - **The person approves the two moments that need taste:** the contract and
