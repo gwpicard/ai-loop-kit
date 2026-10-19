@@ -38,6 +38,7 @@ def run_event(root: Path, event: str, piece: int | None = None,
                      "info/exclude"], root, check=False)
         if result.returncode == 0:
             exclude = Path(result.stdout.strip())
+            exclude.parent.mkdir(parents=True, exist_ok=True)
             text = exclude.read_text() if exclude.exists() else ""
             if "/.loop/" not in text.splitlines():
                 exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Build ready pieces oldest first; the gate judges and opens each pull request.
-Usage: `run.py` builds all; `run.py 12 14` selects pieces; `run.py --attempts 2`
+"""Build ready pieces oldest first and open a pull request for each pass.
+Usage: `run.py` builds all; `run.py 12 14` selects pieces; `--attempts 2`
 limits attempts. Each attempt uses a fresh `claude -p` session in its worktree.
-The gate judges every attempt; a pass opens a pull request for the person to
-merge, while three failures return the piece to shaping with the reason.
+The gate judges each attempt; three failures return the piece to shaping.
 """
 from __future__ import annotations
 

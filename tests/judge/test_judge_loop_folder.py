@@ -99,6 +99,19 @@ class JudgeLoopFolderTest(unittest.TestCase):
         exclude = (self.root / ".git/info/exclude").read_text().splitlines()
         self.assertEqual(exclude.count("/.loop/"), 1)
 
+    def test_D2_creates_a_missing_info_directory_and_keeps_recording(self):
+        root = self.base / "template-project"
+        root.mkdir()
+        git(self.base, "init", "--quiet", "--template=", str(root))
+        self.assertFalse((root / ".git/info").exists())
+        gate.run_event(root, "capture", 1, "shaping", reason="capture")
+        gate.run_event(root, "pull-back", 1, "shaping", reason="pull-back")
+        events = (root / ".loop/events.jsonl").read_text().splitlines()
+        self.assertEqual(len(events), 2)
+        self.assertEqual(git(root, "status", "--porcelain"), "")
+        exclude = (root / ".git/info/exclude").read_text().splitlines()
+        self.assertEqual(exclude.count("/.loop/"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
