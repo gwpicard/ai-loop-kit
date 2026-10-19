@@ -127,11 +127,11 @@ class QualityFixturesTest(unittest.TestCase):
             (root / "RESULTS.md").write_text(historical)
             with patch.object(module, "repo_root", return_value=root), \
                     patch.object(module, "load", return_value=[]) as load, \
-                    patch.object(module, "audit_cleanup", return_value=[]), \
-                    patch.object(module, "audit_quality") as quality, patch("builtins.print"):
+                    patch.object(module, "audit_cleanup", return_value=[]) as cleanup, \
+                    patch("builtins.print"):
                 self.assertEqual(module.main([]), 0)
                 load.assert_called_once_with(root)
-                quality.assert_not_called()
+                cleanup.assert_called_once_with(root)
             self.assertEqual((root / "RESULTS.md").read_text(), historical)
 
 
