@@ -5,6 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from doctor import print_checks
 from loopkit import REASON_TYPES, STATES, GitHub, Refused, repo_root
 
 
@@ -74,11 +75,7 @@ def main(argv: list[str] | None = None, api=None) -> int:
         elif args.cmd == "doctor":
             checks = api.doctor(gh, root, args.quality_command,
                             args.prepare_command, args.test_command, args.walk_away)
-            for ok, what, fix in checks:
-                print(f"{'ok  ' if ok else 'FAIL'} {what}")
-                if fix:
-                    print(f"     next: {fix}")
-            if not all(ok for ok, _, _ in checks):
+            if not print_checks(checks):
                 return 2
         elif args.cmd == "report":
             print(api.report(gh))

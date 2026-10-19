@@ -556,10 +556,12 @@ class GitHub:
         data["labels"] = [lab["name"] for lab in data["labels"]]
         return data
 
-    def issues_with_label(self, label: str, closed_too: bool = False) -> list[dict]:
+    def issues_with_label(self, label: str = "", closed_too: bool = False) -> list[dict]:
         state = "all" if closed_too else "open"
-        data = json.loads(self._gh("issue", "list", "--state", state, "--label", label,
-                                   "--limit", "200", "--json", "number,title,labels"))
+        labels = ["--label", label] if label else []
+        data = json.loads(self._gh("issue", "list", "--state", state, *labels,
+                                   "--limit", "200" if label else "1000000",
+                                   "--json", "number,title,labels"))
         for d in data:
             d["labels"] = [lab["name"] for lab in d["labels"]]
         return data

@@ -24,9 +24,8 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      exit_attempt, exit_ready, parse_spec, prepare,
                      record_text, records, repo_root, rev,
                      run_judge, run_keep, sh, skipped_tests, spec_hash)
-from doctor import doctor as doctor
+from doctor import doctor as doctor, quality_on_fresh_main
 from extras import critics, require_extras
-from doctor import quality_on_fresh_main
 from gate_cli import build_parser as build_parser
 import measure  # noqa: E402
 import regression
@@ -647,8 +646,9 @@ def ignore_loop_folder(root: Path) -> None:
 
 def status(gh: GitHub, root: Optional[Path] = None) -> str:
     lines = []
+    issues = gh.issues_with_label()
     for s in STATES[:4]:
-        items = gh.issues_with_label(STATE_PREFIX + s)
+        items = [issue for issue in issues if STATE_PREFIX + s in issue["labels"]]
         lines.append(f"{s}: " + (", ".join(
             f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
             for i in items) or "none"))

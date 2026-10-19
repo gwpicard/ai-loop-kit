@@ -14,6 +14,7 @@ from typing import Optional
 import dashboard
 import gate
 import walkaway
+from doctor import print_checks
 from loopkit import STATE_PREFIX, GitHub, Refused, last_record, loop_settings, repo_root
 
 from extras import require_extras
@@ -64,11 +65,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             print(f"refused: {error.reason}\nnext: {error.next_step}", file=sys.stderr)
             return 2
         checks = gate.doctor(gh, root, walk_away=True, agent=args.agent)
-        for ok, what, fix in checks:
-            print(f"{'ok  ' if ok else 'FAIL'} {what}")
-            if fix:
-                print(f"     next: {fix}")
-        if not all(ok for ok, _, _ in checks):
+        if not print_checks(checks):
             print("refused: walk-away pre-run check failed", file=sys.stderr)
             return 2
     started_at = datetime.now(timezone.utc)

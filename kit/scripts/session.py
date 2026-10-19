@@ -228,6 +228,9 @@ def main() -> int:
     try:
         data = json.loads(args.input.read_text())
         fields, tools, output = agents.CAPABILITIES[args.role]
+        if isinstance(data, dict) and "Contract" in data and not isinstance(data["Contract"], str):
+            raise Refused("Contract must be a string",
+                          "encode Contract as one JSON string, using \\n between items")
         if not isinstance(data, dict) or set(data) != set(fields) or any(
                 not isinstance(data[key], str) or (key != "Approach" and not data[key].strip())
                 for key in fields):
