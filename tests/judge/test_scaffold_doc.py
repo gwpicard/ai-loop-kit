@@ -53,7 +53,7 @@ class ScaffoldDocTest(unittest.TestCase):
         (folder / "tests").mkdir()
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertIn("collected no tests", output)
+        self.assertIn("Ran 0 tests", output)
         (folder / "tests/test_runner.py").write_text(
             "import unittest\nclass RunnerTest(unittest.TestCase):\n"
             "    def test_runner(self):\n        self.assertEqual(2 + 2, 4)\n")
