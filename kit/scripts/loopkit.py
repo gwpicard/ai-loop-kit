@@ -463,14 +463,34 @@ def judge_has_runner_error(output: str, code: int) -> bool:
 
 
 def judge_assertion_failed(output: str, item: str) -> bool:
-    """Require the named failure and an assertion exception from the test runner."""
-    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
-    fail_lines = "\n".join(line for line in output.splitlines() if fail_line.search(line))
-    named = re.search(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])", fail_lines)
-    assertion = re.search(
-        r"^\s*(?:E\s+)?AssertionError(?::|$)|(?:^|\s-\s)AssertionError(?::|\s|$)|"
-        r"^\s*E\s+assert\b", output, re.MULTILINE)
-    return bool(named and assertion and not _WRONG_TEST_REASON.search(output))
+    """Require the item's own failure block to report an assertion failure."""
+    lines = output.splitlines()
+    headers = re.compile(r"^\s*(?:FAIL|ERROR): |^_{5,}.*_{5,}$|^\s*● ")
+    starts = [index for index, line in enumerate(lines) if headers.search(line)]
+    if starts:
+        blocks = [lines[start:starts[pos + 1] if pos + 1 < len(starts) else len(lines)]
+                  for pos, start in enumerate(starts)]
+    else:
+        errors = re.compile(
+            r"^\s*(?:AssertionError(?:\s+\[ERR_ASSERTION\])?|"
+            r"[A-Za-z_$][\w.$]*(?:Error|Exception)):")
+        starts = [index for index, line in enumerate(lines) if errors.search(line)]
+        blocks = [lines[start:starts[pos + 1] if pos + 1 < len(starts) else len(lines)]
+                  for pos, start in enumerate(starts)]
+    id_pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
+    assertion = re.compile(
+        r"AssertionError(?:\s+\[ERR_ASSERTION\])?|^\s*E\s+assert\b|"
+        r"^\s*(?:Expected|Received):|\bexpect\([^\n]*\)\.", re.MULTILINE)
+    for block in blocks:
+        text = "\n".join(block)
+        if not assertion.search(text) or _WRONG_TEST_REASON.search(text):
+            continue
+        for line in block:
+            if re.search(r"\.(?:py|js|mjs|cjs|ts|tsx|jsx)(?:[:\s]|$)", line):
+                line = re.sub(r"[^\s:()]+\.(?:py|js|mjs|cjs|ts|tsx|jsx)", "", line)
+            if id_pattern.search(line):
+                return True
+    return False
 
 
 def exit_ready(folder: Path, checks: tuple, contract: dict,

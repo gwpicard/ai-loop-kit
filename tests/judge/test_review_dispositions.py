@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -93,6 +94,13 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertEqual(result["source"], source)
         self.assertNotIn("done", result["output"])
 
+    def test_reproducer_substitutes_target_after_shell_setup(self):
+        command, error = review._adapt_exit_command(
+            "cd . && python3 judge.py", {"judge.py"}, "test_review_D1.py")
+
+        self.assertEqual(error, "")
+        self.assertEqual(command, "cd . && python3 test_review_D1.py")
+
     def test_prepare_failure_is_reported_without_running_candidate(self):
         (self.p.root / "candidate.py").write_text("raise AssertionError('D1')\n")
         result = review._run_contract_reproducer(
@@ -107,8 +115,30 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertIn("prepare failed", result["output"])
 
     def test_assertion_classifier_ignores_exception_names_in_assertion_message(self):
-        output = "FAILED test_D1.py::test_D1 - AssertionError: D1 FileNotFoundError\n"
+        output = ("________________ test_D1 ________________\n"
+                  "E AssertionError: D1 FileNotFoundError\n")
         self.assertTrue(review.judge_assertion_failed(output, "D1"))
         self.assertFalse(review.judge_has_runner_error(output, 1))
-        crash = "FAIL test_D1.py::test_D1\nRuntimeError: D1 runner crashed\n"
+        crash = ("FAIL: test_D1_runner\nRuntimeError: D1 runner crashed\n"
+                 "FAIL: test_X9_unrelated\nAssertionError: X9 unrelated\n")
         self.assertFalse(review.judge_assertion_failed(crash, "D1"))
+
+    def test_javascript_reproducer_runs_with_the_approved_node_command(self):
+        node = subprocess.run(["node", "--version"], capture_output=True, text=True)
+        if node.returncode:
+            self.skipTest("node is unavailable")
+        (self.p.root / "judge_add.js").write_text("process.exit(0)\n")
+        git(self.p.root, "add", "judge_add.js")
+        git(self.p.root, "commit", "--quiet", "-m", "Add frozen JavaScript judge")
+        source = 'require("node:assert/strict").fail("D1")\n'
+        test_file = Path("test_review_D1.js")
+        (self.p.root / test_file).write_text(source)
+
+        result = review._run_contract_reproducer(
+            self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"),
+            {"checks": [{"type": "tests", "command": "cd . && node judge_add.js",
+                         "files": ["judge_add.js"]}]},
+            test_file, "D1", 1, 1)
+
+        self.assertTrue(result["reproduced"], result["output"])
+        self.assertEqual(result["source"], source)

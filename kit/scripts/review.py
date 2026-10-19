@@ -346,7 +346,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                 item = reproducer["item"]
                 cited_ids = set(re.findall(r"\bD\d+\b", finding.get("citation", "")))
                 if (item not in approved_ids or path.is_absolute() or ".." in path.parts
-                        or item not in cited_ids or path.suffix != ".py"
+                        or item not in cited_ids or not path.suffix
                         or not clean_reproducer or path.as_posix() not in added
                         or not (target / path).is_file() or (target / path).is_symlink()):
                     continue
@@ -427,7 +427,7 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
 
 def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
                         ) -> tuple[str, str]:
-    """Replace frozen test-file arguments while keeping shell operators active."""
+    """Replace a frozen test target in its shell segment without moving the runner."""
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
         lexer.whitespace_split = True
@@ -438,16 +438,27 @@ def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
     controls = {"if", "then", "else", "elif", "fi", "for", "while", "until",
                 "do", "done", "case", "esac", "function"}
     operators = re.compile(r"^[;&|()<>]+$")
-    command_heads = [tokens[index + 1] for index, token in enumerate(tokens[:-1])
-                     if operators.fullmatch(token)]
-    if (tokens[:1] and tokens[0] in controls) or controls.intersection(command_heads):
+    segments = [[]]
+    for token in tokens:
+        if operators.fullmatch(token):
+            segments.append([token])
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    command_heads = [segment[0] for segment in segments if segment
+                     and not operators.fullmatch(segment[0])]
+    if controls.intersection(command_heads):
         return "", "Could not adapt a compound shell control command for the reproducer."
-    filtered = [token for token in tokens if token not in approved_files]
-    insertion = next((index for index, token in enumerate(filtered)
-                      if operators.fullmatch(token)), len(filtered))
-    filtered.insert(insertion, test_file)
+    target = next((segment for segment in segments
+                   if any(token in approved_files for token in segment)), None)
+    if target is None:
+        return "", "Could not locate a frozen test file in the approved Exit command."
+    positions = [index for index, token in enumerate(target) if token in approved_files]
+    target[positions[0]] = test_file
+    for index in reversed(positions[1:]):
+        del target[index]
     rendered = " ".join(token if operators.fullmatch(token) else shlex.quote(token)
-                         for token in filtered)
+                         for segment in segments for token in segment)
     return rendered, ""
 
 
