@@ -774,8 +774,10 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 
 The guard is a seatbelt, not a sandbox. It splits words and matches patterns.
 It reads the `git -C`, `git -c`, `gh -R`, `bash -c`, `sh -c` and `eval` forms,
-and in build sessions it refuses a form it cannot read. It is not a full shell
-parser, and a determined agent can get round it. The
+and removes known options from leading wrappers such as `sudo`, `env`,
+`command`, `exec`, `nohup` and `time` before checking the command. In build
+sessions it refuses an option it cannot read. It is not a full shell parser,
+and a determined agent can get round it. The
 gate is the backstop, because it checks the result whatever the agent did.
 
 Claude Code's sandbox covers Bash and its child processes. Read, Edit, Write,

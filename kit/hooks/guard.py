@@ -50,10 +50,64 @@ def words(segment: str) -> list[str]:
 
 
 def strip_prefix(w: list[str]) -> list[str]:
-    """Drop leading env assignments and wrappers like sudo, env, command."""
-    while w and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w[0]) or
-                 w[0] in ("sudo", "env", "command", "exec", "nohup", "time")):
+    """Drop leading assignments and known wrapper options before the command."""
+    wrappers = {"sudo", "env", "command", "exec", "nohup", "time"}
+    while w:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w[0]):
+            w = w[1:]
+            continue
+        wrapper = os.path.basename(w[0])
+        if wrapper not in wrappers:
+            break
         w = w[1:]
+        takes_value: tuple[str, ...] = ()
+        if wrapper == "env":
+            takes_value = ("-u", "--unset", "-C", "--chdir")
+        elif wrapper == "sudo":
+            takes_value = ("-u", "--user", "-g", "--group", "-h", "--host",
+                           "-p", "--prompt", "-C", "--close-from", "-R", "--chroot",
+                           "-D", "--chdir", "-T", "--command-timeout", "-r", "--role",
+                           "-t", "--type")
+        elif wrapper == "exec":
+            takes_value = ("-a",)
+        elif wrapper == "time":
+            takes_value = ("-f", "--format", "-o", "--output")
+        while w:
+            arg = w[0]
+            if arg == "--":
+                w = w[1:]
+                break
+            if wrapper == "env" and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg):
+                w = w[1:]
+                continue
+            if not arg.startswith("-") or arg == "-":
+                break
+            if arg in takes_value:
+                if len(w) < 2:
+                    raise ValueError("wrapper option has no value")
+                w = w[2:]
+                continue
+            if any(arg.startswith(option) and arg != option
+                   for option in takes_value if option.startswith("-") and len(option) == 2):
+                w = w[1:]
+                continue
+            accepted = {
+                "env": {"-i", "--ignore-environment", "-0", "--null", "-v",
+                        "--debug"},
+                "sudo": {"-A", "-b", "-E", "-H", "-K", "-k", "-N", "-n",
+                         "-P", "-S", "-V", "--preserve-env", "--preserve-env=",
+                         "--reset-timestamp", "--remove-timestamp", "--non-interactive",
+                         "--stdin", "--background", "--login", "--set-home"},
+                "command": {"-p", "-v", "-V"},
+                "exec": {"-c", "-l"},
+                "nohup": set(),
+                "time": {"-p", "--portability", "-v", "--verbose", "--quiet"},
+            }[wrapper]
+            if arg in accepted or any(arg.startswith(prefix) for prefix in
+                                      ("--preserve-env=", "--format=", "--output=")):
+                w = w[1:]
+                continue
+            raise ValueError("unknown wrapper option")
     return w
 
 
@@ -98,7 +152,7 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
         except ValueError:
             if builder:
                 return "the command could not be read safely in a build session. Simplify it and try again."
-            w = strip_prefix(words(raw))
+            w = words(raw)
         if not w:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
