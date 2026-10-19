@@ -99,7 +99,6 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
             f"The gate ran the frozen judge itself after attempt {k}, and it passed.\n\n"
             f"{facts}\n## Evidence\n\n{evidence}\n")
     review = review or {}
-    body += f"\nDropped review findings: {review.get('dropped_findings', 0)}\n"
     if review.get("contract_findings"):
         body = ("## Contract review findings\n\n" + "\n".join(
             f"- {finding}" for finding in review["contract_findings"]) + "\n\n" + body)

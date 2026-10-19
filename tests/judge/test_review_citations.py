@@ -177,6 +177,8 @@ class ReviewCitationRunTest(RunFixture, unittest.TestCase):
                              "finding": "Unapproved standard."}]
                 output = verdict(findings, "standards")
             else:
+                self.assertIn('Missing behaviour uses `kind: "missing"`', prompt)
+                self.assertIn("an existing judged-commit line", prompt)
                 (folder / "local.py").write_text("untracked\n")
                 findings = [
                     {"citation": "R99", "hunk": "habits.py:1", "finding": "Unknown research."},
