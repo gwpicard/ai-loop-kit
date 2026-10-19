@@ -1,4 +1,4 @@
-"""Judge writing tolerates Python bytecode without admitting other paths."""
+"""Judge writing tolerates bytecode in cache folders and preserves other work."""
 from __future__ import annotations
 
 import json
@@ -89,8 +89,8 @@ class JudgeBytecodeTest(unittest.TestCase):
         cache = self.root / "tests/judge/__pycache__/old.pyc"
         cache.parent.mkdir(parents=True)
         cache.write_bytes(b"old bytecode")
-        loose = self.root / "loose.pyc"
-        loose.write_bytes(b"loose bytecode")
+        nested = self.root / "tests/judge/__pycache__/nested.pyc"
+        nested.write_bytes(b"existing bytecode")
         for backend in ("claude", "codex"):
             with self.subTest(backend=backend):
                 result, _ = self.invoke(backend, {str(cache.relative_to(self.root)): "new cache"},
@@ -98,7 +98,7 @@ class JudgeBytecodeTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(list(self.root.glob("__pycache__/subject*.pyc")))
                 self.assertEqual(cache.read_text(), "new cache")
-                self.assertEqual(loose.read_bytes(), b"loose bytecode")
+                self.assertEqual(nested.read_bytes(), b"existing bytecode")
                 self.assertEqual(git(self.root, "diff", "--name-only", "main...HEAD"), self.judge)
                 self.assertEqual(git(self.root, "status", "--porcelain",
                                      "--untracked-files=no"), "")
@@ -127,21 +127,23 @@ class JudgeBytecodeTest(unittest.TestCase):
         self.assertIn("outside the approved Exit Files: tests/judge/other.py", result.stderr)
         self.assertIn("tests/judge/other.py", result.stderr.split("next:", 1)[1])
 
-    def test_D2_non_bytecode_in_a_cache_folder_is_still_refused(self):
+    def test_D1_non_bytecode_in_a_cache_folder_is_accepted(self):
         name = "tests/judge/__pycache__/notes.txt"
         result, _ = self.invoke("claude", {name: "keep these notes"})
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("outside the approved Exit Files: " + name, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(self.root, "diff", "--name-only", "main...HEAD"), self.judge)
         self.assertEqual((self.root / name).read_text(), "keep these notes")
 
     def test_D4_staged_bytecode_is_kept_out_of_the_judge_commit(self):
-        path = self.root / "staged.pyc"
+        path = self.root / "__pycache__/staged.pyc"
+        path.parent.mkdir()
         path.write_bytes(b"keep staged bytecode")
-        git(self.root, "add", "--", path.name)
+        name = str(path.relative_to(self.root))
+        git(self.root, "add", "--", name)
         result, _ = self.invoke("claude")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(git(self.root, "diff", "--name-only", "main...HEAD"), self.judge)
-        self.assertEqual(git(self.root, "diff", "--cached", "--name-only"), path.name)
+        self.assertEqual(git(self.root, "diff", "--cached", "--name-only"), name)
         self.assertEqual(path.read_bytes(), b"keep staged bytecode")
 
     def test_D4_writer_committed_bytecode_is_refused(self):

@@ -17,23 +17,22 @@ import sandbox
 from loopkit import Refused, bar_hash_in, sh, untracked_paths
 from procs import _untrack_process, track_process
 
+_JUDGE_CACHE = re.compile(
+    r"(^|/)(__pycache__|\.(pytest_cache|benchmarks|hypothesis|mypy_cache|ruff_cache))/")
+
 
 def _judge_untracked(folder: Path, files: list[str]) -> dict:
     """Record unapproved untracked files without following symbolic links."""
-    states = {}
-    for name in untracked_paths(folder) - set(files):
-        if name.endswith(".pyc"):
-            continue
-        path = folder / name
-        states[name] = (path.lstat().st_mode, os.readlink(path) if path.is_symlink()
-                        else bar_hash_in(folder, [name]))
-    return states
+    return {name: ((path := folder / name).lstat().st_mode,
+                   os.readlink(path) if path.is_symlink() else bar_hash_in(folder, [name]))
+            for name in untracked_paths(folder) - set(files) if not _JUDGE_CACHE.search(name)}
 
 
 def _judge_dirty(folder: Path) -> bool:
-    """Ignore bytecode, including files inside __pycache__, when checking work."""
-    return bool(sh(["git", "status", "--porcelain", "--untracked-files=all",
-                    "--", ".", ":(exclude)*.pyc"], folder).stdout)
+    """Ignore uncommitted tool cache folders when checking work."""
+    status = sh(["git", "status", "--porcelain", "--no-renames", "-z",
+                 "--untracked-files=all"], folder).stdout
+    return any(not _JUDGE_CACHE.search(entry[3:]) for entry in status.split("\0") if entry)
 
 
 def _judge_start(folder: Path, data: dict) -> tuple:
@@ -64,7 +63,7 @@ def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
     untracked = _judge_untracked(folder, files)
     altered = {name for name in before.keys() | untracked.keys()
                if before.get(name) != untracked.get(name)}
-    unexpected = {name for name in changed.split("\0") if name and not name.endswith(".pyc")}
+    unexpected = {name for name in changed.split("\0") if name and not _JUDGE_CACHE.search(name)}
     unexpected = (unexpected | altered | set(committed.split("\0"))) - {"", *files}
     reported = verdict["judge_files"]
     unexpected |= set(reported) - set(files)
@@ -242,6 +241,7 @@ def main() -> int:
         backend = agents.selected(args.folder, args.agent)
         if args.role == "judge-writer":
             os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+            os.environ["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
         status = run_session(args.folder, prompt, log, 300, role=args.role,
                              backend=backend, result_event=result, raw_events=events)
         status = status or (agents.environment_evidence(log) if args.role == "researcher" else "")

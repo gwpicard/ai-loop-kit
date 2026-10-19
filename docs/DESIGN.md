@@ -446,14 +446,17 @@ adapter chooses `sonnet`; the brief does not name a model. Judge writing
 starts on a clean `piece/<n>` branch. After validating the tagged verdict,
 the launcher checks that only approved Exit files changed and commits them.
 It compares untracked files, including ignored files, with the starting
-baseline. Judge-writer sessions set `PYTHONDONTWRITEBYTECODE=1`. The path and
-clean-tree checks ignore uncommitted `*.pyc`, including bytecode in
-`__pycache__/`. Every path committed during the session must be an approved
-Exit file, including bytecode paths.
+baseline. Judge-writer sessions set `PYTHONDONTWRITEBYTECODE=1` and
+`PYTEST_ADDOPTS=-p no:cacheprovider`. The path and clean-tree checks ignore
+uncommitted files inside these tool cache folders at any depth:
+`__pycache__`, `.pytest_cache`, `.benchmarks`, `.hypothesis`, `.mypy_cache`
+and `.ruff_cache`. Folder names must match exactly. A loose `*.pyc` outside
+these folders receives no exception. Every path committed during the session
+must be an approved Exit file, including cache paths.
 Other additions, removals and changes to contents, file types, symbolic links
 or permissions outside the approved paths are refused. The refusal names
 the first unexpected path and asks the person to inspect it against the
-approved Exit files. A successful session leaves only stray bytecode
+approved Exit files. A successful session leaves only tool cache files
 uncommitted in the shared working tree. Refused work is kept for shaping to
 inspect.
 
