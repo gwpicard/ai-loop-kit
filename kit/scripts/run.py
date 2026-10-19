@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Build ready pieces oldest first and open a pull request for each pass.
-Usage: `run.py` builds all; `run.py 12 14` selects pieces; `--attempts 2`
-limits attempts. Each attempt uses a fresh `claude -p` session in its worktree.
-The gate judges each attempt; three failures return the piece to shaping.
+"""The run: build each ready piece, let the gate judge it, open a pull request.
+
+    run.py              build every ready piece, oldest first
+    run.py 12 14        build these pieces only
+    run.py --attempts 2
+
+Each attempt is a fresh `claude -p` session in the piece's own worktree. The
+gate runs the judge after every attempt. A pass opens a pull request for the
+person to merge. Three failures send the piece back to shaping with the reason.
 """
 from __future__ import annotations
 
@@ -232,7 +237,8 @@ def worktree(root: Path, n: int) -> Path:
 
 
 def check_pushed_branch(root: Path, n: int) -> None:
-    """Refuse before claim if GitHub has commits missing from the local branch."""
+    """A pushed piece branch is never rewritten. Refuse before the claim if
+    GitHub holds commits that the local branch lacks."""
     branch = branch_name(n)
     if sh(["git", "fetch", "--quiet", "origin", branch], root, check=False).returncode != 0:
         return  # not pushed yet
