@@ -73,9 +73,8 @@ def main(argv: list[str] | None = None, api=None) -> int:
         elif args.cmd == "status":
             print(api.status(gh, root))
         elif args.cmd == "doctor":
-            checks = api.doctor(gh, root, args.quality_command,
-                            args.prepare_command, args.test_command, args.walk_away)
-            if not print_checks(checks):
+            if not print_checks(api.doctor(gh, root, args.quality_command,
+                                          args.prepare_command, args.test_command, args.walk_away)):
                 return 2
         elif args.cmd == "report":
             print(api.report(gh))

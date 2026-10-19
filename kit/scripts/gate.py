@@ -645,13 +645,10 @@ def ignore_loop_folder(root: Path) -> None:
 
 
 def status(gh: GitHub, root: Optional[Path] = None) -> str:
-    lines = []
     issues = gh.issues_with_label()
-    for s in STATES[:4]:
-        items = [issue for issue in issues if STATE_PREFIX + s in issue["labels"]]
-        lines.append(f"{s}: " + (", ".join(
-            f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
-            for i in items) or "none"))
+    lines = [f"{s}: " + (", ".join(
+        f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
+        for i in issues if STATE_PREFIX + s in i["labels"]) or "none") for s in STATES[:4]]
     if root is not None:
         import walkaway
         heartbeat = walkaway.heartbeat_status(root)

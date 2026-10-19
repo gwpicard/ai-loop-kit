@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 import tempfile
 from contextlib import suppress
@@ -37,7 +38,6 @@ from proposed_quality import apply as apply_proposed_quality
 
 
 def print_checks(checks: list[tuple[bool, str, str]]) -> bool:
-    """Print diagnostic marks without making warnings or unknowns blocking."""
     for ok, what, fix in checks:
         mark = ("warn" if what.startswith("warning:") else "unknown"
                 if what == "main branch protection: unknown" else "ok  " if ok else "FAIL")
@@ -45,8 +45,7 @@ def print_checks(checks: list[tuple[bool, str, str]]) -> bool:
     return all(ok for ok, _, _ in checks)
 
 
-def quality_on_fresh_main(root: Path, main: str, command: str,
-                          test_command: str = "",
+def quality_on_fresh_main(root: Path, main: str, command: str, test_command: str = "",
                           protected_paths: list[str] | None = None,
                           prepare_command: str | None = None,
                           proposed_quality: str = "") -> tuple[bool, str]:
@@ -97,7 +96,14 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
     def command_result(code: int, output: str, command: str, name: str) -> None:
         duration = next((line.removeprefix("Keep took: ") for line in output.splitlines()
                          if line.startswith("Keep took: ")), "")
-        empty = code == 5 and ("no tests ran" in output or "collected 0 items" in output)
+        words = []
+        with suppress(ValueError):
+            words = shlex.split(command) if code == 5 else []
+        runner = Path(words[0]).name if words else ""
+        pytest = runner in {"pytest", "py.test"} or (
+            runner.rstrip("0123456789.") == "python" and words[1:3] == ["-m", "pytest"])
+        pytest = pytest and not any(char in command for char in ";&|<>()\n")
+        empty = code == 5 and (pytest or "no tests ran" in output or "collected 0 items" in output)
         fix = ("add tests or fix the test collection settings:\n" if empty else
                "increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
                if code == 124 else "fix the command or environment, or add a Prepare command:\n")
@@ -110,11 +116,10 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
                "create the GitHub repository and add it as origin"):
         return checks
     try:
-        signed_in = gh.signed_in()
+        if not add(gh.signed_in(), "gh is signed in", "run: gh auth login"):
+            return checks
     except RuntimeError as error:
         add(False, str(error), "run: gh auth login")
-        return checks
-    if not add(signed_in, "gh is signed in", "run: gh auth login"):
         return checks
     try:
         main = main_ref(root)

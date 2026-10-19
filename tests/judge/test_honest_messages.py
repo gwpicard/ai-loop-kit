@@ -51,17 +51,33 @@ class HonestMessagesTest(unittest.TestCase):
         self.assertTrue(any(line.startswith("FAIL") and "no tests were collected" in line
                             for line in lines), lines)
 
+    def test_D1_quiet_empty_pytest_says_no_tests_were_collected(self):
+        commands = (f"{sys.executable} -m pytest -qq",
+                    f'"{sys.executable}" -m pytest -qqq',
+                    f"{Path(sys.executable).with_name('pytest')} -qq")
+        for command in commands:
+            with self.subTest(command=command):
+                self.p.loop_section(command)
+                code, lines = self.doctor_output()
+                self.assertEqual(code, 2)
+                self.assertTrue(any(line.startswith("FAIL") and "no tests were collected" in line
+                                    for line in lines), lines)
+                self.assertTrue(any("next:" in line and "add tests" in line for line in lines),
+                                lines)
+
     def test_custom_exit_five_keeps_its_configuration_failure(self):
         message = "configuration error: missing test database URL"
         command = f"{sys.executable} -c 'import sys; print(\"{message}\"); sys.exit(5)'"
-        self.p.loop_section(command)
-        code, lines = self.doctor_output()
-        self.assertEqual(code, 2)
-        self.assertIn(message, "\n".join(lines))
-        self.assertFalse(any("no tests were collected" in line for line in lines), lines)
-        self.assertFalse(any("add tests" in line for line in lines), lines)
-        self.assertTrue(any("next: fix the command or environment" in line for line in lines),
-                        lines)
+        for prefix in ("", f"{sys.executable} -m pytest -qq; "):
+            with self.subTest(prefix=prefix):
+                self.p.loop_section(prefix + command)
+                code, lines = self.doctor_output()
+                self.assertEqual(code, 2)
+                self.assertIn(message, "\n".join(lines))
+                self.assertFalse(any("no tests were collected" in line for line in lines), lines)
+                self.assertFalse(any("add tests" in line for line in lines), lines)
+                self.assertTrue(any("next: fix the command or environment" in line
+                                    for line in lines), lines)
 
     def test_D2_unknown_protection_has_an_unknown_mark_without_blocking(self):
         code, lines = self.doctor_output()
