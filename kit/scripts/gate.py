@@ -138,9 +138,13 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
                 raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
                               "fix main first, or correct the Keep: command")
         if bar_files:
-            before_injection = capture_probe_files(folder, bar_files)
-            sh(["git", "checkout", head, "--", *bar_files], folder)
-            injected = capture_probe_files(folder, bar_files)
+            try:
+                before_injection = capture_probe_files(folder, bar_files)
+                sh(["git", "checkout", head, "--", *bar_files], folder)
+                injected = capture_probe_files(folder, bar_files)
+            except OSError as error:
+                raise Refused(f"cannot read judge file {error.filename or bar_files[0]}",
+                              "make the judge file readable, then run ready again") from None
         lint, test_lint_unchecked = lint_files(
             [folder / f for f in spec.files], folder, " ".join(spec.done_when.values()))
         if lint:
