@@ -606,6 +606,15 @@ code equal to the judged commit, and generated files absent.
 It counts attempts from submit and give-back records. Rejections and later
 pull-backs repeat earlier totals, so the audit does not count them again.
 
+The seeded projects in `tests/field/fixtures/` test a missed regression, a
+missing contract behaviour and a false review block. Each has separate
+seeded code, correct code and an operator's oracle. Only the seeded project
+goes into the builder workspace. `tests/field/QUALITY.md` records quality
+outcomes per real run, including escapes to approval, false blocks, human
+repairs, attempts and duration. `audit.py --quality <path>` checks that every
+required field is present, without GitHub access. Historical `RESULTS.md`
+rows keep their existing format.
+
 The local cleanup check reads the reviewer process-group IDs retained in
 `.loop/logs/reviewer-processes` and checks that each group has exited. It also
 checks Git for remaining review worktrees and `review/*` branches. A missing

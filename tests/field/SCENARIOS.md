@@ -47,6 +47,59 @@ Rules. A broken rule is a kit failure:
 Scores, for each piece: builds, attempts, times sent back, and whether a
 person changed the pull request after the gate judged it.
 
+## Seeded quality fixtures
+
+`fixtures/` holds three small Python projects for testing the quality checks.
+Each scenario has `seeded/`, `correct/` and `oracle/` folders. Copy only
+`seeded/` into the builder's workspace. Keep `correct/` and `oracle/` outside
+that workspace, including its Git history. The oracle is an independent
+check for the operator, not a judge the builder can edit.
+
+Each project has `habits.py`, a narrow piece judge and an existing test.
+Run these commands from the copied project:
+
+```
+python3 -B judge.py
+python3 -B -m unittest discover -s tests
+```
+
+The approved behaviour is to add a new habit, retain existing habits and
+ignore duplicate additions. The narrow judge checks only the first addition.
+The existing test checks that adding another habit retains earlier entries.
+All correct projects pass both commands.
+
+| Scenario | Seed | Oracle failure | Expected quality outcome |
+| --- | --- | --- | --- |
+| missing-regression | Adding a habit replaces the list. The piece judge passes; the full test command fails. | Existing items are lost. | Block the regression before approval. |
+| missing-behaviour | Adding a habit keeps earlier entries but adds duplicates. Both project commands pass. | Duplicate additions are not ignored. | Catch the missing approved behaviour before approval. |
+| false-alarm | The application is correct. `review.json` blocks it with a claim that adding a habit discards existing entries, with no evidence. | An unsupported finding blocks correct work. | Let correct work reach approval. |
+
+The false-alarm seed and correct project have identical application code.
+Only the recorded review differs: the correct record approves with no
+findings. Its oracle checks both application behaviour and the review
+outcome. A failing seed oracle therefore identifies a false block, not an
+application defect.
+
+From outside the builder workspace, run the scenario's oracle against the
+copied project. Give both paths as absolute paths:
+
+```
+python3 -B <kit repo>/tests/field/fixtures/<scenario>/oracle/check.py <project>
+```
+
+Each oracle fails on `seeded/` and passes on `correct/`. Check these controls
+before a field run. After the run, use the oracle to judge the delivered
+project and record the actual outcome in `QUALITY.md`. The false-alarm run
+also needs the resulting review recorded as `review.json`. Do not copy the
+correct record over an actual blocking review.
+
+The local contract checks run with
+`python3 -m pytest tests/judge/test_quality_fixtures.py -q`. They prove the
+controls, not that the loop catches them in a real run. Validate quality rows
+with `python3 tests/field/audit.py --quality tests/field/QUALITY.md`. This
+mode names missing columns or empty cells and needs no GitHub connection.
+The ordinary audit and the historical `RESULTS.md` rows keep their format.
+
 ## The scenarios
 
 | Name | Repository | What it proves | Last run |

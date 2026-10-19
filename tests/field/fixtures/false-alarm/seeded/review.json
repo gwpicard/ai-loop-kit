@@ -1,0 +1,9 @@
+{
+  "verdict": "request-changes",
+  "findings": [{
+    "file": "habits.py",
+    "line": 2,
+    "claim": "Adding a habit discards existing entries.",
+    "evidence": []
+  }]
+}
