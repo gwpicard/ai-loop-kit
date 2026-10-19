@@ -56,9 +56,11 @@ def audit_quality(path: Path) -> list[str]:
         return [str(error)]
     header, broken = [], []
     for number, line in enumerate(lines, 1):
-        if not line.strip().startswith("|"):
+        line = line.strip()
+        if not line.startswith("|"):
             continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        contents = line[1:-1] if line.endswith("|") else line[1:]
+        cells = [cell.strip() for cell in contents.split("|")]
         if all(cell and not cell.strip("-: ") for cell in cells):
             continue
         if not header:

@@ -97,6 +97,20 @@ class QualityFixturesTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("Duration", result.stdout)
 
+    def test_D3_compact_rows_preserve_empty_cells_with_extra_columns(self):
+        for extra_column in (False, True):
+            for index, field in enumerate(FIELDS):
+                with self.subTest(field=field, extra_column=extra_column):
+                    fields, values = list(FIELDS), list(VALUES)
+                    values[index] = ""
+                    if extra_column:
+                        fields.append("Notes")
+                        values.append("operator note")
+                    header = "\n".join(table(fields, values).splitlines()[:2]) + "\n"
+                    result = self.quality_audit(header + "|" + "|".join(values) + "|\n")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn(f"missing field: {field}", result.stdout)
+
     def test_D4_audit_accepts_complete_and_not_yet_run_tables(self):
         for text in (table(), "\n".join(table().splitlines()[:2]) + "\n",
                      (FIELD / "QUALITY.md").read_text()):
