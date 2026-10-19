@@ -411,9 +411,8 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
             return {"reproduced": False, "preparation_failed": True, "source": source,
                     "output": prepare_output.strip()[-3000:]}
         record_prepare_outputs(target, before_prepare, before_dirs)
-        destination = target / test_file
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(reviewer_folder / test_file, destination)
+        (target / test_file).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(reviewer_folder / test_file, target / test_file)
         commands, outputs = [], []
         for number, check in enumerate(checks, 1):
             adapted, adapt_error = _adapt_exit_command(
@@ -515,7 +514,8 @@ def _adapt_exit_command(command: str, approved_files: set[str], test_file: str,
             Path(next(token for token, _, _ in target if approved(token))).suffix.lower()
             != expected_suffix.lower()):
         return "", "The frozen test target is not compatible with the reproducer file type."
-    edits = [(paths[0][0], paths[0][1], shlex.quote(test_file))]
+    prefix = "./" if command[paths[0][0]:].lstrip("'\"").startswith("./") else ""
+    edits = [(paths[0][0], paths[0][1], shlex.quote(prefix + test_file))]
     edits.extend((start, end, "") for start, end in paths[1:])
     adapted = command
     for start, end, replacement in sorted(edits, reverse=True):

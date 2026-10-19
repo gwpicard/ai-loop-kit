@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -117,6 +117,30 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(command, "cd . && python3 test_review_D1.py")
 
+    def test_executable_reproducer_keeps_mode_and_relative_path(self):
+        checks = self.p.root / "checks"
+        checks.mkdir()
+        judge = checks / "judge.py"
+        judge.write_text("#!/usr/bin/env python3\nprint('baseline judge')\n")
+        judge.chmod(0o755)
+        git(self.p.root, "add", "checks/judge.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Add executable frozen judge")
+        source = '#!/usr/bin/env python3\nraise AssertionError("D1")\n'
+        test_file = Path("checks/test_review_D1.py")
+        candidate = self.p.root / test_file
+        candidate.write_text(source)
+        candidate.chmod(0o755)
+
+        result = review._run_contract_reproducer(
+            self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"),
+            {"checks": [{"type": "tests", "command": "./checks/judge.py",
+                         "files": ["checks/judge.py"]}]},
+            test_file, "D1", 1, 1)
+
+        self.assertTrue(result["reproduced"], result["output"])
+        self.assertEqual(result["source"], source)
+        self.assertIn("AssertionError", result["output"])
+
     def test_reproducer_preserves_adjacent_shell_operators(self):
         for original, expected in (
                 ("python3 judge.py&&printf done", "python3 test_review_D1.py&&printf done"),
@@ -159,8 +183,7 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
             "FAIL: test_D1\nRuntimeError: D1 expected AssertionError\n", "D1"))
 
     def test_javascript_reproducer_continues_after_unadaptable_check(self):
-        node = subprocess.run(["node", "--version"], capture_output=True, text=True)
-        if node.returncode:
+        if not shutil.which("node"):
             self.skipTest("node is unavailable")
         (self.p.root / "tests").mkdir()
         (self.p.root / "tests/test_add.py").write_text(
@@ -188,9 +211,7 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertIn("AssertionError", result["output"])
 
     def test_javascript_reproducer_skips_incompatible_approved_runner(self):
-        node = subprocess.run(["node", "--version"], capture_output=True, text=True,
-                              check=False)
-        if node.returncode:
+        if not shutil.which("node"):
             self.skipTest("node is unavailable")
         (self.p.root / "judge_add.py").write_text("print('python judge')\n")
         (self.p.root / "judge_add.js").write_text("process.exit(0)\n")
@@ -216,9 +237,7 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertIn("JavaScript runner executed", result["output"])
 
     def test_ruby_reproducer_uses_approved_ruby_check_after_other_runner(self):
-        ruby = subprocess.run(["ruby", "--version"], capture_output=True, text=True,
-                              check=False)
-        if ruby.returncode:
+        if not shutil.which("ruby"):
             self.skipTest("ruby is unavailable")
         (self.p.root / "judge_add.py").write_text("print('python judge')\n")
         (self.p.root / "judge_add.rb").write_text("puts 'ruby judge'\n")
