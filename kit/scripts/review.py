@@ -414,14 +414,17 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
         destination = target / test_file
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(reviewer_folder / test_file, destination)
-        commands = []
-        for check in checks:
+        commands, outputs = [], []
+        for number, check in enumerate(checks, 1):
             adapted, adapt_error = _adapt_exit_command(
                 check.get("command", ""), set(check.get("files", [])), test_file.as_posix())
             if adapt_error:
-                return {"reproduced": False, "source": source, "output": adapt_error}
+                outputs.append(f"Exit check {number} could not be adapted: {adapt_error}")
+                continue
             commands.append(adapted)
-        outputs = []
+        if not commands:
+            return {"reproduced": False, "source": source,
+                    "output": "\n".join(outputs)[-3000:]}
         reproduced = False
         for command in commands:
             code, output = gate.run_judge(target, command,

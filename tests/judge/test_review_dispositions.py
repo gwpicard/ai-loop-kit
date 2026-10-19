@@ -158,13 +158,15 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertTrue(review.judge_assertion_failed(
             "FAIL: test_D1\nRuntimeError: D1 expected AssertionError\n", "D1"))
 
-    def test_javascript_reproducer_selects_its_approved_node_check(self):
+    def test_javascript_reproducer_continues_after_unadaptable_check(self):
         node = subprocess.run(["node", "--version"], capture_output=True, text=True)
         if node.returncode:
             self.skipTest("node is unavailable")
-        (self.p.root / "judge_add.py").write_text("print('python judge')\n")
+        (self.p.root / "tests").mkdir()
+        (self.p.root / "tests/test_add.py").write_text(
+            "def test_add():\n    assert 1 + 1 == 2\n")
         (self.p.root / "judge_add.js").write_text("process.exit(0)\n")
-        git(self.p.root, "add", "judge_add.py", "judge_add.js")
+        git(self.p.root, "add", "tests/test_add.py", "judge_add.js")
         git(self.p.root, "commit", "--quiet", "-m", "Add frozen JavaScript judge")
         source = 'require("node:assert/strict").fail("D1")\n'
         test_file = Path("test_review_D1.js")
@@ -173,8 +175,8 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         result = review._run_contract_reproducer(
             self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"),
             {"checks": [
-                {"type": "tests", "command": "python3 judge_add.py",
-                 "files": ["judge_add.py"]},
+                {"type": "tests", "command": "python3 -m pytest tests -q",
+                 "files": ["tests/test_add.py"]},
                 {"type": "tests", "command": "cd . && node judge_add.js",
                  "files": ["judge_add.js"]},
             ]},
@@ -182,6 +184,8 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
 
         self.assertTrue(result["reproduced"], result["output"])
         self.assertEqual(result["source"], source)
+        self.assertIn("could not be adapted", result["output"])
+        self.assertIn("AssertionError", result["output"])
 
     def test_ruby_reproducer_uses_approved_ruby_check_after_other_runner(self):
         ruby = subprocess.run(["ruby", "--version"], capture_output=True, text=True,
