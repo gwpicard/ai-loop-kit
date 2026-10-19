@@ -19,6 +19,7 @@ second layer for the rest.
 """
 from __future__ import annotations
 
+import getopt
 import json
 import os
 import re
@@ -49,11 +50,31 @@ def words(segment: str) -> list[str]:
         return segment.split()
 
 
-def strip_prefix(w: list[str]) -> list[str]:
-    """Drop leading env assignments and wrappers like sudo, env, command."""
-    while w and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w[0]) or
-                 w[0] in ("sudo", "env", "command", "exec", "nohup", "time")):
-        w = w[1:]
+WRAPPER_OPTIONS = {
+    "env": ("i0vu:C:", ["ignore-environment", "null", "unset=", "chdir="]),
+    "sudo": ("AbEHKkNnPSVu:g:h:p:C:R:D:T:r:t:", ["user=", "group=", "host=", "prompt="]),
+    "command": ("pvV", []), "exec": ("cla:", []), "nohup": ("", []),
+    "time": ("pvf:o:", ["portability", "verbose", "format=", "output=", "quiet"]),
+}
+
+
+def strip_prefix(w: list[str], strict: bool = False) -> list[str]:
+    while w:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w[0]):
+            w = w[1:]
+            continue
+        wrapper = os.path.basename(w[0])
+        if wrapper not in WRAPPER_OPTIONS:
+            break
+        try:
+            options, w = getopt.getopt(w[1:], *WRAPPER_OPTIONS[wrapper])
+        except getopt.GetoptError as error:
+            if strict:
+                raise ValueError("unknown wrapper option") from error
+            w = w[1:]
+            continue
+        if wrapper == "command" and any(option in ("-v", "-V") for option, _ in options):
+            return []
     return w
 
 
@@ -94,7 +115,7 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
         if re.search(r"(?:^|\s)GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)=", raw):
             return "GIT_CONFIG_COUNT command injection is not allowed. Use plain git commands."
         try:
-            w = strip_prefix(shlex.split(raw))
+            w = strip_prefix(shlex.split(raw), builder)
         except ValueError:
             if builder:
                 return "the command could not be read safely in a build session. Simplify it and try again."

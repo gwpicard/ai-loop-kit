@@ -229,8 +229,10 @@ the right reason.
 | Measure (**preview**) | the median of three runs misses the `Target:` | the median meets it |
 | Critics (**preview**) | `main` wins fewer than two of three blind comparisons | ours wins at least two |
 
-A scaffold piece is no longer an exception: its check is that the test
-runner runs, which is unmet while no runner exists.
+Scaffold pieces use `## Judge` with `Kind: scaffold`, as shown in
+`kit/examples/scaffold.md`. The Exit format has no scaffold form. Ready
+allows a missing runner and skips Prepare and the regression check on main.
+After the build, the runner must pass with at least one test.
 
 An `## Exit` section lists one or more checks: tests, a measure or critics.
 A piece can combine them. Each check names the files it runs, and those files
@@ -777,8 +779,10 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 
 The guard is a seatbelt, not a sandbox. It splits words and matches patterns.
 It reads the `git -C`, `git -c`, `gh -R`, `bash -c`, `sh -c` and `eval` forms,
-and in build sessions it refuses a form it cannot read. It is not a full shell
-parser, and a determined agent can get round it. The
+and removes known options from leading wrappers such as `sudo`, `env`,
+`command`, `exec`, `nohup` and `time` before checking the command. In build
+sessions it refuses an option it cannot read. It is not a full shell parser,
+and a determined agent can get round it. The
 gate is the backstop, because it checks the result whatever the agent did.
 
 Claude Code's sandbox covers Bash and its child processes. Read, Edit, Write,
@@ -934,16 +938,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,064 Python lines in `kit/`, including the remaining
+The default plugin has 6,085 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,484 runtime
+critics have 420 runtime lines in `extras/`. Together they have 6,505 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,484 runtime lines in total. The suite reports the total and the
+6,505 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
