@@ -66,9 +66,10 @@ in `## Judge` adds a distinct check; identical commands run once.
 `Playbook: fix` guides the builder and has no gate effect.
 `Done when` remains accepted as the old name for `Contract`.
 
-Old specs with `## Judge` and `Kind:` remain accepted as one check. A fix
-starts with the bug in its first Contract item. Old `Kind: scaffold`,
-`Kind: goal` and `Kind: gauntlet` specs retain their existing behaviour.
+Specs with `## Judge` and `Kind:` remain accepted as one check. A fix
+starts with the bug in its first Contract item. Empty projects use the
+[scaffold example](examples/scaffold.md). Legacy goal and gauntlet specs keep
+their behaviour.
 
 ## Measure check
 
