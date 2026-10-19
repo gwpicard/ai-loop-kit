@@ -36,7 +36,7 @@ class ScenarioTest(unittest.TestCase):
         n, result = self.build("settings-cheat", attempts=1)
         self.assertEqual(self.p.gh.prs, {})
         comment = "\n".join(self.p.gh.comments(n))
-        self.assertIn("the loop settings changed in AGENTS.md", comment)
+        self.assertIn("the build changed frozen files: AGENTS.md", comment)
 
     def test_hostile_builder_changes_are_each_refused(self):
         self.p.loop_section("true")

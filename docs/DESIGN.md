@@ -107,7 +107,7 @@ Each core part exists because a real failure showed it was needed.
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails on an import error, proves nothing |
 | The bar (judge plus its helpers) is frozen and checked byte for byte | A builder edits the test instead of the code |
-| `Keep:` passes on `main` and after every attempt | A field run lost old behaviour when only the judge ran |
+| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt | A field run lost old behaviour when only the judge ran |
 | No old test and no check setting changed | A builder rewrote `.gitignore`; another turned off a lint rule |
 | A fresh session for each attempt, three at most, given only the last failure | A failed idea carries forward in a long session [Ralph] |
 | A sanctioned `bar-wrong` outcome | A builder that cannot say the test is wrong is pushed to cheat |
@@ -312,7 +312,7 @@ person can read what will be checked, and the gate can check it.
 | Contract | Numbered, concrete items, each with an example, so one test can prove each and the gate can find each ID in the output. |
 | `(stays)` | "Every item must fail on main" pushed shaping to drop true items or pad tests. `(stays)` marks behaviour that must keep working: it needs a test that passes on `main`. |
 | Judge, fixed by a hash | A builder that cannot change the test can only change the code [ImpossibleBench]. |
-| Keep | The judge proves the new work. Keep proves the old work still works. |
+| Keep | An optional check in addition to the required project Test command. |
 
 `Settings: may change` in the Judge section lets a piece change check
 settings. `Large file: <path>` lets a named file grow past 1,000 lines.
@@ -490,7 +490,7 @@ removed. A retry within the same attempt appends to both files.
 | --- | --- |
 | Intent, a non-empty `Out of scope` list and Contract IDs are present | The spec is complete enough to judge |
 | Research lines have a source URL and a real read date | Outside facts need evidence |
-| `Keep:` and Prepare pass on `main` (Prepare is skipped for scaffold) | A red baseline makes every attempt fail for the wrong reason |
+| The Test command, any distinct `Keep:` and Prepare pass on `main` (scaffold skips the Test command and Prepare) | A red baseline makes every attempt fail for the wrong reason |
 | The judge fails on `main`, not on a syntax, import, file-not-found or command-not-found error | A test that fails for the wrong reason proves nothing |
 | Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
 | Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-to-literal comparison; no skip, `xfail`, `.only` or `.skip`; no private imports; no reading source as text unless the Contract names it | A test can restate the code or never be able to fail [kata] |
@@ -515,9 +515,15 @@ The ready message reports each Exit check. Tests name the contract IDs that
 fail on main. Measure reports the median and missed target. Critics reports
 main's wins out of three against the required two.
 
-Keep uses `Keep limit:` in the project's loop settings, in minutes. The
-default is 15. Doctor runs Keep on a fresh copy of `main` with this limit and
-prints a `next:` step if it times out. Each Keep check records how many
+The required regression check runs the Test command from AGENTS.md on fresh
+main before adding the judge files. `Keep:` adds a check and never replaces
+that command. Identical commands run once. Ready records the regression
+command, its limit in seconds and the main result. Scaffold readiness keeps
+its exception while the runner does not exist.
+
+Regression and Keep use `Keep limit:` in the project's loop settings, in
+minutes. The default is 15. Doctor runs Keep on a fresh copy of `main` with
+this limit and prints a `next:` step if it times out. Each Keep check records how many
 seconds it took.
 
 ### At claim (code)
@@ -525,7 +531,8 @@ seconds it took.
 The spec hash and the bar hash must be unchanged. The gate checks the spec
 hash again at submit, so a spec edited during the build fails. A pushed piece
 branch must hold nothing the local branch lacks; the run never rewrites a
-pushed branch.
+pushed branch. A ready record without the regression command is refused
+with the next step to run ready again.
 
 ### At submit, after each attempt and again after the review (code)
 
@@ -541,7 +548,8 @@ pushed branch.
 | No file added under paths that Prepare created | `.venv` once leaked into a branch |
 | No check-setting change unless `Settings: may change`. Check settings include lint, test and CI config, `.gitignore`, `AGENTS.md`, the standards file, and the check keys of `package.json` and `pyproject.toml` | A builder turned off a lint rule to pass |
 | The judge passes, with nothing skipped | A skipped test passes silently |
-| `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names, including unittest `FAIL:` and `ERROR:` headers. The gate blames the bar only when both failures locate a diagnostic in the same judge file and Keep passes without judge files, with nothing skipped | A judge that breaks the project's lint can never pass |
+| The recorded Test command passes. A timeout, missing runner or collection of no tests fails with its own reason | The piece must preserve the project's old behaviour |
+| Any distinct `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names, including unittest `FAIL:` and `ERROR:` headers. The gate blames the bar only when both failures locate a diagnostic in the same judge file and Keep passes without judge files, with nothing skipped | A judge that breaks the project's lint can never pass |
 | Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
 
 The diagnostic must name a judge file in an explicit lint error (`error`,
@@ -694,8 +702,8 @@ run.py
 - **The pull request.** The script writes the facts: files changed by area,
   tests added, new dependencies, risk (protected paths, migrations, config
   and check settings, large files, importer count), the judge, Keep and
-  Quality output, the bar hash and the judged commit. It lists renames as a
-  delete and an add. The builder writes only why, and what could go wrong. A
+  Quality output, the required regression command and result, the bar hash
+  and the judged commit. It lists renames as a delete and an add. The builder writes only why, and what could go wrong. A
   person should understand the change and its danger in two minutes
   [HumanLayer], [Port]. The run never merges.
 
@@ -706,7 +714,8 @@ this scan found no importers. Built-in review rules have explicit names in
 the reviewer brief; findings under these names still need a changed hunk.
 When a rejected piece reuses an open pull request, submit must pass before
 the run refreshes its title, body and judged-commit evidence. The evidence
-lists tests separately from frozen exit-support files. Output longer than
+uses the final submit output, including after reviewer changes, and lists
+tests separately from frozen exit-support files. Output longer than
 5,000 characters keeps only complete trailing lines and says it was cut. An update
 failure returns the piece to shaping as `environment`, with cause
 `pull-request-failed`.
@@ -929,7 +938,7 @@ needs a measured reduction first.
 | bar | The judge files plus every helper and `conftest.py` they rely on, frozen by a hash at ready |
 | gate | `gate.py`, the only script that moves a piece and the only one that decides |
 | run | `run.py`, the script that claims, builds, reviews and opens pull requests |
-| Keep | The project's whole test command, which must keep passing |
+| Keep | An optional check that adds to the required Test command |
 | Prepare | The command that installs tools in a fresh copy of `main` |
 | Quality | Extra project checks, such as CRAP or mutation testing |
 | check settings | Files that decide how the project checks itself: lint, test and CI config, `.gitignore`, `AGENTS.md`, the standards file |

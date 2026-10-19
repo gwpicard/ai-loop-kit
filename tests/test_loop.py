@@ -104,6 +104,8 @@ class GateTest(GateFixture, unittest.TestCase):
             observed.append((command, timeout))
             if command == "slow keep":
                 return (0, "passed") if timeout == 1200 else (124, "timed out")
+            if command == "true":
+                return 0, "baseline passed"
             return 1, "FAIL D1 D2"
 
         with patch.object(gate, "run_judge", side_effect=run_slow_keep), \
@@ -436,7 +438,7 @@ class GateTest(GateFixture, unittest.TestCase):
         self.assertIn("the build changed frozen files: judge_add.py", why)
 
     def test_flaky_keep_is_rerun_before_the_gate_blames_the_bar(self):
-        self.p.loop_section("true")
+        self.p.loop_section("printf baseline")
         spec = SPEC.replace("## Judge", "## Judge\nKeep: `true`")
         n = self.p.piece(spec=spec)
         self.ready(n)
@@ -446,6 +448,8 @@ class GateTest(GateFixture, unittest.TestCase):
         keep_runs = iter([(1, "FAIL test_flaky_keep"), (0, "PASS test_flaky_keep")])
 
         def run_flaky_keep(folder, command, timeout=900, protected_paths=None):
+            if command == "printf baseline":
+                return 0, "baseline passed"
             if command == ready["command"]:
                 return 0, "ok test_D1_add_appends\\nok test_D2_add_skips_duplicates"
             return next(keep_runs)
