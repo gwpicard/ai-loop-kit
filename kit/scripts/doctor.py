@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 import tempfile
 from contextlib import suppress
@@ -36,8 +37,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from proposed_quality import apply as apply_proposed_quality
 
 
-def quality_on_fresh_main(root: Path, main: str, command: str,
-                          test_command: str = "",
+def print_checks(checks: list[tuple[bool, str, str]]) -> bool:
+    for ok, what, fix in checks:
+        mark = ("warn" if what.startswith("warning:") else "unknown"
+                if what == "main branch protection: unknown" else "ok  " if ok else "FAIL")
+        print(f"{mark} {what}" + (f"\n     next: {fix}" if fix else ""))
+    return all(ok for ok, _, _ in checks)
+
+
+def quality_on_fresh_main(root: Path, main: str, command: str, test_command: str = "",
                           protected_paths: list[str] | None = None,
                           prepare_command: str | None = None,
                           proposed_quality: str = "") -> tuple[bool, str]:
@@ -76,10 +84,8 @@ def quality_on_fresh_main(root: Path, main: str, command: str,
 
 
 def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
-           proposed_prepare: str | None = None,
-           proposed_test: str | None = None,
-           walk_away: bool = False,
-           agent: str | None = None) -> list[tuple[bool, str, str]]:
+           proposed_prepare: str | None = None, proposed_test: str | None = None,
+           walk_away: bool = False, agent: str | None = None) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -87,16 +93,33 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         checks.append((ok, what, "" if ok else fix))
         return ok
 
+    def command_result(code: int, output: str, command: str, name: str) -> None:
+        duration = next((line.removeprefix("Keep took: ") for line in output.splitlines()
+                         if line.startswith("Keep took: ")), "")
+        words = []
+        with suppress(ValueError):
+            words = shlex.split(command) if code == 5 else []
+        runner = Path(words[0]).name if words else ""
+        pytest = runner in {"pytest", "py.test"} or (
+            runner.rstrip("0123456789.") == "python" and words[1:3] == ["-m", "pytest"])
+        pytest = pytest and not any(char in command for char in ";&|<>()\n")
+        empty = code == 5 and (pytest or "no tests ran" in output or "collected 0 items" in output)
+        fix = ("add tests or fix the test collection settings:\n" if empty else
+               "increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
+               if code == 124 else "fix the command or environment, or add a Prepare command:\n")
+        name = "no tests were collected" if empty else name
+        add(code == 0, f"{name} on a fresh copy of main ({command})"
+            + (f" ({duration})" if duration else ""), fix + output.strip()[-800:])
+
     origin = sh(["git", "remote", "get-url", "origin"], root, check=False).stdout.strip()
     if not add(bool(origin), "the project has an origin",
                "create the GitHub repository and add it as origin"):
         return checks
     try:
-        signed_in = gh.signed_in()
+        if not add(gh.signed_in(), "gh is signed in", "run: gh auth login"):
+            return checks
     except RuntimeError as error:
         add(False, str(error), "run: gh auth login")
-        return checks
-    if not add(signed_in, "gh is signed in", "run: gh auth login"):
         return checks
     try:
         main = main_ref(root)
@@ -156,27 +179,10 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
                        "fix the Prepare command:\n" + output.strip()[-800:]):
                 return checks
         keep_command = settings.get("keep", settings["test"])
-        if keep_command == settings["test"]:
-            code, output = run_keep(folder, keep_command, timeout=keep_timeout)
-            check_name = f"the tests pass on a fresh copy of main ({settings['test']})"
-        else:
-            code, output = run_judge(folder, settings["test"])
-            add(code == 0, f"the tests pass on a fresh copy of main ({settings['test']})",
-                "fix the Test command or the environment, or add a Prepare command:\n"
-                + output.strip()[-800:])
-            code, output = run_keep(folder, keep_command, timeout=keep_timeout)
-            check_name = f"Keep passes on a fresh copy of main ({keep_command})"
-        duration = next((line for line in output.splitlines()
-                         if line.startswith("Keep took: ")), "")
-        if duration:
-            check_name += f" ({duration.removeprefix('Keep took: ')})"
-        if code == 124:
-            fix = ("increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
-                   + output.strip()[-800:])
-        else:
-            fix = ("fix the Keep command or the environment, or add a Prepare command:\n"
-                   + output.strip()[-800:])
-        add(code == 0, check_name, fix)
+        if keep_command != settings["test"]:
+            command_result(*run_judge(folder, settings["test"]), settings["test"], "the tests pass")
+        command_result(*run_keep(folder, keep_command, timeout=keep_timeout), keep_command,
+                       "the tests pass" if keep_command == settings["test"] else "Keep passes")
 
         def probe(command: str, proposed: bool = False) -> None:
             qprepare = (proposed_prepare if proposed and proposed_prepare is not None

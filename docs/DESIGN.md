@@ -834,6 +834,18 @@ Doctor checks GitHub sign-in with `gh auth status --active`. An expired
 inactive account does not block setup. If an active account fails, doctor
 keeps the CLI's error message, including the account and host.
 
+Doctor recognises empty collection from exit code 5 and either a direct
+pytest command or collection output. Quiet pytest needs no summary. The next
+step is to add tests or fix collection. Unrelated exit-code failures keep
+their output and a general repair step.
+
+Unknown branch protection prints `unknown`; leftover worktrees print `warn`.
+Both remain non-blocking. A list Contract is refused with the next step to
+encode it as one JSON string.
+
+Status groups the current labels from one open-issue list, so a move to ready
+does not wait for label search to catch up.
+
 ## 12. Constraints learned from real runs
 
 These facts about the platform shaped the design. Each one cost time once.
