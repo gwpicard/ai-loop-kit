@@ -105,17 +105,33 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
     regression = submitted["regression"]
     evidence += (f"\n- Regression: `{regression['command']}`; exit {regression['exit']}; "
                  f"commit `{regression['commit']}`.")
+    review = review or {}
+    unresolved = review.get("contract_findings", [])
+    gate_claim = ("The gate ran the frozen judge itself after attempt "
+                  f"{k}, and it passed.")
+    if unresolved:
+        gate_claim += " Contract findings remain unresolved."
     body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
-            f"The gate ran the frozen judge itself after attempt {k}, and it passed.\n\n"
+            f"{gate_claim}\n\n"
             f"{facts}\n## Evidence\n\n{evidence}\n")
     if any(check["type"] != "tests" for check in ready.get("checks", [])):
         history = output if len(output) <= 5000 else (
             "[Earlier evidence truncated.]\n" + output[-5000:].partition("\n")[2])
         body += f"\n## Earlier attempt evidence\n\n```text\n{history}\n```\n"
-    review = review or {}
-    if review.get("contract_findings"):
-        body = ("## Contract review findings\n\n" + "\n".join(
-            f"- {finding}" for finding in review["contract_findings"]) + "\n\n" + body)
+    if unresolved:
+        details = [f"- {finding}" for finding in unresolved]
+        reproducers = review.get("contract_reproducers", [])
+        if not reproducers:
+            details.append("- No valid reproducer was supplied.")
+        else:
+            details.extend(
+                f"- Reproducer `{item['file']}` for {item['item']}: "
+                f"{'reproduced the finding' if item.get('reproduced') else 'did not reproduce it'}."
+                "\n"
+                f"  Output:\n\n  ```text\n  {item.get('output', '')}\n  ```"
+                for item in reproducers)
+        body = ("## Unresolved review findings\n\n" + "\n".join(details)
+                + "\n\n" + body)
     if review.get("reviewer_note"):
         body += f"\n## Review\n\n{review['reviewer_note']}\n"
     for key, heading in (("standards_findings", "Standards findings:"),

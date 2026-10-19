@@ -100,7 +100,7 @@ class RunTest(RunFixture, unittest.TestCase):
         n, result = self.build("good", attempts=1)
         self.assertIn("pull request ready", result)
         body = self.p.gh.prs[f"piece/{n}"]["body"]
-        self.assertTrue(body.startswith("## Contract review findings"))
+        self.assertTrue(body.startswith("## Unresolved review findings"))
         self.assertIn("D1 is not met", body)
-        self.assertTrue(any("judge-gap" in comment for comment in self.p.gh.comments(n)))
-        self.assertIn("judge-gap: 1", gate.report(self.p.gh))
+        self.assertFalse(any("judge-gap" in comment for comment in self.p.gh.comments(n)))
+        self.assertIn("judge-gap: 0", gate.report(self.p.gh))

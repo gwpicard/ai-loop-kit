@@ -32,6 +32,29 @@ FAKE_CLAUDE = textwrap.dedent('''\
         contract-gap:*"Contract reviewer brief"*)
           echo '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.","hunk":"habits.py:1","finding":"D1 is not met."}]}</verdict>'
           exit 0 ;;
+        contract-reproduced:*"Contract reviewer brief"*)
+          printf '%s\\n' 'print("FAIL D1: assertion failed")' \
+            'raise AssertionError("D1")' > test_review_D1.py
+          printf '%s' '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.",' \
+            '"hunk":"habits.py:1","finding":"D1 is not met.","reproducer":' \
+            '{"file":"test_review_D1.py","item":"D1"}}]}</verdict>'
+          exit 0 ;;
+        contract-not-reproduced:*"Contract reviewer brief"*)
+          printf '%s\\n' 'print("D1 assertion passed")' > test_review_D1.py
+          printf '%s' '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.",' \
+            '"hunk":"habits.py:1","finding":"D1 is not met.","reproducer":' \
+            '{"file":"test_review_D1.py","item":"D1"}}]}</verdict>'
+          exit 0 ;;
+        contract-unrelated:*"Contract reviewer brief"*)
+          printf '%s\\n' '# D1 reproducer' \
+            'print("FAIL X9: unrelated assertion")' > test_review_D1.py
+          printf '%s' '<verdict>{"findings":[{"citation":"D1: adding a habit appends it.",' \
+            '"hunk":"habits.py:1","finding":"D1 is not met.","reproducer":' \
+            '{"file":"test_review_D1.py","item":"D1"}}]}</verdict>'
+          exit 0 ;;
+        bad-contract-verdict:*"Contract reviewer brief"*)
+          echo '<verdict>{bad json}</verdict>'
+          exit 0 ;;
         bad-verdict:*)
           echo '<verdict>{bad json}</verdict>'
           exit 0 ;;
@@ -113,7 +136,7 @@ FAKE_CLAUDE = textwrap.dedent('''\
       printf 'This change lets the user add a habit.\\n\\nA typo could save a duplicate.\\n' > .loop/why.md
     fi
     echo "built"
-    ''')
+    ''').lstrip()
 
 
 class RunFixture:

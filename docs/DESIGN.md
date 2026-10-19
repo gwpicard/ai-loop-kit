@@ -408,9 +408,14 @@ Why each role is separate:
 - **The standards reviewer may commit a non-test fix.** The fix is kept only
   if the judge passes again; otherwise its commits are dropped and the
   builder's judged commit goes forward (code).
-- **Contract findings are advisory.** They are recorded as `judge-gap` and put
-  at the top of the pull request. They do not stop the pull request (code). A
-  missing item means the judge was weak. A reviewer can mark a finding with
+- **Contract findings are checked against evidence.** A reviewer may supply
+  one test file for an approved Contract item. The run copies it into a
+  disposable worktree at the judged commit and runs it with the approved Exit
+  command. A failure on an assertion naming that item returns the piece to
+  shaping with the test and output in a `judge-gap` record. A missing,
+  passing or unrelated failure leaves the finding unresolved at the top of
+  the pull request; the pull request does not claim the contract is met.
+  Standards findings remain advisory (code). A reviewer can mark a finding with
   `baseline_conflict: "path:line"` when following it would contradict the
   frozen baseline. The run checks that citation against a non-empty line in
   a frozen file at ready. Check-setting patterns match tracked paths in that
