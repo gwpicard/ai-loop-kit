@@ -397,8 +397,9 @@ Why each role is separate:
   Research ID or Out of scope item. Changed code needs a changed hunk. Missing
   behaviour uses `kind: "missing"`, an approved D item, an existing file line
   in the judged commit and a description of what is missing. The run collapses
-  findings with the same citation, location and claim. It logs every dropped
-  finding with its reason and counts them in the pull request (code). The
+  findings with the same citation and claim, retaining the first location.
+  It logs every dropped finding with its reason and counts them in the pull
+  request (code). The
   review diffs start at the ready commit, so shaping files are baseline,
   not build changes. The contract reviewer also sees the attempt gate output,
   including critic verdicts. Both reviewers see numbered frozen baseline

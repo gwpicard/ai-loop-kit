@@ -179,7 +179,7 @@ def _filter_findings(candidates: list, baseline: dict | None,
                      dropped: list[dict] | None) -> list[str]:
     findings, seen = [], set()
     for finding, citation, hunk, detail, reason in candidates:
-        key = (citation.strip(), hunk.strip(), detail.strip())
+        key = (citation.strip(), detail.strip())
         if not reason and key in seen:
             reason = "duplicate citation and claim"
         if reason:

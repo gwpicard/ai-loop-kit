@@ -152,10 +152,10 @@ class ReviewCitationsTest(unittest.TestCase):
         elsewhere = {**first, "kind": "missing", "hunk": "saved.py:1"}
         kept, dropped = self.parse([first, padded, other, elsewhere])
         self.assertEqual(kept, ["D1 at app.py:1: Bad change.",
-                                "D1 at app.py:1: Another claim.",
-                                "D1 at saved.py:1: Bad change."])
-        self.assertEqual(len(dropped), 1)
-        self.assertIn("duplicate", dropped[0]["reason"])
+                                "D1 at app.py:1: Another claim."])
+        self.assertEqual(len(dropped), 2)
+        self.assertTrue(all("duplicate" in item["reason"] for item in dropped))
+        self.assertEqual(dropped[1]["finding"], elsewhere)
 
     def test_standards_rules_and_changed_hunks_still_apply(self):
         findings = [{"rule": "Duplicated Code", "kind": "missing", "hunk": "app.py:2",
@@ -184,7 +184,7 @@ class ReviewCitationRunTest(RunFixture, unittest.TestCase):
                      "finding": "Untracked file."},
                     {"citation": "D1", "kind": "missing", "hunk": "README.md:1",
                      "finding": "Missing saved items."}]
-                output = verdict([*findings, dict(findings[-1])])
+                output = verdict([*findings, {**findings[-1], "hunk": "habits.py:1"}])
             logfile.write_text(output)
             return ""
 
