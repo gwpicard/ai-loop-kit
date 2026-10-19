@@ -417,7 +417,8 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
         commands, outputs = [], []
         for number, check in enumerate(checks, 1):
             adapted, adapt_error = _adapt_exit_command(
-                check.get("command", ""), set(check.get("files", [])), test_file.as_posix())
+                check.get("command", ""), set(check.get("files", [])), test_file.as_posix(),
+                expected_suffix=test_file.suffix)
             if adapt_error:
                 outputs.append(f"Exit check {number} could not be adapted: {adapt_error}")
                 continue
@@ -443,7 +444,8 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
         sh(["git", "worktree", "prune"], root, check=False)
 
 
-def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
+def _adapt_exit_command(command: str, approved_files: set[str], test_file: str,
+                        *, expected_suffix: str = ""
                         ) -> tuple[str, str]:
     """Replace a frozen test target in its shell segment without moving the runner."""
     if "`" in command or "$ (" in command or "$((" in command or "$(" in command:
@@ -509,6 +511,10 @@ def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
     if target is None:
         return "", "Could not locate a frozen test file in the approved Exit command."
     paths = [(start, end) for token, start, end in target if approved(token)]
+    if (expected_suffix and
+            Path(next(token for token, _, _ in target if approved(token))).suffix.lower()
+            != expected_suffix.lower()):
+        return "", "The frozen test target is not compatible with the reproducer file type."
     edits = [(paths[0][0], paths[0][1], shlex.quote(test_file))]
     edits.extend((start, end, "") for start, end in paths[1:])
     adapted = command

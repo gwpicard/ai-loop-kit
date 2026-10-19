@@ -187,6 +187,34 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertIn("could not be adapted", result["output"])
         self.assertIn("AssertionError", result["output"])
 
+    def test_javascript_reproducer_skips_incompatible_approved_runner(self):
+        node = subprocess.run(["node", "--version"], capture_output=True, text=True,
+                              check=False)
+        if node.returncode:
+            self.skipTest("node is unavailable")
+        (self.p.root / "judge_add.py").write_text("print('python judge')\n")
+        (self.p.root / "judge_add.js").write_text("process.exit(0)\n")
+        git(self.p.root, "add", "judge_add.py", "judge_add.js")
+        git(self.p.root, "commit", "--quiet", "-m", "Add frozen Python and JavaScript judges")
+        source = ('console.log("JavaScript runner executed");\n'
+                  'require("node:assert/strict").equal(1, 1, "D1 Error handling");\n')
+        test_file = Path("test_review_D1.js")
+        (self.p.root / test_file).write_text(source)
+
+        result = review._run_contract_reproducer(
+            self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"),
+            {"checks": [
+                {"type": "tests", "command": "python3 judge_add.py",
+                 "files": ["judge_add.py"]},
+                {"type": "tests", "command": "node judge_add.js",
+                 "files": ["judge_add.js"]},
+            ]},
+            test_file, "D1", 1, 1)
+
+        self.assertFalse(result["reproduced"], result["output"])
+        self.assertIn("not compatible", result["output"])
+        self.assertIn("JavaScript runner executed", result["output"])
+
     def test_ruby_reproducer_uses_approved_ruby_check_after_other_runner(self):
         ruby = subprocess.run(["ruby", "--version"], capture_output=True, text=True,
                               check=False)
