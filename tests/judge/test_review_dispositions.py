@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kit" / "scripts"))
 
 import gate
+import review
 from helpers import git
 from run_fixtures import RunFixture
 
@@ -26,6 +27,7 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertEqual(handback["type"], "judge-gap")
         self.assertIn("reproducer", handback["reason"])
         self.assertIn("D1", handback["reason"])
+        self.assertIn('raise AssertionError("D1")', handback["reason"])
         branch = self.p.folder(n)
         self.assertFalse((branch / "test_review_D1.py").exists())
         self.assertIn("check(\"test_D1_add_appends\", d1)",
@@ -68,3 +70,45 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertIn("environment: 1", gate.report(self.p.gh))
         self.assertTrue(any("next:" in comment.lower()
                             for comment in self.p.gh.comments(n)))
+
+    def test_reproducer_uses_prepare_and_preserves_shell_operators(self):
+        (self.p.root / "judge.py").write_text("raise AssertionError('baseline')\n")
+        git(self.p.root, "add", "judge.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Add frozen judge")
+        source = 'assert False, "D1 FileNotFoundError is expected"\n'
+        test_file = Path("test_review_D1.py")
+        (self.p.root / test_file).write_text(source)
+        ready = {
+            "checks": [{"type": "tests", "command": ".venv/bin/python judge.py && printf done",
+                        "files": ["judge.py"]}],
+            "prepare": ("mkdir -p .venv/bin && printf '#!/bin/sh\\nexec python3 \"$@\"\\n' "
+                        "> .venv/bin/python && chmod +x .venv/bin/python"),
+        }
+
+        result = review._run_contract_reproducer(
+            self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"), ready,
+            test_file, "D1", 1, 1)
+
+        self.assertTrue(result["reproduced"], result["output"])
+        self.assertEqual(result["source"], source)
+        self.assertNotIn("done", result["output"])
+
+    def test_prepare_failure_is_reported_without_running_candidate(self):
+        (self.p.root / "candidate.py").write_text("raise AssertionError('D1')\n")
+        result = review._run_contract_reproducer(
+            self.p.root, self.p.root, git(self.p.root, "rev-parse", "HEAD"),
+            {"checks": [{"type": "tests", "command": "python3 judge.py",
+                         "files": ["judge.py"]}],
+             "prepare": "printf 'prepare failed' >&2; exit 7"},
+            Path("candidate.py"), "D1", 1, 1)
+
+        self.assertFalse(result["reproduced"])
+        self.assertTrue(result["preparation_failed"])
+        self.assertIn("prepare failed", result["output"])
+
+    def test_assertion_classifier_ignores_exception_names_in_assertion_message(self):
+        output = "FAILED test_D1.py::test_D1 - AssertionError: D1 FileNotFoundError\n"
+        self.assertTrue(review.judge_assertion_failed(output, "D1"))
+        self.assertFalse(review.judge_has_runner_error(output, 1))
+        crash = "FAIL test_D1.py::test_D1\nRuntimeError: D1 runner crashed\n"
+        self.assertFalse(review.judge_assertion_failed(crash, "D1"))

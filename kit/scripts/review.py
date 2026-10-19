@@ -13,6 +13,7 @@ from typing import Optional
 
 import gate
 from loopkit import (CHECK_FILES, Refused, prepare,
+                     judge_assertion_failed, judge_has_runner_error,
                      record_prepare_outputs, rev, sh, untracked_paths)
 from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
@@ -385,37 +386,69 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
 def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
                              ready: dict, test_file: Path,
                              item: str, n: int, k: int) -> dict:
-    """Run one approved-item test in a disposable checkout of the judged commit."""
+    """Run one approved-item test in a prepared checkout of the judged commit."""
+    source = (reviewer_folder / test_file).read_text(errors="replace")
     checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
     command = checks[0].get("command", ready.get("command", "")) if checks else ready.get(
         "command", "")
     if not command:
-        return {"reproduced": False, "output": "No approved Exit test command is available."}
+        return {"reproduced": False, "source": source,
+                "output": "No approved Exit test command is available."}
     target = root / ".loop" / "review-reproducers" / f"piece-{n}-{k}-{uuid.uuid4().hex[:8]}"
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         sh(["git", "worktree", "add", "--quiet", "--detach", str(target), judged], root)
+        before_prepare = untracked_paths(target)
+        before_dirs = {child.name for child in target.iterdir() if child.is_dir()}
+        prepared, prepare_output = prepare(target, ready.get("prepare", ""),
+                                           ready.get("protected_paths", []))
+        if not prepared:
+            return {"reproduced": False, "preparation_failed": True, "source": source,
+                    "output": prepare_output.strip()[-3000:]}
+        record_prepare_outputs(target, before_prepare, before_dirs)
         destination = target / test_file
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(reviewer_folder / test_file, destination)
-        args = shlex.split(command)
         approved_files = {path for check in checks for path in check.get("files", [])}
-        filtered = [arg for arg in args if arg not in approved_files]
-        filtered.append(test_file.as_posix())
-        code, output = gate.run_judge(target, shlex.join(filtered),
+        adapted, adapt_error = _adapt_exit_command(command, approved_files, test_file.as_posix())
+        if adapt_error:
+            return {"reproduced": False, "source": source, "output": adapt_error}
+        code, output = gate.run_judge(target, adapted,
                                       protected_paths=ready.get("protected_paths", []))
-        fail_lines = "\n".join(line for line in output.splitlines()
-                                if re.search(r"FAIL|ERROR|Error|not ok|_{3,}", line))
-        wrong_reason = re.search(
-            r"(?:SyntaxError|IndentationError|ModuleNotFoundError|ImportError|"
-            r"FileNotFoundError|ERROR collecting)", output)
-        reproduced = (code != 0 and not wrong_reason and bool(re.search(
-            rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])", fail_lines)))
-        return {"reproduced": reproduced, "output": output.strip()[-3000:]}
+        reproduced = code != 0 and not judge_has_runner_error(output, code) \
+            and judge_assertion_failed(output, item)
+        return {"reproduced": reproduced, "source": source,
+                "output": output.strip()[-3000:]}
     finally:
         _remove_untracked_reproducer(target, test_file)
         sh(["git", "worktree", "remove", str(target)], root, check=False)
         sh(["git", "worktree", "prune"], root, check=False)
+
+
+def _adapt_exit_command(command: str, approved_files: set[str], test_file: str
+                        ) -> tuple[str, str]:
+    """Replace frozen test-file arguments while keeping shell operators active."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError as error:
+        return "", f"Could not adapt the approved Exit command: {error}"
+    controls = {"if", "then", "else", "elif", "fi", "for", "while", "until",
+                "do", "done", "case", "esac", "function"}
+    operators = re.compile(r"^[;&|()<>]+$")
+    command_heads = [tokens[index + 1] for index, token in enumerate(tokens[:-1])
+                     if operators.fullmatch(token)]
+    if (tokens[:1] and tokens[0] in controls) or controls.intersection(command_heads):
+        return "", "Could not adapt a compound shell control command for the reproducer."
+    filtered = [token for token in tokens if token not in approved_files]
+    insertion = next((index for index, token in enumerate(filtered)
+                      if operators.fullmatch(token)), len(filtered))
+    filtered.insert(insertion, test_file)
+    rendered = " ".join(token if operators.fullmatch(token) else shlex.quote(token)
+                         for token in filtered)
+    return rendered, ""
 
 
 def _remove_untracked_reproducer(folder: Path, path: Path) -> None:

@@ -124,12 +124,15 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
         if not reproducers:
             details.append("- No valid reproducer was supplied.")
         else:
-            details.extend(
-                f"- Reproducer `{item['file']}` for {item['item']}: "
-                f"{'reproduced the finding' if item.get('reproduced') else 'did not reproduce it'}."
-                "\n"
-                f"  Output:\n\n  ```text\n  {item.get('output', '')}\n  ```"
-                for item in reproducers)
+            for item in reproducers:
+                if item.get("preparation_failed"):
+                    status = "could not run because Prepare failed"
+                else:
+                    status = ("reproduced the finding" if item.get("reproduced")
+                              else "did not reproduce it")
+                details.append(
+                    f"- Reproducer `{item['file']}` for {item['item']}: {status}.\n"
+                    f"  Output:\n\n  ```text\n  {item.get('output', '')}\n  ```")
         body = ("## Unresolved review findings\n\n" + "\n".join(details)
                 + "\n\n" + body)
     if review.get("reviewer_note"):

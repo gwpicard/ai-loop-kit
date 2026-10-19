@@ -517,7 +517,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                                  if item.get("reproduced")]
                 if reproductions:
                     evidence = "\n\n".join(
-                        f"{item['item']} reproducer `{item['file']}` output:\n````text\n"
+                        f"{item['item']} reproducer `{item['file']}` source:\n````python\n"
+                        f"{item.get('source', '')}\n````\n\n"
+                        f"{item['item']} reproducer output:\n````text\n"
                         f"{item['output']}\n````" for item in reproductions)
                     reason = ("Contract review reproduced a judge gap: "
                               + ", ".join(item["item"] for item in reproductions)
