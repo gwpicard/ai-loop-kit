@@ -3,10 +3,10 @@
 For an empty project, the first piece sets up the test runner. Use the
 confirmed Test command from setup. This Python example uses unittest.
 
-Use one Tests check under `## Exit`, with `Kind: scaffold`. Ready skips
-Prepare and the regression check on main, and allows the runner to be
-missing. After the build, the runner must pass with at least one test.
-The older Judge form keeps the same rules.
+Scaffold pieces use `## Judge` with `Kind: scaffold`. The Exit format does
+not express a scaffold piece. Ready skips Prepare and the regression check
+on main, and allows the runner to be missing. After the build, the runner
+must pass with at least one test.
 
 ```markdown
 ## Intent
@@ -25,8 +25,7 @@ Shared files: none
 Needs services: none
 Open choices: none
 
-## Exit
-### Tests
+## Judge
 Kind: scaffold
 Command: `python3 -m unittest discover -s tests -v`
 ```

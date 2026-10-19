@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from errors import Refused
 from research import parse_research
@@ -47,14 +48,17 @@ def _risk_items(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
-def _section(body: str, name: str, include_heading: bool = False) -> list[str] | None:
+def _section(body: str, name: str,
+             include_heading: bool = False) -> Optional[list[str]]:
     lines = body.splitlines()
     for i, line in enumerate(lines):
         if line.strip().lower() == f"## {name}".lower():
-            end = i + 1
-            while end < len(lines) and not lines[end].startswith("## "):
-                end += 1
-            return lines[i if include_heading else i + 1:end]
+            out = [line] if include_heading else []
+            for rest in lines[i + 1:]:
+                if rest.startswith("## "):
+                    break
+                out.append(rest)
+            return out
     return None
 
 
@@ -67,7 +71,8 @@ def parse_spec(body: str) -> Spec:
     """Read the spec from an issue body. Refuse with every gap at once."""
     gaps: list[str] = []
     intent_lines = _section(body, "Intent")
-    intent, out_of_scope = "", []
+    intent = ""
+    out_of_scope: list[str] = []
     if intent_lines is None:
         gaps.append("no '## Intent' section")
     else:
@@ -143,6 +148,7 @@ def parse_spec(body: str) -> Spec:
                     stays.append(m.group(1))
         if not done_when:
             gaps.append("'## Contract' has no item like '- D1: ...'")
+
     command, kind, keep, files, settings, large_files = "", "feature", "", [], False, []
     measure, target, capture, reference, criteria, playbook = "", "", "", "", [], ""
     judge = _section(body, "Judge")
@@ -166,8 +172,6 @@ def parse_spec(body: str) -> Spec:
                 key, value = field.group(1).lower(), field.group(2).strip().strip("`").strip()
                 if key in ("command", "measure", "capture", "reference", "target"):
                     current[key] = value
-                elif key == "kind" and value.lower() == "scaffold" and current["type"] == "tests":
-                    current["legacy_kind"] = "scaffold"
                 elif key == "files":
                     current["_files"] = True
                     current["files"].extend(
@@ -186,13 +190,9 @@ def parse_spec(body: str) -> Spec:
                 gaps.append(f"unexpected text in {current['type']} exit check: {line.strip()}")
         if not checks:
             gaps.append("'## Exit' has no checks")
-        scaffold = any(check.get("legacy_kind") == "scaffold" for check in checks)
-        if scaffold and len(checks) != 1:
-            gaps.append("a scaffold piece must have one Tests exit check")
         for check in checks:
             kind_name = check["type"]
-            if kind_name == "tests" and (not check.get("command") or
-                    (not check["files"] and check.get("legacy_kind") != "scaffold")):
+            if kind_name == "tests" and (not check.get("command") or not check["files"]):
                 gaps.append("Tests exit checks need 'Command:' and files under 'Files:'")
             elif kind_name == "measure" and (not check.get("command") or not check.get("target")
                                                 or not check["files"]):
@@ -205,7 +205,7 @@ def parse_spec(body: str) -> Spec:
             for path in check["files"]:
                 if path.startswith("/") or ".." in Path(path).parts:
                     gaps.append(f"exit file '{path}' must be a path inside the project")
-        kind = "scaffold" if scaffold else "checks"
+        kind = "checks"
         files = list(dict.fromkeys(path for check in checks for path in check["files"]))
         tests = next((check for check in checks if check["type"] == "tests"), None)
         command = tests.get("command", "") if tests else ""

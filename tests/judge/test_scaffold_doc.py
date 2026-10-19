@@ -21,24 +21,33 @@ class ScaffoldDocTest(unittest.TestCase):
         guide = (KIT / "examples/scaffold.md").read_text()
         examples = re.findall(r"```markdown\n(.*?)```", guide, re.DOTALL)
         self.assertEqual(len(examples), 1)
-        self.assertIn("## Exit\n### Tests\nKind: scaffold", examples[0])
         spec = parse_spec(examples[0])
         self.assertEqual(spec.kind, "scaffold")
         self.assertEqual(spec.checks[0]["legacy_kind"], "scaffold")
         self.assertEqual(spec.command, "python3 -m unittest discover -s tests -v")
         self.assertEqual(list(spec.done_when), ["D1"])
         self.assertIn("## Risks", examples[0])
+        self.assertIn("[scaffold example](examples/scaffold.md)",
+                      (KIT / "spec-format.md").read_text())
+
+    def test_D2_scaffold_uses_the_existing_judge_form(self):
+        body = self.example()
+        self.assertIn("## Judge\nKind: scaffold", body)
+        self.assertNotIn("## Exit", body)
+        for path in (KIT / "examples/scaffold.md", KIT.parent / "docs/DESIGN.md"):
+            with self.subTest(path=path):
+                text = " ".join(path.read_text().split())
+                self.assertIn("Scaffold pieces use `## Judge` with `Kind: scaffold`", text)
 
     def example(self):
         guide = (KIT / "examples/scaffold.md").read_text()
         return re.search(r"```markdown\n(.*?)```", guide, re.DOTALL).group(1)
 
-    def test_exit_scaffold_keeps_existing_ready_and_submit_rules(self):
+    def test_D1_example_keeps_existing_ready_and_submit_rules(self):
         import gate
         import run
 
         body = self.example()
-        self.assertIn("## Exit", body)
         project = Project()
         self.addCleanup(project.close)
         command = parse_spec(body).command
@@ -62,23 +71,17 @@ class ScaffoldDocTest(unittest.TestCase):
         gate.move(project.gh, project.root, n, "approval", folder=folder)
         self.assertIn("state:approval", project.gh.issue(n)["labels"])
 
-    def test_scaffold_exit_requires_one_tests_check(self):
+    def test_D3_parser_keeps_existing_scaffold_syntax(self):
         body = ("## Intent\nSet up tests.\nOut of scope:\n- Product features.\n"
-                "## Contract\n- D1: The runner runs a test.\n## Exit\n### Tests\n"
+                "## Contract\n- D1: The runner runs a test.\n## Judge\n"
                 "Kind: scaffold\nCommand: `python3 -m unittest discover -s tests -v`\n")
         parsed = parse_spec(body)
-        legacy = parse_spec(body.replace("## Exit\n### Tests", "## Judge"))
-        for attribute in ("kind", "command", "files", "keep"):
-            self.assertEqual(getattr(parsed, attribute), getattr(legacy, attribute))
+        self.assertEqual(parsed.kind, "scaffold")
+        self.assertEqual(parsed.files, [])
         self.assertEqual(parsed.checks[0]["legacy_kind"], "scaffold")
-        for invalid in (
-            body.replace("Command:", "Missing:"),
-            body.replace("### Tests", "### Measure") + "Target: < 1\nFiles: bench.py\n",
-            body.replace("Kind: scaffold", "Kind: feature"),
-            body + "### Tests\nCommand: `python3 judge.py`\nFiles: judge.py\n",
-        ):
-            with self.subTest(body=invalid), self.assertRaises(Refused):
-                parse_spec(invalid)
+        with self.assertRaises(Refused) as caught:
+            parse_spec(body.replace("## Judge", "## Exit\n### Tests"))
+        self.assertIn("'Kind:' does not belong in an Exit check", caught.exception.reason)
 
 
 if __name__ == "__main__":

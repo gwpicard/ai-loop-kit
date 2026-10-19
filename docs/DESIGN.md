@@ -229,10 +229,10 @@ the right reason.
 | Measure (**preview**) | the median of three runs misses the `Target:` | the median meets it |
 | Critics (**preview**) | `main` wins fewer than two of three blind comparisons | ours wins at least two |
 
-A scaffold piece uses one Tests check under `## Exit` with `Kind: scaffold`,
-as shown in `kit/examples/scaffold.md`. The older Judge form still works.
-Ready allows a missing runner and skips Prepare and the regression check
-on main. After the build, the runner must pass with at least one test.
+Scaffold pieces use `## Judge` with `Kind: scaffold`, as shown in
+`kit/examples/scaffold.md`. The Exit format has no scaffold form. Ready
+allows a missing runner and skips Prepare and the regression check on main.
+After the build, the runner must pass with at least one test.
 
 An `## Exit` section lists one or more checks: tests, a measure or critics.
 A piece can combine them. Each check names the files it runs, and those files
