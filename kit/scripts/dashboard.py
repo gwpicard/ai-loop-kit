@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
 
-from loopkit import GitHub, branch_name
+from loopkit import GitHub, branch_name, sh
 
 _EVENT_WARNED: set[Path] = set()
 _EVENT_OBSERVERS: dict[Path, Callable[[], None]] = {}
@@ -34,6 +34,14 @@ def run_event(root: Path, event: str, piece: int | None = None,
               state: str = "", attempt: int = 0, reason: str = "") -> None:
     """Append public metadata only. Callers supply fixed event names and reasons."""
     try:
+        result = sh(["git", "rev-parse", "--absolute-git-dir"], root, check=False)
+        if result.returncode == 0:
+            exclude = Path(result.stdout.strip()) / "info" / "exclude"
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            text = exclude.read_text() if exclude.exists() else ""
+            if "/.loop/" not in text.splitlines():
+                exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
+                                   + "/.loop/\n")
         path = root / ".loop" / "events.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as output:

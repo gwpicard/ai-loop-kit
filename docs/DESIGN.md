@@ -670,8 +670,11 @@ run.py
   attempt count and short reason. Run boundaries use a null piece, an empty
   state and attempt zero. Reasons use fixed names or reason types. The file
   copies no free text, environment values or builder output. GitHub labels
-  remain the source of truth. A write failure warns once per project in the
-  process and leaves the run and gate moves running.
+  remain the source of truth. When it first writes the event file, the kit
+  adds `/.loop/` to the local `.git/info/exclude`. The judge-writer also
+  treats existing files under `.loop/` as kit-owned, while still refusing
+  other untracked work. A write failure warns once per project in the process
+  and leaves the run and gate moves running.
 - **Local run page.** The run writes `.loop/dashboard.html` after each event
   and prints its full path. The run skill reports that path. The static page
   includes all its data and refreshes every five seconds without a server.
