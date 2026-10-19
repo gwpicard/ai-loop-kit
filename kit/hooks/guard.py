@@ -97,9 +97,12 @@ def redirect_to_protected(command: str) -> bool:
 def check_command(cmd: str, builder: bool) -> Optional[str]:
     if builder and redirect_to_protected(cmd):
         return "builders never redirect into .claude/, .githooks/ or a protected path."
-    if re.search(r"\bnode\b[^\n]*\s-e\s", cmd) and re.search(
-            r"\brm\s+-[a-zA-Z]*[rR]", cmd):
-        return "recursive delete is not allowed. Ask the person."
+    for i, word in enumerate(inline := words(cmd)):
+        if word in ("python", "python3", "node"):
+            args, flag = inline[i + 1:], "-e" if word == "node" else "-c"
+            code = args[args.index(flag) + 1:] if flag in args else []
+            if code and re.search(r"shutil.*rmtree|rm\s+-\w*[rR]", " ".join(code)):
+                return "recursive delete is not allowed. Ask the person."
     for segment in SPLIT.split(cmd):
         raw = segment.strip()
         if re.search(r"(?:^|\s)GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)=", raw):
@@ -113,9 +116,6 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
         if not w:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
-        code = rest[rest.index("-c") + 1:] if prog in ("python", "python3") and "-c" in rest else []
-        if code and re.search(r"shutil.*rmtree|rm\s+-\w*[rR]", " ".join(code)):
-            return "recursive delete is not allowed. Ask the person."
         if prog == "eval":
             if builder:
                 return "eval is not allowed. Run a plain command."

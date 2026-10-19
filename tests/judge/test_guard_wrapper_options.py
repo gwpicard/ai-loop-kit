@@ -72,7 +72,17 @@ class WrapperOptionsTest(unittest.TestCase):
                 self.assertEqual(guard(command).returncode, 2)
 
     def test_quoted_python_code_cannot_hide_recursive_delete(self):
-        command = "python3 '-c' '(lambda shutil: shutil.rmtree(\"x\"))(__import__(\"shutil\"))'"
+        commands = (
+            "python3 '-c' '(lambda shutil: shutil.rmtree(\"x\"))(__import__(\"shutil\"))'",
+            "python3 -c \"import shutil; shutil.rmtree('x')\"",
+        )
+        for command in commands:
+            for builder in (False, True):
+                with self.subTest(command=command, builder=builder):
+                    self.assertEqual(guard(command, builder=builder).returncode, 2)
+
+    def test_quoted_node_code_cannot_hide_recursive_delete(self):
+        command = "node '-e' 'require(\"child_process\").execSync(\"rm -rf x\")'"
         for builder in (False, True):
             with self.subTest(builder=builder):
                 self.assertEqual(guard(command, builder=builder).returncode, 2)
