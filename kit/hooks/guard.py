@@ -98,9 +98,9 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
     if builder and redirect_to_protected(cmd):
         return "builders never redirect into .claude/, .githooks/ or a protected path."
     for i, word in enumerate(inline := words(cmd)):
-        if word in ("python", "python3", "node"):
-            args, flag = inline[i + 1:], "-e" if word == "node" else "-c"
-            code = args[args.index(flag) + 1:] if flag in args else []
+        if os.path.basename(word) in ("python", "python3", "node"):
+            flag = "-e" if os.path.basename(word) == "node" else "-c"
+            code = inline[i + 2 + inline[i + 1:].index(flag):] if flag in inline[i + 1:] else []
             if code and re.search(r"shutil.*rmtree|rm\s+-\w*[rR]", " ".join(code)):
                 return "recursive delete is not allowed. Ask the person."
     for segment in SPLIT.split(cmd):
@@ -113,8 +113,8 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
             if builder:
                 return "the command could not be read safely in a build session. Simplify it and try again."
             w = words(raw)
-        if not w:
-            continue
+            w = w[1:] if w and os.path.basename(w[0]) in WRAPPER_OPTIONS else w
+        w = w or [""]
         prog, rest = os.path.basename(w[0]), w[1:]
         if prog == "eval":
             if builder:
