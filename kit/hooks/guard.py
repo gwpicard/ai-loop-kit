@@ -13,9 +13,12 @@ In a builder session (LOOP_BUILDER=1) also:
   - no push at all, and no `gh` (the run does both after the gate checks);
   - no change under .claude/ or .githooks/.
 
-This is a plain word check, not a full shell parser. The gate checks state;
-settings deny rules check the rest.
+This is a plain word check, not a full shell parser. It catches the plain
+forms. The gate is the second layer for state; settings deny rules are the
+second layer for the rest.
 """
+from __future__ import annotations
+
 import getopt
 import json
 import os
@@ -55,19 +58,23 @@ WRAPPER_OPTIONS = {
 }
 
 
-def strip_prefix(w: list[str]) -> list[str]:
+def strip_prefix(w: list[str], strict: bool = False) -> list[str]:
     while w:
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w[0]):
-            w.pop(0)
+            w = w[1:]
             continue
         wrapper = os.path.basename(w[0])
         if wrapper not in WRAPPER_OPTIONS:
             break
         try:
-            o, w = getopt.getopt(w[1:], *WRAPPER_OPTIONS[wrapper])
+            options, w = getopt.getopt(w[1:], *WRAPPER_OPTIONS[wrapper])
         except getopt.GetoptError as error:
-            raise ValueError("unknown wrapper option") from error
-        w = [] if wrapper == "command" and any(a in ("-v", "-V") for a, _ in o) else w
+            if strict:
+                raise ValueError("unknown wrapper option") from error
+            w = w[1:]
+            continue
+        if wrapper == "command" and any(option in ("-v", "-V") for option, _ in options):
+            return []
     return w
 
 
@@ -97,24 +104,24 @@ def redirect_to_protected(command: str) -> bool:
 def check_command(cmd: str, builder: bool) -> Optional[str]:
     if builder and redirect_to_protected(cmd):
         return "builders never redirect into .claude/, .githooks/ or a protected path."
-    for i, word in enumerate(inline := words(cmd)):
-        if os.path.basename(word) in ("python", "python3", "node"):
-            flag = "-e" if os.path.basename(word) == "node" else "-c"
-            code = inline[i + 2 + inline[i + 1:].index(flag):] if flag in inline[i + 1:] else []
-            if code and re.search(r"shutil.*rmtree|rm\s+-\w*[rR]", " ".join(code)):
-                return "recursive delete is not allowed. Ask the person."
+    if re.search(r"\bpython(?:3)?\b[^\n]*\s-c\s", cmd) and re.search(
+            r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", cmd):
+        return "recursive delete is not allowed. Ask the person."
+    if re.search(r"\bnode\b[^\n]*\s-e\s", cmd) and re.search(
+            r"\brm\s+-[a-zA-Z]*[rR]", cmd):
+        return "recursive delete is not allowed. Ask the person."
     for segment in SPLIT.split(cmd):
         raw = segment.strip()
         if re.search(r"(?:^|\s)GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)=", raw):
             return "GIT_CONFIG_COUNT command injection is not allowed. Use plain git commands."
         try:
-            w = strip_prefix(shlex.split(raw))
+            w = strip_prefix(shlex.split(raw), builder)
         except ValueError:
             if builder:
                 return "the command could not be read safely in a build session. Simplify it and try again."
-            w = words(raw)
-            w = w[1:] if w and os.path.basename(w[0]) in WRAPPER_OPTIONS else w
-        w = w or [""]
+            w = strip_prefix(words(raw))
+        if not w:
+            continue
         prog, rest = os.path.basename(w[0]), w[1:]
         if prog == "eval":
             if builder:
@@ -137,27 +144,41 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
                 index = rest.index(option)
                 if builder and option != "-c":
                     return "combined shell flags are not allowed in a build session. Use plain `bash -c`."
-                if index + 1 < len(rest):
+                if index + 1 >= len(rest):
+                    if builder:
+                        return "the shell command form could not be unwrapped safely."
+                else:
                     refused = check_command(rest[index + 1], builder)
                     if refused:
                         return refused
-                elif builder:
-                    return "the shell command form could not be unwrapped safely."
+        if prog in ("python", "python3", "node"):
+            flag = "-c" if prog.startswith("python") else "-e"
+            if flag in rest:
+                code = rest[rest.index(flag) + 1] if rest.index(flag) + 1 < len(rest) else ""
+                if re.search(r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", code):
+                    return "recursive delete is not allowed. Ask the person."
         if prog == "git":
             index = 0
             git_cwd = ""
             while index < len(rest):
-                arg = rest[index]
-                if arg == "-C" and index + 1 < len(rest):
+                if rest[index] == "-C" and index + 1 < len(rest):
                     git_cwd = rest[index + 1]
-                elif arg not in ("-C", "-c", "--git-dir", "--work-tree") and not (
-                        arg.startswith("--git-dir=") or arg.startswith("--work-tree=")):
+                    index += 2
+                elif rest[index] in ("-c", "--git-dir", "--work-tree"):
+                    index += 2
+                elif rest[index].startswith("--git-dir=") or rest[index].startswith("--work-tree="):
+                    index += 1
+                else:
                     break
-                index += 1 if "=" in arg else 2
             rest = rest[index:]
         if prog == "gh":
-            while len(rest) > 1 and rest[0] in ("-R", "--repo"):
-                rest = rest[2:]
+            index = 0
+            while index < len(rest):
+                if rest[index] in ("-R", "--repo"):
+                    index += 2
+                else:
+                    break
+            rest = rest[index:]
         flags = [a for a in rest if a.startswith("-")]
 
         if prog == "rm" and any(a in ("-r", "-R", "--recursive") or
@@ -195,9 +216,9 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
             joined = " ".join(rest)
             if rest[:2] == ["pr", "merge"]:
                 return "agents do not merge. The person merges the pull request."
-            if ("state:" in joined and rest[:1] == ["label"] and rest[1:2]
-                    and rest[1] in ("create", "edit", "delete")):
-                return "state labels belong to the gate. Use gate.py."
+            if rest[:1] == ["label"] and rest[1:2] and rest[1] in ("create", "edit", "delete"):
+                if "state:" in joined:
+                    return "state labels belong to the gate. Use gate.py."
             if "state:" in joined and (rest[:2] in (["issue", "edit"], ["pr", "edit"]) or rest[:1] == ["api"]):
                 return "only the gate moves a piece. Use gate.py move."
     return None

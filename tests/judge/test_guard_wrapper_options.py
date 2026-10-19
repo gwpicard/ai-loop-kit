@@ -75,6 +75,7 @@ class WrapperOptionsTest(unittest.TestCase):
         commands = (
             "python3 '-c' '(lambda shutil: shutil.rmtree(\"x\"))(__import__(\"shutil\"))'",
             "python3 -c \"import shutil; shutil.rmtree('x')\"",
+            "python3 -c 'import shutil\n(shutil.\nrmtree(\"x\"))'",
             "/usr/bin/python3 -c \"import shutil; shutil.rmtree('x')\"",
         )
         for command in commands:
@@ -93,8 +94,14 @@ class WrapperOptionsTest(unittest.TestCase):
                     self.assertEqual(guard(command, builder=builder).returncode, 2)
 
     def test_wrapped_recursive_delete_with_semicolon_in_filename_is_refused(self):
-        for wrapper in ("sudo", "env", "command"):
-            command = f"{wrapper} rm -rf 'a;b'"
+        commands = (
+            "sudo rm -rf 'a;b'",
+            "env rm -rf 'a;b'",
+            "command rm -rf 'a;b'",
+            "sudo env rm -rf 'a;b'",
+            "A=1 sudo rm -rf 'a;b'",
+        )
+        for command in commands:
             with self.subTest(command=command):
                 self.assertEqual(guard(command).returncode, 2)
 
