@@ -64,9 +64,10 @@ def strip_prefix(w: list[str]) -> list[str]:
         if wrapper not in WRAPPER_OPTIONS:
             break
         try:
-            _, w = getopt.getopt(w[1:], *WRAPPER_OPTIONS[wrapper])
+            o, w = getopt.getopt(w[1:], *WRAPPER_OPTIONS[wrapper])
         except getopt.GetoptError as error:
             raise ValueError("unknown wrapper option") from error
+        w = [] if wrapper == "command" and any(a in ("-v", "-V") for a, _ in o) else w
     return w
 
 
@@ -96,9 +97,6 @@ def redirect_to_protected(command: str) -> bool:
 def check_command(cmd: str, builder: bool) -> Optional[str]:
     if builder and redirect_to_protected(cmd):
         return "builders never redirect into .claude/, .githooks/ or a protected path."
-    if re.search(r"\bpython(?:3)?\b[^\n]*\s-c\s", cmd) and re.search(
-            r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", cmd):
-        return "recursive delete is not allowed. Ask the person."
     if re.search(r"\bnode\b[^\n]*\s-e\s", cmd) and re.search(
             r"\brm\s+-[a-zA-Z]*[rR]", cmd):
         return "recursive delete is not allowed. Ask the person."
@@ -115,6 +113,9 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
         if not w:
             continue
         prog, rest = os.path.basename(w[0]), w[1:]
+        code = rest[rest.index("-c") + 1:] if prog in ("python", "python3") and "-c" in rest else []
+        if code and re.search(r"shutil.*rmtree|rm\s+-\w*[rR]", " ".join(code)):
+            return "recursive delete is not allowed. Ask the person."
         if prog == "eval":
             if builder:
                 return "eval is not allowed. Run a plain command."

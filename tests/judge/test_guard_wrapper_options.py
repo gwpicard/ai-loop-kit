@@ -71,6 +71,17 @@ class WrapperOptionsTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(guard(command).returncode, 2)
 
+    def test_quoted_python_code_cannot_hide_recursive_delete(self):
+        command = "python3 '-c' '(lambda shutil: shutil.rmtree(\"x\"))(__import__(\"shutil\"))'"
+        for builder in (False, True):
+            with self.subTest(builder=builder):
+                self.assertEqual(guard(command, builder=builder).returncode, 2)
+
+    def test_command_lookup_options_remain_allowed(self):
+        for command in ("command -v gh", "command -V gh"):
+            with self.subTest(command=command):
+                self.assertEqual(guard(command, builder=True).returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
