@@ -35,7 +35,8 @@ class RunAllTests(unittest.TestCase):
             arguments = capture.read_text().strip().split()
             self.assertEqual(
                 arguments,
-                ["-m", "unittest", "discover", "-q", "-p", "test_*.py",
+                ["-c", "import", "pytest",
+                 "-m", "unittest", "discover", "-q", "-p", "test_*.py",
                  "-m", "unittest", "discover", "-s", "extras/tests", "-q", "-p", "test_*.py"],
                 result.stdout + result.stderr,
             )
