@@ -50,4 +50,4 @@ and fix what it names; you do not judge the ground by eye.
    Done when: the pull request is open and you have given the person its link.
 5. After the person merges, run `python3 "<KIT>/scripts/gate.py" doctor` again.
    Done when: every check says ok. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.
-6. Tell the person what comes next: if the project is empty, its first piece is a scaffold piece (see `<KIT>/spec-format.md`). Then `/ai-loop-kit:shape`.
+6. Tell the person what comes next: if the project is empty, its first piece is a scaffold piece (see `<KIT>/examples/scaffold.md`). Then `/ai-loop-kit:shape`.
