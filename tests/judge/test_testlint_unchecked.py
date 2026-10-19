@@ -21,16 +21,19 @@ class TestLintUncheckedTest(unittest.TestCase):
         self.addCleanup(self.p.close)
 
     def test_D1_unsupported_judge_is_recorded_and_named_in_ready_message(self):
-        name = "judge_add.rb"
+        name = "tests/judge/test_add.rb"
         judge = "print('FAIL D1 add')\nraise SystemExit(1)\n"
         spec = ("## Intent\nAdd a habit.\n\nOut of scope:\n- Editing habits.\n\n"
                 "## Contract\n- D1: adding a habit appends it.\n\n"
-                "## Judge\nCommand: `python3 judge_add.rb`\nFiles:\n- judge_add.rb\n")
+                "## Judge\nCommand: `python3 tests/judge/test_add.rb`\n"
+                "Files:\n- tests/judge/test_add.rb\n")
         number = self.p.piece(judge=judge, spec=spec)
         branch = f"piece/{number}"
         git(self.p.root, "switch", "--quiet", branch)
         (self.p.root / "judge_add.py").unlink()
-        (self.p.root / name).write_text(judge)
+        path = self.p.root / name
+        path.parent.mkdir(parents=True)
+        path.write_text(judge)
         git(self.p.root, "add", "-A")
         git(self.p.root, "commit", "--quiet", "-m", "Use an unsupported judge file")
         git(self.p.root, "switch", "--quiet", "main")
@@ -42,20 +45,34 @@ class TestLintUncheckedTest(unittest.TestCase):
             {"file": name, "reason": "unsupported language"}])
         self.assertIn(f"{name} not checked by the test lint", note)
 
-    def test_D2_unreadable_judge_is_refused_with_path(self):
-        number = self.p.piece()
+    def test_D2_unreadable_unsupported_judge_is_refused_with_path(self):
+        name = "tests/judge/test_add.rb"
+        judge = "print('FAIL D1 add')\nraise SystemExit(1)\n"
+        spec = ("## Intent\nAdd a habit.\n\nOut of scope:\n- Editing habits.\n\n"
+                "## Contract\n- D1: adding a habit appends it.\n\n"
+                "## Judge\nCommand: `python3 tests/judge/test_add.rb`\n"
+                "Files:\n- tests/judge/test_add.rb\n")
+        number = self.p.piece(judge=judge, spec=spec)
+        git(self.p.root, "switch", "--quiet", f"piece/{number}")
+        (self.p.root / "judge_add.py").unlink()
+        path = self.p.root / name
+        path.parent.mkdir(parents=True)
+        path.write_text(judge)
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "--quiet", "-m", "Use a nested unsupported judge")
+        git(self.p.root, "switch", "--quiet", "main")
         original = Path.read_text
 
-        def unreadable(path, *args, **kwargs):
-            if path.name == "judge_add.py":
+        def unreadable(candidate, *args, **kwargs):
+            if candidate.name == "test_add.rb":
                 raise PermissionError("denied")
-            return original(path, *args, **kwargs)
+            return original(candidate, *args, **kwargs)
 
         with patch.object(Path, "read_text", unreadable), \
                 self.assertRaises(Refused) as caught:
             gate.move(self.p.gh, self.p.root, number, "ready")
 
-        self.assertIn("judge_add.py", caught.exception.reason)
+        self.assertIn(name, caught.exception.reason)
         self.assertNotIn("Traceback", caught.exception.reason)
 
     def test_D3_python_syntax_error_is_still_reported(self):

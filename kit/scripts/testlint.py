@@ -55,8 +55,7 @@ def _project_source_path(root: Path, value: str) -> Optional[str]:
 
 
 def _contract_names_file(contract: str, relative: str) -> bool:
-    text = contract.lower()
-    return relative.lower() in text or Path(relative).name.lower() in text
+    return relative.lower() in contract.lower() or Path(relative).name.lower() in contract.lower()
 
 
 def python_findings(path: Path, text: str,
@@ -149,12 +148,8 @@ def python_findings(path: Path, text: str,
 
 
 def _name(node: ast.AST) -> str:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        parent = _name(node.value)
-        return f"{parent}.{node.attr}" if parent else node.attr
-    return ""
+    return node.id if isinstance(node, ast.Name) else (
+        f"{_name(node.value)}.{node.attr}".lstrip(".") if isinstance(node, ast.Attribute) else "")
 
 
 def javascript_findings(path: Path, text: str,
@@ -224,13 +219,14 @@ def lint_files(files: Iterable[Path], project_root: Optional[Path] = None,
     out, unchecked = [], []
     supported = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
     for path in files:
-        reason = "unsupported language" if path.suffix not in supported else ""
         try:
-            text = path.read_text(errors="replace") if not reason else ""
+            text = path.read_text(errors="replace")
         except OSError:
-            reason = "unreadable"
-        if reason:
-            unchecked.append({"file": path.name, "reason": reason})
+            out.append(f"{path.relative_to(project_root or path.parent)}: unreadable judge file")
+            continue
+        if path.suffix not in supported:
+            name = path.relative_to(project_root or path.parent).as_posix()
+            unchecked.append({"file": name, "reason": "unsupported language"})
             continue
         check = python_findings if path.suffix == ".py" else javascript_findings
         out.extend(f"{path}:{line}: {rule}" for line, rule in

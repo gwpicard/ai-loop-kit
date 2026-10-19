@@ -114,7 +114,6 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             overlaps = sorted(wanted_shared & set(other_shared))
             if overlaps:
                 shared_conflicts.append({"issue": other["number"], "files": overlaps})
-
     # Run the judge on today's main, with only the judge files added.
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
     folder = tmp / "main"
@@ -147,11 +146,6 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
-        unreadable = ", ".join(item["file"] for item in test_lint_unchecked
-                                if item["reason"] == "unreadable")
-        if unreadable:
-            raise Refused("the test lint could not read judge file(s): " + unreadable,
-                          "make the judge files readable, then run gate.py ready again")
         check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
         kind_record = {"checks": check_records}
         if spec.kind in ("goal", "gauntlet"):
@@ -493,7 +487,6 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         raise Refused(f"the {name} move needs a reason", "pass --reason")
     if name in NEEDS_TYPE and reason_type not in REASON_TYPES:
         raise Refused(f"the {name} move needs a typed reason", "pass --type and --reason")
-
     record: dict = {"move": name, "from": frm, "to": to}
     note = f"{frm} → {to} ({name})."
     comments = gh.comments(n)
@@ -512,9 +505,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             elif check["type"] == "critics":
                 wins = sum(v["winner"] == "ours" for v in check["main_verdicts"])
                 note += f" Critics on main: {wins}/3 wins; fewer than the required 2."
-        if record["test_lint_unchecked"]:
-            names = ", ".join(item["file"] for item in record["test_lint_unchecked"])
-            note += f" {names} not checked by the test lint."
+        note += (f" {', '.join(item['file'] for item in record['test_lint_unchecked'])} "
+                 "not checked by the test lint." if record["test_lint_unchecked"] else "")
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
@@ -574,7 +566,6 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             "kit": _kit_version(),
             "date": datetime.now(timezone.utc).date().isoformat(),
         })
-
     add = [STATE_PREFIX + to]
     remove = [STATE_PREFIX + frm]
     if name in ("give-back", "reject"):
