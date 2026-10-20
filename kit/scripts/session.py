@@ -32,7 +32,8 @@ def _judge_dirty(folder: Path) -> bool:
     """Ignore uncommitted tool cache folders when checking work."""
     status = sh(["git", "status", "--porcelain", "--no-renames", "-z",
                  "--untracked-files=all"], folder).stdout
-    return any(not _JUDGE_CACHE.search(entry[3:]) for entry in status.split("\0") if entry)
+    return any(not entry[3:].startswith(".loop/") and not _JUDGE_CACHE.search(entry[3:])
+               for entry in status.split("\0") if entry)
 
 
 def _judge_start(folder: Path, data: dict) -> tuple:

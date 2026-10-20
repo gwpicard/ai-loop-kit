@@ -664,14 +664,14 @@ run.py
 - **Exit status.** The run exits non-zero when a piece fails, including an
   environment hand-back, a refusal or an unexpected error. It continues
   with the other pieces before returning that status.
-- **Local events.** `.loop/events.jsonl` appends one JSON line for each run
-  start, run stop and successful gate move, including capture and hand-back.
-  Each line holds a UTC time, piece number, event name, resulting state,
-  attempt count and short reason. Run boundaries use a null piece, an empty
-  state and attempt zero. Reasons use fixed names or reason types. The file
-  copies no free text, environment values or builder output. GitHub labels
-  remain the source of truth. A write failure warns once per project in the
-  process and leaves the run and gate moves running.
+- **Local events.** `.loop/events.jsonl` records run starts, stops and
+  successful gate moves, including capture and hand-back, with UTC time,
+  piece, event, resulting state, attempt and fixed reason. Boundaries use a
+  null piece, empty state and attempt zero. It copies no free text, environment
+  values or builder output; GitHub labels remain authoritative. Event writes
+  add `/.loop/` to local `.git/info/exclude`. The judge-writer permits existing
+  `.loop/` files but refuses other untracked work. A write failure warns once
+  and leaves the run and gate moves running.
 - **Local run page.** The run writes `.loop/dashboard.html` after each event
   and prints its full path. The run skill reports that path. The static page
   includes all its data and refreshes every five seconds without a server.
