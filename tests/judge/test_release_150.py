@@ -25,6 +25,7 @@ class Release150Test(unittest.TestCase):
         proof_rows = [line for line in rows if "1.5 release proof" in line]
         self.assertEqual(len(proof_rows), 1)
         self.assertIn("563e70e", proof_rows[0])
+        self.assertIn("| 1 | 0 | 0 |", proof_rows[0])
         self.assertIn("22.8", proof_rows[0])
 
     def test_version_pins_are_updated(self):
