@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.5.0 (20 October 2026)
+
+- The gate always runs the project's full test command. `Keep:` adds a check
+  and no longer replaces it. Review findings now have a recorded effect:
+  proven contract gaps return to shaping, while unresolved findings appear at
+  the top of the pull request. The guard also catches protected commands
+  hidden behind wrapper options.
+- A new piece can get its judge when the project does not ignore `.loop/`.
+  This fixes a 1.4.0 bug: the first captured event made the working tree look
+  dirty, so the judge-writer stopped. The kit now ignores its own `.loop/`
+  folder locally.
+- The preview field round and the kill-during-review field test moved to 1.6.
+  Walk-away runs, the researcher, goal and gauntlet checks, the Codex backend,
+  and mutation testing remain previews or experimental. No preview became
+  stable or was removed.
+- The Claude release proof passed on the first attempt. Its report records
+  the checks that held and the paths that it did not exercise. See the
+  [field results](tests/field/RESULTS.md).
+
 ## 1.4.0 (19 October 2026)
 
 - The default install leaves out the experimental mutation tools and gauntlet
