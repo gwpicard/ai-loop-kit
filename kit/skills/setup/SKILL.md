@@ -13,8 +13,11 @@ The kit checks the project in code with `gate.py doctor`. You read its result
 and fix what it names; you do not judge the ground by eye.
 
 ## Steps
-1. Make the labels with `python3 "<KIT>/scripts/gate.py" init`, then run `python3 "<KIT>/scripts/gate.py" doctor`.
-   Done when: every check above "AGENTS.md on main" says ok. For each FAIL, give the person its `next:` line and stop until it is fixed. You never make the first commit or push to main yourself.
+1. Run `python3 "<KIT>/scripts/gate.py" bootstrap`. In any folder, even without git, it makes what is missing: the repository, the first commit and push of main, and the labels. It skips what exists.
+   - gh not signed in: the person runs `! gh auth login`, the only manual step. Run bootstrap again.
+   - No GitHub repository: ask once to create it, suggesting the folder name and private. Say setup pushes the first main and requires pull requests on it, except on a free plan with a private repository. If `git rev-parse --verify main` fails, first do steps 2 and 3 (skip doctor dry-runs) and write step 4's loop section to a file outside the project. Run `python3 "<KIT>/scripts/gate.py" bootstrap --name <name> --visibility private --protect --loop-section <file>` and go to step 5; no pull request is needed. Otherwise leave out `--loop-section`.
+   - Any other refusal: give the person its `next:` line and stop.
+   Then run `python3 "<KIT>/scripts/gate.py" doctor`. Done when: every check above "AGENTS.md on main" says ok.
 2. Find how the project already builds and tests. Read its files: `package.json` and its lockfile, `pyproject.toml`, `uv.lock`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Makefile`, `Dockerfile`, `docker-compose.yml` or `compose.yaml`, and the CI workflow if there is one. The CI workflow usually shows the exact install and test steps.
    Done when: you can say in one sentence how a fresh clone gets ready and runs its tests.
 3. Agree the commands with the person. Offer the way the project already works as the recommended answer, and the other real options beside it. Never impose a tool the project does not use.
@@ -26,11 +29,11 @@ and fix what it names; you do not judge the ground by eye.
    - When adding mutmut, use its 3.8 or later `source_paths` and `pytest_add_cli_args_test_selection` keys. Set pytest `testpaths` to the project's test directory so mutmut does not collect tool output.
    - **Standards and protected paths**: offer the existing standards file as the recommended standards choice. Never use `AGENTS.md` as the standards file. If none exists, offer to create `STANDARDS.md` with a short starter, or use the built-in baseline. Offer protected paths as well, recommending existing `.claude/`, `.githooks/`, secret and deployment configuration paths that must not change. Record either choice only after the person says yes. If they decline, leave it out.
    - **Walk-away network access**: inspect Prepare and Test for package registries they need. Show the exact domains and ask the person to confirm them before recording `Sandbox domains: <comma-separated domains>` in the loop section. These domains are reachable by shell commands during a walk-away run, so do not add GitHub or general web domains unless the person asks for them.
-   - **Branch protection**: ask whether the person wants protection on `main`. Offer it only for a public repository or a plan that supports it. If they say yes, use `gh api` to require pull requests. Do not change repository settings before that yes. Doctor reports whether protection is enabled.
+   - **Branch protection**: if doctor reports it disabled, ask whether to require pull requests on `main`. After a yes, run `python3 "<KIT>/scripts/gate.py" bootstrap --protect`.
    For an empty project, recommend a plain stack for the language the person wants, and ask.
    The gate runs both in a fresh copy of main for every piece, and the run runs Prepare before every build, so both must work from a fresh clone. A project `.venv` made by Prepare is put first on `PATH`.
    Done when: the person has confirmed both commands, or confirmed that Prepare is not needed, chosen an agent backend, and accepted or declined the offered standards file and protected paths.
-4. Add the loop section to the project's `AGENTS.md` (make the file if it is missing), commit it on a branch, and open a pull request for the person:
+4. When main already has commits, add the loop section to the project's `AGENTS.md` (make the file if it is missing), commit it on a branch, and open a pull request for the person:
    ```
    ## The loop
    This project uses AI Loop Kit. Pieces are GitHub issues with one `state:` label.
@@ -48,6 +51,6 @@ and fix what it names; you do not judge the ground by eye.
    ```
    Leave out Prepare if it is not needed, Standards when the built-in baseline is used, and `Protected paths:` when there are none. Write `Sandbox domains:` only after the person confirms the list. Ask before changing the idle or waiting defaults. The gate reads these settings from the loop section.
    Done when: the pull request is open and you have given the person its link.
-5. After the person merges, run `python3 "<KIT>/scripts/gate.py" doctor` again.
-   Done when: every check says ok. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.
+5. After the person merges, or after bootstrap made the first commit, run `python3 "<KIT>/scripts/gate.py" doctor` again.
+   Done when: every check says ok, or warns that there are no tests yet. If the tests fail on a fresh copy of main, show the failures and find the cause, often the environment and not the code. Recommend a fix: a better Prepare command, or a piece to fix the tests. Never narrow the Test command to hide failures without the person's yes.
 6. Tell the person what comes next: if the project is empty, its first piece is a scaffold piece (see `<KIT>/examples/scaffold.md`). Then `/ai-loop-kit:shape`.

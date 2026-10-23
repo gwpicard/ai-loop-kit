@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import sys
 import tempfile
@@ -35,6 +36,10 @@ from extras import require_extras
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "quality"))
 from proposed_quality import apply as apply_proposed_quality
+
+
+TEST_PATH = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*$|"
+                       r"_test\.[^/]+$|\.(test|spec)\.[^/]+$")
 
 
 def print_checks(checks: list[tuple[bool, str, str]]) -> bool:
@@ -103,17 +108,23 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         pytest = runner in {"pytest", "py.test"} or (
             runner.rstrip("0123456789.") == "python" and words[1:3] == ["-m", "pytest"])
         pytest = pytest and not any(char in command for char in ";&|<>()\n")
-        empty = code == 5 and (pytest or "no tests ran" in output or "collected 0 items" in output)
+        empty = code == 5 and (pytest or "no tests ran" in output.lower()
+                               or "collected 0 items" in output)
         fix = ("add tests or fix the test collection settings:\n" if empty else
                "increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
                if code == 124 else "fix the command or environment, or add a Prepare command:\n")
         name = "no tests were collected" if empty else name
+        if empty and not any(TEST_PATH.search(path.lower()) for path in sh(
+                ["git", "ls-files"], folder).stdout.splitlines()):
+            checks.append((True, f"warning: the project has no tests yet ({command})",
+                           "shape a scaffold piece first; it adds the first tests"))
+            return
         add(code == 0, f"{name} on a fresh copy of main ({command})"
             + (f" ({duration})" if duration else ""), fix + output.strip()[-800:])
 
     origin = sh(["git", "remote", "get-url", "origin"], root, check=False).stdout.strip()
     if not add(bool(origin), "the project has an origin",
-               "create the GitHub repository and add it as origin"):
+               "run setup; it runs gate.py bootstrap"):
         return checks
     try:
         if not add(gh.signed_in(), "gh is signed in", "run: gh auth login"):
@@ -123,7 +134,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         return checks
     try:
         main = main_ref(root)
-        add(main == "origin/main", "main has a commit on origin", "push a first commit to main")
+        add(main == "origin/main", "main has a commit on origin",
+            "run setup; it runs gate.py bootstrap")
     except Refused as r:
         add(False, "main has a commit on origin", r.next_step)
         return checks

@@ -41,6 +41,9 @@ DEFAULT_KEEP_LIMIT = 15
 # Colour codes and terminal links that tools print. Issue comments show them raw.
 _TERMINAL_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 PREPARE_TIMEOUT = 1800
+SECRET_PATTERNS = [r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+                   r"\bAKIA[0-9A-Z]{16}\b", r"\bghp_[A-Za-z0-9]{20,}\b",
+                   r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", r"\bsk-[A-Za-z0-9_-]{20,}\b"]
 SECRET_ENV_NAME = re.compile(
     r"(?:^|_)(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIALS?)(?:_|$)|^DATABASE_URL$",
     re.IGNORECASE,
@@ -167,7 +170,7 @@ def main_ref(root: Path) -> str:
             cache[key] = result
         return result
     raise Refused("there is no main branch with a commit",
-                  "make a first commit on main and push it")
+                  "run setup; it runs gate.py bootstrap")
 
 
 def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:

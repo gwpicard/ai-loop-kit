@@ -767,7 +767,8 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 | Builders never edit the judge files or check settings | Edit denies, then the gate at submit |
 | The gate is the only mover of state | hook refuses `state:` label edits; `audit.py` finds any it missed |
 | Only owners, members and collaborators write gate records | code |
-| `main` refuses direct pushes on GitHub | branch protection, offered by setup where the plan allows; doctor reports it |
+| `main` refuses direct pushes on GitHub | branch protection, set by bootstrap where the plan allows; doctor reports it |
+| The first push of `main` happens once | code: bootstrap pushes only when origin has no `main`; the hook still refuses an agent's push |
 | No secret in a tracked file | code at submit, and words |
 | The spec says what the person meant | words: the person approves the contract |
 | The person merges every pull request | the run has no merge step; the hook refuses `gh pr merge` |
@@ -801,12 +802,17 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
 
 1. **Install:** `/plugin marketplace add gwpicard/ai-loop-kit`, then
    `/plugin install ai-loop-kit@ai-loop-kit`.
-2. **`/ai-loop-kit:setup`**, once per project. `gate.py init` makes the
-   labels. The skill agrees these with the person: the backend, Prepare,
-   Test, Quality, Standards, protected paths, sandbox domains and branch
-   protection. It writes them to a `## The loop` section in `AGENTS.md` on a
-   branch and opens a pull request. Doctor checks it all on a fresh copy of
-   `main` (code).
+2. **`/ai-loop-kit:setup`**, once per project, in any folder.
+   `gate.py bootstrap` makes what is missing: the git repository, the
+   GitHub repository (the person approves its name and visibility once), the
+   first commit, the one push that makes `main` on origin, protection on
+   `main` where the plan allows, and the labels. The person only signs in to
+   `gh`. The skill agrees these with the person: the backend, Prepare, Test,
+   Quality, Standards, protected paths and sandbox domains. They go in a
+   `## The loop` section of `AGENTS.md`: in the first commit for a new
+   project, or on a branch with a pull request when `main` already has
+   work. Doctor checks it all on a fresh copy of `main` (code). A project
+   with no tests yet gets a warning and the scaffold piece as its next step.
 3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
    into pieces of about one hour. Write the spec, show it, capture it. The
    judge writer writes the judge on `piece/<n>`. Run the project's Test on the

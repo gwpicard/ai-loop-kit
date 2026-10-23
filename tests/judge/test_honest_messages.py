@@ -32,7 +32,32 @@ class HonestMessagesTest(unittest.TestCase):
             code = gate.main(["doctor"])
         return code, output.getvalue().splitlines()
 
+    def add_empty_test_file(self):
+        """A project with a test file that collects nothing has a real fault."""
+        (self.p.root / "test_nothing.py").write_text("HELPER = 1\n")
+        from helpers import git
+        git(self.p.root, "add", "test_nothing.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Empty test file")
+
+    def test_project_without_tests_gets_a_warning_and_the_scaffold_step(self):
+        self.p.loop_section(f"{sys.executable} -m pytest")
+        code, lines = self.doctor_output()
+        self.assertEqual(code, 0, lines)
+        self.assertTrue(any(line.startswith("warn") and "no tests yet" in line
+                            for line in lines), lines)
+        self.assertTrue(any("next:" in line and "scaffold piece" in line for line in lines),
+                        lines)
+
+    def test_project_without_tests_warns_for_unittest_on_new_python(self):
+        command = f"{sys.executable} -c 'import sys; print(\"NO TESTS RAN\"); sys.exit(5)'"
+        self.p.loop_section(command)
+        code, lines = self.doctor_output()
+        self.assertEqual(code, 0, lines)
+        self.assertTrue(any(line.startswith("warn") and "no tests yet" in line
+                            for line in lines), lines)
+
     def test_D1_empty_pytest_says_no_tests_were_collected(self):
+        self.add_empty_test_file()
         self.p.loop_section(f"{sys.executable} -m pytest")
         code, lines = self.doctor_output()
         self.assertEqual(code, 2)
@@ -41,6 +66,7 @@ class HonestMessagesTest(unittest.TestCase):
         self.assertTrue(any("next:" in line and "add tests" in line for line in lines), lines)
 
     def test_D1_empty_pytest_is_clear_with_a_distinct_keep(self):
+        self.add_empty_test_file()
         self.p.loop_section(f"{sys.executable} -m pytest")
         import doctor
         original = doctor.loop_settings
@@ -55,6 +81,7 @@ class HonestMessagesTest(unittest.TestCase):
         commands = (f"{sys.executable} -m pytest -qq",
                     f'"{sys.executable}" -m pytest -qqq',
                     f"{Path(sys.executable).with_name('pytest')} -qq")
+        self.add_empty_test_file()
         for command in commands:
             with self.subTest(command=command):
                 self.p.loop_section(command)
