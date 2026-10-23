@@ -15,6 +15,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="The gate: the only code that moves a piece from one state to another.")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init")
+    b = sub.add_parser("bootstrap", help="start the project: git, GitHub repository, first main")
+    b.add_argument("--name", default="")
+    b.add_argument("--visibility", choices=["private", "public"], default="private")
+    b.add_argument("--protect", action="store_true", help="require pull requests on main")
+    b.add_argument("--loop-section", help="a file whose loop section goes into the first commit")
     c = sub.add_parser("capture")
     c.add_argument("--title", required=True)
     c.add_argument("--body-file", required=True)
@@ -48,6 +53,20 @@ def main(argv: list[str] | None = None, api=None) -> int:
     if api is None:
         import gate as api
     args = build_parser().parse_args(argv)
+    try:
+        if args.cmd == "bootstrap":  # before the git root lookup: there may be no git yet
+            from bootstrap import bootstrap
+            section = Path(args.loop_section).read_text() if args.loop_section else ""
+            print("\n".join(bootstrap(Path.cwd(), args.name, args.visibility, section,
+                                       args.protect)))
+            root = repo_root(Path.cwd())
+            api.init(GitHub(root), root)
+            print("ok   labels made, .loop/ ignored locally")
+            return 0
+    except Refused as r:
+        print(f"refused: {r.reason}" + (f"\nnext: {r.next_step}" if r.next_step else ""),
+              file=sys.stderr)
+        return 2
 
     root = repo_root(Path.cwd())
     gh = GitHub(root)

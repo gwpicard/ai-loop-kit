@@ -17,12 +17,12 @@ BUDGETS = {
     "skills/run/references/walk-away.md": 220,
     "skills/run-recovery/SKILL.md": 180,
     "skills/reject-handling/SKILL.md": 180,
-    "skills/setup/SKILL.md": 1191,
+    "skills/setup/SKILL.md": 1303,
     "skills/shape/SKILL.md": 1094,
     "skills/shape/references/questions.md": 244,
     "spec-format.md": 1113,
 }
-TOTAL_BUDGET = 6387
+TOTAL_BUDGET = 6499
 
 
 def check_budgets(texts, budgets=BUDGETS, total_budget=TOTAL_BUDGET):

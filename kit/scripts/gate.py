@@ -17,7 +17,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
-                     REASON_TYPES,
+                     REASON_TYPES, SECRET_PATTERNS,
                      bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
                      keep_limit_seconds, loop_settings,
@@ -264,10 +264,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                     Path(p).name.startswith(".env.") and Path(p).name not in
                     {".env.example", ".env.sample", ".env.template"}]
     diff_text = sh(["git", "diff", "--no-ext-diff", f"{main}...HEAD"], folder).stdout
-    secret_patterns = [r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
-                       r"\bAKIA[0-9A-Z]{16}\b", r"\bghp_[A-Za-z0-9]{20,}\b",
-                       r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", r"\bsk-[A-Za-z0-9_-]{20,}\b"]
-    if secret_files or any(re.search(pattern, diff_text) for pattern in secret_patterns):
+    if secret_files or any(re.search(pattern, diff_text) for pattern in SECRET_PATTERNS):
         return False, "the diff contains a secret-shaped value or .env file"
     markers = conflict_markers(folder)
     if markers:
