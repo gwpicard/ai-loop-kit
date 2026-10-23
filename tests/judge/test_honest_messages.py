@@ -48,6 +48,14 @@ class HonestMessagesTest(unittest.TestCase):
         self.assertTrue(any("next:" in line and "scaffold piece" in line for line in lines),
                         lines)
 
+    def test_project_without_tests_warns_for_unittest_on_new_python(self):
+        command = f"{sys.executable} -c 'import sys; print(\"NO TESTS RAN\"); sys.exit(5)'"
+        self.p.loop_section(command)
+        code, lines = self.doctor_output()
+        self.assertEqual(code, 0, lines)
+        self.assertTrue(any(line.startswith("warn") and "no tests yet" in line
+                            for line in lines), lines)
+
     def test_D1_empty_pytest_says_no_tests_were_collected(self):
         self.add_empty_test_file()
         self.p.loop_section(f"{sys.executable} -m pytest")

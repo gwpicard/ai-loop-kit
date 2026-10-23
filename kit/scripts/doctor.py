@@ -108,7 +108,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         pytest = runner in {"pytest", "py.test"} or (
             runner.rstrip("0123456789.") == "python" and words[1:3] == ["-m", "pytest"])
         pytest = pytest and not any(char in command for char in ";&|<>()\n")
-        empty = code == 5 and (pytest or "no tests ran" in output or "collected 0 items" in output)
+        empty = code == 5 and (pytest or "no tests ran" in output.lower()
+                               or "collected 0 items" in output)
         fix = ("add tests or fix the test collection settings:\n" if empty else
                "increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
                if code == 124 else "fix the command or environment, or add a Prepare command:\n")
@@ -133,7 +134,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         return checks
     try:
         main = main_ref(root)
-        add(main == "origin/main", "main has a commit on origin", "run setup; it runs gate.py bootstrap")
+        add(main == "origin/main", "main has a commit on origin",
+            "run setup; it runs gate.py bootstrap")
     except Refused as r:
         add(False, "main has a commit on origin", r.next_step)
         return checks
