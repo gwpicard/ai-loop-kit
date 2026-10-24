@@ -30,6 +30,7 @@ from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
                    kill_active_processes, lock_path, release_lock)
 from session import run_session
+from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
 
 DEFAULT_IDLE_LIMIT = 10 * 60
