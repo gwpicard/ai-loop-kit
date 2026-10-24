@@ -285,13 +285,13 @@ class ScenarioTest(unittest.TestCase):
         self.assertNotIn(branch, git(self.p.root, "branch", "--list", "review/*"))
         self.assertFalse(folder.exists())
 
-    def test_main_merge_that_changes_the_bar_returns_before_attempt_one(self):
+    def test_a_bar_change_after_ready_returns_before_attempt_one(self):
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
-        (self.p.root / "conftest.py").write_text("value = 1\n")
-        git(self.p.root, "add", "conftest.py")
-        git(self.p.root, "commit", "--quiet", "-m", "Change project test bar")
-        git(self.p.root, "push", "--quiet", "origin", "main")
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "README.md").write_text("changed after ready\n")
+        git(self.p.root, "commit", "--quiet", "-am", "Change a support file after ready")
+        git(self.p.root, "switch", "--quiet", "main")
         result = run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertIn("back to shaping", result)
         self.assertFalse(any(c.startswith("**Run:** attempt 1 of")

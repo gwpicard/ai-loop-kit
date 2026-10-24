@@ -32,6 +32,32 @@ class ReviewerContextTest(RunFixture, unittest.TestCase):
         self.assertNotIn("judge_add.py", diff)
         self.assertIn("judge_add.py", contract.split("## Frozen baseline", 1)[1])
 
+    def test_review_diff_leaves_out_work_merged_from_the_base(self):
+        import gate
+        import review
+        import run
+        prompts = []
+        session = review._review_session
+
+        def observe(folder, prompt, *args, **kwargs):
+            prompts.append(prompt)
+            return session(folder, prompt, *args, **kwargs)
+
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        (self.p.root / "sibling.py").write_text("SIBLING = 1\n")
+        git(self.p.root, "add", "sibling.py")
+        git(self.p.root, "commit", "--quiet", "-m", "A sibling lands")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        with patch("review._review_session", side_effect=observe):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("pull request ready", result)
+        for prompt in prompts:
+            diff = prompt.split("## Diff", 1)[1]
+            self.assertIn("habits.py", diff)
+            self.assertNotIn("sibling.py", diff)
+
     def test_contract_prompt_includes_attempt_gate_evidence(self):
         import review
         prompts = []

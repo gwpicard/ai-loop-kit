@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES, SECRET_PATTERNS,
-                     bar_hash_at, bar_hash_in, base_branch, branch_name, changed_check_settings,
+                     bar_hash_at, base_branch, branch_name, changed_check_settings,
+                     exit_bar,
                      bar_file_list, conflict_markers, last_record, main_ref,
                      keep_limit_seconds, loop_settings,
                      exit_attempt, exit_ready, parse_spec, prepare,
@@ -189,6 +190,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "test_lint_unchecked": test_lint_unchecked,
             "protected_paths": settings.get("protected paths", []),
             "large_files": list(spec.large_files), "commit": head, "main": main_sha,
+            "exit_bar": bar_hash_at(root, head, spec.files, spec.files) if spec.files else "",
             "base": base_branch(root),
             "spec": spec_hash(issue["body"] or "")}
 
@@ -208,9 +210,8 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
     regression.require_record(ready)
     head = rev(root, branch_name(n))
     if head is None or (ready["files"] and
-                        bar_hash_at(root, head, ready["files"],
-                                    ready.get("bar_files", ready["files"]))
-                        != ready["bar"]):
+                        bar_hash_at(root, head, ready["files"], ready["files"])
+                        != exit_bar(root, ready)):
         raise Refused("the judge bar changed after the piece became ready",
                       "move the piece back to shaping and run the ready gate again")
     if ready.get("base", "main") != base_branch(root):
@@ -224,8 +225,9 @@ def claim_stale_research(ready: dict) -> list[str]:
 
 def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     """Run the frozen judge in a build folder. The bar must be unchanged."""
-    if ready["files"] and bar_hash_in(folder, ready.get("bar_files", ready["files"])) != ready["bar"]:
-        return False, frozen_file_reason(folder, ready)
+    frozen = frozen_file_reason(folder, ready)
+    if frozen:
+        return False, frozen
     changed_tests = changed_existing_tests(folder, ready)
     if changed_tests:
         return False, ("the build changes existing test files not named in the Contract or Files: "
@@ -454,6 +456,7 @@ def _cause(name: str, reason: str, reason_type: str) -> str:
         (name == "reject", "person-rejected"), (name == "pull-back", "person-request"),
         ("prepare" in text, "prepare-failed"),
         ("rate limit" in text or "usage limit" in text, "usage-limit"),
+        ("already satisfied" in text, "already-satisfied"),
         ("idle" in text, "idle"), ("stale" in text or "main changed" in text, "stale-after-main"),
         (any(word in text for word in ("importerror", "modulenotfounderror", "no module named",
                                       "module not found", "import error")), "import-error"),

@@ -108,7 +108,7 @@ Each core part exists because a real failure showed it was needed.
 | Core part | The failure it stops |
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails on an import error, proves nothing |
-| The bar (judge plus its helpers) is frozen and checked byte for byte | A builder edits the test instead of the code |
+| The bar is frozen: the Exit files byte for byte, and the build may not edit or delete the helpers beside them | A builder edits the test instead of the code |
 | The project's Test command and any distinct `Keep:` pass on `main` and after every attempt | A field run lost old behaviour when only the judge ran |
 | No old test and no check setting changed | A builder rewrote `.gitignore`; another turned off a lint rule |
 | A fresh session for each attempt, three at most, given only the last failure | A failed idea carries forward in a long session [Ralph] |
@@ -403,8 +403,8 @@ Why each role is separate:
   in the judged commit and a description of what is missing. The run collapses
   findings with the same citation and claim, retaining the first location.
   It logs dropped findings with reasons and counts them in the pull request (code).
-  Review diffs start at the ready commit, so shaping files are baseline, not
-  build changes. The contract reviewer also sees the attempt gate output,
+  Review diffs start at the ready commit with the base merged in, so shaping
+  files and work merged from the base are baseline, not build changes. The contract reviewer also sees the attempt gate output,
   including critic verdicts. Both reviewers see numbered frozen baseline
   lines. The reviewers print one tagged JSON verdict; the run never guesses a verdict
   from free text [Sandcastle].
@@ -513,14 +513,26 @@ the judge or Keep output returns the piece at once as `environment`. The cause
 is `stale-after-main` when `main` moved since ready, and `import-error`
 otherwise. The failure does not use another builder attempt.
 
-A frozen-file refusal names every mismatched file. It distinguishes changes
-inherited from a merged `main` from edits made by the build, including edits
-not yet committed. The gate keeps the original bar frozen; inherited changes
-need a new shaping review.
-The gate attributes a mismatch to `main` only when `main` changed that file
-and the build copy matches the merged version. Deleting a judge created during
-shaping counts as a build edit. The run checks the bar hash to restore changed
-judge files between attempts, independently of the refusal text.
+A frozen-file refusal names every mismatched file. The Exit files are hashed
+alone and must not change at all; a change from `main` to one of them is named
+as inherited and returns the piece. The helpers and `conftest.py` files beside
+them are compared with the expected tree: the ready commit with the base
+merged in (`git merge-tree`, git 2.38 or later). So a sibling's judge or a
+helper change that arrives from the base is free, and an edit or deletion by
+the build is caught, committed or not. A file the build adds is allowed.
+While a merge conflict is open, or when the expected tree has a conflict, the
+helper check waits; the judge and the reviewers decide. Deleting a judge
+created during shaping counts as a build edit. Between attempts, the run puts
+back changed Exit files from the ready commit and edited helpers from the
+expected tree. Older ready records derive the Exit hash from their commit.
+
+When the base has moved since ready, the run runs the Exit tests once before
+the first attempt. If they already pass, merged work has built the piece: it
+returns as `spec-unclear` with cause `already-satisfied`, and the person drops
+or reshapes it. A partial pass is built as normal. The remaining risk: a
+helper can change on the base so that the judge still fails but tests less.
+The re-check does not see that; the review of the base's own changes, and the
+final pull request into `main`, are where a person sees it.
 
 The ready message reports each Exit check. Tests name the contract IDs that
 fail on main. Measure reports the median and missed target. Critics reports
@@ -549,7 +561,7 @@ with the next step to run ready again.
 
 | Check | Why |
 | --- | --- |
-| The bar is unchanged; a changed judge is put back and the attempt fails | The commonest cheat [ImpossibleBench], [Anthropic harnesses] |
+| The Exit files are unchanged and no helper beside them was edited; a changed judge is put back and the attempt fails | The commonest cheat [ImpossibleBench], [Anthropic harnesses] |
 | No existing test, `conftest.py` or fixture changed unless the Contract names it | Same cheat, one step removed. Rename detection is off, so a moved test stays visible |
 | No protected path changed unless the Contract names it | Some code (auth, billing, CI) needs a person [Osmani, brownfield] |
 | No generated path in the change, including runtime `.loop/` files, even if force-added. Submit and the field audit use the same path check | The field audit rejected generated files that the gate had accepted |
@@ -959,16 +971,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,630 Python lines in `kit/`, including the remaining
+The default plugin has 6,700 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,052 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,122 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,052 runtime lines in total. The suite reports the total and the
+7,122 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

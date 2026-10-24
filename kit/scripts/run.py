@@ -30,6 +30,7 @@ from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
                    kill_active_processes, lock_path, release_lock)
 from session import run_session
+from frozen import already_satisfied, expected_tree, frozen_file_reason, neighbour_edits  # noqa: E402
 from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
 
@@ -200,9 +201,13 @@ def commit_leftovers(folder: Path, n: int, k: int) -> None:
 
 
 def restore_bar(folder: Path, ready: dict) -> None:
-    files = ready.get("bar_files", ready["files"])
-    if files:
-        sh(["git", "checkout", ready["commit"], "--", *files], folder)
+    """Put back the Exit files, and support files the build edited or deleted."""
+    if ready["files"]:
+        tree = expected_tree(folder, ready)
+        edits = neighbour_edits(folder, ready, tree)
+        sh(["git", "checkout", ready["commit"], "--", *ready["files"]], folder)
+        if edits:
+            sh(["git", "checkout", str(tree), "--", *edits], folder)
         commit_leftovers(folder, 0, 0)
 
 
@@ -320,14 +325,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                       "them: keep what main added and what this piece adds. Remove every "
                       "conflict marker and commit the merge. Then make the judge pass.")
 
-    frozen_bar = ready.get("bar_files", ready.get("files", []))
-    current_bar = gate.bar_file_list(folder, "HEAD", ready.get("files", []))
-    added_bar = sorted(set(current_bar) - set(frozen_bar))
-    if frozen_bar and (added_bar or gate.bar_hash_in(folder, frozen_bar) != ready["bar"]):
-        changed_bar = sh(["git", "diff", "--no-renames", "--name-only",
-                          f"{ready['commit']}..HEAD", "--", *sorted(set(frozen_bar) | set(added_bar))],
-                         folder).stdout.splitlines()
-        reason = "main changed the frozen judge bar: " + ", ".join(changed_bar or added_bar or frozen_bar)
+    reason = frozen_file_reason(folder, ready)
+    if reason:
         _hand_back(gh, root, n, reason, "bar-wrong", metrics)
         return f"piece {n}: back to shaping, {reason}"
 
@@ -340,6 +339,10 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         _hand_back(gh, root, n, reason, "environment", metrics)
         return f"piece {n}: back to shaping, {reason}"
     record_prepare_outputs(folder, before, before_dirs)
+    satisfied = already_satisfied(folder, ready)
+    if satisfied:
+        _hand_back(gh, root, n, satisfied, "spec-unclear", metrics)
+        return f"piece {n}: back to shaping, {satisfied}"
 
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -530,8 +533,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = "the keep check fails on the judge files themselves; fix the judge"
             _hand_back(gh, root, n, reason, "bar-wrong", metrics)
             return f"piece {n}: back to shaping, {reason}"
-        if ready["files"] and gate.bar_hash_in(folder, ready.get("bar_files", ready["files"])) \
-                != ready["bar"]:
+        if frozen_file_reason(folder, ready):
             restore_bar(folder, ready)
             last_failure = ("The last attempt changed the judge files. They were put back. "
                             "Make the judge pass without changing it.")
