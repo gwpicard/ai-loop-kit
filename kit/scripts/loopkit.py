@@ -151,18 +151,32 @@ def rev(root: Path, ref: str) -> Optional[str]:
     return res.stdout.strip() or None
 
 
-def base_branch(root: Path) -> str:
-    """The branch pieces build on, from AGENTS.md on main. No checkout or build folder
-    can change it; a project with no main yet reads its checkout."""
+def settings_on_main(root: Path) -> dict:
+    """Loop settings from AGENTS.md on main. No checkout or build folder can change
+    them; a project with no main yet reads its checkout."""
     shown = [sh(["git", "show", f"{ref}:AGENTS.md"], root, check=False)
              for ref in ("origin/main", "main") if rev(root, ref)]
     text = next((res.stdout for res in shown if res.returncode == 0), None)
-    name = loop_settings(project_root(root), text).get("base branch") or "main"
+    return loop_settings(project_root(root), text)
+
+
+def base_branch(root: Path) -> str:
+    """The branch pieces build on, from AGENTS.md on main."""
+    name = settings_on_main(root).get("base branch") or "main"
     if name.startswith("-") or sh(["git", "check-ref-format", "--branch", name], root,
                                   check=False).returncode:
         raise Refused(f"Base branch {name!r} is not a valid branch name",
                       "set `Base branch: <name>` in the loop section of AGENTS.md")
     return name
+
+
+def base_merges(root: Path) -> bool:
+    """True when the run merges gated pieces into a base branch that is not main."""
+    value = settings_on_main(root).get("base merges", "person").lower()
+    if value not in ("person", "run"):
+        raise Refused(f"Base merges must be person or run, not {value!r}",
+                      "set `Base merges: person` or `Base merges: run` in AGENTS.md on main")
+    return value == "run" and base_branch(root) != "main"
 
 
 def main_ref(root: Path) -> str:
@@ -304,7 +318,7 @@ def loop_settings(folder: Path, text: Optional[str] = None) -> dict:
             continue
         m = re.match(
             r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
-            r"Keep|Agent|Sandbox domains|Secret paths|Base branch)\s*:\s*(.*)$", line, re.IGNORECASE)
+            r"Keep|Agent|Sandbox domains|Secret paths|Base branch|Base merges)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":
@@ -669,6 +683,19 @@ class GitHub:
     def edit_pr(self, url: str, title: str, body: str, base: str = "") -> None:
         self._gh("pr", "edit", url, "--base", base or base_branch(self.root), "--title", title,
                  "--body-file", "-", stdin=body)
+
+    def merge_pr(self, url: str, base: str, head: str) -> None:
+        """Merge an open piece pull request into the base branch, and into nothing else.
+        GitHub refuses when the branch moved past the gated commit."""
+        pr = json.loads(self._gh("pr", "view", url, "--json", "baseRefName,headRefName,state"))
+        default = self._gh("repo", "view", "--json", "defaultBranchRef",
+                           "--jq", ".defaultBranchRef.name").strip()
+        if (pr["baseRefName"] != base or base in ("main", "master", default)
+                or pr["state"] != "OPEN" or not re.fullmatch(r"piece/\d+", pr["headRefName"])):
+            raise Refused(f"the run merges only an open piece pull request into {base}, "
+                          f"not {pr['headRefName']} into {pr['baseRefName']}",
+                          "the person merges it on GitHub")
+        self._gh("pr", "merge", url, "--merge", "--match-head-commit", head)
 
     def pull_requests(self, base: str, state: str, head: str = "") -> list[dict]:
         return json.loads(self._gh("pr", "list", "--base", base, "--state", state, "--limit", "200",

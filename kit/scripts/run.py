@@ -23,7 +23,7 @@ import agents  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
-                     base_branch, last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
+                     base_branch, base_merges, last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, untracked_paths)
 from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
@@ -33,6 +33,7 @@ from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
                    kill_active_processes, lock_path, release_lock)
 from session import run_session
+import landing  # noqa: E402
 from frozen import already_satisfied, expected_tree, frozen_file_reason, neighbour_edits  # noqa: E402
 from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
@@ -115,6 +116,13 @@ def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
 
 
 def waiting_limit_note(gh: GitHub, root: Path, ready: Optional[dict] = None) -> str:
+    try:
+        if base_merges(root):
+            return ""  # the run merges into the base, so nothing waits for the person
+    except Refused as error:
+        return f"Run paused: {error.reason}. next: {error.next_step}"
+    except (OSError, RuntimeError):
+        pass
     value = (ready or {}).get("waiting_limit", loop_settings(root).get("waiting limit", "3"))
     try:
         limit = max(1, int(value))
@@ -526,8 +534,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                     _hand_back(gh, root, n, reason, "judge-gap", metrics,
                                cause="judge-gap")
                     return f"piece {n}: back to shaping, contract finding reproduced"
-            return open_pull_request(gh, root, folder, n, issue, k, output, review,
-                                    time.monotonic() - metrics["started"])
+            return landing.land(gh, root, folder, n, open_pull_request(
+                gh, root, folder, n, issue, k, output, review,
+                time.monotonic() - metrics["started"]), review)
         if output.startswith(gate.BAR_WRONG):
             # No build can fix this, and more attempts invite loosening a check.
             gh.comment(n, f"**Run:** attempt {k} of {attempts}: the judge passes, but the keep "

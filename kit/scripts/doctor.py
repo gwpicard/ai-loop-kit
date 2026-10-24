@@ -15,6 +15,7 @@ from loopkit import (
     GitHub,
     Refused,
     base_branch,
+    base_merges,
     clean_quality_outputs,
     keep_limit_seconds,
     loop_settings,
@@ -23,6 +24,7 @@ from loopkit import (
     record_quality_outputs,
     run_judge,
     run_keep,
+    settings_on_main,
     sh,
 )
 from run_start import (
@@ -145,6 +147,12 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
     checks.extend((True, f"warning: Quality compares with main, not {base}: {command}", "")
                   for command in loop_settings(root).get("quality", [])
                   if base != "main" and "origin/main" in command)
+    try:
+        if settings_on_main(root).get("base merges", "").lower() == "run":
+            checks.append((True, f"the run merges gated pieces into {base}" if base_merges(root)
+                           else "warning: Base merges: run does nothing while the base is main", ""))
+    except Refused as r:
+        add(False, r.reason, r.next_step)
     protection = gh.main_protection() if hasattr(gh, "main_protection") else "unknown"
     checks.append((True, f"main branch protection: {protection}", ""))
     have = set(gh.labels())

@@ -37,7 +37,7 @@ and fix what it names; you do not judge the ground by eye.
    ```
    ## The loop
    This project uses AI Loop Kit. Pieces are GitHub issues with one `state:` label.
-   Only the gate (gate.py) changes a state label. The person merges every pull request.
+   Only the gate (gate.py) changes a state label. The person merges every pull request into main.
    Prepare command: `<the confirmed command>`
    Test command: `<the confirmed command>`
    Agent: claude

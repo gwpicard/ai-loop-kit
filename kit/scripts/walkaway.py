@@ -15,8 +15,8 @@ from typing import Iterator, Optional
 
 import agents
 import sandbox
-from loopkit import (STATE_PREFIX, loop_settings, main_ref, prepare, run_judge,
-                     secret_env_names, sh)
+from loopkit import (STATE_PREFIX, Refused, base_merges, loop_settings, main_ref, prepare,
+                     run_judge, secret_env_names, sh)
 
 MIN_FREE_BYTES = 10 * 1024 ** 3
 STALE_AFTER_SECONDS = 10 * 60
@@ -91,7 +91,12 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         waiting_limit = max(1, int(limit))
     except ValueError:
         waiting_limit = 3
-    waiting = len(gh.issues_with_label(STATE_PREFIX + "approval"))
+    try:
+        merges = base_merges(root)
+    except Refused as error:
+        merges = False
+        checks.append(_check(False, error.reason, error.next_step))
+    waiting = 0 if merges else len(gh.issues_with_label(STATE_PREFIX + "approval"))
     checks.append(_check(waiting < waiting_limit,
                          f"approval queue is below its limit ({waiting}/{waiting_limit})",
                          "review or merge an approval pull request, then retry"))
@@ -220,7 +225,8 @@ def _piece_timing(root: Path, number: int, since: Optional[datetime] = None) -> 
     return attempts, elapsed
 
 
-BLOCKERS = ("back to shaping", "refused", "stopped by an error", "Run paused", "held until")
+BLOCKERS = ("back to shaping", "refused", "stopped by an error", "Run paused", "held until",
+            "Not merged")
 
 
 def piece_summary(root: Path, number: int, result: str, state: str,
@@ -254,7 +260,10 @@ def summary_text(results: list[str], started: datetime, finished: datetime) -> s
     lines = ["# Walk-away run summary", "", f"Started: {started.isoformat()}",
              f"Finished: {finished.isoformat()}", "", "## Pieces", ""]
     lines.extend(f"- {result}" for result in results)
+    merged = any(" merged into " in result for result in results)
     lines += ["", "## Decisions made by the run", "", "- The gate judged each attempt.",
+              "- The run merged gated pieces into the base branch; the pull request into "
+              "main waits for the person." if merged else
               "- Pull requests were left for the person to merge.", "", "## Blockers", ""]
     blockers = [result for result in results if any(marker in result for marker in BLOCKERS)]
     lines.extend(f"- {blocker}" for blocker in blockers)
