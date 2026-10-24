@@ -849,7 +849,15 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    into `main`, remove the line to end the loop. Quality commands get the
    name in `LOOP_BASE`, and doctor warns about a Quality command that names
    `origin/main`. With no setting the base is `main`. In check messages,
-   "main" means the base branch. At the end of each run, the run opens or
+   "main" means the base branch.
+
+   `Agent model:` and `Agent effort:` choose the Codex model and its
+   reasoning effort, passed as `-m` and `model_reasoning_effort`; the kit
+   still ignores the person's own Codex config. Ready freezes them, and the
+   builder and reviewers use the frozen values. Sessions with no ready
+   record, such as shaping and doctor's probe, read them from `main`. Only
+   `doctor --walk-away` runs a live probe, so only it shows a wrong model
+   name before a run. Claude ignores them. At the end of each run, the run opens or
    updates one pull request from the base into `main`. It lists each piece
    pull request merged into the base, in merge order, and names the check
    settings and protected paths each one changed. It also lists the piece
@@ -1001,9 +1009,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 7,022 Python lines in `kit/`, including the remaining
+The default plugin has 7,058 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,444 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,480 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -1016,7 +1024,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,444 runtime lines in total. The suite reports the total and the
+7,480 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

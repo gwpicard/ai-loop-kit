@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 import sandbox
-from loopkit import CHECK_FILES, command_env, loop_settings
+from loopkit import (CHECK_FILES, agent_options, command_env, loop_settings, project_root,
+                     settings_on_main)
 from risk_checks import path_mentioned
 
 KIT = Path(__file__).resolve().parent.parent
@@ -55,13 +56,30 @@ def _claude_args(folder: Path, prompt: str, role: str,
     return args
 
 
+def codex_options(folder: Path, model: Optional[str] = None,
+                  effort: Optional[str] = None) -> list[str]:
+    """`-m` and the reasoning effort for Codex. None means: read AGENTS.md on main,
+    for sessions with no ready record such as shaping and the doctor probe."""
+    if model is None or effort is None:
+        try:
+            settings = settings_on_main(project_root(folder))
+        except Exception:  # no git or no main to read: Codex keeps its own default
+            settings = {}
+        model = settings.get("agent model", "") if model is None else model
+        effort = settings.get("agent effort", "") if effort is None else effort
+    model, effort = agent_options(model, effort)
+    return ((["-m", model] if model else [])
+            + (["-c", f'model_reasoning_effort="{effort}"'] if effort else []))
+
+
 def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                   disallowed: Optional[list[str]] = None, settings_allowed: bool = False,
                   protected_paths: Optional[list[str]] = None,
                   protected_exceptions: Optional[list[str]] = None,  # noqa: UP045
                   contract: Optional[dict[str, str]] = None,
                   walk_away: bool = False, domains: Optional[list[str]] = None,
-                  cwd: Optional[Path] = None) -> subprocess.Popen:
+                  cwd: Optional[Path] = None, model: Optional[str] = None,
+                  effort: Optional[str] = None) -> subprocess.Popen:
     """Start one non-interactive agent process with the selected boundary."""
     backend = selected(folder, backend)
     if role == "researcher" and walk_away:
@@ -101,7 +119,8 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
                      "sandbox_workspace_write.exclude_tmpdir_env_var=true"]
         if role == "researcher":
             args += ["--disable", "shell_tool", "--config", 'web_search="live"']
-        args += ["--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
+        args += [*codex_options(folder, model, effort),
+                 "--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
     env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
                          protected_exceptions=protected_exceptions),
            "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
