@@ -8,7 +8,7 @@ class PublicDocsTest(unittest.TestCase):
     def test_readme_states_operational_limits(self):
         readme = (ROOT / "README.md").read_text()
         for detail in (
-                "pytest", "unittest", "TAP", "macOS", "Linux", "3.9", "3.12",
+                "pytest", "unittest", "TAP", "macOS", "Linux", "3.13", "uv",
                 "Attended runs have no sandbox", "2.1.285", "caffeinate",
                 "collaborators"):
             with self.subTest(detail=detail):

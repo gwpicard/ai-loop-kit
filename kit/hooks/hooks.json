@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\""
+            "command": "sh -c 'sh \"$@\" || exit 2' kit-guard \"${CLAUDE_PLUGIN_ROOT}/bin/kit-python\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\""
           }
         ]
       }

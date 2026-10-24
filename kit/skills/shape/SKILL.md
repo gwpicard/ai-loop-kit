@@ -14,14 +14,14 @@ Use the KIT path above in every command. Write it out in full. Read
 `<KIT>/spec-format.md` before you write a spec.
 
 ## Now
-!`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
+!`"${CLAUDE_PLUGIN_ROOT}/bin/kit-python" "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
 
 ## Steps
 1. `<base>` is the `Base branch:` in AGENTS.md on `main`, or `main` when there is none. Run `git switch <base>` and `git pull --ff-only`, so you start from the merged work. Understand the idea. Read the code and docs it touches. Look at the open issues for the same idea (`gh issue list --search "<words>"`).
    Done when: you can say the idea back in one sentence, and you have shown the person any issue that looks the same.
 2. Ask one batch of questions. Read `references/questions.md` first. For any
    outside fact, save a JSON object with only `question`. Run
-   `python3 "<KIT>/scripts/session.py" --role researcher --input <file> --output <findings> --folder .`.
+   `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role researcher --input <file> --output <findings> --folder .`.
    It uses the project's backend; `--agent codex` overrides it. Add accepted
    findings to `## Research`. If web tools are unavailable, stop shaping.
    Done when: each answer is in your notes or recorded as an assumption, and
@@ -53,14 +53,14 @@ Use the KIT path above in every command. Write it out in full. Read
    attempt and runs the checks again.
    Done when: the person says yes to the spec.
    Once the person approves the Intent, Out of scope, Approach and Contract, do not change those words without asking for approval again. For a `fix`, first reproduce the bug and make the first Contract item say what fails now and what should happen.
-5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
+5. Capture it: write the body to a file in the system temp folder, then run `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
    Done when: the gate prints the piece number.
 6. Run `git fetch origin <base>`, then `git switch -c piece/<n> origin/<base>`.
    If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`. The judge writer adds its commit on top.
    Save JSON containing approved `Intent`, `Approach`, `Contract` and `Files`
    strings. `Files` lists exact Exit paths, one per line. Exclude shaping chat.
    Save input and output in the system temp folder. Run
-   `python3 "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder .`.
+   `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder .`.
    The fresh session reads `<KIT>/briefs/judge-writer.md` and the project code.
    The launcher requires a clean piece branch, checks paths and verdict, and
    commits judge files. Report any refusal and `next:` line. On success, run
@@ -70,10 +70,10 @@ Use the KIT path above in every command. Write it out in full. Read
 7. Run the project's Test command on the piece branch. An Exit Tests check
    fails on main; a Measure or Critics check uses its own baseline. Read the
    output and fix errors in the check files, such as lint, type or format
-   errors. Then run `python3 "<KIT>/scripts/gate.py" check <n>` and fix what it
+   errors. Then run `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" check <n>` and fix what it
    names on the piece branch.
    Done when: it prints `ok`.
-8. If the approved spec needs an edit while shaping, write the full revised body to a temporary file and use `python3 "<KIT>/scripts/gate.py" spec <n> --body-file <file>`. Get the person's approval before replacing an approved contract. Move it with `python3 "<KIT>/scripts/gate.py" move <n> ready`.
+8. If the approved spec needs an edit while shaping, write the full revised body to a temporary file and use `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" spec <n> --body-file <file>`. Get the person's approval before replacing an approved contract. Move it with `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" move <n> ready`.
    Done when: the piece is in ready, or you have reported the refusal and its `next:` line.
 
 ## Rules

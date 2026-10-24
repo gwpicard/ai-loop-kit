@@ -19,6 +19,12 @@ forms. The gate is the second layer for state; settings deny rules are the
 second layer for the rest.
 """
 from __future__ import annotations
+if __name__ == "__main__":
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.append(str(_Path(__file__).resolve().parents[1] / "scripts"))
+    import kit_python
+    kit_python.require()
 
 import getopt
 import json
@@ -177,8 +183,8 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
                     refused = check_command(rest[index + 1], builder)
                     if refused:
                         return refused
-        if prog in ("python", "python3", "node"):
-            flag = "-c" if prog.startswith("python") else "-e"
+        if re.fullmatch(r"python[0-9.]*|kit-python|node", prog):
+            flag = "-e" if prog == "node" else "-c"
             if flag in rest:
                 code = rest[rest.index(flag) + 1] if rest.index(flag) + 1 < len(rest) else ""
                 if re.search(r"\bshutil\s*\.\s*rmtree\b|\brm\s+-[a-zA-Z]*[rR]", code):
@@ -270,7 +276,8 @@ def main() -> int:
     try:
         call = json.load(sys.stdin)
     except ValueError:
-        return 0
+        print("Refused by the loop kit guard: the tool call could not be read.", file=sys.stderr)
+        return 2
     tool = call.get("tool_name", "")
     data = call.get("tool_input") or {}
     builder = os.environ.get("LOOP_BUILDER") == "1"
@@ -286,4 +293,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as error:  # a broken guard refuses: it never lets a call through
+        print(f"Refused by the loop kit guard: the guard failed ({error}).", file=sys.stderr)
+        sys.exit(2)
