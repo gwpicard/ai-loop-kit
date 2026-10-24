@@ -1,0 +1,34 @@
+#!/bin/sh
+# Runs a kit script on the kit's one Python. The version lives here only.
+# uv finds its own managed copy of that Python (or installs it), and the
+# script runs on it directly, so a project's .venv, settings or PYTHONPATH
+# never choose or change it. Exit 2 refuses.
+KIT_PYTHON=3.13
+
+uv=$(command -v uv 2>/dev/null)
+for candidate in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" /opt/homebrew/bin/uv /usr/local/bin/uv; do
+    [ -n "$uv" ] && break
+    [ -x "$candidate" ] && uv=$candidate
+done
+if [ -z "$uv" ]; then
+    echo "refused: uv is not installed, so the kit cannot start Python $KIT_PYTHON" >&2
+    echo "next: the person installs uv: brew install uv," \
+        "or curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    exit 2
+fi
+find_python() {
+    # From /, without the cache: a walk-away sandbox cannot write uv's cache.
+    found=$(cd / && env -u VIRTUAL_ENV -u CONDA_PREFIX "$uv" --no-cache python find \
+        --no-config --managed-python "$KIT_PYTHON" 2>/dev/null) || return 1
+    # Never a virtual environment, even one that uv found on its own.
+    [ -e "$(dirname "$found")/../pyvenv.cfg" ] && return 1
+    python=$found
+}
+find_python || { "$uv" python install --quiet "$KIT_PYTHON" >&2 && find_python; } || {
+    echo "refused: uv could not find or install Python $KIT_PYTHON" >&2
+    echo "next: run: uv python install $KIT_PYTHON" >&2
+    exit 2
+}
+# -E: the person's PYTHONPATH and PYTHONHOME do not reach the kit. Child
+# processes, such as the project's own tests, still inherit them.
+exec "$python" -E "$@"

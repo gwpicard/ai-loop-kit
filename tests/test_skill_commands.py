@@ -40,7 +40,7 @@ class SkillCommandTest(unittest.TestCase):
         self.assertEqual(setup.count("**Quality commands**"), 1)
         self.assertEqual(standards.count("small fix to non-test project code"), 1)
         self.assertIn("When a CRAP command is configured", builder)
-        self.assertIn('target-version = "py39"', ruff)
+        self.assertIn('target-version = "py313"', ruff)
         self.assertNotIn("tests/lint.sh", ruff)
         self.assertNotIn("BORROWED.md", ruff)
 

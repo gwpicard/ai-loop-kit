@@ -1,5 +1,8 @@
 """Settings and smoke probes for Claude Code's built-in Bash sandbox."""
 from __future__ import annotations
+if __name__ == "__main__":
+    import kit_python
+    kit_python.require()
 
 import json
 import os
@@ -73,9 +76,13 @@ def session_settings(folder: Path, domains: Optional[list[str]] = None,
     """Combine the existing guard with a walk-away file-tool boundary."""
     guard = Path(__file__).resolve().parents[1] / "hooks" / "guard.py"
     boundary = Path(__file__).resolve()
-    commands = [f'python3 "{guard}"']
+    launcher = Path(__file__).resolve().parents[1] / "bin" / "kit-python"
+    # Through sh, so a lost executable bit does not matter, and any failure
+    # exits 2: Claude Code lets a call through on every other exit code.
+    hook = f'sh -c \'sh "$@" || exit 2\' kit-guard "{launcher}"'
+    commands = [f'{hook} "{guard}"']
     if walk_away:
-        commands.append(f'python3 "{boundary}" guard')
+        commands.append(f'{hook} "{boundary}" guard')
     hooks = [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [
         {"type": "command", "command": command} for command in commands]}]
     settings = settings_for(folder, domains) if walk_away else {}

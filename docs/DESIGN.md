@@ -254,7 +254,7 @@ find out which side is which. Critics answer "is ours better than the
 reference?", not "does ours match it".
 
 The Claude builder brief tells builders to stage with
-`python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`. Codex builders
+`"$AI_LOOP_KIT_ROOT/bin/kit-python" "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`. Codex builders
 leave changes unstaged. After the sandboxed session exits, the run uses the
 same helper and commits the project changes. The helper excludes the root
 `.loop/` directory, including when it is ignored or contains the build
@@ -962,8 +962,14 @@ Each step waits for a real run that needs it.
 The default plugin has 6,630 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
 critics have 422 runtime lines in `extras/`. Together they have 7,052 runtime
-Python lines. The kit uses the Python standard library only and supports
-Python 3.9 or later.
+Python lines. The kit uses the Python standard library only. It runs on one Python,
+3.13, started through `kit/bin/kit-python`: uv finds or installs that
+version, and the script runs on it directly. The version lives in the
+launcher only. A project's own Python (its Test, Prepare and Quality
+commands) stays the project's choice. Control scripts refuse an older
+Python and name the launcher; if the guard cannot start or crashes, it
+refuses the call. Docker was rejected for the kit: the guard runs on every
+tool call, and the kit drives the person's own tools and sign-ins.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but

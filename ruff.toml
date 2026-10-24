@@ -1,5 +1,5 @@
-# The v1.2 lint rules. Python 3.9, standard library only.
-target-version = "py39"
+# The v1.2 lint rules. Python 3.13 (kit/bin/kit-python), standard library only.
+target-version = "py313"
 line-length = 100
 
 [lint]

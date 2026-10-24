@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """The gate alone moves pieces, runs their checks and records the evidence."""
 from __future__ import annotations
+if __name__ == "__main__":
+    import kit_python
+    kit_python.require()
 
 import fnmatch
 import hashlib
