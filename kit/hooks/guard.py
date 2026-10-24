@@ -6,6 +6,7 @@ message on stderr tells the agent why. Exit 0 lets it through.
 
 Everywhere:
   - no push to main, and no force push;
+  - no remote branch delete unless its live tip is in main (never main or a piece);
   - no recursive delete;
   - no state label written by hand (only the gate moves a piece);
   - no merge by an agent (the person merges).
@@ -85,6 +86,31 @@ def current_branch(path: str = "") -> str:
     command.extend(["branch", "--show-current"])
     result = subprocess.run(command, capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+KEPT_BRANCH = re.compile(r"^(main|master|stable|piece/.+)$")
+
+
+def delete_refusal(targets: list[str], path: str = "") -> Optional[str]:
+    """A remote branch may go only when its live tip is already in the remote's main."""
+    git = ["git", "-C", path] if path else ["git"]
+    names = [t.lstrip(":").removeprefix("refs/heads/") for t in targets[1:]]
+    if not names:
+        return "name the remote and the merged branch to delete."
+    for name in names:
+        if not name or KEPT_BRANCH.match(name):
+            return f"deleting {name or 'that'} on the remote is not allowed. Ask the person."
+        live = subprocess.run([*git, "ls-remote", "--heads", targets[0], f"refs/heads/{name}"],
+                              capture_output=True, text=True, check=False).stdout.split()
+        if not live:
+            return f"the remote has no branch {name}. Only merged branches may be deleted."
+        merged = subprocess.run([*git, "merge-base", "--is-ancestor", live[0],
+                                 f"refs/remotes/{targets[0]}/main"],
+                                capture_output=True, check=False)
+        if merged.returncode:
+            return (f"{name} is not merged into {targets[0]}/main. "
+                    "Fetch and check, or ask the person.")
+    return None
 
 
 def redirect_to_protected(command: str) -> bool:
@@ -197,10 +223,13 @@ def check_command(cmd: str, builder: bool) -> Optional[str]:
             if sub == "push":
                 if builder:
                     return "builders never push. The run pushes after the gate checks your work."
-                if any(a in ("-f", "--force", "--force-with-lease", "--mirror", "--delete", "-d")
+                if any(a in ("-f", "--force", "--force-with-lease", "--mirror")
                        or a.startswith("--force") for a in flags):
-                    return "force push and remote delete are not allowed."
+                    return "force push is not allowed."
                 targets = [a for a in rest[1:] if not a.startswith("-")]
+                if any(a in ("--delete", "-d") for a in flags) or any(
+                        t.startswith(":") for t in targets[1:]):
+                    return delete_refusal(targets, git_cwd)
                 branch = current_branch(git_cwd)
                 if not targets and branch in ("main", "master"):
                     return "an unqualified push from main is not allowed. Push a named piece branch."

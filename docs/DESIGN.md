@@ -763,6 +763,7 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 | Rule | Held by |
 | --- | --- |
 | No push to `main`, no force push, no agent merge, no recursive delete, no `eval`, no `xargs rm -r`, no `git clean` | hook (`guard.py`), in every session |
+| A remote branch is deleted only when its live tip is in `main`; never `main`, `stable` or a piece branch | hook (`guard.py`), in every session |
 | Builders and reviewers never push, never call `gh`, never run Perl or Ruby code, never use unreadable shell forms, never write into `.claude/`, `.githooks/` or protected paths | hook, in build sessions |
 | Builders never edit the judge files or check settings | Edit denies, then the gate at submit |
 | The gate is the only mover of state | hook refuses `state:` label edits; `audit.py` finds any it missed |
@@ -951,16 +952,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,511 Python lines in `kit/`, including the remaining
+The default plugin has 6,540 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 6,933 runtime
+critics have 422 runtime lines in `extras/`. Together they have 6,962 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,933 runtime lines in total. The suite reports the total and the
+6,962 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
