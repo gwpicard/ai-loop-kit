@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import doctor
 import gate
 import loopkit
 import run
@@ -62,6 +63,40 @@ class BaseBranchTest(GateFixture, unittest.TestCase):
                 with self.assertRaises(Refused):
                     loopkit.base_branch(self.p.root)
 
+    def test_git_branch_names_are_accepted(self):
+        for name in ("feature/x", "release-1.2", "a@b"):
+            with self.subTest(name=name):
+                (self.p.root / "AGENTS.md").write_text(f"## The loop\nBase branch: {name}\n")
+                self.assertEqual(loopkit.base_branch(self.p.root), name)
+
+    def test_the_setting_comes_from_main_not_the_checkout(self):
+        self.use_base()
+        git(self.p.root, "switch", "--quiet", "trip")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text().replace("Base branch: trip\n", ""))
+        git(self.p.root, "commit", "--quiet", "-am", "No base line on trip")
+        self.assertEqual(loopkit.base_branch(self.p.root), "trip")
+        agents.write_text(agents.read_text() + "Base branch: other\n")
+        self.assertEqual(loopkit.base_branch(self.p.root), "trip")
+
+    def test_a_missing_base_says_how_to_make_it(self):
+        self.p.loop_section("printf baseline")
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Base branch: nothere\n")
+        git(self.p.root, "commit", "--quiet", "-am", "Base branch")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        with self.assertRaises(Refused) as refusal:
+            loopkit.main_ref(self.p.root)
+        self.assertIn("create nothere from main", refusal.exception.next_step)
+
+    def test_doctor_warns_when_quality_names_origin_main(self):
+        self.use_base()
+        agents = self.p.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "Quality: `crap --base origin/main`\n")
+        checks = doctor.doctor(self.p.gh, self.p.root)
+        self.assertTrue(any("Quality compares with main, not trip" in what
+                            for _, what, _ in checks))
+
     def test_a_build_folder_cannot_change_the_base(self):
         self.use_base()
         folder = self.p.root.parent / "build"
@@ -89,6 +124,8 @@ class BaseBranchTest(GateFixture, unittest.TestCase):
         self.ready(n)
         agents = self.p.root / "AGENTS.md"
         agents.write_text(agents.read_text().replace("Base branch: trip", "Base branch: main"))
+        git(self.p.root, "commit", "--quiet", "-am", "Back to main")
+        git(self.p.root, "push", "--quiet", "origin", "main")
         with self.assertRaises(Refused) as refusal:
             run._build_piece(self.p.gh, self.p.root, n, attempts=1)
         self.assertIn("base branch changed", refusal.exception.reason)
@@ -118,6 +155,10 @@ class BaseBranchTest(GateFixture, unittest.TestCase):
         github = loopkit.GitHub(self.p.root)
         with patch.object(github, "_gh", return_value="url") as call:
             github.create_pr("piece/1", "Title", "Body")
+        args = call.call_args.args
+        self.assertEqual(args[args.index("--base") + 1], "trip")
+        with patch.object(github, "_gh", return_value="") as call:
+            github.edit_pr("url", "Title", "Body")
         args = call.call_args.args
         self.assertEqual(args[args.index("--base") + 1], "trip")
 

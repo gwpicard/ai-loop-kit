@@ -17,7 +17,7 @@ Use the KIT path above in every command. Write it out in full. Read
 !`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
 
 ## Steps
-1. `<base>` is the `Base branch:` in AGENTS.md, or `main` when there is none. Run `git switch <base>` and `git pull --ff-only`, so you start from the merged work. Understand the idea. Read the code and docs it touches. Look at the open issues for the same idea (`gh issue list --search "<words>"`).
+1. `<base>` is the `Base branch:` in AGENTS.md on `main`, or `main` when there is none. Run `git switch <base>` and `git pull --ff-only`, so you start from the merged work. Understand the idea. Read the code and docs it touches. Look at the open issues for the same idea (`gh issue list --search "<words>"`).
    Done when: you can say the idea back in one sentence, and you have shown the person any issue that looks the same.
 2. Ask one batch of questions. Read `references/questions.md` first. For any
    outside fact, save a JSON object with only `question`. Run

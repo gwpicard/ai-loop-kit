@@ -151,9 +151,14 @@ def rev(root: Path, ref: str) -> Optional[str]:
 
 
 def base_branch(root: Path) -> str:
-    """The branch pieces build on. Read from the project checkout, never a build folder."""
-    name = loop_settings(project_root(root)).get("base branch") or "main"
-    if not re.fullmatch(r"[A-Za-z0-9._][A-Za-z0-9._/-]*", name) or ".." in name:
+    """The branch pieces build on, from AGENTS.md on main. No checkout or build folder
+    can change it; a project with no main yet reads its checkout."""
+    shown = [sh(["git", "show", f"{ref}:AGENTS.md"], root, check=False)
+             for ref in ("origin/main", "main") if rev(root, ref)]
+    text = next((res.stdout for res in shown if res.returncode == 0), None)
+    name = loop_settings(project_root(root), text).get("base branch") or "main"
+    if name.startswith("-") or sh(["git", "check-ref-format", "--branch", name], root,
+                                  check=False).returncode:
         raise Refused(f"Base branch {name!r} is not a valid branch name",
                       "set `Base branch: <name>` in the loop section of AGENTS.md")
     return name
@@ -175,7 +180,8 @@ def main_ref(root: Path) -> str:
                 cache[key] = result
             return result
     raise Refused(f"there is no {base} branch with a commit",
-                  "run setup; it runs gate.py bootstrap")
+                  "run setup; it runs gate.py bootstrap" if base == "main"
+                  else f"create {base} from main and push it to origin")
 
 
 def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
@@ -270,10 +276,11 @@ def secret_env_names(env=None):
                   and not re.fullmatch(r"GIT_CONFIG_KEY_\d+", name))
 
 
-def loop_settings(folder: Path) -> dict:
+def loop_settings(folder: Path, text: Optional[str] = None) -> dict:
     """Read test, prepare, quality and boundary settings from AGENTS.md."""
     agents = folder / "AGENTS.md"
-    text = agents.read_text(errors="replace") if agents.is_file() else ""
+    if text is None:
+        text = agents.read_text(errors="replace") if agents.is_file() else ""
     section = _section(text, "The loop") or []
     out = {}
     for line in section:
@@ -646,7 +653,8 @@ class GitHub:
                         "--title", title, "--body-file", "-", stdin=body).strip()
 
     def edit_pr(self, url: str, title: str, body: str) -> None:
-        self._gh("pr", "edit", url, "--title", title, "--body-file", "-", stdin=body)
+        self._gh("pr", "edit", url, "--base", base_branch(self.root), "--title", title,
+                 "--body-file", "-", stdin=body)
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         data = json.loads(self._gh("pr", "list", "--head", branch, "--state", "all",

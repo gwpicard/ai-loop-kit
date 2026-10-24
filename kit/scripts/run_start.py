@@ -75,7 +75,7 @@ def remove_worktree(root: Path, folder: Path, merged_into: str = "") -> bool:
             if result.returncode == 0:
                 return True
             reason = result.stderr.strip() or result.stdout.strip() or "git worktree remove failed"
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, Refused) as error:
         reason = str(error)
     print(f"kept worktree {folder}: {reason}", flush=True)
     return False

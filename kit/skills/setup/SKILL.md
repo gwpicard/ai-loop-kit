@@ -46,6 +46,7 @@ and fix what it names; you do not judge the ground by eye.
    Protected paths: `<paths builders and reviewers must not edit>`
    Idle limit: 10
    Waiting limit: 3
+   Base branch: main
    Keep limit: 15
    Sandbox domains: registry.npmjs.org, pypi.org, files.pythonhosted.org
    ```

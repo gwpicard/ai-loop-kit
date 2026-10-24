@@ -14,6 +14,7 @@ from loopkit import (
     STATES,
     GitHub,
     Refused,
+    base_branch,
     clean_quality_outputs,
     keep_limit_seconds,
     loop_settings,
@@ -137,8 +138,12 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         add(main.startswith("origin/"), f"{main.removeprefix('origin/')} has a commit on origin",
             "run setup; it runs gate.py bootstrap")
     except Refused as r:
-        add(False, "main has a commit on origin", r.next_step)
+        add(False, "the base branch has a commit on origin", r.next_step)
         return checks
+    base = base_branch(root)
+    checks.extend((True, f"warning: Quality compares with main, not {base}: {command}", "")
+                  for command in loop_settings(root).get("quality", [])
+                  if base != "main" and "origin/main" in command)
     protection = gh.main_protection() if hasattr(gh, "main_protection") else "unknown"
     checks.append((True, f"main branch protection: {protection}", ""))
     have = set(gh.labels())

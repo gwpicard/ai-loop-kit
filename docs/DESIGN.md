@@ -816,10 +816,13 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    A project may add `Base branch: <name>` to the loop section. Then every
    piece builds on that branch, not on `main`: ready judges against it, the
    run merges it into each piece, and each pull request targets it. The gate
-   reads the setting from the person's checkout, never from a build folder,
-   and the ready record freezes it. Quality commands get the name in
-   `LOOP_BASE`. With no setting the base is `main`. In check messages, "main"
-   means the base branch.
+   reads the setting from `AGENTS.md` on `main`, so a branch switch or a
+   build cannot change it, and the ready record freezes it. Make the branch
+   from `main` after the setting is merged. When the loop branch is merged
+   into `main`, remove the line to end the loop. Quality commands get the
+   name in `LOOP_BASE`, and doctor warns about a Quality command that names
+   `origin/main`. With no setting the base is `main`. In check messages,
+   "main" means the base branch.
 3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
    into pieces of about one hour. Write the spec, show it, capture it. The
    judge writer writes the judge on `piece/<n>`. Run the project's Test on the
@@ -948,16 +951,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,495 Python lines in `kit/`, including the remaining
+The default plugin has 6,508 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 6,917 runtime
+critics have 422 runtime lines in `extras/`. Together they have 6,930 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,917 runtime lines in total. The suite reports the total and the
+6,930 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
