@@ -43,8 +43,9 @@ class GeneratedTest(unittest.TestCase):
                     "prompt = (sys.argv[sys.argv.index('-p') + 1]\n"
                     "          if '-p' in sys.argv else sys.argv[-1])\n"
                     "if 'The run stages and commits' in prompt: sys.exit(0)\n"
-                    "command = ([sys.executable, os.environ['AI_LOOP_KIT_ROOT'] +\n"
-                    " '/scripts/builder_prompt.py', '--stage'] if 'builder_prompt.py\" --stage'\n"
+                    "kit = os.environ['AI_LOOP_KIT_ROOT']\n"
+                    "command = ([kit + '/bin/kit-python', kit + '/scripts/builder_prompt.py',\n"
+                    " '--stage'] if 'builder_prompt.py\" --stage'\n"
                     " in prompt else ['git', 'add', '--force', '-A'])\n"
                     "subprocess.run(command, check=True)\n")
                 fake.chmod(0o755)
@@ -67,7 +68,7 @@ class GeneratedTest(unittest.TestCase):
 
     def test_builder_brief_names_safe_staging_and_runtime_rule(self):
         text = builder_prompt.brief(4, "spec", {"files": []}, "")
-        self.assertIn('python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage', text)
+        self.assertIn('"$AI_LOOP_KIT_ROOT/bin/kit-python" "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage', text)
         self.assertIn("Never stage or force-add `.loop/`", text)
 
     def stage_command(self, folder):

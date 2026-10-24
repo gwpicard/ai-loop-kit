@@ -5,6 +5,9 @@ limits attempts. Each attempt uses a fresh `claude -p` session in its worktree.
 The gate judges each attempt; three failures return the piece to shaping.
 """
 from __future__ import annotations
+if __name__ == "__main__":
+    import kit_python
+    kit_python.require()
 
 import json
 import re

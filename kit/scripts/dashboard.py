@@ -1,5 +1,8 @@
 """Render the current run as a local page with all its data included."""
 from __future__ import annotations
+if __name__ == "__main__":
+    import kit_python
+    kit_python.require()
 
 import json
 import sys

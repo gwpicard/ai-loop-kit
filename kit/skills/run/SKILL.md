@@ -8,13 +8,13 @@ description: Build ready pieces with the selected Claude Code or Codex backend a
 !`echo "KIT=${CLAUDE_PLUGIN_ROOT}"`
 
 ## Now
-!`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
+!`"${CLAUDE_PLUGIN_ROOT}/bin/kit-python" "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
 
 ## Steps
 1. Show ready pieces and explain that each gets up to three attempts. If none are ready, suggest `/ai-loop-kit:shape` and stop.
-2. Start `python3 "<KIT>/scripts/run.py"` in the background, writing KIT in full. Optional piece numbers select pieces. `Agent:` in AGENTS.md selects the backend; `--agent codex` or `--agent claude` overrides it.
+2. Start `"<KIT>/bin/kit-python" "<KIT>/scripts/run.py"` in the background, writing KIT in full. Optional piece numbers select pieces. `Agent:` in AGENTS.md selects the backend; `--agent codex` or `--agent claude` overrides it.
 3. Print the full path to `.loop/dashboard.html` so the person can open the local run page. Report attended output and `.loop/logs/` failures until "Run finished." Report every pull request link and hand-back reason. The person reviews and merges.
-4. After merges, run `python3 "<KIT>/scripts/gate.py" sync`.
+4. After merges, run `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" sync`.
 
 If interrupted, orphaned, locked, dirty, stopped, conflicting or returned for environment trouble, load [run-recovery](../run-recovery/SKILL.md).
 If the person rejects a pull request, load [reject-handling](../reject-handling/SKILL.md).

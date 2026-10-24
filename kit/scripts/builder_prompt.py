@@ -1,5 +1,8 @@
 """Build the instructions, context and safe staging command for a builder."""
 from __future__ import annotations
+if __name__ == "__main__":
+    import kit_python
+    kit_python.require()
 
 import argparse
 import ast
@@ -100,7 +103,7 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
                            "Do not run the staging helper, git add or git commit."
                            if backend == "codex" else
                            'Stage your work with\n   '
-                           '`python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`.\n   '
+                           '`"$AI_LOOP_KIT_ROOT/bin/kit-python" "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`.\n   '
                            'This excludes `.loop/`. Check `git diff --cached`, then commit\n   '
                            'on this branch with a plain message. Do not push.'),
                        "COMMAND": command,

@@ -55,10 +55,11 @@ in the default plugin.
 
 ### What you need
 
-- `git` and `gh` signed in to GitHub
-- Python 3.9 or later
-- A GitHub repository with one commit on `main`, and permission to push to it
+- `git`, and `gh` signed in to GitHub
+- `uv` (`brew install uv`, or the installer at https://docs.astral.sh/uv/). The kit runs on its own Python 3.13, and uv installs it if it is missing.
 - A Claude Code sign-in
+
+Setup makes the rest: the git repository, a private GitHub repository if there is none, and the first commit on `main`.
 
 ## Your first 15 minutes
 
@@ -110,7 +111,7 @@ You approve the task, including its intent, what is out of scope and its contrac
 
 ## Limits
 
-The fail-on-main check recognises failing assertions in pytest and unittest output, and TAP-style `not ok` lines. CI tests on Linux and macOS with Python 3.9 and 3.12. Attended runs have no sandbox, so stay nearby while they run. The guard blocks some commands but does not isolate the builder.
+The fail-on-main check recognises failing assertions in pytest and unittest output, and TAP-style `not ok` lines. CI tests on Linux and macOS with Python 3.13, the kit's one Python. Attended runs have no sandbox, so stay nearby while they run. The guard blocks some commands but does not isolate the builder.
 
 Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a Mac awake with `caffeinate`. Walk-away is a preview. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
 

@@ -122,6 +122,7 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         add(code == 0, f"{name} on a fresh copy of main ({command})"
             + (f" ({duration})" if duration else ""), fix + output.strip()[-800:])
 
+    checks.append((True, f"the kit runs on Python {sys.version.split()[0]}", ""))
     origin = sh(["git", "remote", "get-url", "origin"], root, check=False).stdout.strip()
     if not add(bool(origin), "the project has an origin",
                "run setup; it runs gate.py bootstrap"):

@@ -44,7 +44,7 @@ class GitHubAuthTest(unittest.TestCase):
         self.assertIn("builder", checks[-1][1])
         self.assertIn("github.com", checks[-1][1])
         self.assertIn("gh auth login", checks[-1][2])
-        self.assertEqual(len(checks), 2)
+        self.assertEqual(len(checks), 3, "the kit Python, origin, then the failed sign-in")
 
     def test_doctor_reports_no_signed_in_account(self):
         checks = self.failed_doctor("You are not logged into any GitHub hosts.\n")

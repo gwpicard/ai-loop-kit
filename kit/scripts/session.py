@@ -1,5 +1,8 @@
 """Shared agent session execution and activity clocks."""
 from __future__ import annotations
+if __name__ == "__main__":
+    import kit_python
+    kit_python.require()
 
 import json
 import os

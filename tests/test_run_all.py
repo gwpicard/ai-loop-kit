@@ -13,7 +13,7 @@ class RunAllTests(unittest.TestCase):
             bin_dir = Path(temporary) / "bin"
             bin_dir.mkdir()
             capture = Path(temporary) / "arguments"
-            python = bin_dir / "python3"
+            python = bin_dir / "kit-python-stub"
             python.write_text(
                 '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUN_ALL_CAPTURE"\n'
             )
@@ -21,6 +21,7 @@ class RunAllTests(unittest.TestCase):
             environment = os.environ.copy()
             environment["PATH"] = f"{bin_dir}{os.pathsep}{environment['PATH']}"
             environment["RUN_ALL_CAPTURE"] = str(capture)
+            environment["RUN_ALL_PYTHON"] = str(python)
 
             result = subprocess.run(
                 ["sh", str(ROOT / "tests" / "run-all.sh")],
@@ -35,8 +36,7 @@ class RunAllTests(unittest.TestCase):
             arguments = capture.read_text().strip().split()
             self.assertEqual(
                 arguments,
-                ["-c", "import", "pytest",
-                 "-m", "unittest", "discover", "-q", "-p", "test_*.py",
+                ["-m", "unittest", "discover", "-q", "-p", "test_*.py",
                  "-m", "unittest", "discover", "-s", "extras/tests", "-q", "-p", "test_*.py"],
                 result.stdout + result.stderr,
             )
