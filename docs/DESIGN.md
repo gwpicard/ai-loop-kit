@@ -349,8 +349,19 @@ Keep: `npm test`
 | Shared files | Ready warns when another ready piece names the same file |
 | Needs services | A piece that needs services is refused for walk-away |
 | Open choices | Must be empty at ready: the person answers before the build |
+| Depends on (optional) | Pieces that must be done first. Ready refuses the piece's own number and a missing or dropped piece |
 
-The gate freezes the five risk lines at ready. Open choices must be empty.
+The gate freezes the risk lines at ready. With `Depends on:`, the run builds
+a piece only when every piece named is `done`, reading each state from its
+own issue because label search lags. Otherwise it holds the piece and
+reports why, with a next step: in the run output, the walk-away summary and
+the final pull request, which groups pieces into waves. A hold is worked out
+again on every pick and never stored, so a hand-back holds its dependents and
+the pieces that depend on them, and every other piece goes on. A ready record
+that cannot be read holds the piece too. A hold alone does not fail the run.
+A piece in approval is not done, so until the run merges into the base, its
+dependents wait for the person's merge and the next run. The judge of a
+dependent must still fail by assertion while the dependency is missing. Open choices must be empty.
 It warns when a ready piece lists the same shared file. A piece that needs
 services cannot run unattended. At submit, the gate refuses any new
 dependency in `package.json` or `pyproject.toml` that the issue does not name.
@@ -971,9 +982,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,758 Python lines in `kit/`, including the remaining
+The default plugin has 6,887 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,180 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,309 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -986,7 +997,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,180 runtime lines in total. The suite reports the total and the
+7,309 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
@@ -1011,6 +1022,8 @@ needs a measured reduction first.
 | typed reason | The one-word type on every move back, such as `bar-wrong` or `environment` |
 | protected path | A path that needs a person; a piece may change it only if its Contract names it |
 | waiting limit | How many pull requests may wait before the run stops starting pieces |
+| held | A ready piece the run skips because a piece it depends on is not done |
+| wave | Pieces whose dependencies are all in earlier waves; the final pull request groups by wave |
 | base branch | The branch pieces build on and pull requests target: `main`, or the `Base branch:` setting |
 | preview | A feature with automated tests only, not yet run on a real project |
 

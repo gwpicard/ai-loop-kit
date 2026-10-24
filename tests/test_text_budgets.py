@@ -13,14 +13,14 @@ BUDGETS = {
     "briefs/contract-reviewer.md": 194,
     "extras/briefs/critic.md": 90,
     "briefs/standards-reviewer.md": 372,
-    "skills/run/SKILL.md": 300,
+    "skills/run/SKILL.md": 303,
     "skills/run/references/walk-away.md": 220,
     "skills/run-recovery/SKILL.md": 180,
     "skills/reject-handling/SKILL.md": 180,
     "skills/setup/SKILL.md": 1303,
-    "skills/shape/SKILL.md": 1094,
+    "skills/shape/SKILL.md": 1098,
     "skills/shape/references/questions.md": 244,
-    "spec-format.md": 1113,
+    "spec-format.md": 1163,
 }
 TOTAL_BUDGET = 6499
 

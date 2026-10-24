@@ -37,6 +37,8 @@ Use the KIT path above in every command. Write it out in full. Read
    Include all five lines under `## Risks`: Protected paths, New
    dependency, Shared files, Needs services and Open choices. Write `none`
    when a line has no entries, and settle every open choice before ready.
+   Add `Depends on: <piece numbers>` only when this piece needs another's
+   code first; stub that code so the judge fails by assertion.
    Mark a Contract item that already holds today as `(stays)`; never bend a
    test so it fails on main. Put rules the gate must enforce in Contract or
    Exit. Use `Playbook: fix` for fix guidance. Add

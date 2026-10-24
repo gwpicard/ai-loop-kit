@@ -220,6 +220,9 @@ def _piece_timing(root: Path, number: int, since: Optional[datetime] = None) -> 
     return attempts, elapsed
 
 
+BLOCKERS = ("back to shaping", "refused", "stopped by an error", "Run paused", "held until")
+
+
 def piece_summary(root: Path, number: int, result: str, state: str,
                   since: Optional[datetime] = None) -> str:
     attempts, elapsed = _piece_timing(root, number, since)
@@ -253,8 +256,7 @@ def summary_text(results: list[str], started: datetime, finished: datetime) -> s
     lines.extend(f"- {result}" for result in results)
     lines += ["", "## Decisions made by the run", "", "- The gate judged each attempt.",
               "- Pull requests were left for the person to merge.", "", "## Blockers", ""]
-    blockers = [result for result in results if any(marker in result for marker in
-                ("back to shaping", "refused", "stopped by an error", "Run paused"))]
+    blockers = [result for result in results if any(marker in result for marker in BLOCKERS)]
     lines.extend(f"- {blocker}" for blocker in blockers)
     if not blockers:
         lines.append("- None")

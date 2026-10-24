@@ -37,6 +37,7 @@ from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 from frozen import frozen_file_reason
+import holds  # noqa: E402
 from run_start import (capture_probe_files, release_worktree, remove_worktree,  # isort: skip
                        restore_probe_files)
 
@@ -86,6 +87,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     """The ready gate. Returns the record to write. Refuses on any gap."""
     n = issue["number"]
     spec = parse_spec(issue["body"] or "")
+    holds.check(gh, n, spec.risks.get("depends_on", ()))
     settings = loop_settings(root)
     require_extras(settings, {"checks": spec.checks, "keep": spec.keep})
     branch = branch_name(n)
