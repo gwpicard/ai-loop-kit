@@ -233,7 +233,7 @@ def _review_prompt(name: str, values: dict[str, str]) -> str:
 def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[str],
                     idle_seconds: int, protected_paths: Optional[list[str]] = None,
                     walk_away: bool = False, domains: Optional[list[str]] = None,
-                    backend: str = "claude") -> str:
+                    backend: str = "claude", model: str = "", effort: str = "") -> str:
     def waiting(seconds: int) -> None:
         with logfile.open("a") as out:
             out.write(f"\nUsage limit; waiting {seconds} seconds before one retry.\n")
@@ -242,7 +242,7 @@ def _review_session(folder: Path, prompt: str, logfile: Path, disallowed: list[s
         folder, prompt, logfile, idle_seconds, role="reviewer", backend=backend,
         result_event={}, on_wait=waiting, process_record=logfile.parent / "reviewer-processes",
         disallowed=disallowed, protected_paths=protected_paths,
-        walk_away=walk_away, domains=domains)
+        walk_away=walk_away, domains=domains, model=model, effort=effort)
 
 
 def _cleanup_review_worktrees(root: Path, n: int, k: int) -> None:
@@ -312,7 +312,8 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
         if _review_session(target, _review_prompt(f"{role}-reviewer.md", {
             **context, "DIFF": diff}), logfile, role_denied,
             idle_limit_seconds(folder, ready.get("idle_limit")), ready.get("protected_paths", []),
-            walk_away, domains, ready.get("agent", "claude")) == "idle":
+            walk_away, domains, ready.get("agent", "claude"), ready.get("agent_model", ""),
+            ready.get("agent_effort", "")) == "idle":
             raise AttemptIdle(f"{role} reviewer idle; see {logfile}")
         verdict = _logged_verdict(logfile, role)
         output = logfile.read_text(errors="replace")

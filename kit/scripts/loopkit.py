@@ -170,6 +170,18 @@ def base_branch(root: Path) -> str:
     return name
 
 
+def agent_options(model: str, effort: str) -> tuple[str, str]:
+    """Check the Codex model and reasoning effort. Empty means Codex's own default."""
+    model, effort = (model or "").strip(), (effort or "").strip().lower()
+    if model and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model):
+        raise Refused(f"Agent model {model!r} is not a model name",
+                      "set `Agent model: <name>`, such as gpt-6-luna, in AGENTS.md")
+    if effort and not re.fullmatch(r"[a-z]+", effort):
+        raise Refused(f"Agent effort {effort!r} must be one word, such as high",
+                      "set `Agent effort: <level>` in AGENTS.md")
+    return model, effort
+
+
 def base_merges(root: Path) -> bool:
     """True when the run merges gated pieces into a base branch that is not main."""
     value = settings_on_main(root).get("base merges", "person").lower()
@@ -318,7 +330,7 @@ def loop_settings(folder: Path, text: Optional[str] = None) -> dict:
             continue
         m = re.match(
             r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
-            r"Keep|Agent|Sandbox domains|Secret paths|Base branch|Base merges)\s*:\s*(.*)$", line, re.IGNORECASE)
+            r"Keep|Agent model|Agent effort|Agent|Sandbox domains|Secret paths|Base branch|Base merges)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":

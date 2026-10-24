@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES, SECRET_PATTERNS,
-                     bar_hash_at, base_branch, branch_name, changed_check_settings,
+                     agent_options, bar_hash_at, base_branch, branch_name, changed_check_settings,
                      exit_bar,
                      bar_file_list, conflict_markers, last_record, main_ref,
                      keep_limit_seconds, loop_settings,
@@ -178,6 +178,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     if agent not in {"claude", "codex"}:
         raise Refused(f"Agent must be claude or codex, not {agent!r}",
                       "set `Agent: claude` or `Agent: codex` in the loop section of AGENTS.md")
+    model, effort = agent_options(settings.get("agent model", ""), settings.get("agent effort", ""))
     return {"move": "ready", "bar": bar, "bar_files": bar_files,
             "contract": spec.done_when, "keep": keep_command,
             **{key: getattr(spec, key) for key in
@@ -189,7 +190,8 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "quality": settings.get("quality", []),
             "idle_limit": settings.get("idle limit", "10"),
             "waiting_limit": settings.get("waiting limit", "3"),
-            "agent": agent, "stays": list(spec.stays), "research": list(spec.research),
+            "agent": agent, **({"agent_model": model} if model else {}),
+            **({"agent_effort": effort} if effort else {}), "stays": list(spec.stays), "research": list(spec.research),
             "risks": {key: list(value) for key, value in spec.risks.items()},
             "shared_conflicts": shared_conflicts,
             "test_lint_unchecked": test_lint_unchecked,
