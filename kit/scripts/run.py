@@ -186,14 +186,15 @@ def build_once(folder: Path, prompt: str, files: list[str], logfile: Path,
                result_event: Optional[dict] = None,
                append_log: bool = False, backend: str = "claude",
                protected_exceptions: list[str] | None = None,
-               on_wait: Callable[[int], None] | None = None) -> str:
+               on_wait: Callable[[int], None] | None = None,
+               model: Optional[str] = None, effort: Optional[str] = None) -> str:
     return run_session(
         folder, prompt, logfile, idle_seconds, role="builder", backend=backend,
         append_log=append_log, result_event=result_event, on_wait=on_wait,
         raw_events=logfile.with_suffix(".jsonl"), disallowed=files,
         settings_allowed=settings, protected_paths=protected_paths,
         protected_exceptions=protected_exceptions, contract=contract,
-        walk_away=walk_away, domains=domains)
+        walk_away=walk_away, domains=domains, model=model, effort=effort)
 
 
 def builder_words(logfile: Path) -> str:
@@ -393,7 +394,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             folder, prompt, ready["files"], logfile, ready.get("settings", False),
             idle_limit_seconds(folder, ready.get("idle_limit")),
             ready.get("protected_paths", []), build_contract, walk_away, domains,
-            {}, backend=ready["agent"],
+            {}, backend=ready["agent"], model=ready.get("agent_model", ""),
+            effort=ready.get("agent_effort", ""),
             protected_exceptions=ready.get("risks", {}).get("protected_paths", []),
             on_wait=lambda seconds: log(
                 f"piece {n}: usage limit; waiting {seconds} seconds before one retry"))
