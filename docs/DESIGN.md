@@ -504,7 +504,7 @@ removed. A retry within the same attempt appends to both files.
 | Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
 | Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-only comparison; no skip, `xfail`, `.only` or `.skip`; no private imports or unnamed source reads; records unsupported languages and refuses unreadable judges with their paths | Tests must be able to fail [kata], and unchecked judges must stay explicit |
 | The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
-| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, and the backend | A builder must not change the rules after they were agreed |
+| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, the base branch and the backend | A builder must not change the rules after they were agreed |
 
 During an attempt, a syntax, import, missing-file or missing-command error in
 the judge or Keep output returns the piece at once as `environment`. The cause
@@ -813,6 +813,13 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    project, or on a branch with a pull request when `main` already has
    work. Doctor checks it all on a fresh copy of `main` (code). A project
    with no tests yet gets a warning and the scaffold piece as its next step.
+   A project may add `Base branch: <name>` to the loop section. Then every
+   piece builds on that branch, not on `main`: ready judges against it, the
+   run merges it into each piece, and each pull request targets it. The gate
+   reads the setting from the person's checkout, never from a build folder,
+   and the ready record freezes it. Quality commands get the name in
+   `LOOP_BASE`. With no setting the base is `main`. In check messages, "main"
+   means the base branch.
 3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
    into pieces of about one hour. Write the spec, show it, capture it. The
    judge writer writes the judge on `piece/<n>`. Run the project's Test on the
@@ -877,7 +884,8 @@ These facts about the platform shaped the design. Each one cost time once.
 - GitHub's closing keywords apply when a pull request targets the default
   branch. Only a `Closes` line is used. In this repository, pull requests
   target `main` and the default is `stable`, so the person or the run must
-  close the issue after the merge.
+  close the issue after the merge. A merge into a base branch never closes
+  an issue, so the gate closes it when the piece moves to done.
 - GitHub's label search lags after a move. The run retries the ready list for
   about 20 seconds.
 - A free private repository has no branch protection. The local layers must
@@ -940,16 +948,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,085 Python lines in `kit/`, including the remaining
+The default plugin has 6,497 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,505 runtime
+critics have 420 runtime lines in `extras/`. Together they have 6,917 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,505 runtime lines in total. The suite reports the total and the
+6,917 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
@@ -974,6 +982,7 @@ needs a measured reduction first.
 | typed reason | The one-word type on every move back, such as `bar-wrong` or `environment` |
 | protected path | A path that needs a person; a piece may change it only if its Contract names it |
 | waiting limit | How many pull requests may wait before the run stops starting pieces |
+| base branch | The branch pieces build on and pull requests target: `main`, or the `Base branch:` setting |
 | preview | A feature with automated tests only, not yet run on a real project |
 
 ## Sources

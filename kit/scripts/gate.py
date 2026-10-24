@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES, SECRET_PATTERNS,
-                     bar_hash_at, bar_hash_in, branch_name, changed_check_settings,
+                     bar_hash_at, bar_hash_in, base_branch, branch_name, changed_check_settings,
                      bar_file_list, conflict_markers, last_record, main_ref,
                      keep_limit_seconds, loop_settings,
                      exit_attempt, exit_ready, parse_spec, prepare,
@@ -189,6 +189,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "test_lint_unchecked": test_lint_unchecked,
             "protected_paths": settings.get("protected paths", []),
             "large_files": list(spec.large_files), "commit": head, "main": main_sha,
+            "base": base_branch(root),
             "spec": spec_hash(issue["body"] or "")}
 
 
@@ -211,6 +212,9 @@ def check_claim_bar(root: Path, n: int, ready: dict) -> None:
                                     ready.get("bar_files", ready["files"]))
                         != ready["bar"]):
         raise Refused("the judge bar changed after the piece became ready",
+                      "move the piece back to shaping and run the ready gate again")
+    if ready.get("base", "main") != base_branch(root):
+        raise Refused("the base branch changed after the piece became ready",
                       "move the piece back to shaping and run the ready gate again")
 
 

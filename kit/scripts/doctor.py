@@ -134,7 +134,7 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         return checks
     try:
         main = main_ref(root)
-        add(main == "origin/main", "main has a commit on origin",
+        add(main.startswith("origin/"), f"{main.removeprefix('origin/')} has a commit on origin",
             "run setup; it runs gate.py bootstrap")
     except Refused as r:
         add(False, "main has a commit on origin", r.next_step)

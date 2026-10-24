@@ -150,26 +150,31 @@ def rev(root: Path, ref: str) -> Optional[str]:
     return res.stdout.strip() or None
 
 
+def base_branch(root: Path) -> str:
+    """The branch pieces build on. Read from the project checkout, never a build folder."""
+    name = loop_settings(project_root(root)).get("base branch") or "main"
+    if not re.fullmatch(r"[A-Za-z0-9._][A-Za-z0-9._/-]*", name) or ".." in name:
+        raise Refused(f"Base branch {name!r} is not a valid branch name",
+                      "set `Base branch: <name>` in the loop section of AGENTS.md")
+    return name
+
+
 def main_ref(root: Path) -> str:
-    """The freshest main we can see. Fetch it when there is a remote."""
+    """The freshest base branch we can see. Fetch it when there is a remote."""
     from procs import main_ref_cache
     cache = main_ref_cache()
     key = sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root).stdout.strip()
     if cache is not None and key in cache:
         return cache[key]
+    base = base_branch(root)
     if sh(["git", "remote"], root).stdout.strip():
-        sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False)
-        if rev(root, "origin/main"):
-            result = "origin/main"
+        sh(["git", "fetch", "--quiet", "origin", base], root, check=False)
+    for result in (f"origin/{base}", base):
+        if rev(root, result):
             if cache is not None:
                 cache[key] = result
             return result
-    if rev(root, "main"):
-        result = "main"
-        if cache is not None:
-            cache[key] = result
-        return result
-    raise Refused("there is no main branch with a commit",
+    raise Refused(f"there is no {base} branch with a commit",
                   "run setup; it runs gate.py bootstrap")
 
 
@@ -241,6 +246,7 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
     env["LOOP_PROTECTED_EXCEPTIONS"] = os.pathsep.join(protected_exceptions or [])
+    env["LOOP_BASE"] = base_branch(folder)
     project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
     path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
                     if Path(entry or ".").resolve() != project_venv_bin]
@@ -277,7 +283,7 @@ def loop_settings(folder: Path) -> dict:
             continue
         m = re.match(
             r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
-            r"Keep|Agent|Sandbox domains|Secret paths)\s*:\s*(.*)$", line, re.IGNORECASE)
+            r"Keep|Agent|Sandbox domains|Secret paths|Base branch)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":
@@ -636,7 +642,7 @@ class GitHub:
                  description, "--force")
 
     def create_pr(self, head: str, title: str, body: str) -> str:
-        return self._gh("pr", "create", "--base", "main", "--head", head,
+        return self._gh("pr", "create", "--base", base_branch(self.root), "--head", head,
                         "--title", title, "--body-file", "-", stdin=body).strip()
 
     def edit_pr(self, url: str, title: str, body: str) -> None:
