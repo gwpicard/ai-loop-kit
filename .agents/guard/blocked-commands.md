@@ -14,6 +14,9 @@ sequence to get the same blocked result.
 - Recursive deletion through `rm`, `find`, `xargs rm`, or recognised Python
   or Node commands that call recursive removal.
 - `git clean`, forced pushes, and pushes to `main` or `master`.
+- A remote branch delete, unless the branch's live tip on the remote is
+  already in the remote's `main`. `main`, `master`, `stable` and `piece/*` are
+  never deleted.
 - `eval` in a builder session, and `eval` that wraps another refused command.
 - `gh pr merge` and attempts to change a `state:` label by hand.
 - A command in a builder session that the hook cannot read safely.
