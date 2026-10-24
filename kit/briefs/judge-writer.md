@@ -17,7 +17,7 @@ Assert returned values, output or state, not merely that nothing raised.
 Test public types, invariants, ordering and errors. Report private-interface
 needs as a follow-up piece; do not test private helpers.
 
-Do not implement or change project checks. Fail on main with an assertion,
+Do not implement or change project checks. Fail on the base branch with an assertion,
 never a missing import or collection error. Stub a missing subject with None,
 then assert it exists inside the test. Re-raise missing dependencies:
 

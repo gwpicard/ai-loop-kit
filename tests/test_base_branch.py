@@ -5,7 +5,11 @@ from helpers import GOOD_CODE, JUDGE, SPEC, git
 
 # isort: split
 
+import os
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import gate
@@ -100,6 +104,14 @@ class BaseBranchTest(GateFixture, unittest.TestCase):
     def test_quality_commands_see_the_base(self):
         self.use_base()
         self.assertEqual(loopkit.command_env(self.p.root)["LOOP_BASE"], "trip")
+
+    def test_crap_compares_with_the_base_by_default(self):
+        (self.p.root / "coverage.json").write_text('{"files":{}}')
+        script = Path(loopkit.__file__).resolve().parents[1] / "quality" / "crap.py"
+        result = subprocess.run([sys.executable, str(script), "--coverage", "coverage.json"],
+                                cwd=self.p.root, capture_output=True, text=True,
+                                env={**os.environ, "LOOP_BASE": "trip"})
+        self.assertIn("origin/trip...HEAD", result.stdout + result.stderr)
 
     def test_pull_requests_target_the_base(self):
         self.use_base()
