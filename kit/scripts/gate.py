@@ -196,7 +196,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "protected_paths": settings.get("protected paths", []),
             "large_files": list(spec.large_files), "commit": head, "main": main_sha,
             "exit_bar": bar_hash_at(root, head, spec.files, spec.files) if spec.files else "",
-            "base": base_branch(root),
+            "base": main.removeprefix("origin/"),  # the base this ready judged against
             "spec": spec_hash(issue["body"] or "")}
 
 
