@@ -23,8 +23,18 @@ from extras import require_extras
 def retry_conflict(gh: GitHub, root: Path, number: int) -> None:
     """Return a conflicting piece through the existing gates before retrying."""
     gate.move(gh, root, number, "shaping", reason_type="conflict",
-              reason="conflicts with main")
+              reason="conflicts with the base branch")
     gate.move(gh, root, number, "ready")
+
+
+def final_pull_request(api, gh: GitHub, root: Path, results: list[str]) -> None:
+    """Add the base branch's pull request into main to the results. It never stops a run."""
+    try:
+        line = api.final_pull_request(gh, root, results)
+    except Exception as error:  # the pieces are built; report and finish
+        line = f"could not open the final pull request: {error}"
+    if line:
+        results.append(line)
 
 
 def main(argv: Optional[list[str]] = None, api=None) -> int:
@@ -116,6 +126,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         render_page()
         if not pieces:
             print("Nothing is ready. Shape a piece first.")
+            final_pull_request(api, gh, root, results)
+            print("\n".join(line for line in results if "final pull request" in line.lower()))
             return 0
         for n in pieces:
             if api.stop_requested(root):
@@ -143,6 +155,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             results.append(result)
             if args.walk_away:
                 summary_results.append(walkaway.piece_summary(root, n, result, state, started_at))
+        final_pull_request(api, gh, root, results)
         print("\nRun finished.\n" + "\n".join(results))
         return int(failed)
     finally:

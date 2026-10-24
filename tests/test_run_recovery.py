@@ -59,7 +59,7 @@ class ConflictRetryTest(unittest.TestCase):
             run_cli.retry_conflict("github", "root", 1)
         self.assertEqual(move.call_args_list, [
             call("github", "root", 1, "shaping", reason_type="conflict",
-                 reason="conflicts with main"),
+                 reason="conflicts with the base branch"),
             call("github", "root", 1, "ready"),
         ])
 

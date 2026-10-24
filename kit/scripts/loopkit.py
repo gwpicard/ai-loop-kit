@@ -150,27 +150,38 @@ def rev(root: Path, ref: str) -> Optional[str]:
     return res.stdout.strip() or None
 
 
+def base_branch(root: Path) -> str:
+    """The branch pieces build on, from AGENTS.md on main. No checkout or build folder
+    can change it; a project with no main yet reads its checkout."""
+    shown = [sh(["git", "show", f"{ref}:AGENTS.md"], root, check=False)
+             for ref in ("origin/main", "main") if rev(root, ref)]
+    text = next((res.stdout for res in shown if res.returncode == 0), None)
+    name = loop_settings(project_root(root), text).get("base branch") or "main"
+    if name.startswith("-") or sh(["git", "check-ref-format", "--branch", name], root,
+                                  check=False).returncode:
+        raise Refused(f"Base branch {name!r} is not a valid branch name",
+                      "set `Base branch: <name>` in the loop section of AGENTS.md")
+    return name
+
+
 def main_ref(root: Path) -> str:
-    """The freshest main we can see. Fetch it when there is a remote."""
+    """The freshest base branch we can see. Fetch it when there is a remote."""
     from procs import main_ref_cache
     cache = main_ref_cache()
     key = sh(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root).stdout.strip()
     if cache is not None and key in cache:
         return cache[key]
+    base = base_branch(root)
     if sh(["git", "remote"], root).stdout.strip():
-        sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False)
-        if rev(root, "origin/main"):
-            result = "origin/main"
+        sh(["git", "fetch", "--quiet", "origin", base], root, check=False)
+    for result in (f"origin/{base}", base):
+        if rev(root, result):
             if cache is not None:
                 cache[key] = result
             return result
-    if rev(root, "main"):
-        result = "main"
-        if cache is not None:
-            cache[key] = result
-        return result
-    raise Refused("there is no main branch with a commit",
-                  "run setup; it runs gate.py bootstrap")
+    raise Refused(f"there is no {base} branch with a commit",
+                  "run setup; it runs gate.py bootstrap" if base == "main"
+                  else f"create {base} from main and push it to origin")
 
 
 def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
@@ -241,6 +252,10 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
     env["LOOP_PROTECTED_EXCEPTIONS"] = os.pathsep.join(protected_exceptions or [])
+    try:
+        env["LOOP_BASE"] = base_branch(folder)
+    except (OSError, RuntimeError):  # no git here, so nothing compares with a base
+        env["LOOP_BASE"] = "main"
     project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
     path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
                     if Path(entry or ".").resolve() != project_venv_bin]
@@ -264,10 +279,11 @@ def secret_env_names(env=None):
                   and not re.fullmatch(r"GIT_CONFIG_KEY_\d+", name))
 
 
-def loop_settings(folder: Path) -> dict:
+def loop_settings(folder: Path, text: Optional[str] = None) -> dict:
     """Read test, prepare, quality and boundary settings from AGENTS.md."""
     agents = folder / "AGENTS.md"
-    text = agents.read_text(errors="replace") if agents.is_file() else ""
+    if text is None:
+        text = agents.read_text(errors="replace") if agents.is_file() else ""
     section = _section(text, "The loop") or []
     out = {}
     for line in section:
@@ -277,7 +293,7 @@ def loop_settings(folder: Path) -> dict:
             continue
         m = re.match(
             r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
-            r"Keep|Agent|Sandbox domains|Secret paths)\s*:\s*(.*)$", line, re.IGNORECASE)
+            r"Keep|Agent|Sandbox domains|Secret paths|Base branch)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":
@@ -635,12 +651,18 @@ class GitHub:
         self._gh("label", "create", name, "--color", color, "--description",
                  description, "--force")
 
-    def create_pr(self, head: str, title: str, body: str) -> str:
-        return self._gh("pr", "create", "--base", "main", "--head", head,
+    def create_pr(self, head: str, title: str, body: str, base: str = "") -> str:
+        return self._gh("pr", "create", "--base", base or base_branch(self.root), "--head", head,
                         "--title", title, "--body-file", "-", stdin=body).strip()
 
-    def edit_pr(self, url: str, title: str, body: str) -> None:
-        self._gh("pr", "edit", url, "--title", title, "--body-file", "-", stdin=body)
+    def edit_pr(self, url: str, title: str, body: str, base: str = "") -> None:
+        self._gh("pr", "edit", url, "--base", base or base_branch(self.root), "--title", title,
+                 "--body-file", "-", stdin=body)
+
+    def pull_requests(self, base: str, state: str, head: str = "") -> list[dict]:
+        return json.loads(self._gh("pr", "list", "--base", base, "--state", state, "--limit", "200",
+                                   *(["--head", head] if head else []), "--json",
+                                   "number,title,url,headRefName,mergeCommit,mergedAt"))
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         data = json.loads(self._gh("pr", "list", "--head", branch, "--state", "all",

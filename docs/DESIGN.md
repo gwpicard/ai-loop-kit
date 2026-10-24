@@ -32,9 +32,11 @@ person approves the contract and the merge.
    promised and whether it was built well. A failure goes into the next
    attempt; a piece that cannot pass goes back to shaping with the reason.
    Nothing gets through until it meets the bar.
-3. **Release.** Finished work waits for the person to review and merge. Today
-   that is one pull request per piece. A combined branch and pre-approved
-   merges come later, when a run earns them.
+3. **Release.** Finished work waits for the person to review and merge. By
+   default that is one pull request per piece. With a base branch, each
+   piece's pull request targets that branch, and the run also opens one pull
+   request from it into `main`. Pre-approved merges come later, when a run
+   earns them.
 
 Around all three, a **meta loop** reads why pieces came back and improves
 what surrounds the loop for this project: its quality floor, its standards,
@@ -504,7 +506,7 @@ removed. A retry within the same attempt appends to both files.
 | Every non-`(stays)` ID is on a failing line; no `(stays)` ID fails | Each item is proven new, or proven kept |
 | Test lint (`testlint.py`): an assertion in each test; no `assert True`, `x == x` or literal-only comparison; no skip, `xfail`, `.only` or `.skip`; no private imports or unnamed source reads; records unsupported languages and refuses unreadable judges with their paths | Tests must be able to fail [kata], and unchecked judges must stay explicit |
 | The spec and the bar are hashed. The bar is the judge files plus every `conftest.py` and helper they rely on | Builders change what a test relies on, not only the test [ImpossibleBench] |
-| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, and the backend | A builder must not change the rules after they were agreed |
+| The ready record freezes Test, Prepare, Keep, Quality, Standards, protected paths, idle, waiting and Keep limits, the base branch and the backend | A builder must not change the rules after they were agreed |
 
 During an attempt, a syntax, import, missing-file or missing-command error in
 the judge or Keep output returns the piece at once as `environment`. The cause
@@ -814,6 +816,21 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    project, or on a branch with a pull request when `main` already has
    work. Doctor checks it all on a fresh copy of `main` (code). A project
    with no tests yet gets a warning and the scaffold piece as its next step.
+   A project may add `Base branch: <name>` to the loop section. Then every
+   piece builds on that branch, not on `main`: ready judges against it, the
+   run merges it into each piece, and each pull request targets it. The gate
+   reads the setting from `AGENTS.md` on `main`, so a branch switch or a
+   build cannot change it, and the ready record freezes it. Make the branch
+   from `main` after the setting is merged. When the loop branch is merged
+   into `main`, remove the line to end the loop. Quality commands get the
+   name in `LOOP_BASE`, and doctor warns about a Quality command that names
+   `origin/main`. With no setting the base is `main`. In check messages,
+   "main" means the base branch. At the end of each run, the run opens or
+   updates one pull request from the base into `main`. It lists each piece
+   pull request merged into the base, in merge order, and names the check
+   settings and protected paths each one changed. It also lists the piece
+   pull requests still waiting and the pieces the run held, and then its
+   title says "incomplete". The run never merges it.
 3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
    into pieces of about one hour. Write the spec, show it, capture it. The
    judge writer writes the judge on `piece/<n>`. Run the project's Test on the
@@ -878,7 +895,8 @@ These facts about the platform shaped the design. Each one cost time once.
 - GitHub's closing keywords apply when a pull request targets the default
   branch. Only a `Closes` line is used. In this repository, pull requests
   target `main` and the default is `stable`, so the person or the run must
-  close the issue after the merge.
+  close the issue after the merge. A merge into a base branch never closes
+  an issue, so the gate closes it when the piece moves to done.
 - GitHub's label search lags after a move. The run retries the ready list for
   about 20 seconds.
 - A free private repository has no branch protection. The local layers must
@@ -928,7 +946,7 @@ Each step waits for a real run that needs it.
 
 | Not done | Why |
 | --- | --- |
-| A combined branch and combined review | The person reviews each pull request. About 28% of agent pull requests conflict [AgenticFlict], so this returns when runs grow. A conflict after a sibling merge goes to the builder for now. |
+| Merging pieces into the base branch | The person merges each piece pull request into the base, then reviews the one pull request into `main`. About 28% of agent pull requests conflict [AgenticFlict]. A conflict after a sibling merge goes to the builder. |
 | A GitHub App identity | The person's own sign-in is enough while runs are attended. |
 | Automatic merges, even pre-approved | Merging is the person's moment. |
 | Crews, design-it-twice, a skills registry or context store | Coordination cost with no proven need [Pocock, codebase-design], [Port]. |
@@ -941,9 +959,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,085 Python lines in `kit/`, including the remaining
+The default plugin has 6,630 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 420 runtime lines in `extras/`. Together they have 6,505 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,052 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -956,7 +974,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,505 runtime lines in total. The suite reports the total and the
+7,052 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
@@ -981,6 +999,7 @@ needs a measured reduction first.
 | typed reason | The one-word type on every move back, such as `bar-wrong` or `environment` |
 | protected path | A path that needs a person; a piece may change it only if its Contract names it |
 | waiting limit | How many pull requests may wait before the run stops starting pieces |
+| base branch | The branch pieces build on and pull requests target: `main`, or the `Base branch:` setting |
 | preview | A feature with automated tests only, not yet run on a real project |
 
 ## Sources

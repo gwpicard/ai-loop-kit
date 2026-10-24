@@ -34,7 +34,9 @@ feature. Keep the kit small enough to read in one sitting.
 - `tests/run-all.sh`: run every check. The last run took about six minutes.
 - `tests/house-rules.sh`: check the house rules over every tracked file.
 
-Run `git config core.hooksPath .githooks` once in a fresh clone.
+In a fresh clone, the person runs `git config core.hooksPath .githooks` once.
+Agents cannot: the settings deny it. To see whether it is set, read
+`hooksPath` in the git config file. If it is not set, tell the person.
 
 ## Rules and the reason for each
 
@@ -55,6 +57,12 @@ after the merge.
   undo is the loss that no later check can repair. If a command from
   `.agents/guard/blocked-commands.md` is refused, report it and stop. Do not
   reach the same result another way.
+- A refusal from the settings does not name the rule that matched, and one
+  denied part refuses a whole chained command. Before you report a block,
+  find the denied part in the deny list in `.claude/settings.json`. Run the
+  other parts as separate commands. Report the denied part and stop on it;
+  never run it another way. A wrong "blocked" report stops the work. A hook
+  refusal names its reason, so no search is needed.
 - Never put a secret in a tracked file, and never print one. Git history keeps
   it for ever.
 - Keep unsaved work. Ask before anything irreversible, or anything that

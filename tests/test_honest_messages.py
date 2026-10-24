@@ -118,7 +118,7 @@ class HonestMessagesTest(unittest.TestCase):
         with patch.object(gh, "_gh", return_value="") as transport:
             gh.edit_pr("https://example.invalid/pull/1", "Fresh title", "Fresh body\n")
         transport.assert_called_once_with(
-            "pr", "edit", "https://example.invalid/pull/1", "--title", "Fresh title",
+            "pr", "edit", "https://example.invalid/pull/1", "--base", "main", "--title", "Fresh title",
             "--body-file", "-", stdin="Fresh body\n")
 
     def test_failed_submit_leaves_existing_pull_request_unchanged(self):

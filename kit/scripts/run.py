@@ -23,7 +23,7 @@ import agents  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
-                     last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
+                     base_branch, last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, untracked_paths)
 from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
@@ -33,6 +33,7 @@ from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    clear_main_ref_for_piece as _clear_main_piece_cache,
                    kill_active_processes, lock_path, release_lock)
 from session import run_session
+from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
 
 DEFAULT_IDLE_LIMIT = 10 * 60
@@ -105,13 +106,10 @@ def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
 
 
 def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
-    """Refresh remote main before deciding whether a failed check is stale."""
+    """Refresh the remote base before deciding whether a failed check is stale."""
     main = main_ref(folder)
-    if "origin" in sh(["git", "remote"], folder).stdout.split():
-        sh(["git", "fetch", "--quiet", "origin", "main"], folder, check=False)
-        remote_main = rev(folder, "origin/main")
-        if remote_main:
-            return remote_main
+    if main.startswith("origin/"):
+        sh(["git", "fetch", "--quiet", "origin", main.removeprefix("origin/")], folder, check=False)
     return rev(folder, main)
 
 
@@ -261,7 +259,8 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     started_at = datetime.now(timezone.utc)
     metrics = {"started": time.monotonic(), "started_at": started_at, "attempts": 0}
     issue = gh.issue(n)
-    log(f"piece {n}: {issue['title']}")
+    base = base_branch(root)
+    log(f"piece {n}: {issue['title']}" + (f" (base branch {base})" if base != "main" else ""))
     ready = last_record(gh.comments(n), "ready") or {}
     require_extras(ready, loop_settings(root))
     services = ready.get("risks", {}).get("needs_services", [])
