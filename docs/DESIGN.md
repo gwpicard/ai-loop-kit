@@ -763,6 +763,7 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 | Rule | Held by |
 | --- | --- |
 | No push to `main`, no force push, no agent merge, no recursive delete, no `eval`, no `xargs rm -r`, no `git clean` | hook (`guard.py`), in every session |
+| A remote branch is deleted only when its live tip is in `main`; never `main`, `stable` or a piece branch | hook (`guard.py`), in every session |
 | Builders and reviewers never push, never call `gh`, never run Perl or Ruby code, never use unreadable shell forms, never write into `.claude/`, `.githooks/` or protected paths | hook, in build sessions |
 | Builders never edit the judge files or check settings | Edit denies, then the gate at submit |
 | The gate is the only mover of state | hook refuses `state:` label edits; `audit.py` finds any it missed |
