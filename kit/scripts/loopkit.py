@@ -12,6 +12,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -149,6 +150,20 @@ def branch_name(n: int) -> str:
 def rev(root: Path, ref: str) -> Optional[str]:
     res = sh(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], root, check=False)
     return res.stdout.strip() or None
+
+
+def refresh_main(root: Path) -> None:
+    """Fetch main once, so settings read from AGENTS.md on main are current."""
+    if "origin" not in sh(["git", "remote"], root, check=False).stdout.split():
+        return
+    try:
+        failed = sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False,
+                    timeout=60).returncode != 0
+    except subprocess.TimeoutExpired:
+        failed = True
+    if failed:
+        print("warning: could not fetch main from origin; loop settings may be out of date",
+              file=sys.stderr)
 
 
 def settings_on_main(root: Path) -> dict:
