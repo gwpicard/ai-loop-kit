@@ -33,7 +33,8 @@ REASON_TYPES = ("spec-unclear", "bar-wrong", "stopped", "environment", "builder-
 CAUSES = ("bar-wrong", "builder-failed", "conflict", "dirty-worktree", "import-error",
           "idle", "judge-failed", "judge-gap", "keep-flaky", "needs-answer", "other",
           "person-rejected", "person-request", "prepare-failed", "pull-request-failed",
-          "quality-failed", "spec-unclear", "stale-after-main", "stopped", "usage-limit")
+          "quality-failed", "spec-unclear", "stale-after-main", "stopped", "usage-limit",
+          "already-satisfied")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
@@ -184,22 +185,32 @@ def main_ref(root: Path) -> str:
                   else f"create {base} from main and push it to origin")
 
 
+SOURCE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+                   ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php", ".cs"}
+
+
+def in_bar_zone(name: str, files: list[str]) -> bool:
+    """A conftest, or a support file in a judge folder (at the root: any non-source file)."""
+    return Path(name).name == "conftest.py" or any(
+        (folder != "." and name.startswith(folder.rstrip("/") + "/")) or
+        (folder == "." and Path(name).suffix.lower() not in SOURCE_SUFFIXES)
+        for folder in {str(Path(file).parent) for file in files})
+
+
 def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
     """Judge files, test support files beside them, and every conftest."""
     if not files:
         return []
     tracked = sh(["git", "ls-tree", "-r", "--name-only", ref], root).stdout.splitlines()
-    folders = {str(Path(name).parent) for name in files}
-    source_suffixes = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-                       ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php", ".cs"}
-    out = set(files)
-    for name in tracked:
-        if Path(name).name == "conftest.py" or any(
-                (folder != "." and name.startswith(folder.rstrip("/") + "/")) or
-                (folder == "." and Path(name).suffix.lower() not in source_suffixes)
-                for folder in folders):
-            out.add(name)
-    return sorted(out)
+    return sorted(set(files) | {name for name in tracked if in_bar_zone(name, files)})
+
+
+def exit_bar(root: Path, ready: dict) -> str:
+    """The hash of the Exit files alone. An older ready record derives it from its commit."""
+    if not ready["files"]:
+        return ""
+    return ready.get("exit_bar") or bar_hash_at(root, ready["commit"], ready["files"],
+                                                ready["files"])
 
 
 def _hash_paths(read, files: list[str]) -> str:

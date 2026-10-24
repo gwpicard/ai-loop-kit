@@ -15,6 +15,7 @@ import gate
 from loopkit import (CHECK_FILES, Refused, prepare,
                      judge_assertion_failed, judge_has_runner_error,
                      record_prepare_outputs, rev, sh, untracked_paths)
+from frozen import expected_tree
 from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
 from session import run_session
@@ -285,8 +286,9 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
               "**/*.spec.*", "**/conftest.py"]
     results = {"reviewer_note": "Standards review ran once.", "baseline_conflicts": [],
                "dropped_findings": 0}
+    start = expected_tree(folder, ready) or base  # leave out work merged from the base
     for role in ("standards", "contract"):
-        diff = sh(["git", "diff", "--no-ext-diff", "--no-color", f"{base}..HEAD"], folder).stdout
+        diff = sh(["git", "diff", "--no-ext-diff", "--no-color", start, "HEAD"], folder).stdout
         target = folder.parent / f"review-{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
         branch = f"review/{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
         judged = rev(folder, "HEAD")

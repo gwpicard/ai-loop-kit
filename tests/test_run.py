@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import frozen
 import gate
 import run
 from loopkit import Refused, changed_check_settings, records
@@ -256,19 +257,19 @@ class RunTest(RunFixture, unittest.TestCase):
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
         folder = run.worktree(self.p.root, n)
-        original_hash = gate.bar_hash_in
+        original_hash = frozen.bar_hash_in
 
         def changed_hash(path, files):
             if Path(path).resolve() == folder.resolve():
                 return "changed bar"
             return original_hash(path, files)
 
-        with patch("gate.bar_hash_in", side_effect=changed_hash):
+        with patch("frozen.bar_hash_in", side_effect=changed_hash):
             result = run.build_piece(self.p.gh, self.p.root, n, 1)
-        self.assertIn("frozen judge bar", result)
+        self.assertIn("the build changed frozen files: judge_add.py", result)
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
         self.assert_handback_record(handback, reason_type="bar-wrong",
-                                    cause="stale-after-main", attempts=0)
+                                    cause="bar-wrong", attempts=0)
 
     def test_dirty_build_folder_is_refused_without_cleaning_it(self):
         os.environ["FAKE_MODE"] = "good"

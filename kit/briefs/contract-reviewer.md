@@ -9,7 +9,7 @@ For a contract finding, you may add one reproducer test file that names its
 approved D item. Return it as `"reproducer":{"file":"tests/test_gap.py","item":"D1"}`.
 Do not give a command. The kit runs the file with the approved Exit command.
 
-The diff starts at ready `{{READY_COMMIT}}`; frozen files are approved.
+The diff is this build's work after `{{READY_COMMIT}}`; frozen files are approved.
 Use gate evidence, including critic verdicts, for checks. It predates reviewer
 edits. If a finding contradicts the frozen baseline, explain why and add
 `baseline_conflict: "path:line"` citing a numbered baseline line.

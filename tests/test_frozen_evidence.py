@@ -32,11 +32,11 @@ class FrozenEvidenceTest(unittest.TestCase):
         git(folder, "merge", "--quiet", "--no-edit", "main")
         return folder
 
-    def test_merged_main_settings_are_stale_frozen_files(self):
+    def test_merged_main_settings_are_not_frozen_files(self):
         folder = self.merge_new_settings()
         passed, reason = gate.judge(folder, self.ready)
         self.assertFalse(passed)
-        self.assertIn("main changed the frozen judge bar: AGENTS.md", reason)
+        self.assertNotIn("frozen", reason)
         self.assertNotIn("the loop settings changed", reason)
 
     def test_inherited_settings_do_not_hide_a_builder_judge_edit(self):
@@ -44,8 +44,7 @@ class FrozenEvidenceTest(unittest.TestCase):
         (folder / "judge_add.py").write_text("print('forged pass')\n")
         passed, reason = gate.judge(folder, self.ready)
         self.assertFalse(passed)
-        self.assertIn("main changed the frozen judge bar: AGENTS.md", reason)
-        self.assertIn("the build changed frozen files: judge_add.py", reason)
+        self.assertEqual(reason, "the build changed frozen files: judge_add.py")
 
     def test_deleted_frozen_file_is_named_without_blame_on_settings(self):
         folder = run.worktree(self.p.root, self.n)
@@ -67,7 +66,7 @@ class FrozenEvidenceTest(unittest.TestCase):
                 self.assertFalse(passed)
                 self.assertEqual(reason, "the build changed frozen files: judge_add.py")
 
-    def test_deletion_inherited_from_main_is_named_as_inherited(self):
+    def test_deletion_inherited_from_main_is_free(self):
         (self.p.root / "README.md").unlink()
         git(self.p.root, "add", "README.md")
         git(self.p.root, "commit", "--quiet", "-m", "Remove old readme")
@@ -76,7 +75,7 @@ class FrozenEvidenceTest(unittest.TestCase):
         git(folder, "merge", "--quiet", "--no-edit", "main")
         passed, reason = gate.judge(folder, self.ready)
         self.assertFalse(passed)
-        self.assertEqual(reason, "main changed the frozen judge bar: README.md")
+        self.assertNotIn("frozen", reason)
 
     def test_changed_judge_is_restored_before_next_attempt(self):
         fake = self.p.root / ".loop" / "fake-claude"
@@ -98,15 +97,15 @@ class FrozenEvidenceTest(unittest.TestCase):
         original = git(self.p.root, "show", f"{self.ready['commit']}:judge_add.py")
         self.assertEqual(restored, original)
 
-    def test_run_returns_stale_settings_before_starting_builder(self):
+    def test_run_builds_after_main_changes_the_settings(self):
         self.p.loop_section("printf newer-main")
-        with patch("run.build_once") as builder:
-            result = run.build_piece(self.p.gh, self.p.root, self.n, 1)
-        builder.assert_not_called()
-        self.assertIn("main changed the frozen judge bar: AGENTS.md", result)
-        record = gate.last_record(self.p.gh.comments(self.n), "give-back")
-        self.assertEqual(record["cause"], "stale-after-main")
-        self.assertEqual(record["attempts"], 0)
+        with patch("run.build_once", side_effect=RuntimeError("builder started")) as builder:
+            try:
+                run.build_piece(self.p.gh, self.p.root, self.n, 1)
+            except RuntimeError:
+                pass
+        builder.assert_called_once()
+        self.assertNotIn("frozen", "\n".join(self.p.gh.comments(self.n)))
 
     def test_worktree_is_printed_before_builder_starts(self):
         fake = self.p.root / ".loop" / "fake-claude"
