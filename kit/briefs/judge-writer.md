@@ -37,6 +37,7 @@ def test_D1_add():
 For fixes, reproduce the bug first. Scaffold judges run and pass.
 Work on piece/<n>. The launcher validates and commits only approved files
 before returning. Leave no new uncommitted file in the shared working tree.
+Do not install packages; report a missing dependency in notes.
 
 Finish with:
 <verdict>{"judge_files":["path/to/judge.py"],"tests_per_id":true,"notes":"short summary"}</verdict>

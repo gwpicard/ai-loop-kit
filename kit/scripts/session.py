@@ -22,13 +22,19 @@ from procs import _untrack_process, track_process
 
 _JUDGE_CACHE = re.compile(
     r"(^|/)(__pycache__|\.(pytest_cache|benchmarks|hypothesis|mypy_cache|ruff_cache))/")
+# Ignored installed packages, where Node test tools such as Vitest keep their caches.
+_JUDGE_PACKAGES = re.compile(r"(^|/)node_modules/")
 
 
 def _judge_untracked(folder: Path, files: list[str]) -> dict:
     """Record unapproved untracked files without following symbolic links."""
+    ignored = sh(["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+                 folder).stdout.split("\0")
+    skip = {name for name in ignored if _JUDGE_PACKAGES.search(name)}
     return {name: ((path := folder / name).lstat().st_mode,
                    os.readlink(path) if path.is_symlink() else bar_hash_in(folder, [name]))
-            for name in untracked_paths(folder) - set(files) if not _JUDGE_CACHE.search(name)}
+            for name in untracked_paths(folder) - set(files) - skip
+            if not _JUDGE_CACHE.search(name)}
 
 
 def _judge_dirty(folder: Path) -> bool:
