@@ -252,7 +252,10 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
                     if protected_paths is None else protected_paths)
     env["LOOP_PROTECTED_PATHS"] = os.pathsep.join(frozen_paths)
     env["LOOP_PROTECTED_EXCEPTIONS"] = os.pathsep.join(protected_exceptions or [])
-    env["LOOP_BASE"] = base_branch(folder)
+    try:
+        env["LOOP_BASE"] = base_branch(folder)
+    except (OSError, RuntimeError):  # no git here, so nothing compares with a base
+        env["LOOP_BASE"] = "main"
     project_venv_bin = (project_root(folder) / ".venv" / "bin").resolve()
     path_entries = [entry for entry in (env.get("PATH") or os.defpath).split(os.pathsep)
                     if Path(entry or ".").resolve() != project_venv_bin]
