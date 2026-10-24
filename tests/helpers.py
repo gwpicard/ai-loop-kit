@@ -166,17 +166,24 @@ class FakeGitHub:
     def signed_in(self) -> bool:
         return True
 
-    def create_pr(self, head: str, title: str, body: str) -> str:
+    def create_pr(self, head: str, title: str, body: str, base: str = "") -> str:
         url = f"https://example.invalid/pull/{len(self.prs) + 1}"
-        self.prs[head] = {"url": url, "state": "OPEN", "title": title, "body": body}
+        self.prs[head] = {"url": url, "state": "OPEN", "title": title, "body": body,
+                          **({"base": base} if base else {})}
         return url
 
-    def edit_pr(self, url: str, title: str, body: str) -> None:
+    def edit_pr(self, url: str, title: str, body: str, base: str = "") -> None:
         for pull_request in self.prs.values():
             if pull_request["url"] == url:
-                pull_request.update(title=title, body=body)
+                pull_request.update(title=title, body=body, **({"base": base} if base else {}))
                 return
         raise RuntimeError(f"unknown pull request: {url}")
+
+    def pull_requests(self, base: str, state: str, head: str = "") -> list[dict]:
+        return [{"headRefName": branch, "number": number, "title": "", **pr}
+                for number, (branch, pr) in enumerate(self.prs.items(), 1)
+                if pr.get("base") == base and pr["state"] == state.upper()
+                and (not head or branch == head)]
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         return self.prs.get(branch)

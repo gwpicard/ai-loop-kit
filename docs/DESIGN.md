@@ -32,9 +32,11 @@ person approves the contract and the merge.
    promised and whether it was built well. A failure goes into the next
    attempt; a piece that cannot pass goes back to shaping with the reason.
    Nothing gets through until it meets the bar.
-3. **Release.** Finished work waits for the person to review and merge. Today
-   that is one pull request per piece. A combined branch and pre-approved
-   merges come later, when a run earns them.
+3. **Release.** Finished work waits for the person to review and merge. By
+   default that is one pull request per piece. With a base branch, each
+   piece's pull request targets that branch, and the run also opens one pull
+   request from it into `main`. Pre-approved merges come later, when a run
+   earns them.
 
 Around all three, a **meta loop** reads why pieces came back and improves
 what surrounds the loop for this project: its quality floor, its standards,
@@ -823,7 +825,12 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    into `main`, remove the line to end the loop. Quality commands get the
    name in `LOOP_BASE`, and doctor warns about a Quality command that names
    `origin/main`. With no setting the base is `main`. In check messages,
-   "main" means the base branch.
+   "main" means the base branch. At the end of each run, the run opens or
+   updates one pull request from the base into `main`. It lists each piece
+   pull request merged into the base, in merge order, and names the check
+   settings and protected paths each one changed. It also lists the piece
+   pull requests still waiting and the pieces the run held, and then its
+   title says "incomplete". The run never merges it.
 3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
    into pieces of about one hour. Write the spec, show it, capture it. The
    judge writer writes the judge on `piece/<n>`. Run the project's Test on the
@@ -939,7 +946,7 @@ Each step waits for a real run that needs it.
 
 | Not done | Why |
 | --- | --- |
-| A combined branch and combined review | The person reviews each pull request. About 28% of agent pull requests conflict [AgenticFlict], so this returns when runs grow. A conflict after a sibling merge goes to the builder for now. |
+| Merging pieces into the base branch | The person merges each piece pull request into the base, then reviews the one pull request into `main`. About 28% of agent pull requests conflict [AgenticFlict]. A conflict after a sibling merge goes to the builder. |
 | A GitHub App identity | The person's own sign-in is enough while runs are attended. |
 | Automatic merges, even pre-approved | Merging is the person's moment. |
 | Crews, design-it-twice, a skills registry or context store | Coordination cost with no proven need [Pocock, codebase-design], [Port]. |
@@ -952,16 +959,16 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,540 Python lines in `kit/`, including the remaining
+The default plugin has 6,630 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 6,962 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,052 runtime
 Python lines. The kit uses the Python standard library only and supports
 Python 3.9 or later.
 
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-6,962 runtime lines in total. The suite reports the total and the
+7,052 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

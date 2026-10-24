@@ -651,13 +651,18 @@ class GitHub:
         self._gh("label", "create", name, "--color", color, "--description",
                  description, "--force")
 
-    def create_pr(self, head: str, title: str, body: str) -> str:
-        return self._gh("pr", "create", "--base", base_branch(self.root), "--head", head,
+    def create_pr(self, head: str, title: str, body: str, base: str = "") -> str:
+        return self._gh("pr", "create", "--base", base or base_branch(self.root), "--head", head,
                         "--title", title, "--body-file", "-", stdin=body).strip()
 
-    def edit_pr(self, url: str, title: str, body: str) -> None:
-        self._gh("pr", "edit", url, "--base", base_branch(self.root), "--title", title,
+    def edit_pr(self, url: str, title: str, body: str, base: str = "") -> None:
+        self._gh("pr", "edit", url, "--base", base or base_branch(self.root), "--title", title,
                  "--body-file", "-", stdin=body)
+
+    def pull_requests(self, base: str, state: str, head: str = "") -> list[dict]:
+        return json.loads(self._gh("pr", "list", "--base", base, "--state", state, "--limit", "200",
+                                   *(["--head", head] if head else []), "--json",
+                                   "number,title,url,headRefName,mergeCommit,mergedAt"))
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         data = json.loads(self._gh("pr", "list", "--head", branch, "--state", "all",
