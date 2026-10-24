@@ -16,7 +16,8 @@ import gate
 import holds
 import walkaway
 from doctor import print_checks
-from loopkit import STATE_PREFIX, GitHub, Refused, last_record, loop_settings, repo_root
+from loopkit import (STATE_PREFIX, GitHub, Refused, last_record, loop_settings, refresh_main,
+                     repo_root)
 
 from extras import require_extras
 
@@ -64,6 +65,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             print(f"refused: {error.reason}\nnext: {error.next_step}", file=sys.stderr)
             return 2
     root = repo_root(Path.cwd())
+    refresh_main(root)
     gh = GitHub(root)
     if args.walk_away:
         try:
