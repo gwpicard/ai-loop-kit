@@ -32,6 +32,12 @@ also denies commands that the hook does not cover, including `git reset
 and some commit options. It does not mirror every rule in this file. Do not
 edit that settings file as part of this list's maintenance.
 
+A refusal from the settings does not say which rule matched. When one part
+of a chained command matches, Claude Code refuses the whole chain. Compare
+each part with the deny list before you report a block.
+`tests/test_agent_instructions.py` checks that no instruction here tells an
+agent to run a denied command.
+
 The hook and settings file do not cover every restriction below. These remain
 rules for every build path:
 
