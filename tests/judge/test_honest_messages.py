@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import sysconfig
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -16,6 +17,16 @@ from helpers import Project
 import gate
 import session
 from loopkit import GitHub
+
+
+def pytest_program() -> Path | None:
+    """The pytest program installed for this Python, wherever pip put it."""
+    folders = [Path(sys.executable).parent, Path(sysconfig.get_path("scripts"))]
+    folders += [Path(sysconfig.get_path("scripts", scheme))
+                for scheme in ("posix_user", "osx_framework_user")
+                if scheme in sysconfig.get_scheme_names()]
+    return next((folder / "pytest" for folder in folders
+                 if (folder / "pytest").is_file()), None)
 
 
 class HonestMessagesTest(unittest.TestCase):
@@ -78,12 +89,15 @@ class HonestMessagesTest(unittest.TestCase):
                             for line in lines), lines)
 
     def test_D1_quiet_empty_pytest_says_no_tests_were_collected(self):
+        program = pytest_program()
         commands = (f"{sys.executable} -m pytest -qq",
                     f'"{sys.executable}" -m pytest -qqq',
-                    f"{Path(sys.executable).with_name('pytest')} -qq")
+                    f"{program} -qq" if program else "")
         self.add_empty_test_file()
         for command in commands:
             with self.subTest(command=command):
+                if not command:
+                    self.skipTest("no pytest program is installed for this Python")
                 self.p.loop_section(command)
                 code, lines = self.doctor_output()
                 self.assertEqual(code, 2)
