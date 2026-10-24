@@ -17,7 +17,7 @@ Use the KIT path above in every command. Write it out in full. Read
 !`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
 
 ## Steps
-1. Run `git switch main` and `git pull --ff-only`, so you start from the merged work. Understand the idea. Read the code and docs it touches. Look at the open issues for the same idea (`gh issue list --search "<words>"`).
+1. `<base>` is the `Base branch:` in AGENTS.md on `main`, or `main` when there is none. Run `git switch <base>` and `git pull --ff-only`, so you start from the merged work. Understand the idea. Read the code and docs it touches. Look at the open issues for the same idea (`gh issue list --search "<words>"`).
    Done when: you can say the idea back in one sentence, and you have shown the person any issue that looks the same.
 2. Ask one batch of questions. Read `references/questions.md` first. For any
    outside fact, save a JSON object with only `question`. Run
@@ -55,7 +55,7 @@ Use the KIT path above in every command. Write it out in full. Read
    Once the person approves the Intent, Out of scope, Approach and Contract, do not change those words without asking for approval again. For a `fix`, first reproduce the bug and make the first Contract item say what fails now and what should happen.
 5. Capture it: write the body to a file in the system temp folder, then run `python3 "<KIT>/scripts/gate.py" capture --title "<title>" --body-file <file>`.
    Done when: the gate prints the piece number.
-6. Run `git fetch origin main`, then `git switch -c piece/<n> origin/main`.
+6. Run `git fetch origin <base>`, then `git switch -c piece/<n> origin/<base>`.
    If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>` and `git pull --ff-only origin piece/<n>`. The judge writer adds its commit on top.
    Save JSON containing approved `Intent`, `Approach`, `Contract` and `Files`
    strings. `Files` lists exact Exit paths, one per line. Exclude shaping chat.
@@ -64,9 +64,9 @@ Use the KIT path above in every command. Write it out in full. Read
    The fresh session reads `<KIT>/briefs/judge-writer.md` and the project code.
    The launcher requires a clean piece branch, checks paths and verdict, and
    commits judge files. Report any refusal and `next:` line. On success, run
-   `git switch main`.
-   Done when: `git log main..piece/<n>` shows the judge commit (the newest
-   commit for a returned piece), and you are back on main.
+   `git switch <base>`.
+   Done when: `git log <base>..piece/<n>` shows the judge commit (the newest
+   commit for a returned piece), and you are back on `<base>`.
 7. Run the project's Test command on the piece branch. An Exit Tests check
    fails on main; a Measure or Critics check uses its own baseline. Read the
    output and fix errors in the check files, such as lint, type or format

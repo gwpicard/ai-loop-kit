@@ -17,7 +17,8 @@ refuse a gauntlet piece when either file is missing.
 
 For mutation testing, run `/ai-loop-kit:setup` to agree the mutation Quality
 command. It uses
-`python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-check.py" origin/main` as before.
+`python3 "$AI_LOOP_KIT_ROOT/quality/mutmut-check.py"`, which compares
+with the base branch.
 The extra requires mutmut 3.8 or later, configured source paths and tests
 that call the changed code in-process. Do not add a Quality command until
 the person agrees and doctor passes it on a fresh copy of main.

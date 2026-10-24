@@ -42,7 +42,7 @@ def existing_worktree(root: Path, n: int) -> Path | None:
     return None
 
 
-def worktree_reason(root: Path, folder: Path, merged_into: str = "main") -> str:
+def worktree_reason(root: Path, folder: Path, merged_into: str = "") -> str:
     """Return why cleanup must keep a folder. Ignored artefacts do not count."""
     entries = worktrees(root)
     entry = next((item for item in entries
@@ -60,15 +60,14 @@ def worktree_reason(root: Path, folder: Path, merged_into: str = "main") -> str:
         return "uncommitted work"
     if sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False).returncode == 0:
         return "unfinished merge"
-    if merged_into == "main":
-        merged_into = main_ref(root)
+    merged_into = merged_into or main_ref(root)
     if sh(["git", "merge-base", "--is-ancestor", "HEAD", merged_into],
           folder, check=False).returncode:
         return f"unmerged work (not merged into {merged_into})"
     return ""
 
 
-def remove_worktree(root: Path, folder: Path, merged_into: str = "main") -> bool:
+def remove_worktree(root: Path, folder: Path, merged_into: str = "") -> bool:
     try:
         reason = worktree_reason(root, folder, merged_into)
         if not reason:
@@ -76,7 +75,7 @@ def remove_worktree(root: Path, folder: Path, merged_into: str = "main") -> bool
             if result.returncode == 0:
                 return True
             reason = result.stderr.strip() or result.stdout.strip() or "git worktree remove failed"
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, Refused) as error:
         reason = str(error)
     print(f"kept worktree {folder}: {reason}", flush=True)
     return False
@@ -140,7 +139,7 @@ def cleanup_interrupted_reviews(root: Path, prefixes: tuple[str, ...] = ()) -> l
         if not match or (prefixes and not branch.startswith(prefixes)):
             continue
         base = branch_name(int(match[1]))
-        base = base if rev(root, base) else "main"
+        base = base if rev(root, base) else ""
         folder = Path(entry["worktree"])
         if remove_worktree(root, folder, base):
             removed.append(f"worktree {folder}")
@@ -153,7 +152,7 @@ def cleanup_interrupted_reviews(root: Path, prefixes: tuple[str, ...] = ()) -> l
         if not match or branch in kept or (prefixes and not branch.startswith(prefixes)):
             continue
         base = branch_name(int(match[1]))
-        base = base if rev(root, base) else "main"
+        base = base if rev(root, base) else main_ref(root)
         if sh(["git", "merge-base", "--is-ancestor", branch, base], root, check=False).returncode:
             print(f"kept branch {branch}: unmerged work (not merged into {base})", flush=True)
             continue

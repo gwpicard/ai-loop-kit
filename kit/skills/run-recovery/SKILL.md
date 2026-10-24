@@ -11,4 +11,4 @@ Run `python3 "<KIT>/scripts/run.py"` again after an interruption. It checks the 
 
 A dirty folder returns as `environment`; preserve it and follow `next:`. For other environment hand-backs, address the recorded cause before reshaping. A stop uses `gate.py stop`, returns `stopped` and preserves the last real failure.
 
-For a pull request conflicting with main, with the spec and judge unchanged, run `python3 "<KIT>/scripts/run.py" --retry-conflict <n>` in the background. The runner moves it through shaping with type `conflict` and through ready before retrying. Its builder resolves conflicts and Keep checks both changes. Never resolve conflicts here.
+For a pull request conflicting with the base branch, with the spec and judge unchanged, run `python3 "<KIT>/scripts/run.py" --retry-conflict <n>` in the background. The runner moves it through shaping with type `conflict` and through ready before retrying. Its builder resolves conflicts and Keep checks both changes. Never resolve conflicts here.

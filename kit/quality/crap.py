@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -125,7 +126,7 @@ def git(root: Path, *args: str) -> str:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--coverage", required=True, help="coverage.py JSON output")
-    parser.add_argument("--base", default="origin/main")
+    parser.add_argument("--base", default="origin/" + os.environ.get("LOOP_BASE", "main"))
     parser.add_argument("--root", default=".")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()

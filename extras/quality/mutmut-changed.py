@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import ast
 import re
 import subprocess
@@ -95,7 +96,7 @@ def results_pass(output: str, selected: list[str]) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("base", nargs="?", default="origin/main")
+    parser.add_argument("base", nargs="?", default="origin/" + os.environ.get("LOOP_BASE", "main"))
     base = parser.parse_args().base
     if not source_paths(Path.cwd()):
         print("mutmut: no mutmut source paths configured", file=sys.stderr)

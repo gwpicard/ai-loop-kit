@@ -23,7 +23,7 @@ from extras import require_extras
 def retry_conflict(gh: GitHub, root: Path, number: int) -> None:
     """Return a conflicting piece through the existing gates before retrying."""
     gate.move(gh, root, number, "shaping", reason_type="conflict",
-              reason="conflicts with main")
+              reason="conflicts with the base branch")
     gate.move(gh, root, number, "ready")
 
 

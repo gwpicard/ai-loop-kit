@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ from mutmut_support import validation_error
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("base", nargs="?", default="origin/main")
+    parser.add_argument("base", nargs="?", default="origin/" + os.environ.get("LOOP_BASE", "main"))
     base = parser.parse_args().base
     try:
         version = subprocess.run(["mutmut", "--version"], cwd=Path.cwd(),
