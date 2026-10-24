@@ -62,6 +62,20 @@ class FinalPullRequestTest(unittest.TestCase):
         self.assertLess(body.index("piece/1"), body.index("piece/2"))
         self.assertNotIn("Closes", body)
         self.assertNotIn("Changes check settings", body)
+        self.assertNotIn("### Wave", body)
+
+    def test_pieces_are_grouped_by_wave_when_they_depend_on_each_other(self):
+        from loopkit import record_text
+        for depends in ([], [1], []):
+            n = self.p.gh.create_issue("A piece", "", ["state:done"])
+            self.p.gh.comment(n, record_text({"move": "ready",
+                                              "risks": {"depends_on": depends}}, "ready"))
+        for n in (1, 3, 2):
+            self.land(n, [f"piece{n}.py"])
+        body = self.final() and self.p.gh.prs["trip"]["body"]
+        self.assertIn("### Wave 1\n- piece/1: Piece 1", body)
+        self.assertIn("- piece/3: Piece 3", body.split("### Wave 1", 1)[1].split("### Wave 2")[0])
+        self.assertIn("### Wave 2\n- piece/2: Piece 2", body)
 
     def test_a_second_run_updates_the_same_pull_request(self):
         self.land(1, ["habits.py"])

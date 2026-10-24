@@ -13,6 +13,7 @@ from typing import Optional
 
 import dashboard
 import gate
+import holds
 import walkaway
 from doctor import print_checks
 from loopkit import STATE_PREFIX, GitHub, Refused, last_record, loop_settings, repo_root
@@ -129,7 +130,16 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             final_pull_request(api, gh, root, results)
             print("\n".join(line for line in results if "final pull request" in line.lower()))
             return 0
-        for n in pieces:
+        wants, pending, tried = holds.wanted(gh, pieces), list(pieces), {}
+        while pending:
+            n, held = holds.pick(gh, pending, wants, tried)
+            if n is None:  # every piece left waits for one that is not done
+                results.extend(held.values())
+                if args.walk_away:
+                    summary_results.extend(walkaway.piece_summary(root, p, line, "ready", started_at)
+                                           for p, line in held.items())
+                break
+            pending.remove(n)
             if api.stop_requested(root):
                 api.log("stop requested; ending before the next piece")
                 break
@@ -153,6 +163,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 state = "unknown"
                 result = f"piece {n}: stopped by an error: {e}"
             results.append(result)
+            tried[n] = result
             if args.walk_away:
                 summary_results.append(walkaway.piece_summary(root, n, result, state, started_at))
         final_pull_request(api, gh, root, results)
@@ -169,8 +180,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 ], started_at, datetime.now(timezone.utc)).read_text()
                 walkaway.post_summary(gh, summary,
                                       mention=any(marker in result for result in results
-                                                  for marker in ("back to shaping", "Run paused",
-                                                                 "refused", "stopped by an error")))
+                                                  for marker in walkaway.BLOCKERS))
             except Exception as error:
                 api.log(f"could not save or post the run summary: {error}")
         try:

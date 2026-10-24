@@ -5,10 +5,11 @@ import fnmatch
 import re
 from pathlib import Path
 
+import holds
 from loopkit import CHECK_FILES, GitHub, base_branch, loop_settings, rev, sh
 
 BODY_LIMIT = 60000  # GitHub refuses a body above 65,536 characters
-HELD = ("back to shaping", "refused", "stopped by an error")
+HELD = ("back to shaping", "refused", "stopped by an error", "held until")
 
 
 def touched(root: Path, commit: str, protected: list[str]) -> list[str]:
@@ -42,14 +43,21 @@ def final_pull_request(gh: GitHub, root: Path, results: list[str]) -> str:
     lines = [f"This pull request brings `{base}` into `main`. Each piece below was built, "
              f"gated and merged into `{base}` in its own pull request, which keeps its "
              "evidence. The run never merges into `main`.", "", f"## Pieces on `{base}`"]
+    entries = []
     for pr in sorted(pieces, key=lambda item: item.get("mergedAt") or ""):
         commit = (pr.get("mergeCommit") or {}).get("oid", "")
         if not commit or in_main(root, commit):
             continue
         risky = touched(root, commit, protected)
-        lines.append(f"- {pr['headRefName']}: {pr['title']} ({pr['url']})"
-                     + (f". Changes check settings or protected paths: {', '.join(risky)}"
-                        if risky else ""))
+        entries.append((int(pr["headRefName"].split("/")[1]),
+                        f"- {pr['headRefName']}: {pr['title']} ({pr['url']})"
+                        + (f". Changes check settings or protected paths: {', '.join(risky)}"
+                           if risky else "")))
+    numbers = [n for n, _ in entries]
+    wave = holds.waves(numbers, holds.wanted(gh, numbers)) if numbers else {}
+    for k in sorted({wave.get(n, 1) for n in numbers}):  # headings only when pieces wait
+        lines += ([f"### Wave {k}"] if max(wave.values(), default=1) > 1 else [])
+        lines += [line for n, line in entries if wave.get(n, 1) == k]
     waiting = [f"- {pr['headRefName']}: {pr['title']} ({pr['url']})"
                for pr in gh.pull_requests(base, "open")
                if re.fullmatch(r"piece/\d+", pr["headRefName"])]

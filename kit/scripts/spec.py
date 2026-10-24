@@ -38,7 +38,7 @@ _ITEM = re.compile(r"^\s*[-*]\s*(D\d+)\s*(\(stays\))?\s*[:.)]\s*(\S.*)$", re.IGN
 _FIELD = re.compile(r"^\s*(Command|Files|Kind|Keep|Settings|Large file|Measure|Target|"
                     r"Capture|Reference|Criteria|Playbook)\s*:\s*(.*)$", re.IGNORECASE)
 _RISK_FIELD = re.compile(r"^\s*(Protected paths|New dependency|Shared files|Needs services|"
-                         r"Open choices)\s*:\s*(.*)$", re.IGNORECASE)
+                         r"Open choices|Depends on)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def _risk_items(value: str) -> tuple[str, ...]:
@@ -114,6 +114,18 @@ def parse_spec(body: str) -> Spec:
             if key in found_risks:
                 gaps.append(f"Risks field '{match.group(1)}' is used twice")
             found_risks.add(key)
+            if key == "depends on":  # optional: the run builds this piece after those
+                items = _risk_items(match.group(2))
+                bad = [item for item in items if not (item.isascii() and item.isdigit()
+                                                      and int(item) > 0)]
+                if bad:
+                    gaps.append("Risks Depends on takes piece numbers only, such as 12, "
+                                f"not {', '.join(bad)}")
+                elif len(set(items)) < len(items):
+                    gaps.append("Risks Depends on names a piece twice")
+                elif items:
+                    risks["depends_on"] = tuple(int(item) for item in items)
+                continue
             risks[risk_names[key]] = _risk_items(match.group(2))
             if key == "new dependency":
                 for dependency in risks["new_dependencies"]:
