@@ -35,8 +35,9 @@ person approves the contract and the merge.
 3. **Release.** Finished work waits for the person to review and merge. By
    default that is one pull request per piece. With a base branch, each
    piece's pull request targets that branch, and the run also opens one pull
-   request from it into `main`. Pre-approved merges come later, when a run
-   earns them.
+   request from it into `main`. With `Base merges: run`, the run merges each
+   gated piece into the base itself, and the person reviews only the pull
+   request into `main`.
 
 Around all three, a **meta loop** reads why pieces came back and improves
 what surrounds the loop for this project: its quality floor, its standards,
@@ -739,7 +740,7 @@ run.py
   Quality output, the required regression command and result, the bar hash
   and the judged commit. It lists renames as a delete and an add. The builder writes only why, and what could go wrong. A
   person should understand the change and its danger in two minutes
-  [HumanLayer], [Port]. The run never merges.
+  [HumanLayer], [Port]. The run never merges into `main`.
 
 The importer count covers a Python and JavaScript/TypeScript source scan.
 Its message names the exclusions: test directories, `test_*` files, exit
@@ -774,7 +775,7 @@ failure returns the piece to shaping as `environment`, with cause
 
 During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
 with `caffeinate`, waits once for a reported usage limit, and at the end
-writes `.loop/summary.md` and posts it to a tracking issue. It never merges.
+writes `.loop/summary.md` and posts it to a tracking issue. It never merges into `main`.
 
 Codex denies credential folders such as `~/.ssh`, `~/.aws`, `~/.config/gh`,
 `~/.config/gcloud` and `~/Library/Keychains`. Other config folders remain
@@ -797,7 +798,7 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 | The first push of `main` happens once | code: bootstrap pushes only when origin has no `main`; the hook still refuses an agent's push |
 | No secret in a tracked file | code at submit, and words |
 | The spec says what the person meant | words: the person approves the contract |
-| The person merges every pull request | the run has no merge step; the hook refuses `gh pr merge` |
+| The person merges every pull request into `main` | the only merge in the kit refuses `main`, `master` and the default branch (code); the hook refuses `gh pr merge` from agents |
 | Walk-away shell commands stay in the build folder and reach only allowed hosts | sandbox, checked by a live probe |
 
 The guard is a seatbelt, not a sandbox. It splits words and matches patterns.
@@ -854,6 +855,22 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    settings and protected paths each one changed. It also lists the piece
    pull requests still waiting and the pieces the run held, and then its
    title says "incomplete". The run never merges it.
+
+   With `Base merges: run` (read from `AGENTS.md` on `main`), the run merges
+   each piece that passed the gate and its reviews into the base, then moves
+   it to done. The merge reads the pull request's real base and refuses
+   `main`, `master` and the default branch, a closed pull request and a
+   branch that is not a piece. It uses `--merge --match-head-commit`, so
+   only the gated commit lands. The run leaves a piece for the person when
+   the contract review left findings, when the base moved after the gate,
+   when GitHub refuses the merge, and when the piece changes `.github/`,
+   `.githooks/` or `AGENTS.md`. Workflows and hooks run code, with the
+   repository's secrets, as soon as they land, and `AGENTS.md` changes the
+   loop's rules, so a person reads those first; the run says so on the
+   issue. A piece left for the person holds its dependents. The waiting
+   limit does not apply, and a failure here never stops the run. The base
+   branch must not require checks or reviews; on a free private repository
+   GitHub cannot require them.
 3. **`/ai-loop-kit:shape <idea>`.** Pull `main`. Ask questions. Split the work
    into pieces of about one hour. Write the spec, show it, capture it. The
    judge writer writes the judge on `piece/<n>`. Run the project's Test on the
@@ -956,9 +973,8 @@ Each step waits for a real run that needs it.
   that must leave is rebuilt, never reverted. About 28% of agent pull
   requests conflict [AgenticFlict]. The first step is read-only: report
   whether the waiting pull requests merge cleanly together.
-- **Pre-approved merges**, only when the combined branch is green, every exit
-  passed with an unchanged bar, the review is clean and no piece touches a
-  protected path.
+- **Pre-approved merges into `main`.** The run already merges gated pieces
+  into a base branch; `main` still needs the person.
 - **A test environment set up once**: the services tests need, a test env
   file with fake values, and a fast test command for the builder beside the
   full one for the gate.
@@ -969,9 +985,9 @@ Each step waits for a real run that needs it.
 
 | Not done | Why |
 | --- | --- |
-| Merging pieces into the base branch | The person merges each piece pull request into the base, then reviews the one pull request into `main`. About 28% of agent pull requests conflict [AgenticFlict]. A conflict after a sibling merge goes to the builder. |
+| Merging into `main` | The person reviews and merges the one pull request into `main`. About 28% of agent pull requests conflict [AgenticFlict]. A conflict after a sibling merge goes to the builder. |
 | A GitHub App identity | The person's own sign-in is enough while runs are attended. |
-| Automatic merges, even pre-approved | Merging is the person's moment. |
+| Automatic merges into `main` | Merging into `main` is the person's moment. |
 | Crews, design-it-twice, a skills registry or context store | Coordination cost with no proven need [Pocock, codebase-design], [Port]. |
 | A fixed sentence pattern for every item | It makes odd, long issues. "When ..., then ..." is a guide only. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |
@@ -982,9 +998,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 6,887 Python lines in `kit/`, including the remaining
+The default plugin has 7,001 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,309 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,423 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -997,7 +1013,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,309 runtime lines in total. The suite reports the total and the
+7,423 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

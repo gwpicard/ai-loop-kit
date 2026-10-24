@@ -30,6 +30,7 @@ class GuardTest(unittest.TestCase):
         'eval "git push --force origin piece/1"', "printf x | xargs rm -r file",
         "find . -name '*.pyc' -delete", "git clean -fdx", "git rm -r src",
         "gh pr merge 3 --squash", "gh issue edit 3 --add-label state:ready",
+        "gh pr merge https://github.com/o/r/pull/3 --merge --match-head-commit abc123",
         "gh api repos/o/r/issues/3/labels -f labels[]=state:done",
         "echo hi && git push origin main", "FOO=1 git push origin main",
         "git -C . push origin main", 'bash -c "git push --force origin x"',

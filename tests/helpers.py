@@ -121,6 +121,7 @@ class FakeGitHub:
         self.issues: dict[int, dict] = {}
         self.notes: dict[int, list[str]] = {}
         self.prs: dict[str, dict] = {}
+        self.merges: list[tuple[str, str, str]] = []
         self.made_labels: set[str] = set()
 
     def issue(self, n: int) -> dict:
@@ -178,6 +179,17 @@ class FakeGitHub:
                 pull_request.update(title=title, body=body, **({"base": base} if base else {}))
                 return
         raise RuntimeError(f"unknown pull request: {url}")
+
+    def merge_pr(self, url: str, base: str, head: str) -> None:
+        """Record the merge; a test sets merge_error or on_merge to shape the outcome."""
+        self.merges.append((url, base, head))
+        if getattr(self, "merge_error", None):
+            raise RuntimeError(self.merge_error)
+        for branch, pull_request in self.prs.items():
+            if pull_request["url"] == url:
+                if getattr(self, "on_merge", None):
+                    self.on_merge(branch, base)
+                pull_request["state"] = "MERGED"
 
     def pull_requests(self, base: str, state: str, head: str = "") -> list[dict]:
         return [{"headRefName": branch, "number": number, "title": "", **pr}
