@@ -105,7 +105,7 @@ The ordinary audit and the historical `RESULTS.md` rows keep their format.
 | Name | Repository | What it proves | Last run |
 | --- | --- | --- | --- |
 | new-project | loop-test-thin | An empty repository becomes a working project: setup, a scaffold piece, then feature pieces. | 13 Oct 2026 |
-| existing-python | loop-test-existing | The loop works in an existing Python project with its own tests and a `.venv`. | 14 Oct 2026 |
+| existing-python | new | The loop works in an existing Python project with its own tests and a `.venv`. | 14 Oct 2026 |
 | existing-node | loop-test-node | The loop works in an existing Node project, with a Prepare command. | 14 Oct 2026 |
 | wrong-bar | loop-test-thin | A judge that contradicts itself fails every attempt. The piece returns with `needs-you` and the builders' reasons. It is reshaped and built. | 13 Oct 2026 |
 | rejected-pr | loop-test-node | The person rejects a pull request with a reason. The piece is fixed without hand work on the branch. | 14 Oct 2026: failed, five fixes, then passed on the re-run |
@@ -123,7 +123,8 @@ The ordinary audit and the historical `RESULTS.md` rows keep their format.
 
 ### existing-python
 
-- Setup: a public copy of a small, well-tested Python library.
+- Setup: a new public copy of a small, well-tested Python library. The
+  last run used python-tabulate (MIT).
 - Steps: setup, with a Prepare command that makes the `.venv`; one feature
   piece that keeps the old tests green (`Keep:`).
 - Must hold: every audit rule; doctor passes before the first piece.
