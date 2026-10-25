@@ -12,6 +12,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -151,6 +152,20 @@ def rev(root: Path, ref: str) -> Optional[str]:
     return res.stdout.strip() or None
 
 
+def refresh_main(root: Path) -> None:
+    """Fetch main once, so settings read from AGENTS.md on main are current."""
+    if "origin" not in sh(["git", "remote"], root, check=False).stdout.split():
+        return
+    try:
+        failed = sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False,
+                    timeout=60).returncode != 0
+    except subprocess.TimeoutExpired:
+        failed = True
+    if failed:
+        print("warning: could not fetch main from origin; loop settings may be out of date",
+              file=sys.stderr)
+
+
 def settings_on_main(root: Path) -> dict:
     """Loop settings from AGENTS.md on main. No checkout or build folder can change
     them; a project with no main yet reads its checkout."""
@@ -168,6 +183,18 @@ def base_branch(root: Path) -> str:
         raise Refused(f"Base branch {name!r} is not a valid branch name",
                       "set `Base branch: <name>` in the loop section of AGENTS.md")
     return name
+
+
+def agent_options(model: str, effort: str) -> tuple[str, str]:
+    """Check the Codex model and reasoning effort. Empty means Codex's own default."""
+    model, effort = (model or "").strip(), (effort or "").strip().lower()
+    if model and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model):
+        raise Refused(f"Agent model {model!r} is not a model name",
+                      "set `Agent model: <name>`, such as gpt-6-luna, in AGENTS.md")
+    if effort and not re.fullmatch(r"[a-z]+", effort):
+        raise Refused(f"Agent effort {effort!r} must be one word, such as high",
+                      "set `Agent effort: <level>` in AGENTS.md")
+    return model, effort
 
 
 def base_merges(root: Path) -> bool:
@@ -318,7 +345,7 @@ def loop_settings(folder: Path, text: Optional[str] = None) -> dict:
             continue
         m = re.match(
             r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
-            r"Keep|Agent|Sandbox domains|Secret paths|Base branch|Base merges)\s*:\s*(.*)$", line, re.IGNORECASE)
+            r"Keep|Agent model|Agent effort|Agent|Sandbox domains|Secret paths|Base branch|Base merges)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
             if key == "quality":

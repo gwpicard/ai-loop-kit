@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from doctor import print_checks
-from loopkit import REASON_TYPES, STATES, GitHub, Refused, repo_root
+from loopkit import REASON_TYPES, STATES, GitHub, Refused, refresh_main, repo_root
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +70,8 @@ def main(argv: list[str] | None = None, api=None) -> int:
 
     root = repo_root(Path.cwd())
     gh = GitHub(root)
+    if args.cmd in ("check", "move"):  # ready and claim read settings from main
+        refresh_main(root)
     try:
         if args.cmd == "init":
             api.init(gh, root)

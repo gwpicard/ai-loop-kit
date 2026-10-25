@@ -21,6 +21,7 @@ from loopkit import (
     loop_settings,
     main_ref,
     prepare,
+    refresh_main,
     record_quality_outputs,
     run_judge,
     run_keep,
@@ -130,6 +131,7 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
     if not add(bool(origin), "the project has an origin",
                "run setup; it runs gate.py bootstrap"):
         return checks
+    refresh_main(root)
     try:
         if not add(gh.signed_in(), "gh is signed in", "run: gh auth login"):
             return checks
