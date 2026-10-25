@@ -476,6 +476,11 @@ uncommitted files inside these tool cache folders at any depth:
 and `.ruff_cache`. Folder names must match exactly. A loose `*.pyc` outside
 these folders receives no exception. Every path committed during the session
 must be an approved Exit file, including cache paths.
+The path check also ignores changes inside a `node_modules` folder at any
+depth, but only when Git ignores the path. Node test tools such as Vitest
+write their caches there. The brief tells the writer not to install packages.
+A `node_modules` folder that Git does not ignore is refused as unclean work.
+Other ignored files, such as the person's own ignored notes, stay protected.
 Other additions, removals and changes to contents, file types, symbolic links
 or permissions outside the approved paths are refused. The refusal names
 the first unexpected path and asks the person to inspect it against the
@@ -1016,9 +1021,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 7,092 Python lines in `kit/`, including the remaining
+The default plugin has 7,098 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,514 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,520 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -1031,7 +1036,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,514 runtime lines in total. The suite reports the total and the
+7,520 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
