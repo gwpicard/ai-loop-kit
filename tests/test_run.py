@@ -562,6 +562,17 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertIn("pull request ready", result)
         self.assertIn("- `.eslintrc.json`", self.p.gh.prs[f"piece/{n}"]["body"])
 
+    def test_ready_refuses_a_contract_that_names_check_settings_without_the_line(self):
+        workflow = SPEC.replace("- D2: adding a habit twice keeps one.",
+                                "- D2: `.github/workflows/tests.yml` runs the tests.")
+        n = self.p.piece(spec=workflow)
+        with self.assertRaises(Refused) as refusal:
+            gate.move(self.p.gh, self.p.root, n, "ready")
+        self.assertIn("names check settings: .github/workflows/tests.yml", refusal.exception.reason)
+        self.assertIn("'Settings: may change' in '## Judge'", refusal.exception.next_step)
+        allowed = self.p.piece(spec=workflow.replace("Files:", "Settings: may change\nFiles:"))
+        self.assertIn("ready", gate.move(self.p.gh, self.p.root, allowed, "ready"))
+
     def test_check_settings_inside_package_json_and_pyproject(self):
         (self.p.root / "package.json").write_text(
             '{"name": "x", "dependencies": {}, "xo": {"rules": {}}, "scripts": {"test": "xo && ava"}}')

@@ -141,6 +141,7 @@
   "test_run.RunTest.test_quality_failure_returns_the_piece_with_output",
   "test_run.RunTest.test_quality_outputs_are_recorded_and_removed_between_attempts",
   "test_run.RunTest.test_quality_probe_cache_key_includes_command_and_main_commit",
+  "test_run.RunTest.test_ready_refuses_a_contract_that_names_check_settings_without_the_line",
   "test_run.RunTest.test_ready_search_retries_brief_github_label_lag",
   "test_run.RunTest.test_run_kills_tracked_process_groups_on_interrupt",
   "test_run.RunTest.test_run_lock_refuses_live_runs_and_takes_over_dead_ones",

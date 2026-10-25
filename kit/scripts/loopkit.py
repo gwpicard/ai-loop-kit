@@ -125,6 +125,19 @@ def changed_check_settings(folder: Path, extra_paths: tuple[str, ...] | list[str
     return changed
 
 
+def named_check_settings(texts) -> list[str]:
+    """The check settings that these spec texts name, such as a workflow file."""
+    found = []
+    for text in texts:
+        for word in re.split(r"[\s`]+", text):
+            name = word.lstrip("(\"'").rstrip(".,;:)\"'")
+            short = name.rsplit("/", 1)[-1]
+            if name and name not in found and any(
+                    fnmatch.fnmatch(name if "/" in p else short, p) for p in CHECK_FILES):
+                found.append(name)
+    return found
+
+
 def spec_hash(body: str) -> str:
     return hashlib.sha256(body.strip().encode()).hexdigest()
 

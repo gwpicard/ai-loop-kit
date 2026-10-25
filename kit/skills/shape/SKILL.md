@@ -42,8 +42,8 @@ Use the KIT path above in every command. Write it out in full. Read
    Mark a Contract item that already holds today as `(stays)`; never bend a
    test so it fails on main. Put rules the gate must enforce in Contract or
    Exit. Use `Playbook: fix` for fix guidance. Add
-   `Settings: may change` only when the piece is about the project's lint,
-   test or CI settings.
+   `Settings: may change` in `## Judge` only for a piece about lint, test
+   or CI settings.
    When a piece needs stronger tests in an existing mutation adapter, name
    its path in Contract so the builder may strengthen it. Keep the adapter
    out of Exit `Files:`: those files are frozen at ready, even when Contract
