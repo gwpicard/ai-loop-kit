@@ -88,6 +88,7 @@ then either `Citation: Command: <command> (exit <non-zero status>)` or
 `spec-unclear` as a failed attempt.
 
 A warning from a command that exited 0 is not an environment failure; carry on.
+You cannot install packages. Declare a new dependency in the project's manifest; the run installs it with Prepare before the gate checks. A missing package is not an environment failure.
 An environment outcome needs a failed command. Write `environment` in
 `.loop/outcome`, then the blocked path and reason. Stop. The run checks the
 tool log; unsupported reports count as failed attempts.

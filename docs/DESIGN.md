@@ -943,6 +943,13 @@ These facts about the platform shaped the design. Each one cost time once.
   Prepare first. Only the fresh folder's own `.venv` goes on `PATH`; the
   person's checkout's `.venv` and `VIRTUAL_ENV` are removed, so they never
   choose the interpreter for a fresh folder.
+- A builder cannot install packages: Codex has no network, and its sandbox
+  cannot write the package manager's cache. When an attempt changes a
+  dependency file such as `pyproject.toml` or `package.json`, the run runs
+  Prepare again, outside the sandbox, before the judge. A failure returns the
+  piece as `environment` with cause `prepare-failed`. An `environment` report
+  from that attempt is set aside, and the judge decides. Found in the first
+  Codex field run, where the scaffold piece could not install its framework.
 - Build folders inside the project break the person's own linters. They live
   in `~/.cache/ai-loop-kit/worktrees/`.
 - GitHub's closing keywords apply when a pull request targets the default
@@ -1014,9 +1021,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 7,058 Python lines in `kit/`, including the remaining
+The default plugin has 7,098 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,480 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,520 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -1029,7 +1036,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,480 runtime lines in total. The suite reports the total and the
+7,520 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
