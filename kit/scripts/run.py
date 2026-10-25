@@ -9,6 +9,7 @@ if __name__ == "__main__":
     import kit_python
     kit_python.require()
 
+import fnmatch
 import json
 import re
 import sys
@@ -223,6 +224,29 @@ def restore_bar(folder: Path, ready: dict) -> None:
         commit_leftovers(folder, 0, 0)
 
 
+# Files that declare what Prepare installs. The builder cannot install: it has no
+# network, so the run runs Prepare again when an attempt changes one of these.
+DEPENDENCY_FILES = ("pyproject.toml", "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock",
+                    "requirements*.txt", "package.json", "package-lock.json", "pnpm-lock.yaml",
+                    "yarn.lock", "go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "Gemfile",
+                    "Gemfile.lock")
+
+
+def prepare_again(folder: Path, ready: dict, since: str) -> tuple[bool, bool, str]:
+    """Run Prepare when the attempt changed a dependency file. Returns (ran, ok, output)."""
+    names = set(sh(["git", "diff", "--name-only", since], folder).stdout.split())
+    names |= untracked_paths(folder)
+    if not ready.get("prepare") or not any(
+            fnmatch.fnmatch(Path(name).name, pattern) for name in names
+            for pattern in DEPENDENCY_FILES):
+        return False, True, ""
+    before = untracked_paths(folder)
+    before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
+    ok, output = prepare(folder, ready["prepare"], ready.get("protected_paths", []))
+    record_prepare_outputs(folder, before, before_dirs)
+    return True, ok, output
+
+
 def dirty_folder_reason(folder: Path) -> str:
     dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
     if not dirty:
@@ -390,6 +414,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
+        attempt_start = rev(folder, "HEAD") or "HEAD"
         idle_status = build_once(
             folder, prompt, ready["files"], logfile, ready.get("settings", False),
             idle_limit_seconds(folder, ready.get("idle_limit")),
@@ -412,6 +437,15 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             _hand_back(gh, root, n, reason, "builder-failed", metrics)
             return f"piece {n}: back to shaping, {reason}"
         outcome = folder / ".loop" / "outcome"
+        ran, ok, poutput = prepare_again(folder, ready, attempt_start)
+        if ran and not ok:
+            reason = "the Prepare command failed after the attempt changed a dependency file"
+            gh.comment(n, f"**Run:** {reason}.\n\n```\n{poutput.strip()[-1500:]}\n```")
+            _hand_back(gh, root, n, reason, "environment", metrics, cause="prepare-failed")
+            return f"piece {n}: back to shaping, {reason}"
+        if ran and outcome.is_file() and walkaway.builder_outcome(outcome)[0] == "environment":
+            log(f"piece {n}: Prepare installed the new dependencies; the judge decides")
+            outcome.unlink()  # the builder could not install them; Prepare just did
         if outcome.is_file():
             outcome_kind, report = walkaway.builder_outcome(outcome)
             outcome_reason = (agents.environment_evidence(logfile)

@@ -105,6 +105,12 @@ FAKE_CLAUDE = textwrap.dedent('''\
                  git add src/auth.py habits.py && git commit --quiet -m "Build protected path" ;;
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
       wrong-import) printf 'import missing_runtime\\n' > habits.py ;;
+      adds-dependency) printf 'installedmod\\n' > requirements.txt
+                       printf 'import installedmod\\ndef add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      adds-dependency-env) printf 'installedmod\\n' > requirements.txt
+                       printf 'import installedmod\\ndef add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
+                       mkdir -p .loop
+                       printf 'environment\\nTool failure: No module named installedmod\\n' > .loop/outcome ;;
       wrong-keep-import) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py
                          touch broken_keep ;;
       stream-good) for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do

@@ -9,7 +9,7 @@ from helpers import KIT
 BUDGETS = {
     "briefs/judge-writer.md": 328,
     "briefs/researcher.md": 229,
-    "briefs/builder.md": 665,
+    "briefs/builder.md": 691,
     "briefs/contract-reviewer.md": 194,
     "extras/briefs/critic.md": 90,
     "briefs/standards-reviewer.md": 372,
