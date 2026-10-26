@@ -18,8 +18,9 @@ how it works and why.
   waiting for evidence. It is git-ignored and private.
 - History (the old ledger, lessons, build notes, the first kit and its design)
   is kept outside the repository. Do not treat it as current.
-- `.agents/maintainer-skills/`: `humanizer`, `review-issues` and
-  `stack-research`, for the maintainer.
+- `.agents/maintainer-skills/`: `humanizer`, `release-notes`,
+  `review-issues`, `review-public-docs` and `stack-research`, for the
+  maintainer.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
 - `.githooks/commit-msg`: strips model attribution from commit messages.
 
@@ -68,10 +69,14 @@ after the merge.
 - Keep unsaved work. Ask before anything irreversible, or anything that
   changes access, money or an online service. Publishing a release, changing
   repository settings and making the repository public need the person's yes.
-- Write in British spelling and plain language. Use no em dashes. Keep
-  paragraphs short. Run prose through
-  `.agents/maintainer-skills/humanizer/SKILL.md` before you save it. This keeps
-  the text easy to read and easy to check.
+- Write in British spelling, precise and natural rather than forced simple.
+  Use the established term where it is right, such as approval or branch
+  protection. Use no em dashes. Keep paragraphs under about 100 words. Claim
+  only what the evidence shows. Run prose through
+  `.agents/maintainer-skills/humanizer/SKILL.md` in its embedded mode before
+  you save it. Release notes follow
+  `.agents/maintainer-skills/release-notes/SKILL.md`. Forced simple words read
+  as childish to a capable reader, and a claim without evidence misleads.
 - Trust a check over an old instruction. When the two disagree, say so plainly.
 - Make each change one visible slice on a short-lived branch, with evidence.
   A small slice is quick to review and quick to undo.

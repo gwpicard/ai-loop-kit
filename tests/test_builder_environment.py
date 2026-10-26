@@ -94,6 +94,8 @@ class BuilderEnvironmentTest(unittest.TestCase):
         self.assertEqual(handback["type"], "environment")
         self.assertEqual(handback["attempts"], 1)
         self.assertIn(output.splitlines()[0], handback["reason"])
+        # The builder's own words usually name the cause; keep them beside the evidence.
+        self.assertIn("The shell could not create a temporary file.", handback["reason"])
         self.assertNotIn("... ok", handback["reason"])
         self.assertIn("environment", result)
         judge.assert_not_called()
@@ -232,7 +234,8 @@ class BuilderEnvironmentTest(unittest.TestCase):
             n, result = run_fixtures.RunFixture.build(self, "good", attempts=1)
         handback = next(r for r in records(self.p.gh.comments(n))
                         if r.get("move") == "give-back")
-        self.assertNotIn("here-document", handback["reason"])
+        # The builder's words appear only as its claim, after the tool evidence.
+        self.assertNotIn("here-document", handback["reason"].split("\nThe builder said: ")[0])
         if failed:
             self.assertEqual(handback["type"], "environment")
             self.assertIn(error, handback["reason"])
