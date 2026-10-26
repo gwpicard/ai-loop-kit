@@ -122,7 +122,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         args += [*codex_options(folder, model, effort),
                  "--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
     env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
-                         protected_exceptions=protected_exceptions),
+                         protected_exceptions=protected_exceptions, package_cache=True),
            "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
            "LOOP_REVIEWER": "1" if role in {"reviewer", "critic"} else "0"}
     if backend == "claude" and walk_away:
