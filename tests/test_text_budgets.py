@@ -17,7 +17,7 @@ BUDGETS = {
     "skills/run/references/walk-away.md": 220,
     "skills/run-recovery/SKILL.md": 213,
     "skills/reject-handling/SKILL.md": 180,
-    "skills/setup/SKILL.md": 1305,
+    "skills/setup/SKILL.md": 1327,
     "skills/shape/SKILL.md": 1098,
     "skills/shape/references/questions.md": 244,
     "spec-format.md": 1188,
