@@ -135,6 +135,23 @@ class HonestMessagesTest(unittest.TestCase):
         self.assertIn("main branch protection: unknown", protection)
         self.assertEqual(code, 0)
 
+    def test_plan_without_protection_warns_and_names_the_plan_limit(self):
+        import subprocess
+        from loopkit import GitHub
+        refused = subprocess.CompletedProcess([], 1, "", "gh: Upgrade to GitHub Pro or make this "
+                                              "repository public to enable this feature. (HTTP 403)")
+        github = GitHub(self.p.root)
+        with patch.object(github, "_gh", return_value="me/project"), \
+                patch("loopkit.subprocess.run", return_value=refused):
+            state = github.main_protection()
+        with patch.object(self.p.gh, "main_protection", return_value=state, create=True):
+            code, lines = self.doctor_output()
+        protection = next(line for line in lines if "branch protection" in line)
+        self.assertTrue(protection.startswith("warn"), protection)
+        self.assertIn("plan", protection)
+        self.assertIn("the guard and the gate still hold", protection)
+        self.assertEqual(code, 0)
+
     def test_known_protection_stays_non_blocking(self):
         for state in ("enabled", "disabled"):
             with self.subTest(state=state), patch.object(

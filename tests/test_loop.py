@@ -532,6 +532,8 @@ class GateTest(GateFixture, unittest.TestCase):
         with self.assertRaises(Refused) as r:
             self.ready(n)
         self.assertIn("marked (stays) but fails on main", r.exception.reason)
+        # Pieces with Depends on: often expect the item to hold only after their dependency lands.
+        self.assertIn("on the base now, not after the pieces it depends on", r.exception.next_step)
 
     def test_a_stays_item_without_a_test_is_refused(self):
         stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",

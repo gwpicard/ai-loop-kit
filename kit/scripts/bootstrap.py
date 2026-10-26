@@ -11,7 +11,12 @@ from pathlib import Path
 from loopkit import SECRET_PATTERNS, Refused
 
 IGNORE = ["/.loop/", ".env", ".env.*", "!.env.example", ".venv/", "__pycache__/",
-          "node_modules/", ".DS_Store"]
+          ".pytest_cache/", "node_modules/", ".DS_Store"]
+UV_SYNC = re.compile(r"^\s*[-*]?\s*Prepare command\s*:\s*`?uv sync`?\s*$",
+                     re.IGNORECASE | re.MULTILINE)
+# `uv sync` needs a project file. The scaffold piece adds the package and its build backend.
+PYPROJECT = ('[project]\nname = "{name}"\nversion = "0.1.0"\nrequires-python = ">=3.10"\n'
+             'dependencies = []\n\n[dependency-groups]\ndev = ["pytest>=8"]\n')
 SECRET_FILE = re.compile(r"(^|/)(id_(rsa|dsa|ecdsa|ed25519)|[^/]*\.(pem|key|p12|pfx))$")
 PROTECTION = {"required_status_checks": None, "enforce_admins": True,
               "required_pull_request_reviews": {"required_approving_review_count": 0},
@@ -31,7 +36,13 @@ def must(args: list[str], cwd: Path) -> str:
     return res.stdout.strip()
 
 
-def first_commit(root: Path, loop_section: str) -> None:
+def first_commit(root: Path, loop_section: str) -> list[str]:
+    made = []
+    if UV_SYNC.search(loop_section) and not (root / "pyproject.toml").exists():
+        name = re.sub(r"[^a-z0-9]+", "-", root.name.lower()).strip("-") or "project"
+        (root / "pyproject.toml").write_text(PYPROJECT.format(name=name))
+        must(["uv", "lock", "--quiet"], root)
+        made.append("ok   made pyproject.toml and uv.lock, so Prepare (uv sync) can run")
     if not any(root.glob("README*")):
         (root / "README.md").write_text(f"# {root.name}\n")
     ignore = root / ".gitignore"
@@ -53,6 +64,7 @@ def first_commit(root: Path, loop_section: str) -> None:
                       + (", ".join(found) or "a secret-shaped value"),
                       "ask the person to move it or add it to .gitignore, then run setup again")
     must(["git", "commit", "--quiet", "-m", "Start the project"], root)
+    return made
 
 
 def protect(root: Path) -> str:
@@ -76,6 +88,16 @@ def bootstrap(root: Path, name: str = "", visibility: str = "private",
     if run(["gh", "auth", "status", "--active"], root).returncode:
         raise Refused("gh is not signed in", "the person runs: ! gh auth login")
     done: list[str] = []
+    try:
+        return _bootstrap(root, name, visibility, loop_section, protect_main, done)
+    except Refused:
+        if done:  # what this run made stays, so say so before the refusal
+            print("\n".join(done))
+        raise
+
+
+def _bootstrap(root: Path, name: str, visibility: str, loop_section: str,
+               protect_main: bool, done: list[str]) -> list[str]:
     top = run(["git", "rev-parse", "--show-toplevel"], root)
     if top.returncode:
         must(["git", "init", "--quiet", "-b", "main"], root)
@@ -98,7 +120,7 @@ def bootstrap(root: Path, name: str = "", visibility: str = "private",
         if run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], root).returncode == 0:
             raise Refused("the project has commits but no main branch",
                           "ask the person to name the default branch main")
-        first_commit(root, loop_section)
+        done += first_commit(root, loop_section)
         done.append("ok   made the first commit on main"
                     + (" with the loop section" if loop_section else ""))
     elif loop_section and (remote_main or "## The loop" not in run(

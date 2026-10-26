@@ -599,7 +599,8 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                                  if judge_assertion_failed(output, item)]
                 if failing_stays:
                     raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
-                                  "a (stays) item already holds today; test only what it says")
+                                  "a (stays) item holds on the base now, not after the pieces it "
+                                  "depends on land; test only what it says, or remove the mark")
                 check["main_output"] = output
         elif check["type"] == "measure":
             output, baseline = measure.ready(folder, check["command"], check["target"])
@@ -723,7 +724,7 @@ class GitHub:
             return "enabled"
         if "404" in result.stderr or "Not Found" in result.stderr:
             return "disabled"
-        return "unknown"
+        return "plan" if "Upgrade to GitHub Pro" in result.stderr else "unknown"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
         self._gh("label", "create", name, "--color", color, "--description",

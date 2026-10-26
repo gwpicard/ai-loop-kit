@@ -8,19 +8,19 @@ from pathlib import Path
 from loopkit import sh
 
 
-def _declared_dependencies(path: str, content: str) -> set[str]:
-    """Read direct dependencies from the manifest formats named by the spec."""
+def _declared_dependencies(path: str, content: str) -> dict[str, str]:
+    """Read direct dependencies, each with its version constraint, from the manifest."""
     if path.endswith("package.json"):
         data = json.loads(content or "{}")
-        return {name.lower().replace("_", "-")
+        return {name.lower().replace("_", "-"): str(spec)
                 for section in ("dependencies", "devDependencies", "optionalDependencies",
                                 "peerDependencies")
-                for name in (data.get(section) or {})}
+                for name, spec in (data.get(section) or {}).items()}
     if path.endswith("pyproject.toml"):
-        names = set()
+        names: dict[str, str] = {}
         section = ""
         dependency_array = None
-        dependency_pattern = r"['\"]([A-Za-z0-9_.-]+)(?:\[[^]]+\])?(?:[<>=!~; ].*)?['\"]"
+        dependency_pattern = r"['\"](([A-Za-z0-9_.-]+)(?:\[[^]]+\])?(?:[<>=!~; ][^'\"]*)?)['\"]"
         for line in content.splitlines():
             heading = re.match(r"^\s*\[([^]]+)\]", line)
             if heading:
@@ -43,7 +43,7 @@ def _declared_dependencies(path: str, content: str) -> set[str]:
                     (section.startswith("tool.poetry.group.") and
                      section.endswith(".dependencies"))):
                 if key.lower() != "python":
-                    names.add(key.lower())
+                    names[key.lower()] = value.strip()
                 continue
             array_table = ((section == "build-system" and key == "requires") or
                            (section == "project" and key == "dependencies") or
@@ -57,8 +57,8 @@ def _declared_dependencies(path: str, content: str) -> set[str]:
             if _array_complete(value):
                 names.update(_requirement_names(value, dependency_pattern))
                 dependency_array = None
-        return {name.lower().replace("_", "-") for name in names}
-    return set()
+        return {name.lower().replace("_", "-"): spec for name, spec in names.items()}
+    return {}
 
 
 def _array_complete(value: str) -> bool:
@@ -84,10 +84,10 @@ def _array_complete(value: str) -> bool:
     return False
 
 
-def _requirement_names(value: str, pattern: str) -> set[str]:
+def _requirement_names(value: str, pattern: str) -> dict[str, str]:
     # PEP 735 include-group tables name groups, not packages.
     values = re.sub(r"\{[^{}]*\}", "", value, flags=re.DOTALL)
-    return set(re.findall(pattern, values))
+    return {name: re.sub(r"\s+", "", spec) for spec, name in re.findall(pattern, values)}
 
 
 def unnamed_dependencies(folder: Path, base: str, named: list[str]) -> list[str]:
@@ -103,10 +103,11 @@ def unnamed_dependencies(folder: Path, base: str, named: list[str]) -> list[str]
         if not after_path.is_file():
             continue
         previous = (_declared_dependencies(manifest, before.stdout)
-                    if before.returncode == 0 else set())
+                    if before.returncode == 0 else {})
         current = _declared_dependencies(manifest, after_path.read_text(errors="replace"))
-        added.update(current - previous)
-    return sorted(added - allowed)
+        added.update(name if name not in previous else f"{name} (version changed)"
+                     for name, spec in current.items() if previous.get(name) != spec)
+    return sorted(item for item in added if item.split(" ")[0] not in allowed)
 
 
 def path_mentioned(text: str, path: str) -> bool:
