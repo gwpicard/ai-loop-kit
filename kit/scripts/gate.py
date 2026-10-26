@@ -39,6 +39,7 @@ from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 from frozen import frozen_file_reason
 import holds  # noqa: E402
+import loop_pr  # noqa: E402
 from run_start import (capture_probe_files, release_worktree, remove_worktree,  # isort: skip
                        restore_probe_files)
 
@@ -618,13 +619,18 @@ def capture(gh: GitHub, title: str, body: str, root: Path | None = None) -> int:
 
 
 def sync(gh: GitHub, root: Path) -> list[str]:
-    notes = []
+    notes, done = [], []
     # Closing words may close the issue before sync sees the merged pull request.
     for item in gh.issues_with_label(STATE_PREFIX + "approval", closed_too=True):
         found = gh.pr_for_branch(branch_name(item["number"]))
         if found and found["state"] == "MERGED":
             notes.append(f"{item['number']}: " + move(gh, root, item["number"], "done"))
-    return notes
+            done.append(item["number"])
+    try:
+        line = loop_pr.refresh(gh, root, done) if done else ""
+    except Exception as error:  # the pieces are done; report and finish
+        line = f"could not refresh the final pull request: {error}"
+    return notes + ([line] if line else [])
 
 
 def init(gh: GitHub, root: Path) -> None:
