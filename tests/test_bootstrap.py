@@ -119,6 +119,9 @@ class BootstrapTest(unittest.TestCase):
         code, output = self.bootstrap()
         self.assertEqual(code, 2)
         self.assertIn("--name", output)
+        # The refusal comes after bootstrap made .git, so it says so.
+        self.assertIn("made a git repository", output)
+        self.assertLess(output.index("made a git repository"), output.index("refused:"))
         self.assertFalse(any(call.startswith("repo create") for call in self.gh_calls()))
 
     def test_second_run_changes_nothing(self):

@@ -156,7 +156,9 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
     except Refused as r:
         add(False, r.reason, r.next_step)
     protection = gh.main_protection() if hasattr(gh, "main_protection") else "unknown"
-    checks.append((True, f"main branch protection: {protection}", ""))
+    checks.append((True, "warning: main branch protection is not available on this plan for a "
+                   "private repository; the guard and the gate still hold" if protection == "plan"
+                   else f"main branch protection: {protection}", ""))
     have = set(gh.labels())
     add(all(STATE_PREFIX + s in have for s in STATES), "the state labels exist",
         "run: gate.py init")
