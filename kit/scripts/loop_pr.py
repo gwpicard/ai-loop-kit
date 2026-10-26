@@ -77,3 +77,14 @@ def final_pull_request(gh: GitHub, root: Path, results: list[str]) -> str:
         gh.edit_pr(existing[0]["url"], title, body, base="main")
         return f"Final pull request (updated): {existing[0]['url']}"
     return f"Final pull request: {gh.create_pr(base, title, body, base='main')}"
+
+
+
+def refresh(gh: GitHub, root: Path, done: list[int]) -> str:
+    """After sync, refresh an open final pull request. Keep held pieces that are not done."""
+    base = base_branch(root)
+    existing = gh.pull_requests("main", "open", head=base) if base != "main" else []
+    held = (existing[0].get("body") or "").partition("## Held in this run\n")[2] if existing else ""
+    keep = [line[2:] for line in held.split("\n\n")[0].splitlines()
+            if (m := re.match(r"- piece (\d+)", line)) and int(m[1]) not in done]
+    return final_pull_request(gh, root, keep) if existing else ""

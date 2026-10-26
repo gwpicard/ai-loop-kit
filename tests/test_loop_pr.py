@@ -103,6 +103,38 @@ class FinalPullRequestTest(unittest.TestCase):
         self.assertIn("## Held in this run\n- piece 3: back to shaping", final["body"])
         self.assertNotIn("pull request ready", final["body"])
 
+    def test_sync_refreshes_it_after_the_person_merges_a_held_piece(self):
+        import gate
+        for _ in range(3):
+            self.p.gh.create_issue("A piece", "", ["state:approval"])
+        self.land(1, ["habits.py"])
+        self.land(2, [".github/workflows/ci.yml"], state="OPEN")
+        self.final(["piece 3: back to shaping, the judge fails"])
+        self.p.gh.set_labels(1, ["state:done"], ["state:approval"])
+        self.p.gh.set_labels(3, ["state:shaping"], ["state:approval"])
+        # The person reads the workflow and merges the held piece on GitHub.
+        git(self.p.root, "switch", "--quiet", "trip")
+        git(self.p.root, "merge", "--quiet", "--no-ff", "-m", "Merge piece 2", "piece/2")
+        git(self.p.root, "push", "--quiet", "origin", "trip")
+        self.p.gh.prs["piece/2"].update(state="MERGED", mergedAt="2026-10-24T10:09:00Z",
+                                        mergeCommit={"oid": git(self.p.root, "rev-parse", "HEAD")})
+        git(self.p.root, "switch", "--quiet", "main")
+        notes = gate.sync(self.p.gh, self.p.root)
+        self.assertIn("state:done", self.p.gh.issue(2)["labels"])
+        self.assertIn("Final pull request (updated): ", notes[-1])
+        final = self.p.gh.prs["trip"]
+        self.assertEqual(final["title"], "Bring trip into main (incomplete: 1 not on trip)")
+        self.assertIn("- piece/2: Piece 2", final["body"].split("## Held")[0])
+        self.assertNotIn("Waiting to merge", final["body"])
+        self.assertIn("## Held in this run\n- piece 3: back to shaping", final["body"])
+
+    def test_sync_opens_no_final_pull_request(self):
+        import gate
+        self.p.gh.create_issue("A piece", "", ["state:approval"])
+        self.land(1, ["habits.py"])
+        gate.sync(self.p.gh, self.p.root)
+        self.assertNotIn("trip", self.p.gh.prs)
+
     def test_nothing_new_on_the_base_opens_nothing(self):
         self.assertEqual(self.final(), "")
         self.assertNotIn("trip", self.p.gh.prs)
