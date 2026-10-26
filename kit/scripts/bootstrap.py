@@ -88,6 +88,16 @@ def bootstrap(root: Path, name: str = "", visibility: str = "private",
     if run(["gh", "auth", "status", "--active"], root).returncode:
         raise Refused("gh is not signed in", "the person runs: ! gh auth login")
     done: list[str] = []
+    try:
+        return _bootstrap(root, name, visibility, loop_section, protect_main, done)
+    except Refused:
+        if done:  # what this run made stays, so say so before the refusal
+            print("\n".join(done))
+        raise
+
+
+def _bootstrap(root: Path, name: str, visibility: str, loop_section: str,
+               protect_main: bool, done: list[str]) -> list[str]:
     top = run(["git", "rev-parse", "--show-toplevel"], root)
     if top.returncode:
         must(["git", "init", "--quiet", "-b", "main"], root)
