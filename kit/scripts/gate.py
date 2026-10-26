@@ -603,7 +603,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             gh.close(n, "completed")
         elif to == "dropped":
             gh.close(n, "not planned")
-    if to in ("shaping", "approval", "done", "dropped"):
+    if to in ("shaping", "done", "dropped"):  # In approval, the work waits in its pull request.
         release_worktree(root, n)
     return note
 
