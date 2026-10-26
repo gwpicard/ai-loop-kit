@@ -129,8 +129,10 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     if backend == "codex" and writable:
         env["TMPDIR"] = str(writable[0])
-    return subprocess.Popen(args, cwd=(cwd or folder).resolve(), stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, env=env, start_new_session=True)
+    # No standard input: Codex reads it to its end, so an inherited open pipe stalls it.
+    return subprocess.Popen(args, cwd=(cwd or folder).resolve(), stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                            start_new_session=True)
 
 
 def event_text(output: Union[str, bytes], backend: str = "codex") -> str:
