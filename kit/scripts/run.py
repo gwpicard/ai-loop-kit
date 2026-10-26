@@ -448,8 +448,11 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             outcome.unlink()  # the builder could not install them; Prepare just did
         if outcome.is_file():
             outcome_kind, report = walkaway.builder_outcome(outcome)
-            outcome_reason = (agents.environment_evidence(logfile)
-                              if outcome_kind == "environment" and report else report)
+            evidence = agents.environment_evidence(logfile) if outcome_kind == "environment" else ""
+            # The evidence is the fact; the builder's words, marked as its claim, often name why.
+            outcome_reason = (f"{evidence}\nThe builder said: {report.splitlines()[0]}"
+                              if evidence and report else
+                              report if outcome_kind != "environment" else "")
             if outcome_kind in ("needs-answer", "spec-unclear", "environment"):
                 record_attempt_timing(logfile, started_at, time.monotonic() - started)
                 if outcome_reason:
