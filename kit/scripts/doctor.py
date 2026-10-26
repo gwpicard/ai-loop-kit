@@ -113,7 +113,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
             runner.rstrip("0123456789.") == "python" and words[1:3] == ["-m", "pytest"])
         pytest = pytest and not any(char in command for char in ";&|<>()\n")
         empty = code == 5 and (pytest or "no tests ran" in output.lower()
-                               or "collected 0 items" in output)
+                               or "collected 0 items" in output) or (
+            code != 0 and "Start directory is not importable" in output)  # unittest, no tests/
         fix = ("add tests or fix the test collection settings:\n" if empty else
                "increase Keep limit in AGENTS.md or make the Keep command finish sooner:\n"
                if code == 124 else "fix the command or environment, or add a Prepare command:\n")

@@ -67,6 +67,14 @@ class HonestMessagesTest(unittest.TestCase):
         self.assertTrue(any(line.startswith("warn") and "no tests yet" in line
                             for line in lines), lines)
 
+    def test_project_without_a_tests_folder_warns_for_unittest_discover(self):
+        # unittest exits 1, not 5, when its start folder is missing.
+        self.p.loop_section(f"{sys.executable} -m unittest discover -s tests -v")
+        code, lines = self.doctor_output()
+        self.assertEqual(code, 0, lines)
+        self.assertTrue(any(line.startswith("warn") and "no tests yet" in line
+                            for line in lines), lines)
+
     def test_D1_empty_pytest_says_no_tests_were_collected(self):
         self.add_empty_test_file()
         self.p.loop_section(f"{sys.executable} -m pytest")
