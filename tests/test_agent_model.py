@@ -39,6 +39,14 @@ class AgentModelTest(unittest.TestCase):
         git(self.p.root, "commit", "--quiet", "-am", "Agent settings")
         git(self.p.root, "push", "--quiet", "origin", "main")
 
+    def test_agent_sessions_get_no_standard_input(self):
+        # Codex reads standard input to its end when it is not a terminal, so an
+        # inherited input that never closes made the judge-writer wait for ever.
+        for backend in ("codex", "claude"):
+            with self.subTest(backend=backend), mock.patch.object(agents, "subprocess") as process:
+                agents.start_session(backend, "brief", self.p.root, role="judge-writer")
+                self.assertIs(process.Popen.call_args.kwargs.get("stdin"), process.DEVNULL)
+
     def test_names_are_checked_and_effort_is_lowercased(self):
         for model in ("gpt-6-luna", "gpt-5.6-luna", "o3", "gpt-oss:20b", "org/model"):
             with self.subTest(model=model):

@@ -124,6 +124,15 @@ class BootstrapTest(unittest.TestCase):
         self.assertLess(output.index("made a git repository"), output.index("refused:"))
         self.assertFalse(any(call.startswith("repo create") for call in self.gh_calls()))
 
+    def test_a_refusal_prints_what_was_made_first_in_a_terminal(self):
+        # stdout is buffered and stderr is not, so the order holds only if stdout is flushed.
+        result = subprocess.run([sys.executable, str(KIT / "scripts" / "gate.py"), "bootstrap"],
+                                cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, check=False)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertLess(result.stdout.index("made a git repository"),
+                        result.stdout.index("refused:"), result.stdout)
+
     def test_second_run_changes_nothing(self):
         self.assertEqual(self.bootstrap("--name", "project", "--protect")[0], 0)
         head = git(self.root, "rev-parse", "HEAD")

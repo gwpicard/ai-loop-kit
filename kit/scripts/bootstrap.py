@@ -92,7 +92,7 @@ def bootstrap(root: Path, name: str = "", visibility: str = "private",
         return _bootstrap(root, name, visibility, loop_section, protect_main, done)
     except Refused:
         if done:  # what this run made stays, so say so before the refusal
-            print("\n".join(done))
+            print("\n".join(done), flush=True)
         raise
 
 
