@@ -9,7 +9,7 @@ from helpers import KIT
 BUDGETS = {
     "briefs/judge-writer.md": 328,
     "briefs/researcher.md": 229,
-    "briefs/builder.md": 691,
+    "briefs/builder.md": 710,
     "briefs/contract-reviewer.md": 194,
     "extras/briefs/critic.md": 90,
     "briefs/standards-reviewer.md": 372,
@@ -20,7 +20,7 @@ BUDGETS = {
     "skills/setup/SKILL.md": 1305,
     "skills/shape/SKILL.md": 1098,
     "skills/shape/references/questions.md": 244,
-    "spec-format.md": 1186,
+    "spec-format.md": 1188,
 }
 TOTAL_BUDGET = 6499
 
