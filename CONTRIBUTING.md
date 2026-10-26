@@ -36,6 +36,13 @@ house rules. They apply to people as well as agents.
 Between releases, `main` carries a development version such as `1.3.0-dev`
 in `kit/.claude-plugin/plugin.json`. The release sets the real number.
 
+Each version has its notes in `docs/release-notes/vX.Y.Z.md`, written to
+`.agents/maintainer-skills/release-notes/SKILL.md` and reviewed before the
+release pull request. `CHANGELOG.md` keeps one short entry for the version
+that links to the notes, and the GitHub release body opens with the notes,
+word for word. Before a release, run
+`.agents/maintainer-skills/review-public-docs/SKILL.md` over the shipped docs.
+
 After the maintainer approves publication, publish and verify the release
 from `main`, then move `stable` with:
 
