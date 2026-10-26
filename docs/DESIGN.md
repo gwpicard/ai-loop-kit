@@ -456,6 +456,15 @@ The builder brief lists the allowed paths and permission settings. A refusal
 that needs outside help returns an `environment` outcome with the path and
 setting responsible. Walk-away secret denials still apply.
 
+uv keeps its cache in the home folder, which no sandbox may write, so even
+`uv run` fails there. Every agent session therefore points `UV_CACHE_DIR` at
+`.loop/cache/uv` in its own folder. The run's first Prepare, outside the
+sandbox, fills that cache, so the builder can rebuild the project after it
+edits `pyproject.toml`. A later Prepare uses the person's cache: the builder
+can write the folder's cache, and nothing it plants may feed an install that
+runs outside the sandbox. The kit leaves `.loop/cache/` out of its list of
+untracked project paths, and the idle check does not count cache writes.
+
 Every Codex session ignores the user's
 config file and disables plugins and apps so their MCP servers do not start.
 Codex has no guard hook and no Edit denies, so only the gate holds the rules
@@ -1021,9 +1030,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 7,098 Python lines in `kit/`, including the remaining
+The default plugin has 7,153 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,520 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,575 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -1036,7 +1045,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,520 runtime lines in total. The suite reports the total and the
+7,575 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
