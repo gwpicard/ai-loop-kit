@@ -156,6 +156,17 @@ class WorktreeCleanupTest(unittest.TestCase):
             self.assertEqual(record["move"], "ready")
             self.assertEqual(git(self.p.root, "worktree", "list", "--porcelain"), before)
 
+    def test_ready_removes_its_copy_of_main_after_test_caches(self):
+        self.p.loop_section("mkdir -p .pytest_cache sub/__pycache__ && touch .pytest_cache/v "
+                            "sub/__pycache__/m.cpython-313.pyc")
+        before = git(self.p.root, "worktree", "list", "--porcelain")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            record = gate.check_ready(self.p.gh, self.p.root, self.p.gh.issue(self.n))
+        self.assertEqual(record["move"], "ready")
+        self.assertNotIn("kept worktree", output.getvalue())
+        self.assertEqual(git(self.p.root, "worktree", "list", "--porcelain"), before)
+
     def test_successful_quality_proposal_removes_its_probe(self):
         import doctor
         for agents_exists in (True, False):

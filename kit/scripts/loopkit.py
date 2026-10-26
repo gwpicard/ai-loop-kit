@@ -723,7 +723,7 @@ class GitHub:
             return "enabled"
         if "404" in result.stderr or "Not Found" in result.stderr:
             return "disabled"
-        return "unknown"
+        return "plan" if "Upgrade to GitHub Pro" in result.stderr else "unknown"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
         self._gh("label", "create", name, "--color", color, "--description",
