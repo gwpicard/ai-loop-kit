@@ -95,6 +95,7 @@
   "test_run.RunTest.test_a_forged_record_from_a_stranger_is_never_read",
   "test_run.RunTest.test_a_good_build_opens_a_pull_request",
   "test_run.RunTest.test_a_piece_may_change_settings_when_its_spec_says_so",
+  "test_run.RunTest.test_a_piece_waiting_in_its_pull_request_keeps_its_folder_quietly",
   "test_run.RunTest.test_a_pushed_branch_is_never_rewritten",
   "test_run.RunTest.test_a_rebuild_tells_the_builder_why_the_piece_came_back",
   "test_run.RunTest.test_a_stale_outcome_is_cleared_before_attempt_one",
