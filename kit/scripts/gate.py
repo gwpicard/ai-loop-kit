@@ -171,7 +171,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     finally:
         if injected:
             restore_probe_files(folder, before_injection, injected)
-        remove_worktree(root, folder)
+        remove_worktree(root, folder, made=generated)  # the Test command's caches are the kit's
         with suppress(OSError):
             tmp.rmdir()
 
