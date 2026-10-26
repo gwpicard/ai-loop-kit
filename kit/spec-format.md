@@ -53,8 +53,8 @@ findings.
 lines. Use comma-separated paths or names, or `none`. `Open choices:` must
 say `none` before ready. Protected paths named here are allowed for the
 piece. The gate warns when another ready issue names one of the same shared
-files. `Needs services:` prevents a walk-away run. At submit, every new
-dependency in `package.json` or `pyproject.toml` must be named under
+files. `Needs services:` prevents a walk-away run. At submit, every new or
+changed dependency in `package.json` or `pyproject.toml` must be named under
 `New dependency:`. Each name needs a reason after a colon, such as
 `requests: retry support`. An optional sixth line, `Depends on: 12, 15`,
 names pieces that must be done first. The run holds this piece until they

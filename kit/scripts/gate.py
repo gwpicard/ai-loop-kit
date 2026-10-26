@@ -267,7 +267,9 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
             ", ".join(sorted(set(protected)))
     unnamed = unnamed_dependencies(folder, main, ready.get("risks", {}).get("new_dependencies", []))
     if unnamed:
-        return False, "the build adds unnamed dependencies: " + ", ".join(unnamed)
+        return False, ("the build adds unnamed dependencies: " + ", ".join(unnamed) + ". Only "
+                       "the spec can allow a dependency or a version change: report "
+                       "spec-unclear and name each one for 'New dependency:'.")
     oversized = []
     for path in changed_paths:
         target = folder / path

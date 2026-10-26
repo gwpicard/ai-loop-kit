@@ -118,6 +118,52 @@ class RiskGateTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("unnamed dependencies: requests", output)
 
+    def commit_pyproject(self, folder, text, message):
+        (folder / "pyproject.toml").write_text(text)
+        git(folder, "add", "pyproject.toml")
+        git(folder, "commit", "--quiet", "-m", message)
+
+    def test_a_changed_dependency_version_needs_the_spec(self):
+        from risk_checks import unnamed_dependencies
+        root = self.project.root
+        self.commit_pyproject(root, '[project]\ndependencies = ["typer"]\n', "Use typer")
+        base = git(root, "rev-parse", "HEAD")
+        self.commit_pyproject(root, '[project]\ndependencies = ["typer<0.20"]\n', "Pin typer")
+        self.assertEqual(unnamed_dependencies(root, base, []), ["typer (version changed)"])
+        self.assertEqual(unnamed_dependencies(root, base, ["typer: pin below 0.20"]), [])
+        (root / "package.json").write_text('{"dependencies":{"left-pad":"^1.0.0"}}\n')
+        git(root, "add", "package.json")
+        git(root, "commit", "--quiet", "-m", "Use left-pad")
+        base = git(root, "rev-parse", "HEAD")
+        (root / "package.json").write_text('{"dependencies":{"left-pad":"1.0.0"}}\n')
+        self.assertEqual(unnamed_dependencies(root, base, []), ["left-pad (version changed)"])
+
+    def test_the_refusal_says_only_the_spec_can_allow_a_dependency(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "package.json").write_text('{"dependencies":{"left-pad":"^1.0.0"}}\n')
+        git(folder, "add", "package.json")
+        git(folder, "commit", "--quiet", "-m", "Add a dependency")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("report spec-unclear", output)
+        self.assertIn("New dependency:", output)
+
+    def test_every_dependency_on_one_line_is_read(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        git(folder, "add", "habits.py")
+        self.commit_pyproject(folder, '[project]\ndependencies = ["typer>=1", "rich"]\n',
+                              "Add two dependencies")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("unnamed dependencies: rich, typer", output)
+
     def test_pyproject_build_dependencies_are_checked_at_submit(self):
         number = self.project.piece()
         self.ready(number)
