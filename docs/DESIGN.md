@@ -7,9 +7,9 @@ not here.
 
 Each rule names what holds it: **code** (the gate, the run or a check),
 **hook** (the guard), **sandbox**, or **words** (a brief or a skill only).
-Features marked **preview** pass the automated tests but have not yet run on a
-real project. Parts marked **planned** are for after 1.2; the text says what
-the kit does today beside them.
+Features marked **preview** pass the automated tests but are not proven
+enough on real projects to be stable. Parts marked **planned** are not built
+yet; the text says what the kit does today beside them.
 
 ## 1. What the kit is
 
@@ -362,7 +362,7 @@ the pieces that depend on them, and every other piece goes on. A ready record
 that cannot be read holds the piece too. A hold alone does not fail the run.
 A piece in approval is not done, so until the run merges into the base, its
 dependents wait for the person's merge and the next run. The judge of a
-dependent must still fail by assertion while the dependency is missing. Open choices must be empty.
+dependent must still fail by assertion while the dependency is missing.
 It warns when a ready piece lists the same shared file. A piece that needs
 services cannot run unattended. At submit, the gate refuses any new
 dependency in `package.json` or `pyproject.toml` that the issue does not name.
@@ -842,8 +842,8 @@ with the person's network, under the guard.
 ## 11. Setup, shape and run
 
 This repository's default branch, `stable`, supplies the released kit to
-installers. Work merges to `main`, which carries a development version
-between releases. Every pull request names `main` as its base; a workflow
+installers. Work merges to `main`, which keeps the last release number
+until the release pull request sets the next one. Every pull request names `main` as its base; a workflow
 refuses a base of `stable`. After publication and verification, the release
 uses `.agents/tools/promote-stable.sh` to move `stable` to the published
 tag's commit and read the ref back. The tool refuses an update that would
@@ -922,9 +922,9 @@ run locks, dirty folders, conflicts, stops or environment hand-backs. It loads
 skills use `user-invocable: false` and remain available to the model.
 `run.py --retry-conflict <n>` sequences the existing conflict hand-back and
 ready checks under the run lock before retrying. A refused check stops it.
-Walk-away guidance is a conditional reference. The ordinary run skill loads
-265 source words, down from 903, counting frontmatter and command snippets
-with `len(text.split())`. Runtime output and project data add variable text.
+Walk-away guidance is a conditional reference. The ordinary run skill stays
+within its word budget in `tests/test_text_budgets.py`, counting frontmatter
+and command snippets with `len(text.split())`. Runtime output and project data add variable text.
 The word-budget test caps every skill, reference, agent definition and brief,
 and their combined total. Unchanged files keep their present ceilings until
 their own thinning change.
@@ -1004,7 +1004,7 @@ These facts about the platform shaped the design. Each one cost time once.
 - **From real use.** Field reports from people using the kit carry the same
   report, so their runs can earn changes too.
 
-## 14. Where the kit goes after 1.2
+## 14. Where the kit goes next
 
 Each step waits for a real run that needs it.
 
@@ -1025,9 +1025,8 @@ Each step waits for a real run that needs it.
 
 | Not done | Why |
 | --- | --- |
-| Merging into `main` | The person reviews and merges the one pull request into `main`. About 28% of agent pull requests conflict [AgenticFlict]. A conflict after a sibling merge goes to the builder. |
+| Merging into `main` | Merging into `main` is the person's moment: they review and merge the one pull request into `main`. A conflict after a sibling merge goes to the builder. |
 | A GitHub App identity | The person's own sign-in is enough while runs are attended. |
-| Automatic merges into `main` | Merging into `main` is the person's moment. |
 | Crews, design-it-twice, a skills registry or context store | Coordination cost with no proven need [Pocock, codebase-design], [Port]. |
 | A fixed sentence pattern for every item | It makes odd, long issues. "When ..., then ..." is a guide only. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |
@@ -1038,10 +1037,10 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 7,188 Python lines in `kit/`, including the remaining
-previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,610 runtime
-Python lines. The kit uses the Python standard library only. It runs on one Python,
+The default plugin's Python lives in `kit/`, including the remaining previews
+and quality entry points. The optional mutation tools and gauntlet critics
+add their runtime lines in `extras/`. `tests/test_size_inventory.py` prints
+both totals and holds them to one budget. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
 launcher only. A project's own Python (its Test, Prepare and Quality
@@ -1053,7 +1052,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,610 runtime lines in total. The suite reports the total and the
+above its `TOTAL_BUDGET` of runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 

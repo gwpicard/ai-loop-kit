@@ -104,7 +104,8 @@ Keep: `python -m pytest`
 
 A Critics check uses `Capture:` to make artefact files under
 `.loop/capture/`, `Reference:` to name a project path or URL, and a non-empty
-list of `Criteria:`. `Files:` names the capture script, its support files and
+list of `Criteria:`. It needs the
+`ai-loop-kit-extras` plugin. `Files:` names the capture script, its support files and
 any local reference files. The gate freezes these files in the bar. Three
 fresh blind critics see the two artefacts in random order. Main must win fewer
 than two comparisons at ready. An attempt passes when ours wins at least two

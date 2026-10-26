@@ -33,8 +33,8 @@ house rules. They apply to people as well as agents.
 
 ## Releases
 
-Between releases, `main` carries a development version such as `1.3.0-dev`
-in `kit/.claude-plugin/plugin.json`. The release sets the real number.
+Between releases, `main` keeps the last release number in
+`kit/.claude-plugin/plugin.json`. The release pull request sets the next one.
 
 Each version has its notes in `docs/release-notes/vX.Y.Z.md`, written to
 `.agents/maintainer-skills/release-notes/SKILL.md` and reviewed before the
