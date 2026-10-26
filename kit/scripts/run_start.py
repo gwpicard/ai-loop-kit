@@ -42,8 +42,9 @@ def existing_worktree(root: Path, n: int) -> Path | None:
     return None
 
 
-def worktree_reason(root: Path, folder: Path, merged_into: str = "") -> str:
-    """Return why cleanup must keep a folder. Ignored artefacts do not count."""
+def worktree_reason(root: Path, folder: Path, merged_into: str = "", made=None) -> str:
+    """Return why cleanup must keep a folder. Ignored artefacts, and files `made` accepts as
+    the kit's own (such as test caches), do not count."""
     entries = worktrees(root)
     entry = next((item for item in entries
                   if Path(item["worktree"]).resolve() == folder.resolve()), None)
@@ -56,7 +57,8 @@ def worktree_reason(root: Path, folder: Path, merged_into: str = "") -> str:
     status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder, check=False)
     if status.returncode:
         return status.stderr.strip() or "cannot check worktree status"
-    if status.stdout.strip():
+    if status.stdout.strip() and not (made and all(
+            made(line[3:]) for line in status.stdout.splitlines())):
         return "uncommitted work"
     if sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False).returncode == 0:
         return "unfinished merge"
@@ -67,11 +69,12 @@ def worktree_reason(root: Path, folder: Path, merged_into: str = "") -> str:
     return ""
 
 
-def remove_worktree(root: Path, folder: Path, merged_into: str = "") -> bool:
+def remove_worktree(root: Path, folder: Path, merged_into: str = "", made=None) -> bool:
     try:
-        reason = worktree_reason(root, folder, merged_into)
+        reason = worktree_reason(root, folder, merged_into, made)
         if not reason:
-            result = sh(["git", "worktree", "remove", str(folder)], root, check=False)
+            result = sh(["git", "worktree", "remove", *(["--force"] if made else []), str(folder)],
+                        root, check=False)
             if result.returncode == 0:
                 return True
             reason = result.stderr.strip() or result.stdout.strip() or "git worktree remove failed"

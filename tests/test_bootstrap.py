@@ -195,6 +195,34 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(git(self.root, "branch", "--format=%(refname:short)"), "main")
         self.assertFalse(any(c.startswith("pr ") for c in self.gh_calls()))
 
+    def test_an_empty_uv_project_gets_a_pyproject_so_prepare_passes(self):
+        section = Path(self.tmp.name) / "loop.md"
+        section.write_text("## The loop\nPrepare command: `uv sync`\n"
+                           "Test command: `uv run pytest`\n")
+        code, output = self.bootstrap("--name", "project", "--loop-section", str(section))
+        self.assertEqual(code, 0, output)
+        self.assertIn("made pyproject.toml and uv.lock", output)
+        committed = git(self.root, "ls-tree", "--name-only", "origin/main").split()
+        self.assertIn("pyproject.toml", committed)
+        self.assertIn("uv.lock", committed)
+        self.assertIn('dev = ["pytest>=8"]', (self.root / "pyproject.toml").read_text())
+        self.assertIn(".pytest_cache/", (self.root / ".gitignore").read_text())
+        import doctor
+        from loopkit import GitHub
+        checks = doctor.doctor(GitHub(self.root), self.root)
+        prepare = [c for c in checks if c[1].startswith("Prepare passes on a fresh copy")]
+        self.assertTrue(prepare and prepare[0][0], checks)
+        tests = [c for c in checks if "no tests yet" in c[1]]
+        self.assertTrue(tests and tests[0][0], checks)
+
+    def test_a_project_with_its_own_pyproject_is_left_alone(self):
+        (self.root / "pyproject.toml").write_text("[project]\nname = 'mine'\n")
+        section = Path(self.tmp.name) / "loop.md"
+        section.write_text("## The loop\nPrepare command: `uv sync`\n")
+        code, output = self.bootstrap("--name", "project", "--loop-section", str(section))
+        self.assertEqual((self.root / "pyproject.toml").read_text(), "[project]\nname = 'mine'\n")
+        self.assertNotIn("made pyproject.toml", output)
+
     def test_loop_section_is_refused_when_main_already_has_a_commit(self):
         git(self.root, "init", "--quiet", "-b", "main")
         (self.root / "README.md").write_text("x\n")
