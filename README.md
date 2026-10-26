@@ -2,7 +2,7 @@
 
 Build software with Claude Code in small steps. A script checks each step before you review the change.
 
-Version 1.2.0 is released. It works best with Python and Node projects.
+It works best with Python and Node projects. The [changelog](CHANGELOG.md) names the current version and what changed in it.
 
 ![How AI Loop Kit works](docs/images/how-it-works.svg)
 
@@ -12,7 +12,7 @@ Version 1.2.0 is released. It works best with Python and Node projects.
 2. You approve the task and its contract before work starts.
 3. Run the piece. The selected agent gets up to three fresh tries to build it.
 4. The **gate**, a script that controls the steps, runs a **judge** (tests for the contract) and your **keep check** (the project's full test command). Two fresh reviewers check the code and the contract. The gate runs the checks again.
-5. If the checks pass, the gate opens a pull request. You read it and merge it.
+5. If the checks pass, the gate opens a pull request. You read it and merge it. With a loop branch, a preview, the run can merge each piece into that branch, and you review one final pull request into `main`.
 
 ## Who it is for
 
@@ -72,9 +72,9 @@ For example, ask for `tally --top 2 words.txt` to print `b 3` and then `a 2`. Th
 
 ## Commands
 
-- `/ai-loop-kit:setup` asks how to prepare and test a fresh copy of the project, and which files agents must not change. It writes the loop settings on a branch and opens a pull request for you to merge. Run it once per project, then again when you want to change settings.
+- `/ai-loop-kit:setup` asks how to prepare and test a fresh copy of the project, and which files agents must not change. For a new project, it writes the loop settings into the first commit; for a project with commits, it writes them on a branch and opens a pull request for you to merge. Run it once per project, then again when you want to change settings.
 - `/ai-loop-kit:shape <idea>` asks questions, splits the work when needed, writes the task and contract for you to approve, gets a test written for it, then makes the piece ready.
-- `/ai-loop-kit:run` builds every ready piece in turn, with up to three tries and two reviews per piece. It opens a pull request for each piece and pauses when three pull requests wait for you.
+- `/ai-loop-kit:run` builds every ready piece in turn, with up to three tries by default and two reviews per piece. It opens a pull request for each piece and pauses when three pull requests wait for you, unless it merges pieces into a loop branch.
 
 ### Things you can ask Claude during a run
 
@@ -85,15 +85,16 @@ For example, ask for `tally --top 2 words.txt` to print `b 3` and then `a 2`. Th
 
 To build with nobody watching, ask Claude: "Start a walk-away run." It first proves the sandbox works, then builds every ready piece and leaves a summary for the morning. Walk-away is a preview.
 
-## Previews in 1.1
+## Previews
 
-These are new in 1.1. They pass the automated tests but have not yet been tested on a real project.
+These pass the automated tests. Walk-away runs, loop branches and the Codex backend have also built small real projects in field runs, but they are still previews.
 
 - **Walk-away runs:** build every ready piece while you are away. A run refuses to start unless a probe proves the sandbox blocks writes outside the build folder, reads of your secrets and outside network calls.
 - **Researcher:** looks up outside facts while shaping, and records each source with the date it was read.
 - **Goal pieces:** the test is a measurement, such as speed, that must reach a target.
 - **Gauntlet pieces:** three critics compare the result with a reference without knowing which is which. The result must win two of three.
-- **Codex backend:** with `Agent: codex` in the loop settings, Codex does the building, reviewing and judging instead of Claude.
+- **Loop branch:** with `Base branch: <branch>` in the loop settings, pieces are built onto that branch, and one pull request brings the branch into `main`. With `Base merges: run` as well, the run merges each gated piece into the branch itself. It never merges into `main`, and it leaves a piece for you when the piece changes `.github/`, `.githooks/` or `AGENTS.md`, or when the contract review has findings. A spec's `Depends on:` line holds a piece until those pieces are done.
+- **Codex backend:** with `Agent: codex` in the loop settings, Codex does the building, reviewing and judging instead of Claude. `Agent model:` and `Agent effort:` choose its model and reasoning effort.
 
 ## What you approve
 
@@ -118,6 +119,6 @@ Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a
 ## More to read
 
 - [How it works, and why](docs/DESIGN.md)
-- [Upgrade from 1.0 or 1.1 to 1.2](docs/UPGRADE-1.2.md)
+- [Upgrade from 1.0 or 1.1 to 1.2](docs/UPGRADE-1.2.md), kept for older projects
 - [Changelog](CHANGELOG.md)
 - [MIT licence](LICENSE)

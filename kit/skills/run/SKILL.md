@@ -11,7 +11,7 @@ description: Build ready pieces with the selected Claude Code or Codex backend a
 !`"${CLAUDE_PLUGIN_ROOT}/bin/kit-python" "${CLAUDE_PLUGIN_ROOT}/scripts/gate.py" status 2>&1 | head -20`
 
 ## Steps
-1. Show ready pieces and explain that each gets up to three attempts. If none are ready, suggest `/ai-loop-kit:shape` and stop.
+1. Show ready pieces and explain that each gets up to three attempts by default. If none are ready, suggest `/ai-loop-kit:shape` and stop.
 2. Start `"<KIT>/bin/kit-python" "<KIT>/scripts/run.py"` in the background, writing KIT in full. Optional piece numbers select pieces. `Agent:` in AGENTS.md selects the backend; `--agent codex` or `--agent claude` overrides it.
 3. Print the full path to `.loop/dashboard.html` so the person can open the local run page. Report attended output and `.loop/logs/` failures until "Run finished." Report every pull request link, hand-back reason and held piece with its `next:` step. The person reviews and merges, unless `Base merges: run` merged it into the base.
 4. After merges, run `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" sync`.
