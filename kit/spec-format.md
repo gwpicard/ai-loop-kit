@@ -36,6 +36,7 @@ Open choices: none
 Keep: `python -m pytest`
 # Optional: allow this named file to cross 1,000 lines.
 Large file: src/generated.py
+Settings: may change
 ```
 
 `Intent` and a non-empty `Out of scope:` list are required. `Approach` is
@@ -67,6 +68,8 @@ An `## Exit` section contains one or more checks. Use `### Tests` with
 combine check types. The project's Test command always runs. Optional `Keep:`
 in `## Judge` adds a distinct check; identical commands run once.
 `Playbook: fix` guides the builder and has no gate effect.
+`Settings: may change` lets a piece change check settings, such as
+workflows. Ready needs it when the Contract names one.
 `Done when` remains accepted as the old name for `Contract`.
 
 Specs with `## Judge` and `Kind:` remain accepted as one check. A fix

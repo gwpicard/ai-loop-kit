@@ -22,6 +22,7 @@ from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
                      REASON_TYPES, SECRET_PATTERNS,
                      agent_options, bar_hash_at, base_branch, branch_name, changed_check_settings,
+                     named_check_settings,
                      exit_bar,
                      bar_file_list, conflict_markers, last_record, main_ref,
                      keep_limit_seconds, loop_settings,
@@ -87,6 +88,12 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     """The ready gate. Returns the record to write. Refuses on any gap."""
     n = issue["number"]
     spec = parse_spec(issue["body"] or "")
+    named = [] if spec.settings else named_check_settings([*spec.done_when.values(), *spec.files])
+    if named:
+        raise Refused(f"the Contract names check settings: {', '.join(named)}, but the spec "
+                      "does not let the piece change them",
+                      "add 'Settings: may change' in '## Judge' if the piece must change "
+                      "them, or take them out of the Contract")
     holds.check(gh, n, spec.risks.get("depends_on", ()))
     settings = loop_settings(root)
     require_extras(settings, {"checks": spec.checks, "keep": spec.keep})

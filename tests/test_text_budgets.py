@@ -20,7 +20,7 @@ BUDGETS = {
     "skills/setup/SKILL.md": 1305,
     "skills/shape/SKILL.md": 1098,
     "skills/shape/references/questions.md": 244,
-    "spec-format.md": 1163,
+    "spec-format.md": 1186,
 }
 TOTAL_BUDGET = 6499
 
