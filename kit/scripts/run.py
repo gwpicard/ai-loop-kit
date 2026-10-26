@@ -368,7 +368,10 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
 
     before = untracked_paths(folder)
     before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
-    ok, poutput = prepare(folder, ready.get("prepare", ""), ready.get("protected_paths", []))
+    # Only this first Prepare fills the build folder's uv cache: the builder can write
+    # it, so a later Prepare, outside the sandbox, must not install from it.
+    ok, poutput = prepare(folder, ready.get("prepare", ""), ready.get("protected_paths", []),
+                          package_cache=True)
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")

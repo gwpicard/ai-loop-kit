@@ -304,11 +304,19 @@ def project_root(folder: Path) -> Path:
 
 def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
                scrub_secrets: bool = False,
-               protected_exceptions: Optional[list[str]] = None) -> dict:  # noqa: UP045
+               protected_exceptions: Optional[list[str]] = None,  # noqa: UP045
+               package_cache: bool = False) -> dict:
     """Use the folder's `.venv` for judge, Prepare and agent commands. A checkout
     must not choose a fresh worktree's Prepare interpreter. Agent sessions can
-    also drop secret-shaped variables."""
+    also drop secret-shaped variables. With package_cache, uv keeps its cache in
+    `.loop/cache/uv`, which a sandboxed agent can write."""
     env = dict(os.environ)
+    if package_cache:
+        cache = folder.resolve() / ".loop" / "cache" / "uv"
+        if not cache.resolve().is_relative_to(folder.resolve()):
+            raise ValueError(f"UV_CACHE_DIR {cache} resolves outside the build folder")
+        cache.mkdir(parents=True, exist_ok=True)
+        env["UV_CACHE_DIR"] = str(cache.resolve())
     if scrub_secrets:
         for name in secret_env_names(env):
             env.pop(name, None)
@@ -386,21 +394,24 @@ def keep_limit_seconds(settings: dict) -> int:
 
 
 def prepare(folder: Path, command: Optional[str] = None,
-            protected_paths: Optional[list[str]] = None) -> tuple[bool, str]:
+            protected_paths: Optional[list[str]] = None,  # noqa: UP045
+            package_cache: bool = False) -> tuple[bool, str]:
     """Run Prepare in a fresh folder, for example `npm ci`, `uv sync` or `docker compose build`."""
     command = command if command is not None else loop_settings(folder).get("prepare")
     if not command:
         return True, ""
     code, output = run_judge(folder, command, timeout=PREPARE_TIMEOUT,
-                             protected_paths=protected_paths)
+                             protected_paths=protected_paths, package_cache=package_cache)
     return code == 0, output
 
 
 def untracked_paths(folder: Path) -> set[str]:
-    """List untracked paths, including files already ignored by the project."""
+    """List untracked paths, including files already ignored by the project, but not
+    the package cache in `.loop/cache/`."""
     commands = (["git", "ls-files", "--others", "--exclude-standard", "-z"],
                 ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
-    return {path for command in commands for path in sh(command, folder).stdout.split("\0") if path}
+    return {path for command in commands for path in sh(command, folder).stdout.split("\0")
+            if path and not path.startswith(".loop/cache/")}
 
 
 def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]) -> list[str]:
@@ -444,14 +455,16 @@ def run_keep(folder: Path, command: str, timeout: int,
 
 
 def run_judge(folder: Path, command: str, timeout: int = JUDGE_TIMEOUT,
-              protected_paths: Optional[list[str]] = None) -> tuple[int, str]:
+              protected_paths: Optional[list[str]] = None,  # noqa: UP045
+              package_cache: bool = False) -> tuple[int, str]:
     """Run the judge command. The gate calls this; it never trusts a report."""
     require_extras({"command": command})
     proc = None
     try:
         proc = subprocess.Popen(command, shell=True, cwd=folder, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True,
-                                env=command_env(folder, protected_paths=protected_paths),
+                                env=command_env(folder, protected_paths=protected_paths,
+                                                package_cache=package_cache),
                                 start_new_session=True)
         try:
             from procs import _untrack_process, track_process
