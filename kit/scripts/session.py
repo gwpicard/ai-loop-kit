@@ -22,8 +22,9 @@ from procs import _untrack_process, track_process
 
 _JUDGE_CACHE = re.compile(
     r"(^|/)(__pycache__|\.(pytest_cache|benchmarks|hypothesis|mypy_cache|ruff_cache))/")
-# Ignored installed packages, where Node test tools such as Vitest keep their caches.
-_JUDGE_PACKAGES = re.compile(r"(^|/)node_modules/")
+# Ignored installed packages: Node test tools such as Vitest keep caches in node_modules,
+# and `uv run` reinstalls the project into .venv when its cache is fresh.
+_JUDGE_PACKAGES = re.compile(r"(^|/)(node_modules|\.venv)/")
 
 
 def _judge_untracked(folder: Path, files: list[str]) -> dict:

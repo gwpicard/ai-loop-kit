@@ -485,10 +485,12 @@ uncommitted files inside these tool cache folders at any depth:
 and `.ruff_cache`. Folder names must match exactly. A loose `*.pyc` outside
 these folders receives no exception. Every path committed during the session
 must be an approved Exit file, including cache paths.
-The path check also ignores changes inside a `node_modules` folder at any
-depth, but only when Git ignores the path. Node test tools such as Vitest
-write their caches there. The brief tells the writer not to install packages.
-A `node_modules` folder that Git does not ignore is refused as unclean work.
+The path check also ignores changes inside a `node_modules` or `.venv` folder
+at any depth, but only when Git ignores the path. Node test tools such as
+Vitest write their caches in `node_modules`, and `uv run` reinstalls the
+project into `.venv` when the session's uv cache is new. The brief tells the
+writer not to install packages. Such a folder that Git does not ignore is
+refused as unclean work.
 Other ignored files, such as the person's own ignored notes, stay protected.
 Other additions, removals and changes to contents, file types, symbolic links
 or permissions outside the approved paths are refused. The refusal names
