@@ -40,7 +40,8 @@ def land(gh: GitHub, root: Path, folder: Path, n: int, result: str, review: dict
         why = (f"It changes {', '.join(risky)}. Workflows and hooks run code, with the "
                "repository's secrets, as soon as they land; AGENTS.md changes the loop's own "
                f"rules. So the run did not merge it into {base}. Read those files in the pull "
-               "request, then merge it on GitHub. Pieces that depend on it wait until then.")
+               "request, then merge it on GitHub and run gate.py sync, which marks it done and "
+               "updates the final pull request. Pieces that depend on it wait until then.")
         gh.comment(n, f"**Run:** not merged into `{base}`. {why}")
         return f"{result} Not merged: {why}"
     if sh(["git", "merge-base", "--is-ancestor", f"origin/{base}", head], folder,

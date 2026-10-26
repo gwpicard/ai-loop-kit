@@ -5,10 +5,12 @@ from helpers import GOOD_CODE, KIT, SPEC, git
 
 # isort: split
 
+import io
 import json
 import os
 import subprocess
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -561,6 +563,15 @@ class RunTest(RunFixture, unittest.TestCase):
         result = run.build_piece(self.p.gh, self.p.root, n, 1)
         self.assertIn("pull request ready", result)
         self.assertIn("- `.eslintrc.json`", self.p.gh.prs[f"piece/{n}"]["body"])
+
+    def test_a_piece_waiting_in_its_pull_request_keeps_its_folder_quietly(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            n, result = self.build("good", attempts=1)
+        self.assertIn("pull request ready", result)
+        # The work waits in the pull request, so keeping the folder is no warning.
+        self.assertTrue(self.p.folder(n).exists())
+        self.assertNotIn("kept worktree", output.getvalue())
 
     def test_ready_refuses_a_contract_that_names_check_settings_without_the_line(self):
         workflow = SPEC.replace("- D2: adding a habit twice keeps one.",
