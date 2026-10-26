@@ -188,7 +188,8 @@ def _folder_activity_stamp(folder: Optional[Path]) -> float:
     newest = folder.stat().st_mtime if folder.exists() else 0.0
     for current, dirs, files in os.walk(folder):
         dirs[:] = [d for d in dirs if d not in {
-            ".git", ".venv", "node_modules", "dist", "build", "__pycache__"}]
+            ".git", ".venv", "node_modules", "dist", "build", "__pycache__"}
+                   and not (d == "cache" and Path(current).name == ".loop")]
         for name in (*dirs, *files):
             with suppress(OSError):
                 newest = max(newest, (Path(current) / name).stat().st_mtime)
