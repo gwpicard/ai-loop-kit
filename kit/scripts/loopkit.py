@@ -753,7 +753,7 @@ class GitHub:
     def pull_requests(self, base: str, state: str, head: str = "") -> list[dict]:
         return json.loads(self._gh("pr", "list", "--base", base, "--state", state, "--limit", "200",
                                    *(["--head", head] if head else []), "--json",
-                                   "number,title,url,headRefName,mergeCommit,mergedAt"))
+                                   "number,title,url,headRefName,mergeCommit,mergedAt,body"))
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         data = json.loads(self._gh("pr", "list", "--head", branch, "--state", "all",
