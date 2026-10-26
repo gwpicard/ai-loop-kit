@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 (26 October 2026)
+
+Walk-away runs onto a loop branch, with one final pull request into `main`;
+setup from an empty folder; the kit on its own Python 3.13 through uv; Codex
+model and effort settings and sandbox fixes; and stricter dependency and
+check-settings rules. Install uv before you update. See the
+[1.6.0 release notes](docs/release-notes/v1.6.0.md).
+
 ## 1.5.0 (20 October 2026)
 
 - The gate always runs the project's full test command. `Keep:` adds a check
