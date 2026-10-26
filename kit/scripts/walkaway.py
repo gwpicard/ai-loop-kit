@@ -15,8 +15,8 @@ from typing import Iterator, Optional
 
 import agents
 import sandbox
-from loopkit import (STATE_PREFIX, Refused, base_merges, loop_settings, main_ref, prepare,
-                     run_judge, secret_env_names, sh)
+from loopkit import (JUDGE_TIMEOUT, STATE_PREFIX, Refused, base_merges, command_env,
+                     loop_settings, main_ref, prepare, run_judge, secret_env_names, sh)
 
 MIN_FREE_BYTES = 10 * 1024 ** 3
 STALE_AFTER_SECONDS = 10 * 60
@@ -29,6 +29,35 @@ def approved_domains(root: Path) -> list[str]:
 
 def _check(ok: bool, label: str, next_step: str = "") -> tuple[bool, str, str]:
     return ok, label, "" if ok else next_step
+
+
+def codex_sandbox_test(root: Path, timeout: int = JUDGE_TIMEOUT) -> tuple[bool, str]:
+    """Run Prepare, then the Test command inside the Codex builder sandbox, on fresh main.
+    The sandbox probe proves what is refused; this proves the builder can still test."""
+    settings = loop_settings(root)
+    if not settings.get("test"):
+        return True, "no Test command"
+    folder = root.parent / f".loop-sandbox-test-{os.getpid()}"
+    try:
+        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main_ref(root)], root)
+    except Exception as error:
+        return False, f"could not make a fresh main worktree: {str(error)[:200]}"
+    try:
+        prepared, output = prepare(folder, settings.get("prepare", ""), package_cache=True)
+        if not prepared:
+            return False, "Prepare failed: " + output[-300:].strip()
+        writable = sandbox.codex_builder_paths(folder)
+        env = {**command_env(folder, scrub_secrets=True, package_cache=True),
+               "TMPDIR": str(writable[0])}
+        args = [os.environ.get("LOOP_CODEX", "codex"), "sandbox",
+                *sandbox.codex_permission_args(folder, writable), "sh", "-c", settings["test"]]
+        result = subprocess.run(args, cwd=folder, env=env, capture_output=True, text=True,
+                                timeout=timeout)
+        return result.returncode == 0, (result.stdout + result.stderr)[-300:].strip()
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"the sandboxed Test command could not finish: {error}"
+    finally:
+        sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
 
 
 def preflight(gh, root: Path, *, baseline_checked: bool = False,
@@ -136,6 +165,12 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
                          "resolve the active sandbox probe failure, then run gate.py doctor --walk-away"))
     if not active:
         checks[-1] = (False, checks[-1][1] + f": {detail}", checks[-1][2])
+    if backend != "claude" and active:
+        tested, output = codex_sandbox_test(root)
+        checks.append(_check(tested, "the Test command passes inside the Codex builder sandbox"
+                             + ("" if tested else f": {output}"),
+                             "fix the refused path or tool named above (an old uv can panic in "
+                             "the sandbox: upgrade it), then run gate.py doctor --walk-away"))
     return checks
 
 

@@ -779,6 +779,12 @@ failure returns the piece to shaping as `environment`, with cause
   `~/.ssh` and reach an outside host. Codex retries once if its answer has no
   readable probe line or has invalid exit codes. The result says it retried.
   A readable zero code or an observed home write refuses without a retry.
+- For Codex, after the probe passes: on a fresh `main` worktree, Prepare
+  runs, then the Test command runs once through `codex sandbox` with the
+  builder's limits and environment. No model is involved. A refused path, or
+  a tool that cannot run in the sandbox, fails the check with its output. A
+  field run showed why: the probe passed, but the builder could not run the
+  tests.
 - Confirmed `Sandbox domains:` (package registries only). The gate reads the
   list from the loop section of `AGENTS.md` and passes it to Claude's strict
   network allowlist.
@@ -1030,9 +1036,9 @@ Each step waits for a real run that needs it.
 
 ## 16. Size
 
-The default plugin has 7,135 Python lines in `kit/`, including the remaining
+The default plugin has 7,170 Python lines in `kit/`, including the remaining
 previews and quality entry points. The optional mutation tools and gauntlet
-critics have 422 runtime lines in `extras/`. Together they have 7,557 runtime
+critics have 422 runtime lines in `extras/`. Together they have 7,592 runtime
 Python lines. The kit uses the Python standard library only. It runs on one Python,
 3.13, started through `kit/bin/kit-python`: uv finds or installs that
 version, and the script runs on it directly. The version lives in the
@@ -1045,7 +1051,7 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `tests/test_size_inventory.py` counts every Python file under `kit/` and
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
-7,557 runtime lines in total. The suite reports the total and the
+7,592 runtime lines in total. The suite reports the total and the
 default-install size separately. The total budget follows the measured size; a smaller budget
 needs a measured reduction first.
 
