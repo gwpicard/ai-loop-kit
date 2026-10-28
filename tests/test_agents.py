@@ -37,6 +37,65 @@ class AgentSessionTest(unittest.TestCase):
                         self.assertTrue({"plugins", "apps"} <= disabled,
                                         "Codex can still start user plugin or app MCP servers")
 
+    @staticmethod
+    def _files(root):
+        return {path for path in root.rglob("*") if path.is_file() and ".git" not in path.parts}
+
+    def _record_launch(self, backend, role, prompt):
+        """Run a fake CLI that records its argv and what it reads on standard input."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "work"
+            root.mkdir()
+            git(root, "init", "--quiet")
+            fake = Path(temporary) / "fake-cli"
+            fake.write_text("#!/usr/bin/env python3\n"
+                            "import json, sys\n"
+                            "data = sys.stdin.buffer.read()\n"
+                            "print(json.dumps({'argv': sys.argv[1:], 'bytes': len(data),\n"
+                            "                  'text': data.decode()}))\n")
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            variable = "LOOP_CLAUDE" if backend == "claude" else "LOOP_CODEX"
+            before = self._files(root)
+            with mock.patch.dict(os.environ, {variable: str(fake)}):
+                proc = agents.start_session(backend, prompt, root, role=role)
+                output, _ = proc.communicate(timeout=10)
+            self.assertEqual(proc.returncode, 0)
+            self.assertEqual(self._files(root) - before, set(), "prompt file left behind")
+            return json.loads(output), len(prompt.encode())
+
+    def test_large_prompt_reaches_claude_on_stdin(self):
+        prompt = "baseline line\n" * 14_286  # 200,004 bytes, over the 131,072 argv limit
+        for role in ("builder", "reviewer", "critic", "researcher", "judge-writer"):
+            with self.subTest(role=role):
+                record, size = self._record_launch("claude", role, prompt)
+                self.assertEqual(record["bytes"], size)
+                self.assertEqual(record["text"], prompt)
+                self.assertNotIn(prompt[:100], " ".join(record["argv"]))
+                self.assertLess(sum(len(arg) for arg in record["argv"]), 10_000)
+                self.assertEqual(record["argv"][0], "-p")
+                self.assertNotIn("--input-format", record["argv"])
+
+    def test_large_prompt_reaches_codex_on_stdin(self):
+        prompt = "baseline line\n" * 14_286
+        for role in ("builder", "reviewer", "researcher"):
+            with self.subTest(role=role):
+                record, size = self._record_launch("codex", role, prompt)
+                # The builder prompt gains the Codex write boundary after the brief.
+                self.assertGreaterEqual(record["bytes"], size)
+                self.assertTrue(record["text"].startswith(prompt))
+                self.assertEqual(record["argv"][-1], "-")
+                self.assertLess(sum(len(arg) for arg in record["argv"]), 10_000)
+
+    def test_prompt_file_is_gone_when_the_child_fails_to_start(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git(root, "init", "--quiet")
+            before = self._files(root)
+            with mock.patch.dict(os.environ, {"LOOP_CLAUDE": str(root / "missing")}):
+                with self.assertRaises(OSError):
+                    agents.start_session("claude", "brief", root, role="builder")
+            self.assertEqual(self._files(root) - before, set())
+
     def test_codex_builder_grants_own_git_data_and_prepared_temp(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary).resolve() / "repo"
@@ -47,8 +106,14 @@ class AgentSessionTest(unittest.TestCase):
             git(repo, "worktree", "add", "-qb", "piece", str(linked))
             for root in (repo, linked):
                 for walk_away in (False, True):
+                    sent = []
+
+                    def read_prompt(*args, **kwargs):
+                        sent.append(kwargs["stdin"].read().decode())
+
                     with self.subTest(linked=root == linked, walk_away=walk_away), \
                             mock.patch.object(agents, "subprocess") as process:
+                        process.Popen.side_effect = read_prompt
                         agents.start_session("codex", "brief", root, role="builder",
                                              walk_away=walk_away)
                         args = process.Popen.call_args.args[0]
@@ -75,7 +140,8 @@ class AgentSessionTest(unittest.TestCase):
                                 self.assertIn(json.dumps(str(path)) + '="write"', filesystem)
                             self.assertNotIn(json.dumps(str(common)) + '="write"', filesystem)
                             self.assertNotIn(json.dumps(str(repo)) + '="write"', filesystem)
-                        prompt = args[-1]
+                        self.assertEqual(args[-1], "-")
+                        prompt = sent[0]
                         self.assertIn("permissions.ai-loop.filesystem", prompt)
                         self.assertIn(git_dir, prompt)
                         self.assertIn(".loop/outcome", prompt)
@@ -139,7 +205,7 @@ class AgentSessionTest(unittest.TestCase):
                 "sandbox_workspace_write.writable_roots=[]", "--config",
                 "sandbox_workspace_write.exclude_slash_tmp=true", "--config",
                 "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-                "--cd", str(root.resolve()), "--ignore-user-config", "--ephemeral", "brief",
+                "--cd", str(root.resolve()), "--ignore-user-config", "--ephemeral", "-",
             ])
             self.assertEqual(agents.event_text(output.decode()), "<verdict>{}</verdict>")
 

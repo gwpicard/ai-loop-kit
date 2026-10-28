@@ -15,9 +15,10 @@ import run
 
 FAKE_CLAUDE = textwrap.dedent('''\
     #!/bin/sh
-    # A stand-in for claude -p. FAKE_MODE picks how it behaves.
+    # A stand-in for claude -p. FAKE_MODE picks how it behaves. The prompt is on standard input.
+    PROMPT=$(cat)
     if [ "$LOOP_REVIEWER" = 1 ]; then
-      case "$FAKE_REVIEW_MODE:$*" in
+      case "$FAKE_REVIEW_MODE:$PROMPT" in
         baseline-conflict:*"Standards reviewer brief"*)
           printf '%s' '<verdict>{"findings":[{"rule":"Reuse existing helpers",' \
             '"hunk":"habits.py:1","finding":"Read only the future guide,' \
@@ -85,7 +86,7 @@ FAKE_CLAUDE = textwrap.dedent('''\
           exit 0 ;;
         review-idle:*) sleep 5 ;;
         *)
-          case "$*" in
+          case "$PROMPT" in
             *"Standards reviewer brief"*) echo '<verdict>{"findings":[],"follow_ups":[],"changes":"none"}</verdict>' ;;
             *) echo '<verdict>{"findings":[]}</verdict>' ;;
           esac

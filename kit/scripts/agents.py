@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional, Union
 
@@ -30,17 +31,16 @@ def selected(folder: Path, override: Optional[str] = None) -> str:
     return value
 
 
-def _claude_args(folder: Path, prompt: str, role: str,
-                 disallowed: list[str], settings_allowed: bool,
+def _claude_args(folder: Path, role: str, disallowed: list[str], settings_allowed: bool,
                  walk_away: bool, domains: Optional[list[str]]) -> list[str]:
     cli = os.environ.get("LOOP_CLAUDE", "claude")
-    args = [cli, "-p", prompt, "--output-format", "stream-json", "--verbose"]
+    args = [cli, "-p", "--output-format", "stream-json", "--verbose"]
     if role == "researcher":
         return [*args, "--model", "sonnet", "--tools", "WebSearch,WebFetch",
                        "--allowedTools", "WebSearch,WebFetch", *CLAUDE_MCP_ARGS,
                        "--setting-sources", ""]
     if role == "critic":
-        return [cli, "-p", prompt, "--output-format", "text", "--allowedTools", "Read"]
+        return [cli, "-p", "--output-format", "text", "--allowedTools", "Read"]
     if role == "judge-writer":
         args += ["--model", "sonnet"]
     args += ["--permission-mode", "acceptEdits", "--allowedTools",
@@ -91,8 +91,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         protected_paths = [path for path in (protected_paths or [])
                            if not path_mentioned(contract_text, path)]
     if backend == "claude":
-        args = _claude_args(work, prompt, role, disallowed or [], settings_allowed,
-                            walk_away, domains)
+        args = _claude_args(work, role, disallowed or [], settings_allowed, walk_away, domains)
     else:
         cli = os.environ.get("LOOP_CODEX", "codex")
         # Ignoring config.toml alone still loads installed plugins and app MCP servers.
@@ -120,7 +119,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         if role == "researcher":
             args += ["--disable", "shell_tool", "--config", 'web_search="live"']
         args += [*codex_options(folder, model, effort),
-                 "--cd", str(work), "--ignore-user-config", "--ephemeral", prompt]
+                 "--cd", str(work), "--ignore-user-config", "--ephemeral", "-"]
     env = {**command_env(work, protected_paths=protected_paths, scrub_secrets=True,
                          protected_exceptions=protected_exceptions, package_cache=True),
            "LOOP_BUILDER": "1" if role in {"builder", "reviewer"} else "0",
@@ -129,10 +128,14 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
         env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     if backend == "codex" and writable:
         env["TMPDIR"] = str(writable[0])
-    # No standard input: Codex reads it to its end, so an inherited open pipe stalls it.
-    return subprocess.Popen(args, cwd=(cwd or folder).resolve(), stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
-                            start_new_session=True)
+    # The prompt goes in on standard input: Linux refuses one argument over 128 KB. A file
+    # ends in end of file, which Codex needs (an open pipe stalls it), and it is unnamed.
+    with tempfile.TemporaryFile(dir=work) as prompt_file:
+        prompt_file.write(prompt.encode())
+        prompt_file.seek(0)
+        return subprocess.Popen(args, cwd=(cwd or folder).resolve(), stdin=prompt_file,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                                start_new_session=True)
 
 
 def event_text(output: Union[str, bytes], backend: str = "codex") -> str:
