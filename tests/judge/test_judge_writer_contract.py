@@ -36,7 +36,7 @@ class JudgeWriterContractTest(unittest.TestCase):
         fake.write_text(
             f"#!{sys.executable}\n"
             "import json, os, pathlib, sys\n"
-            "pathlib.Path(os.environ['PROMPT']).write_text(' '.join(sys.argv[1:]))\n"
+            "pathlib.Path(os.environ['PROMPT']).write_text(sys.stdin.read())\n"
             "for name, text in json.loads(os.environ['WRITES']).items():\n"
             "    path = pathlib.Path(name)\n"
             "    path.parent.mkdir(parents=True, exist_ok=True)\n"

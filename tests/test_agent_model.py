@@ -5,6 +5,8 @@ from helpers import Project, git
 
 # isort: split
 
+import os
+import stat
 import unittest
 from unittest import mock
 
@@ -39,13 +41,21 @@ class AgentModelTest(unittest.TestCase):
         git(self.p.root, "commit", "--quiet", "-am", "Agent settings")
         git(self.p.root, "push", "--quiet", "origin", "main")
 
-    def test_agent_sessions_get_no_standard_input(self):
+    def test_agent_sessions_read_the_prompt_from_a_file_that_ends(self):
         # Codex reads standard input to its end when it is not a terminal, so an
         # inherited input that never closes made the judge-writer wait for ever.
+        # A file ends in end of file, so the prompt cannot stall a session.
         for backend in ("codex", "claude"):
+            seen = []
+
+            def look(*args, **kwargs):
+                seen.append((stat.S_ISREG(os.fstat(kwargs["stdin"].fileno()).st_mode),
+                             kwargs["stdin"].read()))
+
             with self.subTest(backend=backend), mock.patch.object(agents, "subprocess") as process:
+                process.Popen.side_effect = look
                 agents.start_session(backend, "brief", self.p.root, role="judge-writer")
-                self.assertIs(process.Popen.call_args.kwargs.get("stdin"), process.DEVNULL)
+                self.assertEqual(seen, [(True, b"brief")])
 
     def test_names_are_checked_and_effort_is_lowercased(self):
         for model in ("gpt-6-luna", "gpt-5.6-luna", "o3", "gpt-oss:20b", "org/model"):
@@ -64,7 +74,7 @@ class AgentModelTest(unittest.TestCase):
                 self.assertEqual(args[args.index("-m") + 1], "gpt-6-luna")
                 self.assertIn('model_reasoning_effort="high"', args)
                 self.assertLess(args.index("-m"), args.index("--cd"))
-                self.assertEqual(args[-1].split("\n")[0], "brief")
+                self.assertEqual(args[-1], "-")
 
     def test_without_the_settings_the_codex_command_is_unchanged(self):
         args = codex_args(self.p.root)

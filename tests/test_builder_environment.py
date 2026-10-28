@@ -165,8 +165,12 @@ class BuilderEnvironmentTest(unittest.TestCase):
             with patch.object(agents, "command_env", return_value={}), \
                     patch.object(sandbox, "codex_builder_paths", return_value=paths), \
                     patch.object(agents.subprocess, "Popen") as popen:
+                sent = []
+                popen.side_effect = lambda *args, **kwargs: sent.append(
+                    kwargs["stdin"].read().decode())
                 agents.start_session("codex", prompt, folder, role="builder")
-            actual = popen.call_args.args[0][-1]
+            self.assertEqual(popen.call_args.args[0][-1], "-")
+            actual = sent[0]
             self.assertNotIn('`python3 "$AI_LOOP_KIT_ROOT/scripts/builder_prompt.py" --stage`',
                              actual)
             self.assertIn("The run stages and commits", actual)

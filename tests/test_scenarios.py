@@ -133,7 +133,7 @@ class ScenarioTest(unittest.TestCase):
         fake.write_text(textwrap.dedent("""\
             #!/usr/bin/env python3
             import os, pathlib, subprocess, sys, time
-            prompt = " ".join(sys.argv)
+            prompt = sys.stdin.read()
             if os.environ.get("LOOP_REVIEWER") == "1":
                 if "Standards reviewer brief" in prompt:
                     child_code = (

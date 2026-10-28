@@ -51,7 +51,7 @@ class CapabilityTest(unittest.TestCase):
         path.write_text(
             f"#!{sys.executable}\n"
             "import json, os, pathlib, sys\n"
-            "pathlib.Path(os.environ['ARGS']).write_text(json.dumps(sys.argv[1:]))\n"
+            "pathlib.Path(os.environ['ARGS']).write_text(json.dumps(sys.argv[1:] + [sys.stdin.read()]))\n"
             "text = os.environ['ANSWER']\n"
             "if os.environ.get('JUDGE_SESSION'):\n"
             "    pathlib.Path('judge.py').write_text('# judge\\n')\n"
