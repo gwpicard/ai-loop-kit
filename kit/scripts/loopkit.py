@@ -648,7 +648,9 @@ class GitHub:
         res = subprocess.run(["gh", *args], cwd=self.root, capture_output=True,
                              text=True, input=stdin)
         if res.returncode != 0:
-            raise RuntimeError(f"gh {' '.join(args[:3])} failed: {res.stderr.strip()}")
+            text = res.stderr.strip()
+            text = text if args[0] == "auth" else text.partition("\n")[0]
+            raise RuntimeError(f"gh {' '.join(args[:3])} failed: {text}")
         return res.stdout
 
     def issue(self, n: int) -> dict:

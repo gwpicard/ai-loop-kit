@@ -142,8 +142,7 @@ def stage() -> int:
         return 2
     candidates = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard",
-         "--full-name", "-z", "--", ":/"],
-        capture_output=True, check=False)
+         "--full-name", "-z", "--", ":/"], capture_output=True, check=False)
     if candidates.returncode:
         sys.stderr.buffer.write(candidates.stderr)
         return candidates.returncode

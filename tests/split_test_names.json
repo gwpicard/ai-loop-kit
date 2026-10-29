@@ -87,6 +87,7 @@
   "test_loop.SpecTest.test_research_section_parses_findings_with_source_and_date",
   "test_loop.SpecTest.test_runtime_and_test_modules_stay_within_reviewable_sizes",
   "test_loop.SpecTest.test_scaffold_needs_no_files",
+  "test_loop.SpecTest.test_spec_research_section_refuses_an_unconfirmed_line",
   "test_loop.SpecTest.test_stale_findings_use_claim_date_and_thirty_day_limit",
   "test_run.RunTest.test_a_build_never_commits_generated_files",
   "test_run.RunTest.test_a_build_that_changes_check_settings_does_not_pass",

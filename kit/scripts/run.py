@@ -312,8 +312,7 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     services = ready.get("risks", {}).get("needs_services", [])
     if walk_away and services:
         raise Refused("walk-away is refused because the piece needs services: " +
-                      ", ".join(services),
-                      "run the piece with an attended session")
+                      ", ".join(services), "run the piece with an attended session")
     existing_worktree(root, n)
     check_pushed_branch(root, n)
     _save_run_metrics(root, n, started_at, metrics["attempts"])
@@ -542,8 +541,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                        + "\n".join(kind_history))
         wrong_reason = re.search(
             r"\b(?:SyntaxError|IndentationError|ModuleNotFoundError|ImportError|"
-            r"FileNotFoundError)\b|ERROR collecting|\bcommand not found\b",
-            output, re.IGNORECASE)
+            r"FileNotFoundError)\b|ERROR collecting|\bcommand not found\b", output, re.IGNORECASE)
         if not passed and wrong_reason:
             main_moved = latest_main_commit(folder) != ready.get("main")
             cause = "stale-after-main" if main_moved else "import-error"
@@ -569,8 +567,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                     pass
                 if cache_key not in main_quality_results:
                     main_quality_results[cache_key] = gate.quality_fails_on_main(
-                        folder, command, ready.get("test", ""),
-                        ready.get("protected_paths", []))
+                        folder, command, ready.get("test", ""), ready.get("protected_paths", []))
                     quality_probe.write_text(json.dumps({
                         "checked": True,
                         "failed": main_quality_results[cache_key],

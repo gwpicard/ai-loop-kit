@@ -344,8 +344,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
             return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
         if kcode != 0:
             retry_code, retry_output = run_keep(
-                folder, ready["keep"], timeout=keep_timeout,
-                protected_paths=protected_paths)
+                folder, ready["keep"], timeout=keep_timeout, protected_paths=protected_paths)
             if retry_code == 0 and not skipped_tests(retry_output):
                 failed_names = failing_test_names(koutput)
                 names = ", ".join(failed_names) if failed_names else "see failed Keep output"
@@ -636,6 +635,8 @@ def sync(gh: GitHub, root: Path) -> list[str]:
         if found and found["state"] == "MERGED":
             notes.append(f"{item['number']}: " + move(gh, root, item["number"], "done"))
             done.append(item["number"])
+    for item in gh.issues_with_label(STATE_PREFIX + "done"):  # labelled done, close failed
+        gh.close(item["number"], "completed")
     try:
         line = loop_pr.refresh(gh, root, done) if done else ""
     except Exception as error:  # the pieces are done; report and finish

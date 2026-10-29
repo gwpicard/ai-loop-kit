@@ -23,7 +23,7 @@ Use the KIT path above in every command. Write it out in full. Read
    outside fact, save a JSON object with only `question`. Run
    `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role researcher --input <file> --output <findings> --folder .`.
    It uses the project's backend; `--agent codex` overrides it. Add accepted
-   findings to `## Research`. If web tools are unavailable, stop shaping.
+   findings to `## Research`. Take each `Unconfirmed:` line to the person, not `## Research`. If web tools are unavailable, stop shaping.
    Done when: each answer is in your notes or recorded as an assumption, and
    any needed outside facts have sourced findings.
 3. If the idea holds more than one piece, split it. One piece is one change a
@@ -66,7 +66,6 @@ Use the KIT path above in every command. Write it out in full. Read
    strings. `Files` lists exact Exit paths, one per line. Exclude shaping chat.
    Save input and output in the system temp folder. Run
    `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder .`.
-   The fresh session reads `<KIT>/briefs/judge-writer.md` and the project code.
    The launcher requires a clean piece branch, checks paths and verdict, and
    commits judge files. On success, run
    `git switch <base>`.
@@ -78,7 +77,7 @@ Use the KIT path above in every command. Write it out in full. Read
    names on the piece branch.
    Done when: it prints `ok`.
 8. If the approved spec needs an edit while shaping, write the full revised body to a temporary file and use `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" spec <n> --body-file <file>`. Get the person's approval before replacing an approved contract. Move it with `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" move <n> ready`.
-   Done when: the piece is in ready, or you have reported the refusal and its `next:` line.
+   Done when: the piece is in ready, or you reported the refusal and its `next:` line.
 
 ## Rules
 - Never change a `state:` label by hand. Only the gate moves a piece.
