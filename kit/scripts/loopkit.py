@@ -448,8 +448,7 @@ def run_keep(folder: Path, command: str, timeout: int,
              protected_paths: list[str] | None = None) -> tuple[int, str]:
     """Run Keep with its limit and report the elapsed seconds."""
     started = time.monotonic()
-    code, output = run_judge(folder, command, timeout=timeout,
-                             protected_paths=protected_paths)
+    code, output = run_judge(folder, command, timeout=timeout, protected_paths=protected_paths)
     elapsed = time.monotonic() - started
     return code, f"{output.rstrip()}\nKeep took: {elapsed:.3f} seconds".lstrip()
 
@@ -623,17 +622,14 @@ def exit_attempt(folder: Path, checks: list[dict],
     failed = False
     for check in checks:
         if check["type"] == "tests":
-            code, output = run_judge(folder, check["command"],
-                                     protected_paths=protected_paths)
+            code, output = run_judge(folder, check["command"], protected_paths=protected_paths)
             if skipped_tests(output):
                 code = 1
                 output = "the judge reported skipped tests:\n" + output.strip()[-1500:]
         elif check["type"] == "measure":
-            code, output = measure.judge_attempt(folder, check,
-                                                  protected_paths=protected_paths)
+            code, output = measure.judge_attempt(folder, check, protected_paths=protected_paths)
         else:
-            code, output = critics().judge_attempt(folder, check,
-                                                 protected_paths=protected_paths)
+            code, output = critics().judge_attempt(folder, check, protected_paths=protected_paths)
         results.append(f"{check['type'].title()} exit check (exit {code}):\n{output.strip()}")
         if code:
             failed = True

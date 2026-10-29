@@ -6,6 +6,7 @@ from helpers import GOOD_CODE, JUDGE, SPEC, Project, git
 # isort: split
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import frozen
@@ -104,6 +105,16 @@ class BarNeighboursTest(BarFixture, unittest.TestCase):
         git(folder, "commit", "--quiet", "-am", "Committed edits")
         self.assertIn("tests/judge/test_a.py", frozen.frozen_file_reason(folder, ready))
 
+    def test_the_prepare_path_check_sees_a_file_added_by_an_earlier_build(self):
+        n, ready = self.piece(shaped={"early_gen.py": "EARLY = 1\n"})
+        folder = self.build_folder(n)
+        git_dir = Path(git(folder, "rev-parse", "--absolute-git-dir"))
+        (git_dir / "info").mkdir(exist_ok=True)
+        (git_dir / "info" / "ai-loop-kit-prepare-paths").write_text("early_gen.py\n")
+        passed, reason = gate.judge(folder, ready)
+        self.assertFalse(passed)
+        self.assertEqual(reason, "the piece adds files under paths Prepare created: early_gen.py")
+
     def test_a_builder_may_add_a_support_file(self):
         n, ready = self.piece()
         folder = self.build_folder(n)
@@ -194,6 +205,27 @@ class AlreadySatisfiedTest(BarFixture, unittest.TestCase):
         with patch.object(frozen, "run_judge") as judge:
             self.assertEqual(frozen.already_satisfied(folder, ready), "")
         judge.assert_not_called()
+
+    def test_build_code_in_the_ready_commit_is_not_already_satisfied(self):
+        n, ready = self.piece(shaped={"habits.py": GOOD_CODE})
+        self.commit_on_main({"README.md": "moved\n"}, "Main moves")
+        folder = self.build_folder(n)
+        self.assertEqual(frozen.earlier_build_paths(folder, ready["bar_files"]), ["habits.py"])
+        with patch.object(frozen, "run_judge") as judge:
+            self.assertEqual(frozen.already_satisfied(folder, ready), "")
+        judge.assert_not_called()
+
+    def test_ready_warns_about_earlier_build_code_and_still_passes(self):
+        n, _ = self.piece(shaped={"habits.py": GOOD_CODE})
+        note = self.p.gh.comments(n)[-1]
+        self.assertIn("Warning: the piece branch holds earlier build code: habits.py; "
+                      "the next build starts from it.", note)
+
+    def test_a_branch_with_only_bar_files_gets_no_warning(self):
+        n, ready = self.piece(shaped={"tests/judge/helpers.py": "SHARED = 2\n"})
+        self.assertNotIn("earlier build code", self.p.gh.comments(n)[-1])
+        self.assertEqual(frozen.earlier_build_paths(self.p.root, ready["bar_files"],
+                                                    f"piece/{n}"), [])
 
     def test_a_record_without_tests_checks_skips_the_check(self):
         n, ready = self.piece()

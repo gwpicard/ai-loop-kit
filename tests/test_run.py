@@ -442,9 +442,9 @@ class RunTest(RunFixture, unittest.TestCase):
                                     cause="bar-wrong", attempts=1)
         attempts = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(attempts), 1)
-        # Shaping keeps the folder because the piece still has unmerged work.
-        self.assertTrue(self.p.folder(n).exists())
-        self.assertIn("judge_add.py", git(self.p.folder(n), "ls-files"))
+        # Shaping releases the clean folder; the branch keeps the judge file.
+        self.assertFalse(self.p.folder(n).exists())
+        self.assertIn("judge_add.py", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
 
     def test_a_stale_outcome_is_cleared_before_attempt_one(self):
         os.environ["FAKE_MODE"] = "good"

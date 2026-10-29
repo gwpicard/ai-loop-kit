@@ -271,8 +271,8 @@ class ScenarioTest(unittest.TestCase):
         self.assertIn("back to shaping", result)
         branches = git(self.p.root, "branch", "--list", "review/*")
         self.assertEqual(branches, "")
-        self.assertTrue(self.p.folder(n).exists())
-        self.assertIn("habits.py", git(self.p.folder(n), "ls-files"))
+        self.assertFalse(self.p.folder(n).exists())  # given back, so released
+        self.assertIn("habits.py", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
         self.assertFalse(run._ACTIVE_GROUPS)
 
     def test_run_start_removes_and_reports_abandoned_review_worktrees(self):

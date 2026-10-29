@@ -12,10 +12,9 @@ from pathlib import Path
 from typing import Optional
 
 import gate
-from loopkit import (CHECK_FILES, Refused, prepare,
+from loopkit import (CHECK_FILES, Refused, main_ref, prepare,
                      judge_assertion_failed, judge_has_runner_error,
                      record_prepare_outputs, rev, sh, untracked_paths)
-from frozen import expected_tree
 from procs import AttemptIdle
 from run import commit_leftovers, idle_limit_seconds
 from session import run_session
@@ -125,8 +124,7 @@ def parse_standards_findings(output: str, standards: str, diff: str,
     """Keep only findings that cite a rule or smell and a changed hunk."""
     hunks = _diff_hunks(diff)
     allowed = {name.casefold() for name in (*BASELINE_SMELLS, *BUILTIN_RULES)}
-    standard_rules = {line.strip().casefold() for line in standards.splitlines()
-                      if line.strip()}
+    standard_rules = {line.strip().casefold() for line in standards.splitlines() if line.strip()}
     verdict = _last_verdict(output, "standards")
     candidates = []
     for finding in verdict["findings"]:
@@ -286,9 +284,11 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
               "**/*.spec.*", "**/conftest.py"]
     results = {"reviewer_note": "Standards review ran once.", "baseline_conflicts": [],
                "dropped_findings": 0}
-    start = expected_tree(folder, ready) or base  # leave out work merged from the base
+    start = sh(["git", "merge-base", "HEAD", main_ref(folder)], folder).stdout.strip() or base
+    left_out = [f":(exclude,literal,top){p}" for p in ready.get("bar_files", ready["files"])]
     for role in ("standards", "contract"):
-        diff = sh(["git", "diff", "--no-ext-diff", "--no-color", start, "HEAD"], folder).stdout
+        diff = sh(["git", "diff", "--no-ext-diff", "--no-color", start, "HEAD",
+                    "--", ".", *left_out], folder).stdout
         target = folder.parent / f"review-{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
         branch = f"review/{role}-{n}-{k}-{uuid.uuid4().hex[:8]}"
         judged = rev(folder, "HEAD")
@@ -331,8 +331,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
             results["contract_reproducers"] = []
             verdict_findings = verdict["findings"]
             contract = (_section(body, "Contract") or _section(body, "Done when") or [])
-            approved_ids = {match[1] for line in contract
-                            if (match := _ITEM.match(line))}
+            approved_ids = {match[1] for line in contract if (match := _ITEM.match(line))}
             changed = sh(["git", "diff", "--name-only", judged], target).stdout.splitlines()
             staged = sh(["git", "diff", "--cached", "--name-only"], target).stdout.splitlines()
             added = set(sh(["git", "ls-files", "--others", "--exclude-standard", "-z"],
@@ -397,8 +396,7 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
     checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
     if not checks:
         command = ready.get("command", "")
-        checks = ([{"command": command, "files": ready.get("files", [])}]
-                  if command else [])
+        checks = ([{"command": command, "files": ready.get("files", [])}] if command else [])
     if not checks:
         return {"reproduced": False, "source": source,
                 "output": "No applicable approved Exit test command is available."}
@@ -426,8 +424,7 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
                 continue
             commands.append(adapted)
         if not commands:
-            return {"reproduced": False, "source": source,
-                    "output": "\n".join(outputs)[-3000:]}
+            return {"reproduced": False, "source": source, "output": "\n".join(outputs)[-3000:]}
         reproduced = False
         for command in commands:
             code, output = gate.run_judge(target, command,
@@ -438,8 +435,7 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
             if code != 0 and judge_assertion_failed(output, item):
                 reproduced = True
                 break
-        return {"reproduced": reproduced, "source": source,
-                "output": "\n\n".join(outputs)[-3000:]}
+        return {"reproduced": reproduced, "source": source, "output": "\n\n".join(outputs)[-3000:]}
     finally:
         _remove_untracked_reproducer(target, test_file)
         sh(["git", "worktree", "remove", str(target)], root, check=False)

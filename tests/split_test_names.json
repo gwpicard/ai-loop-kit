@@ -106,6 +106,7 @@
   "test_run.RunTest.test_an_older_build_folder_inside_the_project_is_reused",
   "test_run.RunTest.test_bad_reviewer_verdict_fails_with_raw_tail_and_environment_record",
   "test_run.RunTest.test_both_reviewers_run_without_a_project_standards_file",
+  "test_run.RunTest.test_both_reviewers_see_earlier_build_code_but_not_the_exit_files",
   "test_run.RunTest.test_build_folders_live_outside_the_project",
   "test_run.RunTest.test_builder_bar_wrong_outcome_returns_on_first_attempt",
   "test_run.RunTest.test_builder_can_edit_a_protected_path_named_in_the_contract",

@@ -29,10 +29,10 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertIn("reproducer", handback["reason"])
         self.assertIn("D1", handback["reason"])
         self.assertIn('raise AssertionError("D1")', handback["reason"])
-        branch = self.p.folder(n)
-        self.assertFalse((branch / "test_review_D1.py").exists())
+        self.assertNotIn("test_review_D1.py",
+                         git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
         self.assertIn("check(\"test_D1_add_appends\", d1)",
-                      git(branch, "show", "HEAD:judge_add.py"))
+                      git(self.p.root, "show", f"piece/{n}:judge_add.py"))
 
     def test_each_contract_finding_can_use_its_own_reproducer(self):
         os.environ["FAKE_REVIEW_MODE"] = "contract-multiple-reproduced"

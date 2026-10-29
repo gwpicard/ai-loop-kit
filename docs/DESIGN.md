@@ -415,8 +415,9 @@ Why each role is separate:
   in the judged commit and a description of what is missing. The run collapses
   findings with the same citation and claim, retaining the first location.
   It logs dropped findings with reasons and counts them in the pull request (code).
-  Review diffs start at the ready commit with the base merged in, so shaping
-  files and work merged from the base are baseline, not build changes. The contract reviewer also sees the attempt gate output,
+  Review diffs start at the base, with the bar files left out, so the
+  reviewers see every change the piece makes, including code from an earlier
+  build, and not work merged from the base. The contract reviewer also sees the attempt gate output,
   including critic verdicts. Both reviewers see numbered frozen baseline
   lines. The reviewers print one tagged JSON verdict; the run never guesses a verdict
   from free text [Sandcastle].
@@ -729,8 +730,9 @@ run.py
   a builder.
 - **Worktree cleanup.** Moves to shaping, approval, done or dropped try to
   release the build folder. Ignored artefacts such as `node_modules` do not
-  prevent removal. Uncommitted work and commits not merged into `main` keep
-  the folder. Review cleanup checks against the piece branch instead. Probe
+  prevent removal. Uncommitted work, an unfinished merge, a lock and commits
+  that the piece branch lacks keep the folder. The check compares with the
+  piece branch, as review cleanup does. Probe
   cleanup first restores its injected judge files or proposed settings when
   their working and staged contents still match the injection. It preserves
   later edits and any other unfinished work. Every failed removal prints the folder and

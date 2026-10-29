@@ -37,7 +37,7 @@ import regression
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
-from frozen import frozen_file_reason
+from frozen import earlier_build_paths, frozen_file_reason
 import holds  # noqa: E402
 import loop_pr  # noqa: E402
 from run_start import (capture_probe_files, release_worktree, remove_worktree,  # isort: skip
@@ -81,8 +81,7 @@ def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
 
 
 def check_times(output: str) -> list[float]:
-    return [float(value) for value in re.findall(
-        r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
+    return [float(value) for value in re.findall(r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
 
 
 def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
@@ -297,8 +296,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if prepare_paths.is_file():
         roots = prepare_paths.read_text().splitlines()
         if roots:
-            added = sh(["git", "diff", "--no-renames", "--name-only", "--diff-filter=A",
-                        f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
+            added = earlier_build_paths(folder, ready.get("bar_files", ready["files"]))
             leaked = [path for path in added if any(
                 path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/")
                 for root in roots)]
@@ -535,6 +533,10 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
+        if "bar_files" in record and (
+                earlier := earlier_build_paths(root, record["bar_files"], branch_name(n))):
+            note += (" Warning: the piece branch holds earlier build code: "
+                     f"{', '.join(earlier)}; the next build starts from it.")
         for conflict in record.get("shared_conflicts", []):
             note += (f" Warning: shared files {', '.join(conflict['files'])} also appear in "
                      f"ready piece {conflict['issue']}.")
@@ -549,8 +551,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     elif name == "submit":
         ready = check_frozen(issue, comments)
         if folder is None:
-            raise Refused("submit needs the build folder",
-                          "the run makes this move, not a person")
+            raise Refused("submit needs the build folder", "the run makes this move, not a person")
         passed, output = judge(folder, ready)
         logs = root / ".loop" / "logs"
         logs.mkdir(parents=True, exist_ok=True)

@@ -128,7 +128,7 @@ def release_worktree(root: Path, n: int) -> None:
         print(f"kept worktree for {branch_name(n)} in {root}: {error}", flush=True)
         return
     if folder:
-        remove_worktree(root, folder)
+        remove_worktree(root, folder, branch_name(n))
 
 
 def cleanup_interrupted_reviews(root: Path, prefixes: tuple[str, ...] = ()) -> list[str]:

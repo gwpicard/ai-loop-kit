@@ -43,6 +43,34 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertTrue((logs / f"piece-{n}-standards-review.log").is_file())
         self.assertTrue((logs / f"piece-{n}-contract-review.log").is_file())
 
+    def test_both_reviewers_see_earlier_build_code_but_not_the_exit_files(self):
+        import review
+        import run
+        prompts = []
+        session = review._review_session
+
+        def observe(folder, prompt, *args, **kwargs):
+            prompts.append(prompt)
+            return session(folder, prompt, *args, **kwargs)
+
+        os.environ["FAKE_MODE"] = "good"
+        n = self.p.piece()
+        git(self.p.root, "switch", "--quiet", f"piece/{n}")
+        (self.p.root / "earlier.py").write_text("EARLIER = 1\n")
+        git(self.p.root, "add", "earlier.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Earlier build")
+        git(self.p.root, "switch", "--quiet", "main")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        with patch("review._review_session", side_effect=observe):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("pull request ready", result)
+        self.assertEqual(len(prompts), 2)
+        for prompt in prompts:
+            diff = prompt.split("## Diff", 1)[1].split("## Frozen baseline", 1)[0]
+            self.assertIn("earlier.py", diff)
+            self.assertIn("habits.py", diff)
+            self.assertNotIn("judge_add.py", diff)
+
     def test_idle_reviewer_is_recorded_as_builder_failed(self):
         os.environ["FAKE_REVIEW_MODE"] = "review-idle"
         self.p.loop_section("true")

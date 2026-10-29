@@ -39,7 +39,7 @@ class AuditTest(unittest.TestCase):
         return n
 
     def build_folder(self, n: int) -> Path:
-        return self.p.folder(n)
+        return run.worktree(self.p.root, n)  # the gate released it when the piece merged
 
     def audit(self, n: int, head: str = ""):
         branch = f"piece/{n}"
