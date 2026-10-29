@@ -89,8 +89,7 @@ def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
            not (folder / name).resolve().is_relative_to(folder.resolve()) for name in files):
         raise ValueError("judge-writer must produce the approved Exit Files inside the project")
     sh(["git", "add", "--", *files], folder)
-    if sh(["git", "diff", "--cached", "--quiet", "--", *files],
-          folder, check=False).returncode:
+    if sh(["git", "diff", "--cached", "--quiet", "--", *files], folder, check=False).returncode:
         sh(["git", "commit", "--only", "-m", "Write the approved judge", "--", *files], folder)
     if _judge_dirty(folder) or _judge_untracked(folder, files) != before:
         raise ValueError("judge-writer left uncommitted work; keep it for shaping")
@@ -266,9 +265,13 @@ def main() -> int:
         if args.role == "judge-writer":
             _judge_finish(args.folder, baseline, _last_verdict(text, args.role))
         else:
-            findings, gaps = parse_research(text.splitlines())
-            if gaps or not findings:
-                raise ValueError(f"researcher requires web-search and web-open: {gaps or text}")
+            rows = text.splitlines()
+            kept = ["" if re.match(r"\s*[-*]\s*Unconfirmed:\s*\S", x) else x for x in rows]
+            findings, gaps = parse_research(kept)
+            if gaps or not (findings or kept != rows):
+                bad = [x for x, y in zip(rows, kept) if y and parse_research([y])[1]]
+                raise ValueError("researcher lines must be findings or '- Unconfirmed: <fact>': "
+                                 + "; ".join(bad or gaps or ["none found"]))
         args.output.write_text(text)
         return 0
     except (OSError, ValueError, RuntimeError, Refused) as error:

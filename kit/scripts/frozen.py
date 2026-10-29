@@ -20,6 +20,13 @@ def expected_tree(folder: Path, ready: dict) -> Optional[str]:
     return res.stdout.split()[0] if res.returncode == 0 and res.stdout.strip() else None
 
 
+def earlier_build_paths(folder: Path, bar_files: list[str], head: str = "HEAD") -> list[str]:
+    """Paths that `head` changes since the base, leaving out the bar files."""
+    base = sh(["git", "merge-base", head, main_ref(folder)], folder, check=False).stdout.strip()
+    diff = sh(["git", "diff", "--no-renames", "--name-only", "-z", base, head], folder).stdout
+    return sorted(set(diff.split("\0")) - {"", *bar_files}) if base else []
+
+
 def neighbour_edits(folder: Path, ready: dict, tree: Optional[str]) -> list[str]:
     """Support files the build edited or deleted. Added files stay allowed."""
     if tree is None:
@@ -63,8 +70,8 @@ def already_satisfied(folder: Path, ready: dict) -> str:
     tests = [check["command"] for check in ready.get("checks", []) if check["type"] == "tests"]
     if not tests or rev(folder, main_ref(folder)) == ready.get("main"):
         return ""
-    tree = expected_tree(folder, ready)
-    if tree is None or sh(["git", "diff", "--name-only", tree, "HEAD"], folder).stdout.strip():
+    if rev(folder, "MERGE_HEAD") or earlier_build_paths(
+            folder, ready.get("bar_files", ready["files"])):
         return ""  # an open merge, or code from an earlier build: the attempts decide
     try:
         for command in tests:

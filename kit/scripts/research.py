@@ -43,8 +43,7 @@ def parse_research(lines: list[str]) -> tuple[list[dict[str, str]], list[str]]:
             continue
         if read > date.today():
             gaps.append(f"Research {finding_id} read date cannot be in the future")
-        findings.append({"id": finding_id, "finding": finding, "source": source,
-                         "read": read_date})
+        findings.append({"id": finding_id, "finding": finding, "source": source, "read": read_date})
     return findings, gaps
 
 

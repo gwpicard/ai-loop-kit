@@ -98,6 +98,7 @@ class HonestMessagesTest(unittest.TestCase):
         self.p.gh.issues[n]["title"] = "Keep each habit once"
         gate.move(self.p.gh, self.p.root, n, "ready")
         gate.move(self.p.gh, self.p.root, n, "building")
+        folder = run.worktree(self.p.root, n)  # the move to shaping released the folder
         (folder / "habits.py").write_text(GOOD_CODE + "\n# Keep each habit once.\n")
         git(folder, "add", "habits.py")
         git(folder, "commit", "--quiet", "-m", "Explain habit handling")

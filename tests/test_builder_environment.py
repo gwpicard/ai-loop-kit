@@ -198,9 +198,9 @@ class BuilderEnvironmentTest(unittest.TestCase):
         with patch("run_cli.GitHub", return_value=self.p.gh), \
                 patch.object(run, "build_once", side_effect=OSError("builder unavailable")):
             status = run.main([str(n)])
-        handback = next(r for r in records(self.p.gh.comments(n))
-                        if r.get("move") == "give-back")
-        self.assertEqual(handback["type"], "environment")
+        requeue = next(r for r in records(self.p.gh.comments(n))
+                       if r.get("move") == "requeue")
+        self.assertEqual(requeue["type"], "environment")
         self.assertNotEqual(status, 0)
 
     def test_measure_brief_stops_if_hypothesis_write_fails(self):

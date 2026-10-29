@@ -46,8 +46,7 @@ true on main can use `(stays)`; its judge test must pass on main.
 `Research` is optional. Use one line per outside finding, with a unique `R`
 ID, an HTTP or HTTPS source URL and the date read in `YYYY-MM-DD` form. The
 gate refuses a malformed finding. At claim, it reports findings older than
-30 days as possibly stale. The builder and contract reviewer receive the
-findings.
+30 days as possibly stale.
 
 `Risks` is optional for older issues. New issues should include all five
 lines. Use comma-separated paths or names, or `none`. `Open choices:` must
@@ -69,7 +68,7 @@ combine check types. The project's Test command always runs. Optional `Keep:`
 in `## Judge` adds a distinct check; identical commands run once.
 `Playbook: fix` guides the builder and has no gate effect.
 `Settings: may change` lets a piece change check settings, such as
-workflows. Ready needs it when the Contract names one.
+workflows. Ready needs it when the Contract names one, and warns when the Approach does.
 `Done when` remains accepted as the old name for `Contract`.
 
 Specs with `## Judge` and `Kind:` remain accepted as one check. A fix
@@ -85,8 +84,7 @@ last non-empty line. The gate runs it three times and uses the median. The
 target uses `<`, `<=`, `>` or `>=` followed by a number. At ready, the median
 on main must miss the target. Before changing code, each attempt writes one
 hypothesis to `.loop/hypothesis`. An attempt passes when the median meets the
-target and `Keep:` passes. The pull request records the main and attempt values
-and the hypotheses tried.
+target and `Keep:` passes.
 
 ```markdown
 ## Exit
@@ -109,8 +107,7 @@ list of `Criteria:`. It needs the
 any local reference files. The gate freezes these files in the bar. Three
 fresh blind critics see the two artefacts in random order. Main must win fewer
 than two comparisons at ready. An attempt passes when ours wins at least two
-and `Keep:` passes. The pull request records each verdict and the order shown
-to each critic.
+and `Keep:` passes.
 
 ```markdown
 ## Exit
@@ -152,31 +149,34 @@ Playbook: fix
 
 ## What the gate checks at ready
 
-- Intent and the out of scope list are present, and each Contract item has
-  one ID.
-- The judge fails on today's main for each item to build. A `(stays)` item
-  passes on main and has a test.
+- The judge fails on today's main for each item to build.
 - The Test command and any distinct `Keep:` pass on main and after the build.
 - `Files:` names the files an exit check runs, inside the project.
 - Each Research line has a source URL and a real read date.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
-  unless its path is named with `Large file:`.
+  unless its path is named with `Large file:`. Lockfiles are exempt.
 
 Every check in `## Exit` runs on main at ready and after each attempt. Measure
 checks use the median of three runs. Critics checks use three blind verdicts.
-Every check's `Files:` list is included in the frozen bar. Legacy goal and
-gauntlet specs keep the same readiness and attempt rules.
+Every check's `Files:` list is included in the frozen bar.
 
-The gate hashes the spec and judge bar. A change after ready
-means the piece must go back through shaping and ready.
+The gate hashes the spec and judge bar.
+
+## Change an earlier test
+
+To change or retire an earlier piece's test, list its file in Exit `Files:`,
+not in a Contract mention. The judge writer rewrites it and ready freezes it.
+Name the changed behaviour in a Contract item. Keep the rest of that file's
+tests as `(stays)` items. Only the test for the changed behaviour takes the
+new Contract ID. The other tests keep their IDs, and no new ID may repeat one
+already in that file.
 
 ## Project environments
 
 The project's `AGENTS.md` names the required Test command and optional
 Prepare command. Ready records the regression command, Keep limit and main
 result. Submit reruns it on the final commit. Scaffold readiness skips the
-regression check and Prepare. `Keep:` adds checks; it never replaces the full
-suite. Keep install steps and local paths out of specs.
+regression check and Prepare. Keep install steps and local paths out of specs.
 
 Quality commands are optional project checks. Setup runs each proposed
 command on a fresh copy of main after applying the proposed loop commands.

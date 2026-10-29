@@ -8,7 +8,9 @@ import helpers  # noqa: F401
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import agents
@@ -16,6 +18,7 @@ import gate
 import procs
 import review
 import run
+import test_capabilities
 from loopkit import records
 from run_fixtures import RunFixture
 
@@ -134,3 +137,35 @@ class SessionRunnerTest(RunFixture, unittest.TestCase):
         self.assertEqual(len(processes), 1)
         self.assertEqual(processes[0].returncode, 0)
         wait.assert_not_called()
+
+
+FINDING = "- R1: Timeout is supported (source: https://example.test/api, read: 2026-10-15)"
+UNCONFIRMED = "- Unconfirmed: the API has no rate limit"
+
+
+class ResearchOutputTest(unittest.TestCase):
+    fake_cli = test_capabilities.CapabilityTest.fake_cli
+    invoke = test_capabilities.CapabilityTest.invoke
+
+    def research(self, answer):
+        with tempfile.TemporaryDirectory() as temporary:
+            result, output = self.invoke(Path(temporary), "claude", "researcher",
+                                         {"question": "Check it"}, answer)
+            return result, output.read_text() if output.exists() else None
+
+    def test_research_with_an_unconfirmed_line_keeps_its_findings(self):
+        result, text = self.research(FINDING + "\n" + UNCONFIRMED)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(text.strip(), FINDING + "\n" + UNCONFIRMED)
+
+    def test_research_with_only_unconfirmed_lines_is_accepted(self):
+        result, text = self.research(UNCONFIRMED)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(text.strip(), UNCONFIRMED)
+
+    def test_a_free_text_line_still_refuses_and_is_named(self):
+        result, text = self.research(FINDING + "\n**Not confirmed**\n" + UNCONFIRMED)
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(text)
+        self.assertIn("**Not confirmed**", result.stderr)
+        self.assertNotIn("web-search", result.stderr)

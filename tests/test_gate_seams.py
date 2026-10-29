@@ -1,6 +1,7 @@
 """Guard the gate's size and the setup and command-line seams."""
 import contextlib
 import io
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +10,7 @@ from helpers import Project, git
 
 # isort: split
 import gate
-from loopkit import Refused
+from loopkit import GitHub, Refused
 
 
 class GateSeamTest(unittest.TestCase):
@@ -76,6 +77,27 @@ class GateSeamTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
             gate.main(["move", "1", "unknown"])
         self.assertEqual(error.exception.code, 2)
+
+
+class DoneIssueTest(unittest.TestCase):
+    def test_sync_closes_an_open_issue_that_is_already_done(self):
+        project = Project()
+        self.addCleanup(project.close)
+        done = project.gh.create_issue("Done", "body", ["state:done"])
+        shaping = project.gh.create_issue("Shaping", "body", ["state:shaping"])
+        gate.sync(project.gh, project.root)
+        self.assertEqual(project.gh.issue(done)["state"], "CLOSED")
+        self.assertEqual(project.gh.issue(shaping)["state"], "OPEN")
+
+    def test_a_failed_gh_call_keeps_only_its_first_line(self):
+        error = 'non-200 OK status code: 504 Gateway Timeout body: "<!DOCTYPE html>\n<html>'
+        result = subprocess.CompletedProcess([], 1, "", error)
+        with patch("loopkit.subprocess.run", return_value=result):
+            with self.assertRaises(RuntimeError) as caught:
+                GitHub(Path.cwd())._gh("issue", "close", "20")
+        self.assertNotIn("\n", str(caught.exception))
+        self.assertIn("504 Gateway Timeout", str(caught.exception))
+        self.assertNotIn("<html>", str(caught.exception))
 
 
 class CachedQualityProbeTest(unittest.TestCase):

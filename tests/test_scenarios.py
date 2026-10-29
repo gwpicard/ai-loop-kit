@@ -36,7 +36,7 @@ class ScenarioTest(unittest.TestCase):
         n, result = self.build("settings-cheat", attempts=1)
         self.assertEqual(self.p.gh.prs, {})
         comment = "\n".join(self.p.gh.comments(n))
-        self.assertIn("the build changed frozen files: AGENTS.md", comment)
+        self.assertIn("the loop settings changed in AGENTS.md", comment)
 
     def test_hostile_builder_changes_are_each_refused(self):
         self.p.loop_section("true")
@@ -49,10 +49,10 @@ class ScenarioTest(unittest.TestCase):
         git(self.p.root, "commit", "--quiet", "-m", "Add loop settings and test support")
         git(self.p.root, "push", "--quiet", "origin", "main")
         expected = {
-            "hostile-quality-delete": "the build changed frozen files: AGENTS.md",
+            "hostile-quality-delete": "the loop settings changed in AGENTS.md",
             "hostile-test-rename": "existing test files not named in the Contract or Files",
             "hostile-conftest": "the build changed frozen files: conftest.py",
-            "hostile-standards": "the build changed frozen files: STANDARDS.md",
+            "hostile-standards": "the build changes the project's check settings: STANDARDS.md",
         }
         for mode, reason in expected.items():
             with self.subTest(mode=mode):
@@ -137,7 +137,7 @@ class ScenarioTest(unittest.TestCase):
             if os.environ.get("LOOP_REVIEWER") == "1":
                 if "Standards reviewer brief" in prompt:
                     child_code = (
-                        "import time; time.sleep(60)"
+                        "import os, time; time.sleep(float(os.environ.get('CHILD_SLEEP', '60')))"
                     )
                     child = subprocess.Popen([sys.executable, "-c", child_code])
                     pathlib.Path(os.environ["CHILD_PID_FILE"]).write_text(str(child.pid))
@@ -197,9 +197,11 @@ class ScenarioTest(unittest.TestCase):
 
         restarted = subprocess.run(
             [sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
-            cwd=self.p.root, env=env, capture_output=True, text=True, timeout=20, check=False)
-        self.assertEqual(restarted.returncode, 1, restarted.stdout + restarted.stderr)
-        self.assertIn("refused: there is no move from shaping to building", restarted.stdout)
+            cwd=self.p.root, env={**env, "CHILD_SLEEP": "0"}, capture_output=True, text=True,
+            timeout=60, check=False)
+        self.assertEqual(restarted.returncode, 0, restarted.stdout + restarted.stderr)
+        self.assertIn("returned to ready", restarted.stdout)
+        self.assertIn("pull request ready", restarted.stdout)
         checks = audit.audit_cleanup(self.p.root)
         self.assertTrue(all(passed for passed, _ in checks), checks)
         self.assertIn((True, f"reviewer process group {group} has exited"), checks)
@@ -210,7 +212,7 @@ class ScenarioTest(unittest.TestCase):
         broken, score = audit.audit_piece(piece, None, self.p.root)
         self.assertEqual(broken, [])
         self.assertEqual((score["state"], score["attempts"], score["sent_back"]),
-                         ("shaping", 1, 1))
+                         ("approval", 1, 0))
 
     def test_bar_wrong_stops_on_attempt_one(self):
         n, result = self.build("bar-wrong", attempts=3)
@@ -271,8 +273,8 @@ class ScenarioTest(unittest.TestCase):
         self.assertIn("back to shaping", result)
         branches = git(self.p.root, "branch", "--list", "review/*")
         self.assertEqual(branches, "")
-        self.assertTrue(self.p.folder(n).exists())
-        self.assertIn("habits.py", git(self.p.folder(n), "ls-files"))
+        self.assertFalse(self.p.folder(n).exists())  # given back, so released
+        self.assertIn("habits.py", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
         self.assertFalse(run._ACTIVE_GROUPS)
 
     def test_run_start_removes_and_reports_abandoned_review_worktrees(self):
@@ -286,10 +288,14 @@ class ScenarioTest(unittest.TestCase):
         self.assertFalse(folder.exists())
 
     def test_a_bar_change_after_ready_returns_before_attempt_one(self):
+        (self.p.root / "judge_add_helpers.py").write_text("X = 1\n")
+        git(self.p.root, "add", "judge_add_helpers.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Judge helper")
+        git(self.p.root, "push", "--quiet", "origin", "main")
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
         git(self.p.root, "switch", "--quiet", f"piece/{n}")
-        (self.p.root / "README.md").write_text("changed after ready\n")
+        (self.p.root / "judge_add_helpers.py").write_text("X = 2\n")
         git(self.p.root, "commit", "--quiet", "-am", "Change a support file after ready")
         git(self.p.root, "switch", "--quiet", "main")
         result = run.build_piece(self.p.gh, self.p.root, n, 1)

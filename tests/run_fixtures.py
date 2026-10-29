@@ -105,6 +105,7 @@ FAKE_CLAUDE = textwrap.dedent('''\
                    '    return items if name in items else items + [name]' > habits.py
                  git add src/auth.py habits.py && git commit --quiet -m "Build protected path" ;;
       good) printf 'def add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
+      rewrite-fn) printf 'def fn():\\n    return {"x": 1, "y": 2}\\n\\ndef fn2():\\n    return [1]\\n' > habits.py ;;
       wrong-import) printf 'import missing_runtime\\n' > habits.py ;;
       adds-dependency) printf 'installedmod\\n' > requirements.txt
                        printf 'import installedmod\\ndef add(items, name):\\n    return items if name in items else items + [name]\\n' > habits.py ;;
@@ -127,6 +128,10 @@ FAKE_CLAUDE = textwrap.dedent('''\
                     printf 'spec-unclear\\nReason: ' > .loop/outcome
                     printf 'The required interface is unspecified ' >> .loop/outcome
                     python3 -c 'print("x" * 600 + "\\nCitation: habits.py:1")' >> .loop/outcome ;;
+      approach-unclear) mkdir -p .loop
+                    printf '%s\\n' 'spec-unclear' \\
+                      'Reason: Approach line 2 says to drop every stop outside the box.' \\
+                      'Citation: Command: python -m pytest test_existing.py (exit 1)' > .loop/outcome ;;
       uncited-spec-unclear) mkdir -p .loop
                     printf '%s\\n' 'spec-unclear' \\
                       'Reason: The required interface is unspecified.' > .loop/outcome ;;

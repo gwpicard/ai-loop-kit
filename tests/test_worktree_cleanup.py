@@ -60,10 +60,35 @@ class WorktreeCleanupTest(unittest.TestCase):
                 if name == "new.txt":
                     path.unlink()
 
-    def test_unmerged_commits_are_kept_and_reported(self):
+    def give_back(self):
+        self.p.gh.issues[self.n]["labels"] = ["state:building"]
+        gate.move(self.p.gh, self.p.root, self.n, "shaping", reason="the spec is unclear",
+                  reason_type="spec-unclear")
+
+    def test_give_back_releases_clean_build_worktree(self):
+        (self.folder / "built.txt").write_text("built\n")
+        git(self.folder, "add", "built.txt")
+        git(self.folder, "commit", "--quiet", "-m", "Build")
+        built = git(self.folder, "rev-parse", "HEAD").strip()
+        self.give_back()
+        self.assertFalse(self.folder.exists())
+        self.assertEqual(git(self.p.root, "rev-parse", f"piece/{self.n}").strip(), built)
+        git(self.p.root, "switch", "--quiet", f"piece/{self.n}")
+
+    def test_give_back_releases_a_branch_that_was_never_pushed(self):
+        self.assertEqual(git(self.p.root, "branch", "-r", "--list", f"origin/piece/{self.n}"), "")
+        self.give_back()
+        self.assertFalse(self.folder.exists())
+        git(self.p.root, "switch", "--quiet", f"piece/{self.n}")
+
+    def test_detached_commits_the_branch_lacks_are_kept_and_reported(self):
+        git(self.folder, "checkout", "--quiet", "--detach")
+        (self.folder / "loose.txt").write_text("loose\n")
+        git(self.folder, "add", "loose.txt")
+        git(self.folder, "commit", "--quiet", "-m", "Loose work")
         output = io.StringIO()
         with redirect_stdout(output):
-            run.release_worktree(self.p.root, self.n)
+            run_start.remove_worktree(self.p.root, self.folder, f"piece/{self.n}")
         self.assertTrue(self.folder.exists())
         self.assertIn(str(self.folder), output.getvalue())
         self.assertIn("unmerged", output.getvalue())

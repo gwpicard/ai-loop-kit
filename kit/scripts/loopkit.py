@@ -35,7 +35,7 @@ CAUSES = ("bar-wrong", "builder-failed", "conflict", "dirty-worktree", "import-e
           "idle", "judge-failed", "judge-gap", "keep-flaky", "needs-answer", "other",
           "person-rejected", "person-request", "prepare-failed", "pull-request-failed",
           "quality-failed", "spec-unclear", "stale-after-main", "stopped", "usage-limit",
-          "already-satisfied")
+          "already-satisfied", "dead-run", "run-error")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900
@@ -239,16 +239,15 @@ def main_ref(root: Path) -> str:
                   else f"create {base} from main and push it to origin")
 
 
-SOURCE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-                   ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php", ".cs"}
+LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock", "package-lock.json", "pnpm-lock.yaml",
+             "yarn.lock", "go.sum", "Cargo.lock", "Gemfile.lock")
 
 
 def in_bar_zone(name: str, files: list[str]) -> bool:
-    """A conftest, or a support file in a judge folder (at the root: any non-source file)."""
+    """A conftest, or a support file in a judge folder (at the root: its stem)."""
     return Path(name).name == "conftest.py" or any(
-        (folder != "." and name.startswith(folder.rstrip("/") + "/")) or
-        (folder == "." and Path(name).suffix.lower() not in SOURCE_SUFFIXES)
-        for folder in {str(Path(file).parent) for file in files})
+        name.startswith(folder + "/") if (folder := str(Path(file).parent)) != "." else
+        "/" not in name and name.startswith(Path(file).stem) for file in files)
 
 
 def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
@@ -414,13 +413,27 @@ def untracked_paths(folder: Path) -> set[str]:
             if path and not path.startswith(".loop/cache/")}
 
 
+def new_paths(folder: Path, before: set[str], before_dirs: set[str], skip=None) -> set[str]:
+    paths = set()
+    for path in untracked_paths(folder) - before:
+        first, separator, _ = path.partition("/")
+        if not (skip and skip(path)):
+            paths.add(first + "/" if separator and first not in before_dirs else path)
+    return paths
+
+
+def exclude_paths(folder: Path, paths) -> None:
+    exclude = Path(sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
+                       "info/exclude"], folder).stdout.strip())
+    text = exclude.read_text() if exclude.exists() else ""
+    missing = sorted({"/" + path for path in paths} - set(text.splitlines()))
+    if missing:
+        exclude.write_text("\n".join([*text.splitlines(), *missing]) + "\n")
+
+
 def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]) -> list[str]:
     """Exclude new Prepare output in this worktree and record it for the gate."""
-    added = untracked_paths(folder) - before
-    paths = set()
-    for path in added:
-        first, separator, _ = path.partition("/")
-        paths.add(first + "/" if separator and first not in before_dirs else path)
+    paths = new_paths(folder, before, before_dirs)
     if not paths:
         return []
 
@@ -428,19 +441,10 @@ def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]
     info = git_dir / "info"
     info.mkdir(parents=True, exist_ok=True)
     marker = info / "ai-loop-kit-prepare-paths"
-    exclude = Path(sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
-                       "info/exclude"], folder).stdout.strip())
     recorded = set(marker.read_text().splitlines()) if marker.exists() else set()
     recorded.update(paths)
     marker.write_text("\n".join(sorted(recorded)) + "\n")
-
-    existing = exclude.read_text().splitlines() if exclude.exists() else []
-    patterns = {"/" + path for path in paths}
-    missing = sorted(patterns - set(existing))
-    if missing:
-        text = exclude.read_text() if exclude.exists() else ""
-        exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
-                           + "\n".join(missing) + "\n")
+    exclude_paths(folder, paths)
     return sorted(recorded)
 
 
@@ -448,8 +452,7 @@ def run_keep(folder: Path, command: str, timeout: int,
              protected_paths: list[str] | None = None) -> tuple[int, str]:
     """Run Keep with its limit and report the elapsed seconds."""
     started = time.monotonic()
-    code, output = run_judge(folder, command, timeout=timeout,
-                             protected_paths=protected_paths)
+    code, output = run_judge(folder, command, timeout=timeout, protected_paths=protected_paths)
     elapsed = time.monotonic() - started
     return code, f"{output.rstrip()}\nKeep took: {elapsed:.3f} seconds".lstrip()
 
@@ -559,12 +562,10 @@ def judge_assertion_failed(output: str, item: str) -> bool:
     """Apply the ready gate's failure-line and named-item rule."""
     fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
     named = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
-    return any(fail_line.search(line) and named.search(line)
-               for line in output.splitlines())
+    return any(fail_line.search(line) and named.search(line) for line in output.splitlines())
 
 
-def exit_ready(folder: Path, checks: tuple, contract: dict,
-               stays: tuple) -> tuple[list[dict], str]:
+def exit_ready(folder: Path, checks: tuple, contract: dict, stays: tuple) -> tuple[list[dict], str]:
     """Prove every Exit check is unmet on main and save its baseline."""
     import measure
 
@@ -584,8 +585,7 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                               f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
                               "fix the judge so it fails on an assertion")
             if check.get("legacy_kind") != "scaffold":
-                named = [item for item in building
-                         if judge_assertion_failed(output, item)]
+                named = [item for item in building if judge_assertion_failed(output, item)]
                 if not named:
                     raise Refused("the judge fails on main, but its output names no spec ID "
                                   f"({', '.join(building)}):\n{output.strip()[-1500:]}",
@@ -595,8 +595,7 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                 if missing:
                     raise Refused(f"no failing judge test names {', '.join(missing)}",
                                   "give every Contract item at least one failing test")
-                failing_stays = [item for item in stays
-                                 if judge_assertion_failed(output, item)]
+                failing_stays = [item for item in stays if judge_assertion_failed(output, item)]
                 if failing_stays:
                     raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
                                   "a (stays) item holds on the base now, not after the pieces it "
@@ -623,17 +622,14 @@ def exit_attempt(folder: Path, checks: list[dict],
     failed = False
     for check in checks:
         if check["type"] == "tests":
-            code, output = run_judge(folder, check["command"],
-                                     protected_paths=protected_paths)
+            code, output = run_judge(folder, check["command"], protected_paths=protected_paths)
             if skipped_tests(output):
                 code = 1
                 output = "the judge reported skipped tests:\n" + output.strip()[-1500:]
         elif check["type"] == "measure":
-            code, output = measure.judge_attempt(folder, check,
-                                                  protected_paths=protected_paths)
+            code, output = measure.judge_attempt(folder, check, protected_paths=protected_paths)
         else:
-            code, output = critics().judge_attempt(folder, check,
-                                                 protected_paths=protected_paths)
+            code, output = critics().judge_attempt(folder, check, protected_paths=protected_paths)
         results.append(f"{check['type'].title()} exit check (exit {code}):\n{output.strip()}")
         if code:
             failed = True
@@ -652,7 +648,9 @@ class GitHub:
         res = subprocess.run(["gh", *args], cwd=self.root, capture_output=True,
                              text=True, input=stdin)
         if res.returncode != 0:
-            raise RuntimeError(f"gh {' '.join(args[:3])} failed: {res.stderr.strip()}")
+            text = res.stderr.strip()
+            text = text if args[0] == "auth" else text.partition("\n")[0]
+            raise RuntimeError(f"gh {' '.join(args[:3])} failed: {text}")
         return res.stdout
 
     def issue(self, n: int) -> dict:
@@ -727,8 +725,7 @@ class GitHub:
         return "plan" if "Upgrade to GitHub Pro" in result.stderr else "unknown"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
-        self._gh("label", "create", name, "--color", color, "--description",
-                 description, "--force")
+        self._gh("label", "create", name, "--color", color, "--description", description, "--force")
 
     def create_pr(self, head: str, title: str, body: str, base: str = "") -> str:
         return self._gh("pr", "create", "--base", base or base_branch(self.root), "--head", head,

@@ -170,8 +170,12 @@ class CapabilityTest(unittest.TestCase):
                     self.assertFalse(output.exists())
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertIn("next:", result.stderr)
-                    self.assertIn("web-search", result.stderr)
-                    self.assertIn("web-open", result.stderr)
+                    if code:
+                        self.assertIn("web-search", result.stderr)
+                        self.assertIn("web-open", result.stderr)
+                    else:
+                        self.assertIn(answer, result.stderr)
+                        self.assertNotIn("web-search", result.stderr)
 
     def test_unavailable_web_tool_cannot_be_hidden_by_valid_research(self):
         finding = "- R1: Supported (source: https://example.test/api, read: 2026-10-15)"

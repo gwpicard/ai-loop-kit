@@ -106,7 +106,7 @@ class CriticFailureTest(unittest.TestCase):
         self.assertIn("Readable labels.", body)
 
     def release_merged_folder(self, project, number):
-        self.assertTrue(project.folder(number).exists())
+        run.worktree(project.root, number)  # given back and released; open it again
         git(project.root, "merge", "--quiet", f"piece/{number}")
         git(project.root, "push", "--quiet", "origin", "main")
         run.release_worktree(project.root, number)

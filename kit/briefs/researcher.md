@@ -15,9 +15,9 @@ Return one concise line per supported finding in this exact form:
 
 Use a new sequential ID for each line. The date is the date you opened the
 source. Include only facts that matter to the piece. If a claim is uncertain,
-state the uncertainty in the finding. If you cannot support a requested fact,
-say what could not be confirmed and do not turn it into a Research line.
+state the uncertainty in the finding. Write each fact you cannot
+support as one line, `- Unconfirmed: <fact>`, never as a Research line.
 
 Do not edit files or write implementation code. Do not cite a search results
 page. Report useful conflicts between sources with a line for each source.
-Return only the findings and any brief note about a fact you could not confirm.
+Return only finding lines and Unconfirmed lines.

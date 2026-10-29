@@ -56,7 +56,7 @@ class RuntimeThinningTest(unittest.TestCase):
                 git(folder, "commit", "--quiet", "-m", "Change loop inputs")
                 passed, output = gate.judge(folder, ready)
                 self.assertFalse(passed)
-                self.assertEqual(output, "the build changed frozen files: AGENTS.md")
+                self.assertEqual(output, "the loop settings changed in AGENTS.md")
                 self.assertEqual({key: ready[key] for key in expected}, expected)
 
     def test_ready_retains_setting_defaults(self):

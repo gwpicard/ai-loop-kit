@@ -99,6 +99,11 @@ class SpecTest(unittest.TestCase):
             parse_spec(SPEC + "\n## Research\nA fact with no citation\n")
         self.assertIn("Research", refusal.exception.reason)
 
+    def test_spec_research_section_refuses_an_unconfirmed_line(self):
+        with self.assertRaises(Refused) as refusal:
+            parse_spec(SPEC + "\n## Research\n- Unconfirmed: the API has no rate limit\n")
+        self.assertIn("Research line 1", refusal.exception.reason)
+
     def test_stale_findings_use_claim_date_and_thirty_day_limit(self):
         from datetime import date
         from research import stale_findings

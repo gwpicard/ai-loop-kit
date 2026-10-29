@@ -174,8 +174,7 @@ def javascript_findings(path: Path, text: str,
             r"expect\s*\(.*?\)\s*\.\s*not\s*\.\s*toThrow(?:Error)?\s*\(|"
             r"assert\s*\.\s*doesNotThrow\s*\(", block, re.DOTALL)
         expectation_count = len(re.findall(r"\bexpect\s*\(", block))
-        assertion_call_count = len(re.findall(
-            r"\bassert\s*(?:\.\s*[A-Za-z_$][\w$]*)?\s*\(", block))
+        assertion_call_count = len(re.findall(r"\bassert\s*(?:\.\s*[A-Za-z_$][\w$]*)?\s*\(", block))
         if no_throw_assertions and \
                 expectation_count + assertion_call_count == len(no_throw_assertions):
             findings.append((line, "test only checks that a call does not throw"))

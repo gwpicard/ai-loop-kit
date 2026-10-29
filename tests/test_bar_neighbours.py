@@ -6,6 +6,7 @@ from helpers import GOOD_CODE, JUDGE, SPEC, Project, git
 # isort: split
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import frozen
@@ -104,6 +105,16 @@ class BarNeighboursTest(BarFixture, unittest.TestCase):
         git(folder, "commit", "--quiet", "-am", "Committed edits")
         self.assertIn("tests/judge/test_a.py", frozen.frozen_file_reason(folder, ready))
 
+    def test_the_prepare_path_check_sees_a_file_added_by_an_earlier_build(self):
+        n, ready = self.piece(shaped={"early_gen.py": "EARLY = 1\n"})
+        folder = self.build_folder(n)
+        git_dir = Path(git(folder, "rev-parse", "--absolute-git-dir"))
+        (git_dir / "info").mkdir(exist_ok=True)
+        (git_dir / "info" / "ai-loop-kit-prepare-paths").write_text("early_gen.py\n")
+        passed, reason = gate.judge(folder, ready)
+        self.assertFalse(passed)
+        self.assertEqual(reason, "the piece adds files under paths Prepare created: early_gen.py")
+
     def test_a_builder_may_add_a_support_file(self):
         n, ready = self.piece()
         folder = self.build_folder(n)
@@ -158,6 +169,47 @@ class BarNeighboursTest(BarFixture, unittest.TestCase):
         self.assertEqual(frozen.neighbour_edits(folder, ready, None), [])
 
 
+class RootJudgeZoneTest(unittest.TestCase):
+    def test_a_root_judge_freezes_only_conftests_and_same_stem_files(self):
+        zone = lambda name: loopkit.in_bar_zone(name, ["test_habits.py"])  # noqa: E731
+        for name in ("conftest.py", "tests/conftest.py", "test_habits_helpers.py"):
+            self.assertTrue(zone(name), name)
+        for name in ("README.md", "package.json", "pyproject.toml", "uv.lock", "docs/a.md",
+                     "test_other.txt"):
+            self.assertFalse(zone(name), name)
+
+    def test_a_folder_judge_keeps_its_whole_folder(self):
+        self.assertTrue(loopkit.in_bar_zone("tests/judge/data.json", ["tests/judge/test_a.py"]))
+        self.assertFalse(loopkit.in_bar_zone("README.md", ["tests/judge/test_a.py"]))
+
+
+class RootJudgeBuildTest(unittest.TestCase):
+    def setUp(self):
+        self.p = Project()
+        self.addCleanup(self.p.close)
+        for name in ("conftest.py", "judge_add_helpers.py"):
+            self.p.root.joinpath(name).write_text("X = 1\n")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "--quiet", "-m", "Support files")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        self.n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, self.n, "ready")
+        self.ready = gate.last_record(self.p.gh.comments(self.n), "ready")
+
+    def test_editing_the_readme_or_package_json_is_not_refused(self):
+        folder = run.worktree(self.p.root, self.n)
+        (folder / "README.md").write_text("changed\n")
+        (folder / "package.json").write_text("{}\n")
+        self.assertEqual(frozen.frozen_file_reason(folder, self.ready), "")
+
+    def test_a_root_conftest_and_a_same_stem_helper_are_still_frozen(self):
+        folder = run.worktree(self.p.root, self.n)
+        (folder / "conftest.py").write_text("X = 2\n")
+        (folder / "judge_add_helpers.py").write_text("X = 2\n")
+        self.assertEqual(frozen.frozen_file_reason(folder, self.ready),
+                         "the build changed frozen files: conftest.py, judge_add_helpers.py")
+
+
 class AlreadySatisfiedTest(BarFixture, unittest.TestCase):
     """Before the builder, a moved base gets one run of the Exit tests."""
 
@@ -194,6 +246,27 @@ class AlreadySatisfiedTest(BarFixture, unittest.TestCase):
         with patch.object(frozen, "run_judge") as judge:
             self.assertEqual(frozen.already_satisfied(folder, ready), "")
         judge.assert_not_called()
+
+    def test_build_code_in_the_ready_commit_is_not_already_satisfied(self):
+        n, ready = self.piece(shaped={"habits.py": GOOD_CODE})
+        self.commit_on_main({"README.md": "moved\n"}, "Main moves")
+        folder = self.build_folder(n)
+        self.assertEqual(frozen.earlier_build_paths(folder, ready["bar_files"]), ["habits.py"])
+        with patch.object(frozen, "run_judge") as judge:
+            self.assertEqual(frozen.already_satisfied(folder, ready), "")
+        judge.assert_not_called()
+
+    def test_ready_warns_about_earlier_build_code_and_still_passes(self):
+        n, _ = self.piece(shaped={"habits.py": GOOD_CODE})
+        note = self.p.gh.comments(n)[-1]
+        self.assertIn("Warning: the piece branch holds earlier build code: habits.py; "
+                      "the next build starts from it.", note)
+
+    def test_a_branch_with_only_bar_files_gets_no_warning(self):
+        n, ready = self.piece(shaped={"tests/judge/helpers.py": "SHARED = 2\n"})
+        self.assertNotIn("earlier build code", self.p.gh.comments(n)[-1])
+        self.assertEqual(frozen.earlier_build_paths(self.p.root, ready["bar_files"],
+                                                    f"piece/{n}"), [])
 
     def test_a_record_without_tests_checks_skips_the_check(self):
         n, ready = self.piece()

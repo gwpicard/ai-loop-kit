@@ -20,15 +20,12 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
-                     REASON_TYPES, SECRET_PATTERNS,
-                     agent_options, bar_hash_at, base_branch, branch_name, changed_check_settings,
-                     named_check_settings,
-                     exit_bar,
-                     bar_file_list, conflict_markers, last_record, main_ref,
-                     keep_limit_seconds, loop_settings,
-                     exit_attempt, exit_ready, parse_spec, prepare,
-                     record_text, records, repo_root, rev,
-                     run_judge, run_keep, sh, skipped_tests, spec_hash)
+                     REASON_TYPES, SECRET_PATTERNS, agent_options, bar_hash_at, base_branch,
+                     branch_name, changed_check_settings, named_check_settings, exit_bar,
+                     bar_file_list, conflict_markers, last_record, main_ref, keep_limit_seconds,
+                     loop_settings, exit_attempt, exit_ready, parse_spec, prepare, new_paths,
+                     record_text, records, repo_root, rev, untracked_paths, run_judge, run_keep,
+                     sh, skipped_tests, spec_hash, LOCKFILES)
 from doctor import doctor as doctor, quality_on_fresh_main
 from extras import critics, require_extras
 from gate_cli import build_parser as build_parser
@@ -37,7 +34,7 @@ import regression
 from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
-from frozen import frozen_file_reason
+from frozen import earlier_build_paths, frozen_file_reason
 import holds  # noqa: E402
 import loop_pr  # noqa: E402
 from run_start import (capture_probe_files, release_worktree, remove_worktree,  # isort: skip
@@ -48,14 +45,14 @@ MOVES = {
     ("new", "shaping"): "capture", ("shaping", "ready"): "ready",
     ("ready", "shaping"): "pull-back", ("ready", "building"): "claim",
     ("building", "shaping"): "give-back", ("building", "approval"): "submit",
-    ("approval", "done"): "merged", ("approval", "shaping"): "reject",
-    ("dropped", "shaping"): "reopen",
+    ("approval", "done"): "merged", ("building", "ready"): "requeue",
+    ("approval", "shaping"): "reject", ("dropped", "shaping"): "reopen",
 }
 for _s in ("shaping", "ready", "building", "approval"):
     MOVES[(_s, "dropped")] = "drop"
 
-NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
-NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen"}
+NEEDS_REASON = {"pull-back", "give-back", "requeue", "reject", "drop", "reopen"}
+NEEDS_TYPE = {"pull-back", "give-back", "requeue", "reject", "reopen"}
 
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
@@ -81,8 +78,7 @@ def _kind_attempt_judge(folder: Path, ready: dict) -> tuple[int, str]:
 
 
 def check_times(output: str) -> list[float]:
-    return [float(value) for value in re.findall(
-        r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
+    return [float(value) for value in re.findall(r"Keep took: (\d+(?:\.\d+)?) seconds", output)]
 
 
 def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
@@ -132,9 +128,12 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
     folder = tmp / "main"
     before_injection = injected = {}
+    made_by_test: set[str] = set()
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         ok, poutput = (True, "") if spec.kind == "scaffold" else prepare(folder)
+        before = untracked_paths(folder)
+        before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
         if not ok:
             raise Refused("the Prepare command fails on a fresh copy of main:\n"
                           f"{poutput.strip()[-1500:]}",
@@ -164,14 +163,17 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
+        made_by_test = new_paths(folder, before, before_dirs, snapshot_or_generated)
         check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
+        test_outputs = sorted(new_paths(folder, before, before_dirs, snapshot_or_generated))
         kind_record = {"checks": check_records}
         if spec.kind in ("goal", "gauntlet"):
             kind_record.update(check_records[0])
     finally:
         if injected:
             restore_probe_files(folder, before_injection, injected)
-        remove_worktree(root, folder, made=generated)  # the Test command's caches are the kit's
+        # the Test command's caches and reports are the kit's
+        remove_worktree(root, folder, made=lambda p: generated(p) or covered(p, made_by_test))
         with suppress(OSError):
             tmp.rmdir()
 
@@ -191,7 +193,8 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "contract": spec.done_when, "keep": keep_command,
             **{key: getattr(spec, key) for key in
                ("intent", "approach", "playbook", "files", "command", "kind", "settings")},
-            "regression": regression_command, "regression_limit": keep_limit,
+            "test_outputs": test_outputs, "regression": regression_command,
+            "regression_limit": keep_limit,
             "regression_main": regression_main, "keep_limit": settings.get("keep limit", "15"),
             "check_seconds": check_times(keep_output + "\n" + output), **kind_record,
             **{key: settings.get(key, "") for key in ("test", "prepare", "standards")},
@@ -252,7 +255,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                         f"{main}...HEAD"], folder).stdout.split("\0")[:-1]
     staged_paths = sh(["git", "diff", "--cached", "--no-renames", "--name-only", "-z"],
                       folder).stdout.split("\0")[:-1]
-    leaked = sorted(path for path in set(changed_paths + staged_paths) if generated(path))
+    leaked = sorted(path for path in set(changed_paths + staged_paths) if generated(path)
+                    or covered(path, ready.get("test_outputs", [])))
     if leaked:
         return False, "the build includes generated files: " + ", ".join(leaked)
     contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
@@ -273,7 +277,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     oversized = []
     for path in changed_paths:
         target = folder / path
-        if path in ready.get("large_files", []) or not target.is_file():
+        if (path in ready.get("large_files", []) or not target.is_file()
+                or Path(path).name in LOCKFILES):
             continue
         before = sh(["git", "show", f"{main}:{path}"], folder, check=False).stdout
         before_lines = len(before.splitlines())
@@ -297,11 +302,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if prepare_paths.is_file():
         roots = prepare_paths.read_text().splitlines()
         if roots:
-            added = sh(["git", "diff", "--no-renames", "--name-only", "--diff-filter=A",
-                        f"{ready['commit']}..HEAD"], folder).stdout.splitlines()
-            leaked = [path for path in added if any(
-                path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/")
-                for root in roots)]
+            added = earlier_build_paths(folder, ready.get("bar_files", ready["files"]))
+            leaked = [path for path in added if covered(path, roots)]
             if leaked:
                 return False, ("the piece adds files under paths Prepare created: "
                                + ", ".join(leaked))
@@ -342,8 +344,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
             return False, f"the keep check reported skipped tests:\n{koutput.strip()[-1500:]}"
         if kcode != 0:
             retry_code, retry_output = run_keep(
-                folder, ready["keep"], timeout=keep_timeout,
-                protected_paths=protected_paths)
+                folder, ready["keep"], timeout=keep_timeout, protected_paths=protected_paths)
             if retry_code == 0 and not skipped_tests(retry_output):
                 failed_names = failing_test_names(koutput)
                 names = ", ".join(failed_names) if failed_names else "see failed Keep output"
@@ -425,8 +426,7 @@ def keep_passes_without_judge(folder: Path, ready: dict,
                  r"(?:[ \t]+[^\n]*\n|\n)+\w+(?:\.\w+)*(?::[^\n]*)?$")
     for name in ready["files"]:
         path = rf"(?:{re.escape(str(folder))}/)?{re.escape(name)}"
-        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*'
-                      rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
+        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*' rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
         frame = rf'^[ \t]+File "{path}", line \d+'
         if all(re.search(diagnostic, output, re.MULTILINE) or
                any(re.search(frame, block, re.MULTILINE)
@@ -535,6 +535,14 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         if record["keep"]:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
+        if "bar_files" in record and (
+                earlier := earlier_build_paths(root, record["bar_files"], branch_name(n))):
+            note += (" Warning: the piece branch holds earlier build code: "
+                     f"{', '.join(earlier)}; the next build starts from it.")
+        if not record.get("settings") and (
+                named := named_check_settings([record.get("approach", "")])):
+            note += (f" Warning: the Approach names {', '.join(named)}; add `Settings: may change`"
+                     " if the build must edit it.")
         for conflict in record.get("shared_conflicts", []):
             note += (f" Warning: shared files {', '.join(conflict['files'])} also appear in "
                      f"ready piece {conflict['issue']}.")
@@ -549,8 +557,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     elif name == "submit":
         ready = check_frozen(issue, comments)
         if folder is None:
-            raise Refused("submit needs the build folder",
-                          "the run makes this move, not a person")
+            raise Refused("submit needs the build folder", "the run makes this move, not a person")
         passed, output = judge(folder, ready)
         logs = root / ".loop" / "logs"
         logs.mkdir(parents=True, exist_ok=True)
@@ -580,7 +587,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         note += f" Reason: {reason}"
     if reason_type:
         record["type"] = reason_type
-    if name in ("give-back", "reject", "pull-back"):
+    if name in ("give-back", "requeue", "reject", "pull-back"):
         previous_submit = last_record(comments, "submit") or {}
         attempt_count = attempts if attempts is not None else previous_submit.get("attempts", 0)
         elapsed = seconds if seconds is not None else previous_submit.get("seconds", 0)
@@ -628,6 +635,8 @@ def sync(gh: GitHub, root: Path) -> list[str]:
         if found and found["state"] == "MERGED":
             notes.append(f"{item['number']}: " + move(gh, root, item["number"], "done"))
             done.append(item["number"])
+    for item in gh.issues_with_label(STATE_PREFIX + "done"):  # labelled done, close failed
+        gh.close(item["number"], "completed")
     try:
         line = loop_pr.refresh(gh, root, done) if done else ""
     except Exception as error:  # the pieces are done; report and finish
@@ -647,6 +656,14 @@ GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/
              ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage",
              ".coverage.*", "mutants/", ".stryker-tmp/", "coverage.json", "coverage.xml",
              "coverage.lcov"]
+
+
+def covered(path: str, roots: list[str]) -> bool:
+    return any(path == r.rstrip("/") or path.startswith(r.rstrip("/") + "/") for r in roots)
+
+
+def snapshot_or_generated(path: str) -> bool:
+    return generated(path) or path.endswith(".snap") or "__snapshots__" in path.split("/")
 
 
 def generated(path: str) -> bool:

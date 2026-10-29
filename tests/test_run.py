@@ -21,6 +21,45 @@ from loopkit import Refused, changed_check_settings, records
 from run_fixtures import RunFixture
 
 
+# An earlier piece's judge, rewritten: D3 is the changed behaviour (was D1), D2 stays.
+OLD_FN_JUDGE = """import sys
+sys.path.insert(0, ".")
+failed = []
+def check(name, fn):
+    try:
+        fn()
+        print("ok", name)
+    except Exception as e:
+        print("FAIL", name, type(e).__name__, e)
+        failed.append(name)
+def d3():
+    import habits
+    assert habits.fn() == {"x": 1, "y": 2}, "fn returns x and y"
+def d2():
+    import habits
+    assert habits.fn2() == [1], "fn2 is unchanged"
+check("test_D3_fn_returns_y", d3)
+check("test_D2_fn2_is_unchanged", d2)
+sys.exit(1 if failed else 0)
+"""
+REWRITE_SPEC = """## Intent
+Make fn also return y.
+
+Out of scope:
+- Changing fn2.
+
+## Contract
+- D3: fn returns x and y.
+- D2 (stays): fn2 still returns a list with one.
+
+## Exit
+### Tests
+Command: `python3 judge_add.py`
+Files:
+- judge_add.py
+"""
+
+
 class RunTest(RunFixture, unittest.TestCase):
     def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
         setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
@@ -62,15 +101,18 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertIn("next:", errors.getvalue())
         self.assertNotIn("Traceback", errors.getvalue())
 
-    def test_run_recovers_building_pieces_to_shaping(self):
+    def test_run_recovers_building_pieces_to_ready_under_the_cap(self):
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
-        gate.move(self.p.gh, self.p.root, n, "building")
-        recovered = run.recover_building(self.p.gh, self.p.root)
-        self.assertIn(f"piece {n}", recovered[0])
-        record = records(self.p.gh.comments(n))[-1]
-        self.assert_handback_record(record, reason_type="environment", cause="other",
-                                    attempts=0, seconds_positive=False)
+        for count in (1, 2, 3):
+            gate.move(self.p.gh, self.p.root, n, "building")
+            recovered = run.recover_building(self.p.gh, self.p.root)
+            self.assertIn(f"piece {n}", recovered[0])
+            record = records(self.p.gh.comments(n))[-1]
+            self.assertEqual(record["type"], "environment")
+            self.assertEqual(record["cause"], "dead-run")
+            self.assertEqual(record["move"], "requeue" if count < 3 else "give-back")
+        self.assertIn("returned to ready twice; ", record["reason"])
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
 
     def test_crash_recovery_records_persisted_attempts_and_elapsed_time(self):
@@ -86,9 +128,10 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertEqual(json.loads(saved.read_text())["attempts"], 1)
         recovered = run.recover_building(self.p.gh, self.p.root)
         self.assertIn(f"piece {n}", recovered[0])
-        handback = records(self.p.gh.comments(n))[-1]
-        self.assert_handback_record(handback, reason_type="environment", cause="other",
-                                    attempts=1)
+        requeue = records(self.p.gh.comments(n))[-1]
+        self.assertEqual((requeue["move"], requeue["cause"], requeue["attempts"]),
+                         ("requeue", "dead-run", 1))
+        self.assertIn("state:ready", self.p.gh.issue(n)["labels"])
         self.assertFalse(saved.exists())
 
     def test_quality_outputs_are_recorded_and_removed_between_attempts(self):
@@ -213,9 +256,10 @@ class RunTest(RunFixture, unittest.TestCase):
         with patch("run.build_claimed", side_effect=RuntimeError("unexpected failure")):
             result = run.build_piece(self.p.gh, self.p.root, n, 2)
         self.assertIn("unexpected failure", result)
-        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assert_handback_record(handback, reason_type="environment",
-                                    cause="other", attempts=0)
+        requeue = records(self.p.gh.comments(n))[-1]
+        self.assertEqual((requeue["move"], requeue["type"], requeue["cause"], requeue["attempts"]),
+                         ("requeue", "environment", "run-error", 0))
+        self.assertGreater(requeue["seconds"], 0)
 
     def test_outer_idle_recovery_records_the_attempt_count_and_elapsed_time(self):
         n = self.p.piece()
@@ -287,6 +331,77 @@ class RunTest(RunFixture, unittest.TestCase):
         handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
         self.assert_handback_record(handback, reason_type="environment",
                                     cause="dirty-worktree", attempts=0)
+
+    def test_a_report_from_the_test_command_does_not_dirty_the_next_attempt(self):
+        self.p.loop_section("mkdir -p reports && echo '{}' > reports/out.json"
+                            " && ! test -f .loop/why.md")  # fails only once the builder is done
+        n, result = self.build("good", attempts=2)
+        self.assertNotIn("uncommitted changes", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertEqual(len(failed), 2)
+
+    def test_an_untracked_file_the_base_now_ignores_does_not_hand_the_piece_back(self):
+        self.p.loop_section("true")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "reports").mkdir()
+        (folder / "reports" / "out.json").write_text("{}")
+        self.assertIn("uncommitted", run.dirty_folder_reason(folder))
+        run.exclude_paths(folder, ["reports/"])
+        self.assertEqual(run.dirty_folder_reason(folder), "")
+
+    def test_ready_records_what_the_test_command_creates(self):
+        self.p.loop_section("mkdir -p reports __snapshots__ && echo '{}' > reports/out.json"
+                            " && echo s > __snapshots__/a.snap")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertEqual(ready["test_outputs"], ["reports/"])
+        self.p.loop_section("true")
+        quiet = self.p.piece()
+        gate.move(self.p.gh, self.p.root, quiet, "ready")
+        self.assertEqual(gate.last_record(self.p.gh.comments(quiet), "ready")["test_outputs"], [])
+
+    def test_gate_refuses_a_committed_test_output(self):
+        self.p.loop_section("mkdir -p reports && echo '{}' > reports/out.json")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        fake = Path(os.environ["LOOP_CLAUDE"])
+        fake.write_text(fake.read_text().replace(
+            "git add -A", "mkdir -p reports && echo x > reports/out.json && git add -f reports/out.json && git add -A"))
+        os.environ["FAKE_MODE"] = "good"
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("back to shaping", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertIn("reports/out.json", failed[-1])
+        self.assertEqual(self.p.gh.prs, {})
+
+    def test_an_untracked_file_outside_the_test_outputs_is_still_a_dirty_folder(self):
+        self.p.loop_section("mkdir -p reports && echo '{}' > reports/out.json")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "person-work.txt").write_text("keep\n")
+        run.exclude_paths(folder, ["reports/"])
+        self.assertIn("uncommitted", run.dirty_folder_reason(folder))
+
+    def test_a_later_piece_can_rewrite_an_earlier_judge_listed_in_exit_files(self):
+        old_judge = OLD_FN_JUDGE.replace('{"x": 1, "y": 2}', '{"x": 1}').replace("D3", "D1")
+        self.p.loop_section("python3 judge_add.py")
+        (self.p.root / "habits.py").write_text("def fn():\n    return {'x': 1}\n\n"
+                                               "def fn2():\n    return [1]\n")
+        (self.p.root / "judge_add.py").write_text(old_judge)
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "--quiet", "-m", "Earlier piece")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n = self.p.piece(judge=OLD_FN_JUDGE, spec=REWRITE_SPEC)
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        os.environ["FAKE_MODE"] = "rewrite-fn"
+        result = run.build_piece(self.p.gh, self.p.root, n, 2)
+        self.assertIn("pull request ready", result)
+        submit = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "submit"][-1]
+        self.assertEqual(submit["attempts"], 1)
 
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")
@@ -442,9 +557,9 @@ class RunTest(RunFixture, unittest.TestCase):
                                     cause="bar-wrong", attempts=1)
         attempts = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
         self.assertEqual(len(attempts), 1)
-        # Shaping keeps the folder because the piece still has unmerged work.
-        self.assertTrue(self.p.folder(n).exists())
-        self.assertIn("judge_add.py", git(self.p.folder(n), "ls-files"))
+        # Shaping releases the clean folder; the branch keeps the judge file.
+        self.assertFalse(self.p.folder(n).exists())
+        self.assertIn("judge_add.py", git(self.p.root, "ls-tree", "-r", "--name-only", f"piece/{n}"))
 
     def test_a_stale_outcome_is_cleared_before_attempt_one(self):
         os.environ["FAKE_MODE"] = "good"
@@ -497,11 +612,10 @@ class RunTest(RunFixture, unittest.TestCase):
         n, result = self.build("good")
         self.assertIn("the run stopped with an error", result)
         labels = self.p.gh.issue(n)["labels"]
-        self.assertIn("state:shaping", labels)
-        self.assertIn("needs-you", labels)
-        handback = [r for r in records(self.p.gh.comments(n))
-                    if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["cause"], "other")
+        self.assertIn("state:ready", labels)
+        self.assertNotIn("needs-you", labels)
+        requeue = records(self.p.gh.comments(n))[-1]
+        self.assertEqual((requeue["move"], requeue["cause"]), ("requeue", "run-error"))
 
     def test_pull_request_creation_error_is_not_a_person_rejection(self):
         def fail_create_pr(*args, **kwargs):

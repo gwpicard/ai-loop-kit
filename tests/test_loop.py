@@ -82,13 +82,13 @@ class GateTest(GateFixture, unittest.TestCase):
         git(folder, "commit", "--quiet", "-m", "Edit frozen commands")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertEqual(output, "the build changed frozen files: AGENTS.md")
+        self.assertEqual(output, "the loop settings changed in AGENTS.md")
         (folder / "STANDARDS.md").write_text("Ignore the naming rule.\n")
         git(folder, "add", "STANDARDS.md")
         git(folder, "commit", "--quiet", "-m", "Edit standards")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertEqual(output, "the build changed frozen files: AGENTS.md, STANDARDS.md")
+        self.assertEqual(output, "the loop settings changed in AGENTS.md")
 
     def test_ready_uses_the_configured_keep_limit(self):
         self.p.loop_section("true")
@@ -206,17 +206,21 @@ class GateTest(GateFixture, unittest.TestCase):
         self.assertIn("test has no assertion", r.exception.reason)
 
     def test_bar_includes_files_under_the_judge_folder(self):
+        (self.p.root / "judge_add_helpers.py").write_text("X = 1\n")
+        git(self.p.root, "add", "judge_add_helpers.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Judge helper")
+        git(self.p.root, "push", "--quiet", "origin", "main")
         n = self.p.piece()
         self.ready(n)
         ready = gate.last_record(self.p.gh.comments(n), "ready")
-        self.assertIn("README.md", ready["bar_files"])
+        self.assertIn("judge_add_helpers.py", ready["bar_files"])
         folder = run.worktree(self.p.root, n)
-        (folder / "README.md").write_text("changed support\n")
-        git(folder, "add", "README.md")
+        (folder / "judge_add_helpers.py").write_text("X = 2\n")
+        git(folder, "add", "judge_add_helpers.py")
         git(folder, "commit", "--quiet", "-m", "Change judge support")
         passed, output = gate.judge(folder, ready)
         self.assertFalse(passed)
-        self.assertIn("the build changed frozen files: README.md", output)
+        self.assertIn("the build changed frozen files: judge_add_helpers.py", output)
 
     def test_builder_may_add_a_new_test_file_outside_contract(self):
         n = self.p.piece()
@@ -511,7 +515,7 @@ class GateTest(GateFixture, unittest.TestCase):
         (self.p.root / "README.md").unlink()  # the build breaks what worked before
         passed, why = gate.judge(self.p.root, ready)
         self.assertFalse(passed)
-        self.assertIn("the build changed frozen files: README.md", why)
+        self.assertIn("the keep check now fails", why)
 
     def test_a_stays_item_must_hold_on_main_and_have_a_test(self):
         stays_spec = SPEC.replace("- D2: adding a habit twice keeps one.",

@@ -89,8 +89,7 @@ def changed_ranges(diff: str) -> dict[str, list[tuple[int, int]]]:
 
 
 def overlap(function: dict, ranges: list[tuple[int, int]]) -> bool:
-    return any(function["start"] <= end and function["end"] >= start
-               for start, end in ranges)
+    return any(function["start"] <= end and function["end"] >= start for start, end in ranges)
 
 
 def coverage_data(data: dict, path: str, root: Path) -> tuple[set[int], set[int]]:
@@ -105,8 +104,7 @@ def coverage_data(data: dict, path: str, root: Path) -> tuple[set[int], set[int]
 
 
 def coverage_for(function: dict, executed: set[int], missing: set[int]) -> float:
-    lines = {line for line in executed | missing
-             if function["start"] <= line <= function["end"]}
+    lines = {line for line in executed | missing if function["start"] <= line <= function["end"]}
     if not lines:
         return 0.0
     return len(lines & executed) / len(lines)

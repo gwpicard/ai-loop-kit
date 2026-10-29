@@ -40,8 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also dry-run this proposed Quality command on fresh main")
     d.add_argument("--prepare-command",
                    help="use this proposed Prepare command for doctor dry-runs")
-    d.add_argument("--test-command",
-                   help="use this proposed Test command for doctor dry-runs")
+    d.add_argument("--test-command", help="use this proposed Test command for doctor dry-runs")
     d.add_argument("--walk-away", action="store_true",
                    help="also check the active sandbox and unattended-run prerequisites")
     sub.add_parser("report")
@@ -84,8 +83,7 @@ def main(argv: list[str] | None = None, api=None) -> int:
             rec = api.check_ready(gh, root, issue)
             print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
         elif args.cmd == "move":
-            print("ok: " + api.move(gh, root, args.n, args.to, args.reason,
-                                  args.reason_type))
+            print("ok: " + api.move(gh, root, args.n, args.to, args.reason, args.reason_type))
         elif args.cmd == "spec":
             api.replace_spec(gh, args.n, Path(args.body_file).read_text())
             print(f"ok: piece {args.n} spec replaced")
