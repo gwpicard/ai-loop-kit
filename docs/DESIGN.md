@@ -138,7 +138,7 @@ script can read it. Nothing lives only in a context window.
                 capture          ready (gate checks)          claim
   idea ───────► SHAPING ─────────────────────────────► READY ───────► BUILDING
                  ▲  ▲  ▲                                 │                │
-                 │  │  └────── pull-back (typed) ────────┘                │
+                 │  │  └────── pull-back (typed) ────────┴◄ requeue (max 2) ┤
                  │  └───────── give-back (typed, needs-you) ──────────────┤
                  │                                                        │ submit
                  │    reject (person-rejected, needs-you)                 │ (gate runs judge,
@@ -159,6 +159,7 @@ script can read it. Nothing lives only in a context window.
 | claim | ready, building | `run.py` | spec and bar hashes unchanged; the pushed branch has nothing the local one lacks |
 | submit | building, approval | `run.py` | the submit checks (section 8), all run by the gate |
 | give-back | building, shaping | `run.py` | a typed reason; adds `needs-you` |
+| requeue | building, ready | `run.py` | a typed reason (`environment`) and a cause; no `needs-you`; keeps the ready record; at most 2 since the last ready |
 | merged | approval, done | `gate.py sync` | the pull request is merged on GitHub |
 | reject | approval, shaping | the person's words, through the run skill | a typed reason; adds `needs-you` |
 | drop, reopen | to and from dropped | person | a reason |
@@ -586,6 +587,21 @@ branch must hold nothing the local branch lacks; the run never rewrites a
 pushed branch. A ready record without the regression command is refused
 with the next step to run ready again.
 
+**Resume.** If the build folder holds code from an earlier build, the run
+first lets the gate judge it. A pass goes straight to review and the pull
+request with no builder session, and the submit record shows `attempts: 0`;
+"passed on the first attempt" leaves it out. A fail starts attempt 1 with the
+gate output as the last failure.
+
+**Requeue.** A fault of the run itself returns the piece to ready, not
+shaping: an unexpected error after the claim (not an idle builder), a piece
+left in building by a dead run, and a usage limit that stayed after one wait.
+The ready record stays, so the next claim checks the same spec and bar. After
+two `requeue` records since the last `ready` record, the third fault is a
+give-back with the reason "returned to ready twice; <reason>". Every other
+hand-back goes to shaping as before. A pull request that fails after submit
+is a rejection, since the piece has left building.
+
 ### At submit, after each attempt and again after the review (code)
 
 | Check | Why |
@@ -687,26 +703,26 @@ the checkout that ran the build, where the local evidence lives.
 run.py
  ├─ take .loop/run.lock (refuse if another run or an orphan child is alive)
  ├─ remove review folders left by a killed run; return pieces stuck in building
- │  to shaping (environment); gate.py sync
+ │  to ready (requeue, max 2); gate.py sync
  └─ for each ready piece, oldest first:
      ├─ approval queue ≥ Waiting limit (3)? → print next: and stop
      ├─ claim
      ├─ build folder in ~/.cache/ai-loop-kit/worktrees/ (outside the project)
      │   dirty folder → back (environment); never cleaned by the run
      ├─ merge main in; a conflict is left for the builder with a note
-     ├─ Prepare
+     ├─ Prepare; earlier build code that the gate passes goes straight to review
      ├─ attempt 1..3: fresh builder → gate judges
      │     pass → review → gate checks again → push → pull request → approval
      │     .loop/outcome says bar-wrong → back at once (bar-wrong)
      │     idle 10 min / hard 40 min → back (builder-failed, idle)
      │     .loop/stop present → back (stopped)
      │     else → next attempt, given this failure
-     └─ any error after the claim → back to shaping with the reason
+     └─ any error after the claim → back to ready (requeue, max 2) with the reason
 ```
 
 - **Exit status.** The run exits non-zero when a piece fails, including an
-  environment hand-back, a refusal or an unexpected error. It continues
-  with the other pieces before returning that status.
+  environment hand-back, a return to ready, a refusal or an unexpected
+  error. It continues with the other pieces before returning that status.
 - **Local events.** `.loop/events.jsonl` records run starts, stops and
   successful gate moves, including capture and hand-back, with UTC time,
   piece, event, resulting state, attempt and fixed reason. Boundaries use a
