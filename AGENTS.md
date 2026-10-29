@@ -19,8 +19,8 @@ how it works and why.
 - History (the old ledger, lessons, build notes, the first kit and its design)
   is kept outside the repository. Do not treat it as current.
 - `.agents/maintainer-skills/`: `humanizer`, `release-notes`,
-  `review-issues`, `review-public-docs` and `stack-research`, for the
-  maintainer.
+  `review-issues`, `review-public-docs`, `stack-research` and
+  `writing-review`, for the maintainer.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
 - `.githooks/commit-msg`: strips model attribution from commit messages.
 
@@ -72,7 +72,10 @@ after the merge.
 - Write in British spelling, precise and natural rather than forced simple.
   Use the established term where it is right, such as approval or branch
   protection. Use no em dashes. Keep paragraphs under about 100 words. Claim
-  only what the evidence shows. Run prose through
+  only what the evidence shows. All public-facing writing, such as pull
+  request descriptions, issue text, release notes and documentation, must
+  pass a review against `.agents/maintainer-skills/writing-review/SKILL.md`
+  before it is published. Run prose through
   `.agents/maintainer-skills/humanizer/SKILL.md` in its embedded mode before
   you save it. Release notes follow
   `.agents/maintainer-skills/release-notes/SKILL.md`. Forced simple words read

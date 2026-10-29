@@ -65,9 +65,12 @@ The GitHub release body opens with this file, word for word.
 Before the release pull request, give the file to one fresh reviewer with this
 skill and the evidence. Ask it to report findings by the framework's severity
 levels, and to check every claim against the evidence. Fix each Critical and
-Major finding.
+Major finding. Then give the file a second fresh review against
+`.agents/maintainer-skills/writing-review/SKILL.md`, and make each recommended
+change that preserves the meaning.
 
 ## Done when
 
 Every claim traces to the evidence, every required user action is present word
-for word, and the fresh reviewer reports no Critical or Major finding.
+for word, the fresh reviewer reports no Critical or Major finding, and the
+writing review's recommended changes are applied or rejected with a reason.
