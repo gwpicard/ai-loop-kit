@@ -137,7 +137,7 @@ class ScenarioTest(unittest.TestCase):
             if os.environ.get("LOOP_REVIEWER") == "1":
                 if "Standards reviewer brief" in prompt:
                     child_code = (
-                        "import time; time.sleep(60)"
+                        "import os, time; time.sleep(float(os.environ.get('CHILD_SLEEP', '60')))"
                     )
                     child = subprocess.Popen([sys.executable, "-c", child_code])
                     pathlib.Path(os.environ["CHILD_PID_FILE"]).write_text(str(child.pid))
@@ -197,9 +197,11 @@ class ScenarioTest(unittest.TestCase):
 
         restarted = subprocess.run(
             [sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
-            cwd=self.p.root, env=env, capture_output=True, text=True, timeout=20, check=False)
-        self.assertEqual(restarted.returncode, 1, restarted.stdout + restarted.stderr)
-        self.assertIn("refused: there is no move from shaping to building", restarted.stdout)
+            cwd=self.p.root, env={**env, "CHILD_SLEEP": "0"}, capture_output=True, text=True,
+            timeout=60, check=False)
+        self.assertEqual(restarted.returncode, 0, restarted.stdout + restarted.stderr)
+        self.assertIn("returned to ready", restarted.stdout)
+        self.assertIn("pull request ready", restarted.stdout)
         checks = audit.audit_cleanup(self.p.root)
         self.assertTrue(all(passed for passed, _ in checks), checks)
         self.assertIn((True, f"reviewer process group {group} has exited"), checks)
@@ -210,7 +212,7 @@ class ScenarioTest(unittest.TestCase):
         broken, score = audit.audit_piece(piece, None, self.p.root)
         self.assertEqual(broken, [])
         self.assertEqual((score["state"], score["attempts"], score["sent_back"]),
-                         ("shaping", 1, 1))
+                         ("approval", 1, 0))
 
     def test_bar_wrong_stops_on_attempt_one(self):
         n, result = self.build("bar-wrong", attempts=3)

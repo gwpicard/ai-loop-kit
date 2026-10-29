@@ -5,9 +5,9 @@ user-invocable: false
 ---
 # Run recovery
 
-Read the run output, its `next:` step and `.loop/logs/`. Preserve unsaved work. Never reset, clean, rewrite or force-push a piece branch.
+Read run output, its `next:` step and `.loop/logs/`. Preserve unsaved work. Never reset, clean, rewrite or force-push a piece branch.
 
-Run `"<KIT>/bin/kit-python" "<KIT>/scripts/run.py"` again after an interruption. It checks the run lock, refuses live runs or orphan builders and reviewers, takes over dead locks, cleans abandoned reviews and returns interrupted building pieces as `environment`. Follow a refusal's `next:` step; never remove the lock to bypass it.
+Run `"<KIT>/bin/kit-python" "<KIT>/scripts/run.py"` again after an interruption. It checks the run lock, refuses live runs or orphan builders and reviewers, takes over dead locks, cleans abandoned reviews and requeues interrupted building pieces up to twice. Follow a refusal's `next:` step; never remove the lock to bypass it.
 
 A dirty folder returns as `environment`; preserve it and follow `next:`. For other environment hand-backs, address the recorded cause before reshaping. A stop uses `gate.py stop`, returns `stopped` and preserves the last real failure.
 

@@ -12,8 +12,7 @@ def apply(agents: Path, quality_command: str,
     """Apply proposed loop commands to a temporary main worktree."""
     text = agents.read_text(errors="replace") if agents.is_file() else ""
     lines = text.splitlines()
-    start = next((i for i, line in enumerate(lines)
-                  if line.strip().lower() == "## the loop"), None)
+    start = next((i for i, line in enumerate(lines) if line.strip().lower() == "## the loop"), None)
     if start is None:
         lines.extend(([""] if lines else []) + ["## The loop"])
         start = len(lines) - 1

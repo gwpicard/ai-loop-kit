@@ -35,7 +35,7 @@ CAUSES = ("bar-wrong", "builder-failed", "conflict", "dirty-worktree", "import-e
           "idle", "judge-failed", "judge-gap", "keep-flaky", "needs-answer", "other",
           "person-rejected", "person-request", "prepare-failed", "pull-request-failed",
           "quality-failed", "spec-unclear", "stale-after-main", "stopped", "usage-limit",
-          "already-satisfied")
+          "already-satisfied", "dead-run", "run-error")
 # Comment authors whose gate records count: people who can push already.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 JUDGE_TIMEOUT = 900

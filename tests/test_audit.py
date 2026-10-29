@@ -59,8 +59,8 @@ class AuditTest(unittest.TestCase):
 
     def test_recovered_builds_count_completed_attempts_from_records(self):
         n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
         for _ in range(2):
-            gate.move(self.p.gh, self.p.root, n, "ready")
             with patch.object(run, "review_piece", side_effect=KeyboardInterrupt), \
                     self.assertRaises(KeyboardInterrupt):
                 run.build_piece(self.p.gh, self.p.root, n, 1)
@@ -68,7 +68,7 @@ class AuditTest(unittest.TestCase):
         broken, score = self.audit(n)
         self.assertEqual(broken, [])
         self.assertEqual((score["builds"], score["attempts"], score["sent_back"]),
-                         (2, 2, 2))
+                         (2, 1, 0))  # the second build resumes the first: no builder session
 
     def test_attempt_totals_ignore_comments_and_repeated_rejection_metrics(self):
         transitions = [

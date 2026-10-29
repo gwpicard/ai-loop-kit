@@ -62,15 +62,18 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertIn("next:", errors.getvalue())
         self.assertNotIn("Traceback", errors.getvalue())
 
-    def test_run_recovers_building_pieces_to_shaping(self):
+    def test_run_recovers_building_pieces_to_ready_under_the_cap(self):
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
-        gate.move(self.p.gh, self.p.root, n, "building")
-        recovered = run.recover_building(self.p.gh, self.p.root)
-        self.assertIn(f"piece {n}", recovered[0])
-        record = records(self.p.gh.comments(n))[-1]
-        self.assert_handback_record(record, reason_type="environment", cause="other",
-                                    attempts=0, seconds_positive=False)
+        for count in (1, 2, 3):
+            gate.move(self.p.gh, self.p.root, n, "building")
+            recovered = run.recover_building(self.p.gh, self.p.root)
+            self.assertIn(f"piece {n}", recovered[0])
+            record = records(self.p.gh.comments(n))[-1]
+            self.assertEqual(record["type"], "environment")
+            self.assertEqual(record["cause"], "dead-run")
+            self.assertEqual(record["move"], "requeue" if count < 3 else "give-back")
+        self.assertIn("returned to ready twice; ", record["reason"])
         self.assertIn("state:shaping", self.p.gh.issue(n)["labels"])
 
     def test_crash_recovery_records_persisted_attempts_and_elapsed_time(self):
@@ -86,9 +89,10 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assertEqual(json.loads(saved.read_text())["attempts"], 1)
         recovered = run.recover_building(self.p.gh, self.p.root)
         self.assertIn(f"piece {n}", recovered[0])
-        handback = records(self.p.gh.comments(n))[-1]
-        self.assert_handback_record(handback, reason_type="environment", cause="other",
-                                    attempts=1)
+        requeue = records(self.p.gh.comments(n))[-1]
+        self.assertEqual((requeue["move"], requeue["cause"], requeue["attempts"]),
+                         ("requeue", "dead-run", 1))
+        self.assertIn("state:ready", self.p.gh.issue(n)["labels"])
         self.assertFalse(saved.exists())
 
     def test_quality_outputs_are_recorded_and_removed_between_attempts(self):
@@ -213,9 +217,10 @@ class RunTest(RunFixture, unittest.TestCase):
         with patch("run.build_claimed", side_effect=RuntimeError("unexpected failure")):
             result = run.build_piece(self.p.gh, self.p.root, n, 2)
         self.assertIn("unexpected failure", result)
-        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
-        self.assert_handback_record(handback, reason_type="environment",
-                                    cause="other", attempts=0)
+        requeue = records(self.p.gh.comments(n))[-1]
+        self.assertEqual((requeue["move"], requeue["type"], requeue["cause"], requeue["attempts"]),
+                         ("requeue", "environment", "run-error", 0))
+        self.assertGreater(requeue["seconds"], 0)
 
     def test_outer_idle_recovery_records_the_attempt_count_and_elapsed_time(self):
         n = self.p.piece()
@@ -551,11 +556,10 @@ class RunTest(RunFixture, unittest.TestCase):
         n, result = self.build("good")
         self.assertIn("the run stopped with an error", result)
         labels = self.p.gh.issue(n)["labels"]
-        self.assertIn("state:shaping", labels)
-        self.assertIn("needs-you", labels)
-        handback = [r for r in records(self.p.gh.comments(n))
-                    if r.get("move") == "give-back"][-1]
-        self.assertEqual(handback["cause"], "other")
+        self.assertIn("state:ready", labels)
+        self.assertNotIn("needs-you", labels)
+        requeue = records(self.p.gh.comments(n))[-1]
+        self.assertEqual((requeue["move"], requeue["cause"]), ("requeue", "run-error"))
 
     def test_pull_request_creation_error_is_not_a_person_rejection(self):
         def fail_create_pr(*args, **kwargs):

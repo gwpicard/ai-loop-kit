@@ -103,7 +103,7 @@ def audit_piece(piece: dict, pr: Optional[dict], root: Path) -> tuple[list[str],
     moves = [r.get("move") for r in recs]
     submits = [r for r in recs if r.get("move") == "submit"]
     attempts = sum(r.get("attempts", 0) for r in recs
-                   if r.get("move") in ("submit", "give-back"))
+                   if r.get("move") in ("submit", "give-back", "requeue"))
     score = {"piece": piece["number"], "title": piece["title"], "state": state,
              "builds": moves.count("claim"), "attempts": attempts,
              "sent_back": sum(moves.count(m) for m in BACK_MOVES), "changed_after_gate": None}

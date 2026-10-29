@@ -20,15 +20,12 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard import run_event as run_event  # isort: skip
 from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  # noqa: E402
-                     REASON_TYPES, SECRET_PATTERNS,
-                     agent_options, bar_hash_at, base_branch, branch_name, changed_check_settings,
-                     named_check_settings,
-                     exit_bar,
-                     bar_file_list, conflict_markers, last_record, main_ref,
-                     keep_limit_seconds, loop_settings,
-                     exit_attempt, exit_ready, parse_spec, prepare,
-                     new_paths, record_text, records, repo_root, rev, untracked_paths,
-                     run_judge, run_keep, sh, skipped_tests, spec_hash)
+                     REASON_TYPES, SECRET_PATTERNS, agent_options, bar_hash_at, base_branch,
+                     branch_name, changed_check_settings, named_check_settings, exit_bar,
+                     bar_file_list, conflict_markers, last_record, main_ref, keep_limit_seconds,
+                     loop_settings, exit_attempt, exit_ready, parse_spec, prepare, new_paths,
+                     record_text, records, repo_root, rev, untracked_paths, run_judge, run_keep,
+                     sh, skipped_tests, spec_hash)
 from doctor import doctor as doctor, quality_on_fresh_main
 from extras import critics, require_extras
 from gate_cli import build_parser as build_parser
@@ -48,14 +45,14 @@ MOVES = {
     ("new", "shaping"): "capture", ("shaping", "ready"): "ready",
     ("ready", "shaping"): "pull-back", ("ready", "building"): "claim",
     ("building", "shaping"): "give-back", ("building", "approval"): "submit",
-    ("approval", "done"): "merged", ("approval", "shaping"): "reject",
-    ("dropped", "shaping"): "reopen",
+    ("approval", "done"): "merged", ("building", "ready"): "requeue",
+    ("approval", "shaping"): "reject", ("dropped", "shaping"): "reopen",
 }
 for _s in ("shaping", "ready", "building", "approval"):
     MOVES[(_s, "dropped")] = "drop"
 
-NEEDS_REASON = {"pull-back", "give-back", "reject", "drop", "reopen"}
-NEEDS_TYPE = {"pull-back", "give-back", "reject", "reopen"}
+NEEDS_REASON = {"pull-back", "give-back", "requeue", "reject", "drop", "reopen"}
+NEEDS_TYPE = {"pull-back", "give-back", "requeue", "reject", "reopen"}
 
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
@@ -586,7 +583,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         note += f" Reason: {reason}"
     if reason_type:
         record["type"] = reason_type
-    if name in ("give-back", "reject", "pull-back"):
+    if name in ("give-back", "requeue", "reject", "pull-back"):
         previous_submit = last_record(comments, "submit") or {}
         attempt_count = attempts if attempts is not None else previous_submit.get("attempts", 0)
         elapsed = seconds if seconds is not None else previous_submit.get("seconds", 0)

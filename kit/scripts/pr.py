@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import gate
-from loopkit import (GitHub, branch_name, changed_check_settings, last_record, main_ref,
-                     rev, sh)
+from loopkit import (GitHub, branch_name, changed_check_settings, last_record, main_ref, rev, sh)
 import run
 
 def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str]:
@@ -107,8 +106,7 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                  f"commit `{regression['commit']}`.")
     review = review or {}
     unresolved = review.get("contract_findings", [])
-    gate_claim = ("The gate ran the frozen judge itself after attempt "
-                  f"{k}, and it passed.")
+    gate_claim = f"The gate ran the frozen judge itself after attempt {k}, and it passed."
     if unresolved:
         gate_claim += " Contract findings remain unresolved."
     body = (f"Builds piece #{n}: {issue['title']}\n\nCloses #{n}\n\n"
@@ -133,8 +131,7 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                 details.append(
                     f"- Reproducer `{item['file']}` for {item['item']}: {status}.\n"
                     f"  Output:\n\n  ```text\n  {item.get('output', '')}\n  ```")
-        body = ("## Unresolved review findings\n\n" + "\n".join(details)
-                + "\n\n" + body)
+        body = ("## Unresolved review findings\n\n" + "\n".join(details) + "\n\n" + body)
     if review.get("reviewer_note"):
         body += f"\n## Review\n\n{review['reviewer_note']}\n"
     for key, heading in (("standards_findings", "Standards findings:"),
@@ -159,5 +156,3 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
     if action == "creation":
         gh.comment(n, f"**Gate:** pull request created after submit passed: {url}")
     return f"piece {n}: pull request ready for you: {url}"
-
-

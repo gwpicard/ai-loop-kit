@@ -35,7 +35,7 @@ from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
                    kill_active_processes, lock_path, release_lock)
 from session import run_session
 import landing  # noqa: E402
-from frozen import already_satisfied, expected_tree, frozen_file_reason, neighbour_edits  # noqa: E402
+from frozen import already_satisfied, earlier_build_paths, expected_tree, frozen_file_reason, neighbour_edits  # noqa: E402
 from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
 
@@ -87,14 +87,13 @@ def _recovered_run_metrics(root: Path, n: int) -> tuple[int, float]:
 
 
 def recover_building(gh: GitHub, root: Path) -> list[str]:
-    """Return pieces left in building to shaping after a dead run."""
+    """Return pieces left in building to ready after a dead run."""
     recovered = []
     for issue in gh.issues_with_label(STATE_PREFIX + "building"):
         note = "the previous run ended while this piece was building"
         attempts, seconds = _recovered_run_metrics(root, issue["number"])
-        recovered.append(f"piece {issue['number']}: " + gate.move(
-            gh, root, issue["number"], "shaping", reason=note,
-            reason_type="environment", attempts=attempts, seconds=seconds))
+        metrics = {"attempts": attempts, "started": time.monotonic() - seconds}
+        recovered.append(_requeue(gh, root, issue["number"], note, "dead-run", metrics))
         _run_metrics_path(root, issue["number"]).unlink(missing_ok=True)
     return recovered
 
@@ -102,10 +101,20 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
 def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
                metrics: dict, cause: str = "") -> str:
     """Return a claimed piece with the run's actual attempt count and duration."""
-    return gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type,
-                     cause=cause,
-                     attempts=metrics["attempts"],
-                     seconds=time.monotonic() - metrics["started"])
+    gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type, cause=cause,
+              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"])
+    return f"piece {n}: back to shaping, {reason}"
+
+
+def _requeue(gh: GitHub, root: Path, n: int, reason: str, cause: str, metrics: dict) -> str:
+    """Return a piece to ready after a run fault. The third fault in a row goes to shaping."""
+    moves = [r.get("move") for r in records(gh.comments(n))]
+    if moves[len(moves) - moves[::-1].index("ready"):].count("requeue") >= 2:
+        return _hand_back(gh, root, n, f"returned to ready twice; {reason}", "environment",
+                          metrics, cause)
+    gate.move(gh, root, n, "ready", reason=reason, reason_type="environment", cause=cause,
+              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"])
+    return f"piece {n}: returned to ready: {reason}"
 
 
 def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
@@ -318,12 +327,39 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     except Exception as e:  # never leave a piece in building
         idle = isinstance(e, AttemptIdle)
         reason = str(e) if idle else f"the run stopped with an error: {str(e).strip()[:300]}"
-        if gate.state_of(gh.issue(n)) == "building":
-            _hand_back(gh, root, n, reason, "builder-failed" if idle else "environment", metrics)
         result = f"piece {n}: back to shaping, {reason}"
+        if gate.state_of(gh.issue(n)) == "building":
+            if idle or isinstance(e, Refused):  # a refusal needs a person, not another run
+                kind = "builder-failed" if idle else "environment"
+                result = _hand_back(gh, root, n, reason, kind, metrics)
+            else:
+                result = _requeue(gh, root, n, reason, "run-error", metrics)
     if gate.state_of(gh.issue(n)) != "building":
         _run_metrics_path(root, n).unlink(missing_ok=True)
     return result
+
+
+def _review_and_land(gh: GitHub, root: Path, folder: Path, n: int, k: int, issue: dict,
+                     ready: dict, output: str, walk_away: bool, metrics: dict) -> str:
+    review = review_piece(root, folder, n, k, issue, ready, walk_away,
+                          walkaway.approved_domains(root) if walk_away else None, output)
+    if review["contract_findings"]:
+        reproductions = [item for item in review.get("contract_reproducers", [])
+                         if item.get("reproduced")]
+        if reproductions:
+            evidence = "\n\n".join(
+                f"{item['item']} reproducer `{item['file']}` source:\n````python\n"
+                f"{item.get('source', '')}\n````\n\n"
+                f"{item['item']} reproducer output:\n````text\n"
+                f"{item['output']}\n````" for item in reproductions)
+            reason = ("Contract review reproduced a judge gap: "
+                      + ", ".join(item["item"] for item in reproductions)
+                      + "\n\n" + evidence)
+            _hand_back(gh, root, n, reason, "judge-gap", metrics, cause="judge-gap")
+            return f"piece {n}: back to shaping, contract finding reproduced"
+    return landing.land(gh, root, folder, n, open_pull_request(
+        gh, root, folder, n, issue, k, output, review,
+        time.monotonic() - metrics["started"]), review)
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
@@ -343,8 +379,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
         gh.comment(n, f"**Run:** {dirty}\n\n```\n{status[-1200:]}\n```")
-        _hand_back(gh, root, n, dirty, "environment", metrics)
-        return f"piece {n}: back to shaping, {dirty}"
+        return _hand_back(gh, root, n, dirty, "environment", metrics)
 
     # Bring the piece up to date with main, so the pull request merges cleanly.
     # A conflict is left for the builder to resolve; the gate's keep check then
@@ -356,8 +391,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if not conflicts:
             sh(["git", "merge", "--abort"], folder, check=False)
             reason = f"{branch_name(n)} does not merge with {main}"
-            _hand_back(gh, root, n, reason, "conflict", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "conflict", metrics)
         log(f"piece {n}: main changed; the builder resolves conflicts in {', '.join(conflicts)}")
         merge_note = ("Main changed since this piece was built. This folder holds an unfinished "
                       f"merge of main, with conflicts in: {', '.join(conflicts)}. First resolve "
@@ -366,8 +400,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
 
     reason = frozen_file_reason(folder, ready)
     if reason:
-        _hand_back(gh, root, n, reason, "bar-wrong", metrics)
-        return f"piece {n}: back to shaping, {reason}"
+        return _hand_back(gh, root, n, reason, "bar-wrong", metrics)
 
     before = untracked_paths(folder)
     before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
@@ -378,17 +411,26 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     if not ok:
         reason = "the Prepare command failed in the build folder; run gate.py doctor"
         gh.comment(n, f"**Run:** Prepare failed.\n\n```\n{poutput.strip()[-1500:]}\n```")
-        _hand_back(gh, root, n, reason, "environment", metrics)
-        return f"piece {n}: back to shaping, {reason}"
+        return _hand_back(gh, root, n, reason, "environment", metrics)
     record_prepare_outputs(folder, before, before_dirs)
     satisfied = already_satisfied(folder, ready)
     if satisfied:
-        _hand_back(gh, root, n, satisfied, "spec-unclear", metrics)
-        return f"piece {n}: back to shaping, {satisfied}"
+        return _hand_back(gh, root, n, satisfied, "spec-unclear", metrics)
 
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     last_failure = merge_note
+    tests_only = all(check["type"] == "tests" for check in ready.get("checks", []))
+    if not merge_note and tests_only and earlier_build_paths(
+            folder, ready.get("bar_files", ready["files"])):
+        log(f"piece {n}: the folder holds earlier build code; the gate judges it first")
+        try:
+            passed, output = gate.judge(folder, ready)
+        finally:
+            clean_quality_outputs(folder, record_quality_outputs(folder))
+        if passed:
+            return _review_and_land(gh, root, folder, n, 0, issue, ready, output, walk_away, metrics)
+        last_failure = f"The earlier build code failed. The judge said:\n{output.strip()[-3000:]}"
     came_back = came_back_reason(gh.comments(n))
     main_quality_results: dict[tuple[str, str], bool] = {}
     kind_history: list[str] = []
@@ -396,16 +438,14 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if stop_requested(root):
             reason = (last_failure if last_failure.startswith("Attempt ")
                       else "the person asked the run to stop")
-            _hand_back(gh, root, n, reason, "stopped", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "stopped", metrics)
         logfile = logs / f"piece-{n}-attempt-{k}.log"
         dirty_reason = dirty_folder_reason(folder)
         if dirty_reason:
             status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
             reason = dirty_reason
             gh.comment(n, f"**Run:** {reason}\n\n``\n{status[-1200:]}\n```")
-            _hand_back(gh, root, n, reason, "environment", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "environment", metrics)
         started = time.monotonic()
         started_at = datetime.now(timezone.utc)
         (folder / ".loop" / "outcome").unlink(missing_ok=True)
@@ -434,21 +474,18 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = ("Claude Code remained rate limited after one reset wait; "
                       "retry this walk-away run")
             gh.comment(n, f"**Run:** {reason}")
-            _hand_back(gh, root, n, reason, "environment", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _requeue(gh, root, n, reason, "usage-limit", metrics)
         if idle_status == "idle":
             record_attempt_timing(logfile, started_at, time.monotonic() - started)
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
-            _hand_back(gh, root, n, reason, "builder-failed", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "builder-failed", metrics)
         outcome = folder / ".loop" / "outcome"
         ran, ok, poutput = prepare_again(folder, ready, attempt_start)
         if ran and not ok:
             reason = "the Prepare command failed after the attempt changed a dependency file"
             gh.comment(n, f"**Run:** {reason}.\n\n```\n{poutput.strip()[-1500:]}\n```")
-            _hand_back(gh, root, n, reason, "environment", metrics, cause="prepare-failed")
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "environment", metrics, cause="prepare-failed")
         if ran and outcome.is_file() and walkaway.builder_outcome(outcome)[0] == "environment":
             log(f"piece {n}: Prepare installed the new dependencies; the judge decides")
             outcome.unlink()  # the builder could not install them; Prepare just did
@@ -473,8 +510,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 failure = f"{outcome_kind} needs {needed}; this attempt failed.\n{report}".strip()
                 if outcome_kind == "environment" and failure == last_failure:
                     reason = "two identical environment reports in a row; " + failure
-                    _hand_back(gh, root, n, reason, "builder-failed", metrics)
-                    return f"piece {n}: back to shaping, {reason}"
+                    return _hand_back(gh, root, n, reason, "builder-failed", metrics)
                 last_failure = failure
                 gh.comment(n, f"**Run:** attempt {k} reported {last_failure}")
                 continue
@@ -485,8 +521,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                     f"log: {logfile.relative_to(root)}")
                 gh.comment(n, f"**Run:** attempt {k} reports bar-wrong: {reason}")
-                _hand_back(gh, root, n, reason, "bar-wrong", metrics)
-                return f"piece {n}: back to shaping, {reason}"
+                return _hand_back(gh, root, n, reason, "bar-wrong", metrics)
         commit_leftovers(folder, n, k)
         clean_quality_outputs(folder, record_quality_outputs(folder))
         said = builder_words(logfile)
@@ -520,8 +555,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             gh.comment(n, f"**Run:** attempt {k} of {attempts} failed for the wrong reason; "
                           "the run stops here.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
-            _hand_back(gh, root, n, reason, "environment", metrics, cause=cause)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "environment", metrics, cause=cause)
         failed_quality = re.search(r"Quality: (.+)\nExit: ([1-9][0-9]*)", output)
         if not passed and failed_quality:
             command = failed_quality.group(1)
@@ -551,8 +585,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             if main_quality_failed:
                 reason = f"Quality check also fails on main: {command}"
                 gh.comment(n, f"**Run:** {reason}.\n\n```\n{output.strip()[-1500:]}\n```")
-                _hand_back(gh, root, n, reason, "environment", metrics)
-                return f"piece {n}: back to shaping, {reason}"
+                return _hand_back(gh, root, n, reason, "environment", metrics)
             last_failure = (f"Attempt {k} failed Quality command `{command}`. Fix this in the next "
                             f"attempt.\n\n{output.strip()[-2500:]}")
             gh.comment(n, f"**Run:** attempt {k} failed a Quality check; retrying.\n\n"
@@ -562,33 +595,15 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
             log(f"piece {n}: the gate ran the judge and it passed")
-            review = review_piece(root, folder, n, k, issue, ready, walk_away,
-                                  walkaway.approved_domains(root) if walk_away else None, output)
-            if review["contract_findings"]:
-                reproductions = [item for item in review.get("contract_reproducers", [])
-                                 if item.get("reproduced")]
-                if reproductions:
-                    evidence = "\n\n".join(
-                        f"{item['item']} reproducer `{item['file']}` source:\n````python\n"
-                        f"{item.get('source', '')}\n````\n\n"
-                        f"{item['item']} reproducer output:\n````text\n"
-                        f"{item['output']}\n````" for item in reproductions)
-                    reason = ("Contract review reproduced a judge gap: "
-                              + ", ".join(item["item"] for item in reproductions)
-                              + "\n\n" + evidence)
-                    _hand_back(gh, root, n, reason, "judge-gap", metrics, cause="judge-gap")
-                    return f"piece {n}: back to shaping, contract finding reproduced"
-            return landing.land(gh, root, folder, n, open_pull_request(
-                gh, root, folder, n, issue, k, output, review,
-                time.monotonic() - metrics["started"]), review)
+            return _review_and_land(gh, root, folder, n, k, issue, ready, output, walk_away,
+                                    metrics)
         if output.startswith(gate.BAR_WRONG):
             # No build can fix this, and more attempts invite loosening a check.
             gh.comment(n, f"**Run:** attempt {k} of {attempts}: the judge passes, but the keep "
                           "check fails on the judge files themselves. The run stops here.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             reason = "the keep check fails on the judge files themselves; fix the judge"
-            _hand_back(gh, root, n, reason, "bar-wrong", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "bar-wrong", metrics)
         if frozen_file_reason(folder, ready):
             restore_bar(folder, ready)
             last_failure = ("The last attempt changed the judge files. They were put back. "
@@ -604,8 +619,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if stop_requested(root):
             reason = last_failure if last_failure.startswith("Attempt ") else \
                 "the person asked the run to stop"
-            _hand_back(gh, root, n, reason, "stopped", metrics)
-            return f"piece {n}: back to shaping, {reason}"
+            return _hand_back(gh, root, n, reason, "stopped", metrics)
     reason = (last_failure.splitlines()[0] if last_failure.startswith("environment needs") else
               f"the judge still fails after {attempts} attempts; see the comments above")
     _hand_back(gh, root, n, reason, "builder-failed", metrics)
