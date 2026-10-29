@@ -14,24 +14,32 @@ yet; the text says what the kit does today beside them.
 ## 1. What the kit is
 
 AI Loop Kit is a Claude Code plugin for one person who builds software with
-agents in a GitHub project.
+agents in a GitHub project. Its purpose is that the person can walk away: they
+shape the work and approve each contract, start one run, and leave. The run
+builds the ready pieces with nobody watching and leaves the results for
+review.
+
+Walking away is safe only if what comes back can be trusted without watching
+it being made. That is the kit's one-sentence promise:
 
 > An agent cannot say a piece is done. It can only prove it, against a test
 > the person approved before the build and that the agent cannot change.
 
-The kit is a state machine. Agents do the work, scripts decide, and the
-person approves the contract and the merge.
+The kit is a state machine. Python scripts, started from Claude Code or
+Codex, run it and start fresh agent sessions for the work. Agents do the
+work, scripts decide, and the person approves the contract and the merge.
 
 ### Three phases
 
 1. **Shape.** Most of the person's time goes here. Each piece is shaped the
    right amount: its intent, its limits, its risks and its exit condition,
    with dependencies and open choices settled before the build.
-2. **Build in a loop.** Every ready piece is built by fresh attempts. The
-   loop checks after each one whether the piece did what its contract
+2. **Build in a loop, unattended.** The person starts the run and leaves.
+   Every ready piece is built by fresh attempts. The loop checks after each one whether the piece did what its contract
    promised and whether it was built well. A failure goes into the next
-   attempt; a piece that cannot pass goes back to shaping with the reason.
-   Nothing gets through until it meets the bar.
+   attempt; a piece that cannot pass goes back to shaping with the reason,
+   and only the pieces that depend on it wait. Nothing gets through until it
+   meets the bar.
 3. **Release.** Finished work waits for the person to review and merge. By
    default that is one pull request per piece. With a base branch, each
    piece's pull request targets that branch, and the run also opens one pull
@@ -45,14 +53,15 @@ the questions shaping asks. It proposes; the person approves.
 
 ### The problem
 
-Four failures come back again and again when agents build software.
+Five failures come back again and again when agents build software.
 
 | Failure | What the kit does |
 | --- | --- |
 | The agent says the work is done when it is not. Telling a model not to cheat does not change how often it does [METR]. | The gate runs every check itself. An agent's report is never evidence. |
 | The agent changes the test, not the code [ImpossibleBench]. In a field run a builder turned off a project lint rule to pass. | The judge is frozen by a hash before the build. Old tests and check settings are compared after every attempt. |
 | The spec drifts away from the code [Martinelli], [DevGenius]. | A piece is shaped just in time from today's `main`. After the merge the issue is a closed record and the tests are the living spec. |
-| The person cannot keep up with review [Osmani, quality]. | The pull request carries checked facts and evidence. A waiting limit stops the run when three pull requests wait. |
+| The person cannot keep up with review [Osmani, quality]. | The pull request carries checked facts and evidence. A waiting limit stops the run when three pull requests wait. With a base branch and `Base merges: run`, the person reviews one pull request into `main`, plus any piece the run leaves for individual review. |
+| The person has to stay and watch, because an unwatched agent can do damage or stall. | A walk-away run starts only after a live sandbox probe passes. A piece that cannot pass holds only its dependents; the other pieces continue, and the run leaves a summary. |
 
 Words alone did not hold in the first kit. Scripts did. So the kit answers
 each failure with a mechanism, not an instruction.
@@ -61,26 +70,34 @@ each failure with a mechanism, not an instruction.
 
 ### What the kit promises
 
-1. **Shape the right amount.** Every piece states its intent, its limits, its
+1. **Walk away.** After shaping, the person starts the run and leaves. The
+   run works unattended: it builds what it can, holds or hands back what it
+   cannot with the reason, and reports what happened. Every other promise
+   exists so that what the person finds on return can be trusted.
+2. **Shape the right amount.** Every piece states its intent, its limits, its
    risks and its exit condition, and nothing more. The spec holds what the
    code cannot say. After the merge it is a closed record, and the tests are
    the living spec. Too many specs turn into code and drift; the right spec
    sets the direction and the bar [Martinelli], [DevGenius].
-2. **Done means proven.** A piece leaves the loop only when a script confirms
+3. **Done means proven.** A piece leaves the loop only when a script confirms
    its own exit condition and the project's quality floor. An agent's report
    of its own work is never evidence [METR], [Anthropic harnesses].
-3. **Built right, and built well.** Two separate questions, each with its own
+4. **Built right, and built well.** Two separate questions, each with its own
    checks: did it build what the contract promised, and did it build it with
    the craft the project expects?
-4. **The loop heals or hands back.** A failure goes into the next attempt. A
+5. **The loop heals or hands back.** A failure goes into the next attempt. A
    piece that cannot pass goes back to shaping with a typed reason and its
    cause, never forward.
-5. **The person decides twice:** the contract, and the release.
+6. **The person decides twice:** the contract, and the release. Nothing in
+   between needs them, except a question the run cannot settle or a piece it
+   leaves for individual review.
 
 ### How the kit keeps them
 
 1. **Agents produce, scripts decide, the person approves.** A script that
-   runs the check is evidence; a report is not.
+   runs the check is evidence; a report is not. The run is a Python script,
+   not an agent session: a skill only starts it. The script controls the
+   attempts, the checks and every move; agents build and review within it.
 2. **One mechanism, rich data.** One loop and one gate. Everything else is a
    check declared as data: a command, a threshold, when it runs and what it
    proves. The kit does not grow a tree of special cases.
@@ -120,10 +137,11 @@ Each core part exists because a real failure showed it was needed.
 | The guard refuses the irreversible commands, and the person merges | A loss that no later check can repair |
 | Every file an exit check runs is named under `Files:` and frozen in the bar | A builder could edit the benchmark instead of the code |
 | A test that fails during an attempt for the wrong reason is returned as an environment failure | A moved `main` or a broken venv looks like three failed builds |
+| A walk-away run starts only after a live probe shows that a real session cannot write to the home folder, read `~/.ssh` or reach an outside host | A run nobody watches has nobody to stop a harmful command. In one field run the probe passed but the builder could not run the tests, so a Codex walk-away preflight also runs the Test command inside the builder sandbox |
+| A hand-back holds only the pieces that depend on it | In a field run of 12 shaped pieces, the person had to step in about four times, so the run could not build all the work in one go |
 
 Everything else is an extra. Extras are useful, but the promise holds
-without them: the two reviewers, quality commands, walk-away runs, goal and
-gauntlet judges, the researcher and the Codex backend. Mutation tools and
+without them: the two reviewers, quality commands, goal and gauntlet judges, the researcher and the Codex backend. Mutation tools and
 gauntlet critics live in the optional `ai-loop-kit-extras` plugin. The
 default plugin refuses a piece that needs either capability when it is absent.
 
@@ -794,7 +812,7 @@ tests separately from frozen exit-support files. Output longer than
 failure returns the piece to shaping as `environment`, with cause
 `pull-request-failed`.
 
-### Walk-away runs (preview)
+### Walk-away runs
 
 `run.py --walk-away` is for a run nobody watches. It starts only if
 `gate.py doctor --walk-away` passes:
@@ -1029,7 +1047,27 @@ These facts about the platform shaped the design. Each one cost time once.
 
 ## 14. Where the kit goes next
 
-Each step waits for a real run that needs it.
+**Planned for 1.7: walking away by default.** These parts are not built yet.
+Today a walk-away run is asked for with `--walk-away`, and the local run page
+only shows progress.
+
+- **Walk-away is the default run.** A run starts as walk-away when the
+  walk-away preflight passes, and falls back to an attended run, with the
+  reason, when it does not.
+- **A dashboard.** A local server lists the pieces in shaping and the pieces
+  that are ready. The person selects pieces and starts the run there, and the
+  page becomes a live view of the state machine. GitHub labels remain the
+  source of truth.
+- **The run reports and asks.** It notifies the person when a piece lands or
+  is handed back, when the run finishes, and when it goes quiet for too long.
+  When it meets a choice it cannot settle, it asks a question on the
+  dashboard and holds that piece and its dependents.
+- **Pieces that wait to become ready.** A piece whose contract is approved
+  and whose judge is captured may wait for its dependencies; the run puts it
+  through the ready check when they land. A new project can then be shaped
+  in one sitting.
+
+Beyond 1.7, each step waits for a real run that needs it.
 
 - **A combined branch.** Pieces join a run branch by trial merges in a
   scratch copy; each join runs every joined piece's checks again; a piece
@@ -1049,7 +1087,7 @@ Each step waits for a real run that needs it.
 | Not done | Why |
 | --- | --- |
 | Merging into `main` | Merging into `main` is the person's moment: they review and merge the one pull request into `main`. A conflict after a sibling merge goes to the builder. |
-| A GitHub App identity | The person's own sign-in is enough while runs are attended. |
+| A GitHub App identity | The person's own sign-in is enough for one person's runs. |
 | Crews, design-it-twice, a skills registry or context store | Coordination cost with no proven need [Pocock, codebase-design], [Port]. |
 | A fixed sentence pattern for every item | It makes odd, long issues. "When ..., then ..." is a guide only. |
 | Hand-kept diagrams or data models | They drift. Generated views may come later. |
