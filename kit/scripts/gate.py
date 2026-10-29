@@ -27,7 +27,7 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      bar_file_list, conflict_markers, last_record, main_ref,
                      keep_limit_seconds, loop_settings,
                      exit_attempt, exit_ready, parse_spec, prepare,
-                     record_text, records, repo_root, rev,
+                     new_paths, record_text, records, repo_root, rev, untracked_paths,
                      run_judge, run_keep, sh, skipped_tests, spec_hash)
 from doctor import doctor as doctor, quality_on_fresh_main
 from extras import critics, require_extras
@@ -131,9 +131,12 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
     folder = tmp / "main"
     before_injection = injected = {}
+    made_by_test: set[str] = set()
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         ok, poutput = (True, "") if spec.kind == "scaffold" else prepare(folder)
+        before = untracked_paths(folder)
+        before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
         if not ok:
             raise Refused("the Prepare command fails on a fresh copy of main:\n"
                           f"{poutput.strip()[-1500:]}",
@@ -163,14 +166,17 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
         if lint:
             raise Refused("the judge has quality problems:\n" + "\n".join(lint),
                           "fix the judge files, then run gate.py check again")
+        made_by_test = new_paths(folder, before, before_dirs, snapshot_or_generated)
         check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
+        test_outputs = sorted(new_paths(folder, before, before_dirs, snapshot_or_generated))
         kind_record = {"checks": check_records}
         if spec.kind in ("goal", "gauntlet"):
             kind_record.update(check_records[0])
     finally:
         if injected:
             restore_probe_files(folder, before_injection, injected)
-        remove_worktree(root, folder, made=generated)  # the Test command's caches are the kit's
+        # the Test command's caches and reports are the kit's
+        remove_worktree(root, folder, made=lambda p: generated(p) or covered(p, made_by_test))
         with suppress(OSError):
             tmp.rmdir()
 
@@ -190,7 +196,8 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "contract": spec.done_when, "keep": keep_command,
             **{key: getattr(spec, key) for key in
                ("intent", "approach", "playbook", "files", "command", "kind", "settings")},
-            "regression": regression_command, "regression_limit": keep_limit,
+            "test_outputs": test_outputs, "regression": regression_command,
+            "regression_limit": keep_limit,
             "regression_main": regression_main, "keep_limit": settings.get("keep limit", "15"),
             "check_seconds": check_times(keep_output + "\n" + output), **kind_record,
             **{key: settings.get(key, "") for key in ("test", "prepare", "standards")},
@@ -251,7 +258,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
                         f"{main}...HEAD"], folder).stdout.split("\0")[:-1]
     staged_paths = sh(["git", "diff", "--cached", "--no-renames", "--name-only", "-z"],
                       folder).stdout.split("\0")[:-1]
-    leaked = sorted(path for path in set(changed_paths + staged_paths) if generated(path))
+    leaked = sorted(path for path in set(changed_paths + staged_paths) if generated(path)
+                    or covered(path, ready.get("test_outputs", [])))
     if leaked:
         return False, "the build includes generated files: " + ", ".join(leaked)
     contract_text = " ".join(ready.get("contract", {}).values()) + " " + \
@@ -297,9 +305,7 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
         roots = prepare_paths.read_text().splitlines()
         if roots:
             added = earlier_build_paths(folder, ready.get("bar_files", ready["files"]))
-            leaked = [path for path in added if any(
-                path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/")
-                for root in roots)]
+            leaked = [path for path in added if covered(path, roots)]
             if leaked:
                 return False, ("the piece adds files under paths Prepare created: "
                                + ", ".join(leaked))
@@ -423,8 +429,7 @@ def keep_passes_without_judge(folder: Path, ready: dict,
                  r"(?:[ \t]+[^\n]*\n|\n)+\w+(?:\.\w+)*(?::[^\n]*)?$")
     for name in ready["files"]:
         path = rf"(?:{re.escape(str(folder))}/)?{re.escape(name)}"
-        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*'
-                      rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
+        diagnostic = (rf'^[ \t]*{path}:(?:\d+:)*[ \t]*' rf'(?:(?i:error|fatal)\b|[EF]\d{{3,4}}\b)')
         frame = rf'^[ \t]+File "{path}", line \d+'
         if all(re.search(diagnostic, output, re.MULTILINE) or
                any(re.search(frame, block, re.MULTILINE)
@@ -648,6 +653,14 @@ GENERATED = ["/.loop/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/
              ".ruff_cache/", "node_modules/", ".DS_Store", "*.egg-info/", ".coverage",
              ".coverage.*", "mutants/", ".stryker-tmp/", "coverage.json", "coverage.xml",
              "coverage.lcov"]
+
+
+def covered(path: str, roots: list[str]) -> bool:
+    return any(path == r.rstrip("/") or path.startswith(r.rstrip("/") + "/") for r in roots)
+
+
+def snapshot_or_generated(path: str) -> bool:
+    return generated(path) or path.endswith(".snap") or "__snapshots__" in path.split("/")
 
 
 def generated(path: str) -> bool:

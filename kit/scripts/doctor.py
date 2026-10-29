@@ -72,13 +72,11 @@ def quality_on_fresh_main(root: Path, main: str, command: str, test_command: str
             settings = loop_settings(folder)
             command = settings.get("quality", [command])[-1]
             test_command = settings.get("test", "")
-        ok, output = prepare(folder, command=prepare_command,
-                             protected_paths=protected_paths)
+        ok, output = prepare(folder, command=prepare_command, protected_paths=protected_paths)
         if not ok:
             return False, "Prepare failed:\n" + output.strip()[-800:]
         if test_command:
-            code, test_output = run_judge(folder, test_command,
-                                          protected_paths=protected_paths)
+            code, test_output = run_judge(folder, test_command, protected_paths=protected_paths)
             if code:
                 return False, "Test command failed before Quality:\n" + test_output.strip()[-800:]
         code, output = run_judge(folder, command, protected_paths=protected_paths)
@@ -218,8 +216,7 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
         def probe(command: str, proposed: bool = False) -> None:
             qprepare = (proposed_prepare if proposed and proposed_prepare is not None
                         else settings.get("prepare", ""))
-            qtest = (proposed_test if proposed and proposed_test is not None
-                     else settings["test"])
+            qtest = (proposed_test if proposed and proposed_test is not None else settings["test"])
             qok, qoutput = quality_on_fresh_main(
                 root, main, command, qtest, prepare_command=qprepare,
                 proposed_quality=command if proposed else "")

@@ -24,8 +24,7 @@ PROTECTION = {"required_status_checks": None, "enforce_admins": True,
 
 
 def run(args: list[str], cwd: Path, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, input=stdin,
-                          check=False)
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, input=stdin, check=False)
 
 
 def must(args: list[str], cwd: Path) -> str:
@@ -111,8 +110,7 @@ def _bootstrap(root: Path, name: str, visibility: str, loop_section: str,
         raise Refused("the project has no GitHub repository",
                       "ask the person for a name and visibility, then run: "
                       "gate.py bootstrap --name <name> --visibility private --protect")
-    remote_main = has_origin and bool(must(["git", "ls-remote", "--heads", "origin", "main"],
-                                           root))
+    remote_main = has_origin and bool(must(["git", "ls-remote", "--heads", "origin", "main"], root))
     if run(["git", "rev-parse", "--verify", "--quiet", "main^{commit}"], root).returncode:
         if remote_main:
             raise Refused("origin has a main branch but this folder does not",

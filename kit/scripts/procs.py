@@ -124,8 +124,7 @@ def acquire_lock(root: Path) -> Path:
                 pid = 0
             if pid and process_alive(pid):
                 raise Refused(f"another run is live (pid {pid})", "wait for it to finish")
-            groups = [int(value) for value in current.get("children", [])
-                      if str(value).isdigit()]
+            groups = [int(value) for value in current.get("children", []) if str(value).isdigit()]
             if any(process_group_alive(group) for group in groups):
                 raise Refused("an orphan builder or reviewer from the previous run is still alive",
                               "stop that process group, then run again")

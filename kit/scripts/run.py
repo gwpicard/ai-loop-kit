@@ -24,7 +24,7 @@ import agents  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
-                     base_branch, base_merges, last_record, loop_settings, main_ref, prepare, record_prepare_outputs, record_text, rev,
+                     base_branch, base_merges, last_record, loop_settings, main_ref, exclude_paths, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, untracked_paths)
 from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
@@ -255,8 +255,11 @@ def dirty_folder_reason(folder: Path) -> str:
     merge_states = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
     if merge_head.returncode == 0 and all(line[:2] in merge_states for line in dirty.splitlines()):
         return ""
+    hint = (" If they are test reports or caches, add them to .gitignore on the base."
+            if re.search(r"report|cache|coverage|junit|output", dirty) else "")
     return ("build folder has uncommitted changes the run did not make. "
-            "next: inspect the folder and commit or move those changes before running again")
+            "next: inspect the folder and commit or move those changes before running again"
+            + hint)
 
 
 def worktree(root: Path, n: int) -> Path:
@@ -311,8 +314,7 @@ def _build_piece(gh: GitHub, root: Path, n: int, attempts: int,
     _save_run_metrics(root, n, started_at, metrics["attempts"])
     gate.move(gh, root, n, "building")
     try:
-        result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override,
-                               metrics)
+        result = build_claimed(gh, root, n, issue, attempts, walk_away, agent_override, metrics)
     except Exception as e:  # never leave a piece in building
         idle = isinstance(e, AttemptIdle)
         reason = str(e) if idle else f"the run stopped with an error: {str(e).strip()[:300]}"
@@ -336,6 +338,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     ready = {**ready, "stale_research": claim.get("stale_research", [])}
     folder = worktree(root, n)
     log(f"piece {n}: build worktree: {folder}")
+    exclude_paths(folder, ready.get("test_outputs", []))
     dirty = dirty_folder_reason(folder)
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
@@ -573,8 +576,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                     reason = ("Contract review reproduced a judge gap: "
                               + ", ".join(item["item"] for item in reproductions)
                               + "\n\n" + evidence)
-                    _hand_back(gh, root, n, reason, "judge-gap", metrics,
-                               cause="judge-gap")
+                    _hand_back(gh, root, n, reason, "judge-gap", metrics, cause="judge-gap")
                     return f"piece {n}: back to shaping, contract finding reproduced"
             return landing.land(gh, root, folder, n, open_pull_request(
                 gh, root, folder, n, issue, k, output, review,

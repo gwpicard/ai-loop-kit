@@ -51,8 +51,7 @@ def measure_values(command: str, cwd: Optional[Path] = None,
     def run() -> tuple[int, str]:
         if runner:
             return runner(command)
-        code, output = run_judge(cwd or Path.cwd(), command,
-                                 protected_paths=protected_paths)
+        code, output = run_judge(cwd or Path.cwd(), command, protected_paths=protected_paths)
         return code, output
 
     values = []
@@ -90,8 +89,7 @@ def judge_attempt(folder: Path, ready_record: dict,
     if not hypothesis.is_file() or not hypothesis.read_text().strip():
         return 1, "goal attempt did not record a hypothesis in .loop/hypothesis"
     try:
-        values = measure_values(ready_record["measure"], folder,
-                                protected_paths=protected_paths)
+        values = measure_values(ready_record["measure"], folder, protected_paths=protected_paths)
         result = median(values)
         target = parse_target(ready_record["target"])
     except Refused as error:

@@ -288,6 +288,60 @@ class RunTest(RunFixture, unittest.TestCase):
         self.assert_handback_record(handback, reason_type="environment",
                                     cause="dirty-worktree", attempts=0)
 
+    def test_a_report_from_the_test_command_does_not_dirty_the_next_attempt(self):
+        self.p.loop_section("mkdir -p reports && echo '{}' > reports/out.json"
+                            " && ! test -f .loop/why.md")  # fails only once the builder is done
+        n, result = self.build("good", attempts=2)
+        self.assertNotIn("uncommitted changes", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertEqual(len(failed), 2)
+
+    def test_an_untracked_file_the_base_now_ignores_does_not_hand_the_piece_back(self):
+        self.p.loop_section("true")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "reports").mkdir()
+        (folder / "reports" / "out.json").write_text("{}")
+        self.assertIn("uncommitted", run.dirty_folder_reason(folder))
+        run.exclude_paths(folder, ["reports/"])
+        self.assertEqual(run.dirty_folder_reason(folder), "")
+
+    def test_ready_records_what_the_test_command_creates(self):
+        self.p.loop_section("mkdir -p reports __snapshots__ && echo '{}' > reports/out.json"
+                            " && echo s > __snapshots__/a.snap")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        ready = gate.last_record(self.p.gh.comments(n), "ready")
+        self.assertEqual(ready["test_outputs"], ["reports/"])
+        self.p.loop_section("true")
+        quiet = self.p.piece()
+        gate.move(self.p.gh, self.p.root, quiet, "ready")
+        self.assertEqual(gate.last_record(self.p.gh.comments(quiet), "ready")["test_outputs"], [])
+
+    def test_gate_refuses_a_committed_test_output(self):
+        self.p.loop_section("mkdir -p reports && echo '{}' > reports/out.json")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        fake = Path(os.environ["LOOP_CLAUDE"])
+        fake.write_text(fake.read_text().replace(
+            "git add -A", "mkdir -p reports && echo x > reports/out.json && git add -f reports/out.json && git add -A"))
+        os.environ["FAKE_MODE"] = "good"
+        result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertIn("back to shaping", result)
+        failed = [c for c in self.p.gh.comments(n) if c.startswith("**Run:** attempt")]
+        self.assertIn("reports/out.json", failed[-1])
+        self.assertEqual(self.p.gh.prs, {})
+
+    def test_an_untracked_file_outside_the_test_outputs_is_still_a_dirty_folder(self):
+        self.p.loop_section("mkdir -p reports && echo '{}' > reports/out.json")
+        n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        folder = run.worktree(self.p.root, n)
+        (folder / "person-work.txt").write_text("keep\n")
+        run.exclude_paths(folder, ["reports/"])
+        self.assertIn("uncommitted", run.dirty_folder_reason(folder))
+
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")
         self.assertIn("pull request ready", result)

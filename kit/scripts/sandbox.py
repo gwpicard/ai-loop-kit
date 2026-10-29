@@ -108,8 +108,7 @@ def codex_builder_paths(folder: Path) -> list[Path]:
         paths.append((common / "objects").resolve())
         ref = sh(["git", "symbolic-ref", "-q", "HEAD"], work, check=False).stdout.strip()
         if ref:
-            paths.extend((common / name).resolve()
-                         for name in (ref, ref + ".lock", "logs/" + ref))
+            paths.extend((common / name).resolve() for name in (ref, ref + ".lock", "logs/" + ref))
     return paths
 
 
@@ -175,8 +174,7 @@ def guard_main(argv: Optional[list[str]] = None) -> int:
         folder = Path(os.environ["LOOP_BUILD_ROOT"])
     except (ValueError, KeyError, OSError):
         return 2
-    reason = guard_tool_input(call.get("tool_name", ""),
-                              call.get("tool_input") or {}, folder)
+    reason = guard_tool_input(call.get("tool_name", ""), call.get("tool_input") or {}, folder)
     if reason:
         print(f"Refused by walk-away sandbox: {reason}", file=sys.stderr)
         return 2

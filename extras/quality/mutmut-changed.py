@@ -109,15 +109,13 @@ def main() -> int:
         result = subprocess.run(["mutmut", "run", pattern])
         if result.returncode:
             return result.returncode
-    results = subprocess.run(["mutmut", "results", "--all", "true"],
-                             capture_output=True, text=True)
+    results = subprocess.run(["mutmut", "results", "--all", "true"], capture_output=True, text=True)
     print(results.stdout, end="")
     if results.returncode:
         print(results.stderr, file=sys.stderr, end="")
         return results.returncode
     if not results_pass(results.stdout, selected):
-        print("mutmut: a changed-function mutant was not killed",
-              file=sys.stderr)
+        print("mutmut: a changed-function mutant was not killed", file=sys.stderr)
         return 1
     mutant_names = re.findall(r"([^\s:]+__mutmut_\d+)\s*:", results.stdout)
     for pattern in selected:

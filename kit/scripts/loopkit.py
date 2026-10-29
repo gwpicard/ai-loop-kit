@@ -414,13 +414,27 @@ def untracked_paths(folder: Path) -> set[str]:
             if path and not path.startswith(".loop/cache/")}
 
 
+def new_paths(folder: Path, before: set[str], before_dirs: set[str], skip=None) -> set[str]:
+    paths = set()
+    for path in untracked_paths(folder) - before:
+        first, separator, _ = path.partition("/")
+        if not (skip and skip(path)):
+            paths.add(first + "/" if separator and first not in before_dirs else path)
+    return paths
+
+
+def exclude_paths(folder: Path, paths) -> None:
+    exclude = Path(sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
+                       "info/exclude"], folder).stdout.strip())
+    text = exclude.read_text() if exclude.exists() else ""
+    missing = sorted({"/" + path for path in paths} - set(text.splitlines()))
+    if missing:
+        exclude.write_text("\n".join([*text.splitlines(), *missing]) + "\n")
+
+
 def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]) -> list[str]:
     """Exclude new Prepare output in this worktree and record it for the gate."""
-    added = untracked_paths(folder) - before
-    paths = set()
-    for path in added:
-        first, separator, _ = path.partition("/")
-        paths.add(first + "/" if separator and first not in before_dirs else path)
+    paths = new_paths(folder, before, before_dirs)
     if not paths:
         return []
 
@@ -428,19 +442,10 @@ def record_prepare_outputs(folder: Path, before: set[str], before_dirs: set[str]
     info = git_dir / "info"
     info.mkdir(parents=True, exist_ok=True)
     marker = info / "ai-loop-kit-prepare-paths"
-    exclude = Path(sh(["git", "rev-parse", "--path-format=absolute", "--git-path",
-                       "info/exclude"], folder).stdout.strip())
     recorded = set(marker.read_text().splitlines()) if marker.exists() else set()
     recorded.update(paths)
     marker.write_text("\n".join(sorted(recorded)) + "\n")
-
-    existing = exclude.read_text().splitlines() if exclude.exists() else []
-    patterns = {"/" + path for path in paths}
-    missing = sorted(patterns - set(existing))
-    if missing:
-        text = exclude.read_text() if exclude.exists() else ""
-        exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
-                           + "\n".join(missing) + "\n")
+    exclude_paths(folder, paths)
     return sorted(recorded)
 
 
@@ -558,8 +563,7 @@ def judge_assertion_failed(output: str, item: str) -> bool:
     """Apply the ready gate's failure-line and named-item rule."""
     fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
     named = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
-    return any(fail_line.search(line) and named.search(line)
-               for line in output.splitlines())
+    return any(fail_line.search(line) and named.search(line) for line in output.splitlines())
 
 
 def exit_ready(folder: Path, checks: tuple, contract: dict,
@@ -583,8 +587,7 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                               f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
                               "fix the judge so it fails on an assertion")
             if check.get("legacy_kind") != "scaffold":
-                named = [item for item in building
-                         if judge_assertion_failed(output, item)]
+                named = [item for item in building if judge_assertion_failed(output, item)]
                 if not named:
                     raise Refused("the judge fails on main, but its output names no spec ID "
                                   f"({', '.join(building)}):\n{output.strip()[-1500:]}",
@@ -594,8 +597,7 @@ def exit_ready(folder: Path, checks: tuple, contract: dict,
                 if missing:
                     raise Refused(f"no failing judge test names {', '.join(missing)}",
                                   "give every Contract item at least one failing test")
-                failing_stays = [item for item in stays
-                                 if judge_assertion_failed(output, item)]
+                failing_stays = [item for item in stays if judge_assertion_failed(output, item)]
                 if failing_stays:
                     raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
                                   "a (stays) item holds on the base now, not after the pieces it "
@@ -723,8 +725,7 @@ class GitHub:
         return "plan" if "Upgrade to GitHub Pro" in result.stderr else "unknown"
 
     def ensure_label(self, name: str, color: str, description: str) -> None:
-        self._gh("label", "create", name, "--color", color, "--description",
-                 description, "--force")
+        self._gh("label", "create", name, "--color", color, "--description", description, "--force")
 
     def create_pr(self, head: str, title: str, body: str, base: str = "") -> str:
         return self._gh("pr", "create", "--base", base or base_branch(self.root), "--head", head,

@@ -152,8 +152,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 results.append(waiting)
                 break
             try:
-                result = api.build_piece(gh, root, n, args.attempts, args.walk_away,
-                                         args.agent)
+                result = api.build_piece(gh, root, n, args.attempts, args.walk_away, args.agent)
                 state = gate.state_of(gh.issue(n))
                 failed = state not in ("approval", "done") or failed
             except Refused as r:

@@ -358,8 +358,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                                  (target / path).read_text(errors="replace")):
                     continue
                 try:
-                    result = _run_contract_reproducer(root, target, judged, ready,
-                                                      path, item, n, k)
+                    result = _run_contract_reproducer(root, target, judged, ready, path, item, n, k)
                     results["contract_reproducers"].append({
                         "file": path.as_posix(), "item": item, **result})
                     used_reproducer_paths.add(path.as_posix())
