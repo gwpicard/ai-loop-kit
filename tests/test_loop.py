@@ -345,7 +345,7 @@ class GateTest(GateFixture, unittest.TestCase):
         self.assertEqual(record["cause"], "prepare-failed")
         self.assertEqual(record["attempts"], 0)
         self.assertEqual(record["seconds"], 0)
-        self.assertEqual(record["kit"], "1.6.0")
+        self.assertEqual(record["kit"], "1.6.1")
         self.assertEqual(date.fromisoformat(record["date"]).isoformat(), record["date"])
 
     def test_report_groups_causes_and_counts_first_attempt_rate(self):
