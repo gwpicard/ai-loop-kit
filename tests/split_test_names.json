@@ -96,6 +96,7 @@
   "test_run.RunTest.test_a_failing_earlier_build_starts_attempt_one_with_the_gate_output",
   "test_run.RunTest.test_a_forged_record_from_a_stranger_is_never_read",
   "test_run.RunTest.test_a_good_build_opens_a_pull_request",
+  "test_run.RunTest.test_a_later_piece_can_rewrite_an_earlier_judge_listed_in_exit_files",
   "test_run.RunTest.test_a_passing_earlier_build_goes_straight_to_review",
   "test_run.RunTest.test_a_piece_may_change_settings_when_its_spec_says_so",
   "test_run.RunTest.test_a_piece_waiting_in_its_pull_request_keeps_its_folder_quietly",

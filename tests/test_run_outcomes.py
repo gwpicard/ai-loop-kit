@@ -41,6 +41,17 @@ class BuilderOutcomeTest(unittest.TestCase):
         self.assertIn("Citation: habits.py:1", handback["reason"])
         self.assertEqual(len(handback["reason"].split("\nCitation:")[0]), 500)
 
+    def test_approach_that_breaks_a_test_returns_to_shaping(self):
+        n, result = run_fixtures.RunFixture.build(self, "approach-unclear", attempts=3)
+        handback = next(r for r in records(self.p.gh.comments(n))
+                        if r.get("move") == "give-back")
+        run_fixtures.RunFixture.assert_handback_record(self, handback, reason_type="spec-unclear",
+                                                cause="spec-unclear", attempts=1)
+        self.assertIn("Approach line 2", handback["reason"])
+        self.assertIn("Citation: Command: python -m pytest test_existing.py (exit 1)",
+                      handback["reason"])
+        self.assertIn("needs-you", self.p.gh.issue(n)["labels"])
+
     def test_spec_unclear_accepts_spaces_in_file_citation(self):
         with tempfile.TemporaryDirectory() as directory:
             outcome = Path(directory) / "outcome"

@@ -96,3 +96,10 @@ class AgentInstructionsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_builder_stops_when_the_approach_breaks_a_test(self):
+        brief = " ".join((ROOT / "kit" / "briefs" / "builder.md").read_text().split())
+        self.assertIn("would break an existing test or a `(stays)` item", brief)
+        self.assertIn("do not choose another rule", brief)
+        self.assertIn("`spec-unclear`", brief)
+        self.assertNotIn("any choice you made alone", brief)

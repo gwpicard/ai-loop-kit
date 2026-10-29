@@ -4,7 +4,7 @@ description: Turns an idea into a piece the gate accepts as ready - a GitHub iss
 ---
 # Shape
 
-Shaping is the work. A piece leaves here only when it is clear enough to be
+A piece leaves here only when it is clear enough to be
 built with nobody steering, and its judge proves that.
 
 ## Kit
@@ -30,10 +30,10 @@ Use the KIT path above in every command. Write it out in full. Read
    builder can finish in about an hour, with three to six Contract items.
    Done when: the person agrees to the split.
 4. Write the spec in the format of `<KIT>/spec-format.md`, with a test
-   name per Contract item, and show it to the person. When a piece adds or
+   name per Contract item. Before you show it, search the existing tests, earlier judges included, for the functions, pages and outputs the Contract and Approach change. For each test that would break, reword the Contract or change that test on purpose by the route in `spec-format.md`. Then show it. When a piece adds or
    changes a module, Approach names that module and the interface a caller
    uses. The project's Test command is required. Optional `Keep:` adds
-   checks; it never replaces the full suite. Equal commands run once.
+   checks; it never replaces the full suite.
    Include all five lines under `## Risks`: Protected paths, New
    dependency, Shared files, Needs services and Open choices. Write `none`
    when a line has no entries, and settle every open choice before ready.
@@ -61,7 +61,6 @@ Use the KIT path above in every command. Write it out in full. Read
    If `piece/<n>` already exists because the piece came back, do not make it again: run `git switch piece/<n>`, then `git pull --ff-only origin piece/<n>` only when `origin/piece/<n>` exists.
    If `git switch` names a folder under the kit's worktree home, stop. Report the folder and run
    `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" doctor`. Never shape inside that folder.
-   The judge writer adds its commit on top.
    Save JSON containing approved `Intent`, `Approach`, `Contract` and `Files`
    strings. `Files` lists exact Exit paths, one per line. Exclude shaping chat.
    Save input and output in the system temp folder. Run
@@ -81,10 +80,10 @@ Use the KIT path above in every command. Write it out in full. Read
 
 ## Rules
 - Never change a `state:` label by hand. Only the gate moves a piece.
-- Never write the code the piece asks for. Shaping writes the spec and the judge only.
-- Use `## Exit` for the checks that decide when the piece is done. Add one or more `### Tests`, `### Measure` or `### Critics` checks. Every check must be unmet on main for the right reason, and each check names its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
-- Keep `Playbook: fix` as builder guidance. Playbook text does not affect the gate.
-- Old issues with `## Judge` and `Kind:` remain accepted as one check. Do not use the old format for new specs.
+- Never write the code the piece asks for.
+- Use `## Exit` for the checks that decide when the piece is done: one or more `### Tests`, `### Measure` or `### Critics` checks, each unmet on main for the right reason and each naming its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
+- Keep `Playbook: fix` as builder guidance; it does not affect the gate.
+- Do not use the old `Kind:` format for new specs.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.
 - After ready, the spec and the judge are fixed. To change either, move the piece back with `gate.py move <n> shaping --type spec-unclear --reason "<why>"`, then shape it again.
 - If the gate refuses, report the refusal in plain words and take the `next:` step. Never reach the same result another way.

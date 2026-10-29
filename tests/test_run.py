@@ -21,6 +21,45 @@ from loopkit import Refused, changed_check_settings, records
 from run_fixtures import RunFixture
 
 
+# An earlier piece's judge, rewritten: D3 is the changed behaviour (was D1), D2 stays.
+OLD_FN_JUDGE = """import sys
+sys.path.insert(0, ".")
+failed = []
+def check(name, fn):
+    try:
+        fn()
+        print("ok", name)
+    except Exception as e:
+        print("FAIL", name, type(e).__name__, e)
+        failed.append(name)
+def d3():
+    import habits
+    assert habits.fn() == {"x": 1, "y": 2}, "fn returns x and y"
+def d2():
+    import habits
+    assert habits.fn2() == [1], "fn2 is unchanged"
+check("test_D3_fn_returns_y", d3)
+check("test_D2_fn2_is_unchanged", d2)
+sys.exit(1 if failed else 0)
+"""
+REWRITE_SPEC = """## Intent
+Make fn also return y.
+
+Out of scope:
+- Changing fn2.
+
+## Contract
+- D3: fn returns x and y.
+- D2 (stays): fn2 still returns a list with one.
+
+## Exit
+### Tests
+Command: `python3 judge_add.py`
+Files:
+- judge_add.py
+"""
+
+
 class RunTest(RunFixture, unittest.TestCase):
     def test_setup_and_writer_briefs_cover_rehearsal_rules(self):
         setup = (KIT / "skills" / "setup" / "SKILL.md").read_text()
@@ -346,6 +385,23 @@ class RunTest(RunFixture, unittest.TestCase):
         (folder / "person-work.txt").write_text("keep\n")
         run.exclude_paths(folder, ["reports/"])
         self.assertIn("uncommitted", run.dirty_folder_reason(folder))
+
+    def test_a_later_piece_can_rewrite_an_earlier_judge_listed_in_exit_files(self):
+        old_judge = OLD_FN_JUDGE.replace('{"x": 1, "y": 2}', '{"x": 1}').replace("D3", "D1")
+        self.p.loop_section("python3 judge_add.py")
+        (self.p.root / "habits.py").write_text("def fn():\n    return {'x': 1}\n\n"
+                                               "def fn2():\n    return [1]\n")
+        (self.p.root / "judge_add.py").write_text(old_judge)
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "--quiet", "-m", "Earlier piece")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        n = self.p.piece(judge=OLD_FN_JUDGE, spec=REWRITE_SPEC)
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        os.environ["FAKE_MODE"] = "rewrite-fn"
+        result = run.build_piece(self.p.gh, self.p.root, n, 2)
+        self.assertIn("pull request ready", result)
+        submit = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "submit"][-1]
+        self.assertEqual(submit["attempts"], 1)
 
     def test_a_good_build_opens_a_pull_request(self):
         n, result = self.build("good")
