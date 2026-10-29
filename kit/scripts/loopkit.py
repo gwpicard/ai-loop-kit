@@ -239,16 +239,15 @@ def main_ref(root: Path) -> str:
                   else f"create {base} from main and push it to origin")
 
 
-SOURCE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-                   ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php", ".cs"}
+LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock", "package-lock.json", "pnpm-lock.yaml",
+             "yarn.lock", "go.sum", "Cargo.lock", "Gemfile.lock")
 
 
 def in_bar_zone(name: str, files: list[str]) -> bool:
-    """A conftest, or a support file in a judge folder (at the root: any non-source file)."""
+    """A conftest, or a support file in a judge folder (at the root: its stem)."""
     return Path(name).name == "conftest.py" or any(
-        (folder != "." and name.startswith(folder.rstrip("/") + "/")) or
-        (folder == "." and Path(name).suffix.lower() not in SOURCE_SUFFIXES)
-        for folder in {str(Path(file).parent) for file in files})
+        name.startswith(folder + "/") if (folder := str(Path(file).parent)) != "." else
+        "/" not in name and name.startswith(Path(file).stem) for file in files)
 
 
 def bar_file_list(root: Path, ref: str, files: list[str]) -> list[str]:
@@ -566,8 +565,7 @@ def judge_assertion_failed(output: str, item: str) -> bool:
     return any(fail_line.search(line) and named.search(line) for line in output.splitlines())
 
 
-def exit_ready(folder: Path, checks: tuple, contract: dict,
-               stays: tuple) -> tuple[list[dict], str]:
+def exit_ready(folder: Path, checks: tuple, contract: dict, stays: tuple) -> tuple[list[dict], str]:
     """Prove every Exit check is unmet on main and save its baseline."""
     import measure
 

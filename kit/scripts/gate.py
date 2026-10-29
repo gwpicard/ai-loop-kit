@@ -25,7 +25,7 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      bar_file_list, conflict_markers, last_record, main_ref, keep_limit_seconds,
                      loop_settings, exit_attempt, exit_ready, parse_spec, prepare, new_paths,
                      record_text, records, repo_root, rev, untracked_paths, run_judge, run_keep,
-                     sh, skipped_tests, spec_hash)
+                     sh, skipped_tests, spec_hash, LOCKFILES)
 from doctor import doctor as doctor, quality_on_fresh_main
 from extras import critics, require_extras
 from gate_cli import build_parser as build_parser
@@ -277,7 +277,8 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     oversized = []
     for path in changed_paths:
         target = folder / path
-        if path in ready.get("large_files", []) or not target.is_file():
+        if (path in ready.get("large_files", []) or not target.is_file()
+                or Path(path).name in LOCKFILES):
             continue
         before = sh(["git", "show", f"{main}:{path}"], folder, check=False).stdout
         before_lines = len(before.splitlines())
@@ -539,6 +540,10 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
                 earlier := earlier_build_paths(root, record["bar_files"], branch_name(n))):
             note += (" Warning: the piece branch holds earlier build code: "
                      f"{', '.join(earlier)}; the next build starts from it.")
+        if not record.get("settings") and (
+                named := named_check_settings([record.get("approach", "")])):
+            note += (f" Warning: the Approach names {', '.join(named)}; add `Settings: may change`"
+                     " if the build must edit it.")
         for conflict in record.get("shared_conflicts", []):
             note += (f" Warning: shared files {', '.join(conflict['files'])} also appear in "
                      f"ready piece {conflict['issue']}.")

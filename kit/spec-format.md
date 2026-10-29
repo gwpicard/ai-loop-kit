@@ -69,7 +69,7 @@ combine check types. The project's Test command always runs. Optional `Keep:`
 in `## Judge` adds a distinct check; identical commands run once.
 `Playbook: fix` guides the builder and has no gate effect.
 `Settings: may change` lets a piece change check settings, such as
-workflows. Ready needs it when the Contract names one.
+workflows. Ready needs it when the Contract names one, and warns when the Approach does.
 `Done when` remains accepted as the old name for `Contract`.
 
 Specs with `## Judge` and `Kind:` remain accepted as one check. A fix
@@ -160,12 +160,11 @@ Playbook: fix
 - `Files:` names the files an exit check runs, inside the project.
 - Each Research line has a source URL and a real read date.
 - At submit a file may not grow from under 1,000 lines to 1,000 or more
-  unless its path is named with `Large file:`.
+  unless its path is named with `Large file:`. Lockfiles are exempt.
 
 Every check in `## Exit` runs on main at ready and after each attempt. Measure
 checks use the median of three runs. Critics checks use three blind verdicts.
-Every check's `Files:` list is included in the frozen bar. Legacy goal and
-gauntlet specs keep the same readiness and attempt rules.
+Every check's `Files:` list is included in the frozen bar.
 
 The gate hashes the spec and judge bar. A change after ready
 means the piece must go back through shaping and ready.

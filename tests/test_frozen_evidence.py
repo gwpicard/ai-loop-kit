@@ -22,6 +22,10 @@ class FrozenEvidenceTest(unittest.TestCase):
         self.addCleanup(self.p.close)
         (self.p.root / ".loop").mkdir()
         self.p.loop_section("true")
+        (self.p.root / "judge_add_helpers.py").write_text("X = 1\n")
+        git(self.p.root, "add", "judge_add_helpers.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Judge helper")
+        git(self.p.root, "push", "--quiet", "origin", "main")
         self.n = self.p.piece()
         gate.move(self.p.gh, self.p.root, self.n, "ready")
         self.ready = gate.last_record(self.p.gh.comments(self.n), "ready")
@@ -48,10 +52,10 @@ class FrozenEvidenceTest(unittest.TestCase):
 
     def test_deleted_frozen_file_is_named_without_blame_on_settings(self):
         folder = run.worktree(self.p.root, self.n)
-        (folder / "README.md").unlink()
+        (folder / "judge_add_helpers.py").unlink()
         passed, reason = gate.judge(folder, self.ready)
         self.assertFalse(passed)
-        self.assertIn("the build changed frozen files: README.md", reason)
+        self.assertIn("the build changed frozen files: judge_add_helpers.py", reason)
         self.assertNotIn("AGENTS.md", reason)
 
     def test_deleted_shaping_judge_is_a_build_edit(self):
@@ -67,9 +71,9 @@ class FrozenEvidenceTest(unittest.TestCase):
                 self.assertEqual(reason, "the build changed frozen files: judge_add.py")
 
     def test_deletion_inherited_from_main_is_free(self):
-        (self.p.root / "README.md").unlink()
-        git(self.p.root, "add", "README.md")
-        git(self.p.root, "commit", "--quiet", "-m", "Remove old readme")
+        (self.p.root / "judge_add_helpers.py").unlink()
+        git(self.p.root, "add", "judge_add_helpers.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Remove old helper")
         git(self.p.root, "push", "--quiet", "origin", "main")
         folder = run.worktree(self.p.root, self.n)
         git(folder, "merge", "--quiet", "--no-edit", "main")

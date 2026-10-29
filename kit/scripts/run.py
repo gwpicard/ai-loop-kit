@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import agents  # noqa: E402
 import walkaway  # noqa: E402
-from loopkit import (STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
+from loopkit import (LOCKFILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
                      base_branch, base_merges, last_record, loop_settings, main_ref, exclude_paths, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, untracked_paths)
@@ -46,8 +46,7 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def record_attempt_timing(logfile: Path, started_at: datetime,
-                          elapsed_seconds: float) -> None:
+def record_attempt_timing(logfile: Path, started_at: datetime, elapsed_seconds: float) -> None:
     timing = {
         "started_at": started_at.isoformat(timespec="milliseconds"),
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
@@ -61,8 +60,7 @@ def _run_metrics_path(root: Path, n: int) -> Path:
     return root / ".loop" / "run-metrics" / f"piece-{n}.json"
 
 
-def _save_run_metrics(root: Path, n: int, started_at: datetime,
-                      attempts: int) -> None:
+def _save_run_metrics(root: Path, n: int, started_at: datetime, attempts: int) -> None:
     path = _run_metrics_path(root, n)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
@@ -235,10 +233,8 @@ def restore_bar(folder: Path, ready: dict) -> None:
 
 # Files that declare what Prepare installs. The builder cannot install: it has no
 # network, so the run runs Prepare again when an attempt changes one of these.
-DEPENDENCY_FILES = ("pyproject.toml", "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock",
-                    "requirements*.txt", "package.json", "package-lock.json", "pnpm-lock.yaml",
-                    "yarn.lock", "go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "Gemfile",
-                    "Gemfile.lock")
+DEPENDENCY_FILES = ("pyproject.toml", "Pipfile", "requirements*.txt", "package.json", "go.mod",
+                    "Cargo.toml", "Gemfile", *LOCKFILES)
 
 
 def prepare_again(folder: Path, ready: dict, since: str) -> tuple[bool, bool, str]:

@@ -169,6 +169,47 @@ class BarNeighboursTest(BarFixture, unittest.TestCase):
         self.assertEqual(frozen.neighbour_edits(folder, ready, None), [])
 
 
+class RootJudgeZoneTest(unittest.TestCase):
+    def test_a_root_judge_freezes_only_conftests_and_same_stem_files(self):
+        zone = lambda name: loopkit.in_bar_zone(name, ["test_habits.py"])  # noqa: E731
+        for name in ("conftest.py", "tests/conftest.py", "test_habits_helpers.py"):
+            self.assertTrue(zone(name), name)
+        for name in ("README.md", "package.json", "pyproject.toml", "uv.lock", "docs/a.md",
+                     "test_other.txt"):
+            self.assertFalse(zone(name), name)
+
+    def test_a_folder_judge_keeps_its_whole_folder(self):
+        self.assertTrue(loopkit.in_bar_zone("tests/judge/data.json", ["tests/judge/test_a.py"]))
+        self.assertFalse(loopkit.in_bar_zone("README.md", ["tests/judge/test_a.py"]))
+
+
+class RootJudgeBuildTest(unittest.TestCase):
+    def setUp(self):
+        self.p = Project()
+        self.addCleanup(self.p.close)
+        for name in ("conftest.py", "judge_add_helpers.py"):
+            self.p.root.joinpath(name).write_text("X = 1\n")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "--quiet", "-m", "Support files")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        self.n = self.p.piece()
+        gate.move(self.p.gh, self.p.root, self.n, "ready")
+        self.ready = gate.last_record(self.p.gh.comments(self.n), "ready")
+
+    def test_editing_the_readme_or_package_json_is_not_refused(self):
+        folder = run.worktree(self.p.root, self.n)
+        (folder / "README.md").write_text("changed\n")
+        (folder / "package.json").write_text("{}\n")
+        self.assertEqual(frozen.frozen_file_reason(folder, self.ready), "")
+
+    def test_a_root_conftest_and_a_same_stem_helper_are_still_frozen(self):
+        folder = run.worktree(self.p.root, self.n)
+        (folder / "conftest.py").write_text("X = 2\n")
+        (folder / "judge_add_helpers.py").write_text("X = 2\n")
+        self.assertEqual(frozen.frozen_file_reason(folder, self.ready),
+                         "the build changed frozen files: conftest.py, judge_add_helpers.py")
+
+
 class AlreadySatisfiedTest(BarFixture, unittest.TestCase):
     """Before the builder, a moved base gets one run of the Exit tests."""
 

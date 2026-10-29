@@ -36,7 +36,7 @@ class ScenarioTest(unittest.TestCase):
         n, result = self.build("settings-cheat", attempts=1)
         self.assertEqual(self.p.gh.prs, {})
         comment = "\n".join(self.p.gh.comments(n))
-        self.assertIn("the build changed frozen files: AGENTS.md", comment)
+        self.assertIn("the loop settings changed in AGENTS.md", comment)
 
     def test_hostile_builder_changes_are_each_refused(self):
         self.p.loop_section("true")
@@ -49,10 +49,10 @@ class ScenarioTest(unittest.TestCase):
         git(self.p.root, "commit", "--quiet", "-m", "Add loop settings and test support")
         git(self.p.root, "push", "--quiet", "origin", "main")
         expected = {
-            "hostile-quality-delete": "the build changed frozen files: AGENTS.md",
+            "hostile-quality-delete": "the loop settings changed in AGENTS.md",
             "hostile-test-rename": "existing test files not named in the Contract or Files",
             "hostile-conftest": "the build changed frozen files: conftest.py",
-            "hostile-standards": "the build changed frozen files: STANDARDS.md",
+            "hostile-standards": "the build changes the project's check settings: STANDARDS.md",
         }
         for mode, reason in expected.items():
             with self.subTest(mode=mode):
@@ -288,10 +288,14 @@ class ScenarioTest(unittest.TestCase):
         self.assertFalse(folder.exists())
 
     def test_a_bar_change_after_ready_returns_before_attempt_one(self):
+        (self.p.root / "judge_add_helpers.py").write_text("X = 1\n")
+        git(self.p.root, "add", "judge_add_helpers.py")
+        git(self.p.root, "commit", "--quiet", "-m", "Judge helper")
+        git(self.p.root, "push", "--quiet", "origin", "main")
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
         git(self.p.root, "switch", "--quiet", f"piece/{n}")
-        (self.p.root / "README.md").write_text("changed after ready\n")
+        (self.p.root / "judge_add_helpers.py").write_text("X = 2\n")
         git(self.p.root, "commit", "--quiet", "-am", "Change a support file after ready")
         git(self.p.root, "switch", "--quiet", "main")
         result = run.build_piece(self.p.gh, self.p.root, n, 1)

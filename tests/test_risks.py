@@ -62,6 +62,47 @@ class RiskGateTest(unittest.TestCase):
                          [{"issue": first, "files": ["src/app.py"]}])
         self.assertIn("shared files src/app.py", self.project.gh.comments(second)[-1])
 
+    def move_to_ready(self, **spec):
+        approach = spec.get("approach", "Keep the public add function.")
+        body = SPEC.replace("Keep the public add function.", approach)
+        if "settings" in spec:
+            body = body.replace("Files:", "Settings: may change\nFiles:")
+        return gate.move(self.project.gh, self.project.root, self.project.piece(spec=body), "ready")
+
+    def test_ready_warns_on_check_settings_named_only_in_the_approach(self):
+        note = self.move_to_ready(approach="Create `tsconfig.json` and `vitest.config.ts`.")
+        self.assertIn("the Approach names tsconfig.json, vitest.config.ts", note)
+        self.assertIn("Settings: may change", note)
+
+    def test_ready_is_silent_without_check_settings_in_the_approach(self):
+        self.assertNotIn("the Approach names", self.move_to_ready())
+        self.assertNotIn("the Approach names", self.move_to_ready(
+            approach="Create `tsconfig.json`.", settings=True))
+
+    def test_a_new_lockfile_needs_no_large_file_line(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE)
+        (folder / "package-lock.json").write_text("\n" * 2000)
+        git(folder, "add", "habits.py", "package-lock.json")
+        git(folder, "commit", "--quiet", "-m", "Add a lockfile")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertTrue(passed, output)
+
+    def test_a_source_file_over_one_thousand_lines_still_needs_large_file(self):
+        number = self.project.piece()
+        self.ready(number)
+        folder = run.worktree(self.project.root, number)
+        (folder / "habits.py").write_text(GOOD_CODE + "# filler\n" * 2000)
+        git(folder, "add", "habits.py")
+        git(folder, "commit", "--quiet", "-m", "Grow a source file")
+        passed, output = gate.judge(folder, gate.last_record(
+            self.project.gh.comments(number), "ready"))
+        self.assertFalse(passed)
+        self.assertIn("1,000 or more: habits.py", output)
+
     def test_submit_refuses_an_unnamed_new_dependency(self):
         number = self.project.piece()
         self.ready(number)

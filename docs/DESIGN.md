@@ -321,7 +321,9 @@ person can read what will be checked, and the gate can check it.
 | Keep | An optional check in addition to the required project Test command. |
 
 `Settings: may change` in the Judge section lets a piece change check
-settings. `Large file: <path>` lets a named file grow past 1,000 lines.
+settings. `Large file: <path>` lets a named file grow past 1,000 lines;
+lockfiles are exempt. Ready warns, and does not refuse, when the Approach
+names a check-settings file and the spec lacks `Settings: may change`.
 
 ### Risks
 
@@ -550,6 +552,9 @@ them are compared with the expected tree: the ready commit with the base
 merged in (`git merge-tree`, git 2.38 or later). So a sibling's judge or a
 helper change that arrives from the base is free, and an edit or deletion by
 the build is caught, committed or not. A file the build adds is allowed.
+For a judge at the project root the helpers are only `conftest.py` files and
+files whose names start with the judge's own name, so edits to the README or a
+manifest are free. A judge in a folder freezes the whole folder.
 While a merge conflict is open, or when the expected tree has a conflict, the
 helper check waits; the judge and the reviewers decide. Deleting a judge
 created during shaping counts as a build edit. Between attempts, the run puts
