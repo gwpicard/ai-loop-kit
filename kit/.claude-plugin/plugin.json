@@ -1,6 +1,6 @@
 {
   "name": "ai-loop-kit",
-  "description": "A thin, checked loop for building software with Claude Code: shape a piece, let a run build it, and let the gate prove it is done.",
+  "description": "A thin, checked loop for building software with Claude Code while you are away: shape the pieces, start one run, and let the gate prove each piece is done.",
   "author": {
     "name": "Guillaume Picard"
   },

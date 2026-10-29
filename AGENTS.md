@@ -4,7 +4,8 @@ Standing instructions for agents working in this repository.
 
 ## What this repository is
 
-AI Loop Kit: a thin, checked loop for building software with Claude Code.
+AI Loop Kit: a thin, checked loop for building software with Claude Code
+while the person is away. Walking away is the goal the kit serves.
 Read `docs/DESIGN.md` first. It is the one description of what the kit is,
 how it works and why.
 

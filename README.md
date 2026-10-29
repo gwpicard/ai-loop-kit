@@ -1,6 +1,8 @@
 # AI Loop Kit
 
-Build software with Claude Code in small steps. A script checks each step before you review the change.
+Build software with Claude Code while you are away. You shape the work and approve a contract for each piece, start one run and leave. The run builds the ready pieces in dependency order, a script checks each one against its contract, and the results wait for your review.
+
+AI Loop Kit is experimental. It has built small real projects in field runs, not large or long-lived ones.
 
 It works best with Python and Node projects. The [changelog](CHANGELOG.md) names the current version and what changed in it.
 
@@ -10,13 +12,13 @@ It works best with Python and Node projects. The [changelog](CHANGELOG.md) names
 
 1. Shape an idea into a **piece**: a GitHub issue with the task, its limits and a contract. The contract lists the results the change must meet.
 2. You approve the task and its contract before work starts.
-3. Run the piece. The selected agent gets up to three fresh tries to build it.
+3. Start a walk-away run and leave. The run builds the ready pieces one at a time, and the selected agent gets up to three fresh tries at each one.
 4. The **gate**, a script that controls the steps, runs a **judge** (tests for the contract) and your **keep check** (the project's full test command). Two fresh reviewers check the code and the contract. The gate runs the checks again.
-5. If the checks pass, the gate opens a pull request. You read it and merge it. With a loop branch, a preview, the run can merge each piece into that branch, and you review one final pull request into `main`.
+5. If the checks pass, the gate opens a pull request. A piece that cannot pass goes back to shaping with the reason, and only the pieces that depend on it wait. When you return, you read the pull requests and the run's summary, and merge. Loop branches are a preview: with `Base merges: run`, the run merges eligible pieces into the loop branch, and you review one final pull request into `main` plus any piece it left for individual review.
 
 ## Who it is for
 
-AI Loop Kit is for a developer who uses Claude Code with a GitHub project and wants to review small pull requests.
+AI Loop Kit is for a developer who uses Claude Code with a GitHub project and wants agents to build while they are away, without giving up the decisions on what is built and what is merged.
 
 Use it in a repository where only collaborators shape pieces. The gate accepts records only from owners, members and collaborators.
 
@@ -83,13 +85,16 @@ For example, ask for `tally --top 2 words.txt` to print `b 3` and then `a 2`. Th
 - “Reject this pull request with this reason: …”
 - “Drop this piece.”
 
-To build with nobody watching, ask Claude: "Start a walk-away run." It first proves the sandbox works, then builds every ready piece and leaves a summary for the morning. Walk-away is a preview.
+## Walk away
+
+To build with nobody watching, ask Claude: "Start a walk-away run." The run refuses to start unless a live probe shows that an agent session cannot write to your home folder, read credential folders such as `~/.ssh` or reach an outside host. It then builds the ready pieces, keeps a Mac awake while it works, and posts a summary to a tracking issue when it ends.
+
+Walk-away runs are the way the kit is meant to be used. Version 1.7 is planned to make walk-away runs the default, with a local dashboard where you choose pieces, watch the run's progress and answer its questions.
 
 ## Previews
 
-These pass the automated tests. Walk-away runs, loop branches and the Codex backend have also built small real projects in field runs, but they are still previews.
+These pass the automated tests. Loop branches and the Codex backend have also built small real projects in field runs, but they are still previews.
 
-- **Walk-away runs:** build every ready piece while you are away. A run refuses to start unless a probe proves the sandbox blocks writes outside the build folder, reads of your secrets and outside network calls.
 - **Researcher:** looks up outside facts while shaping, and records each source with the date it was read.
 - **Goal pieces:** the test is a measurement, such as speed, that must reach a target.
 - **Gauntlet pieces:** three critics compare the result with a reference without knowing which is which. The result must win two of three.
@@ -114,7 +119,7 @@ You approve the task, including its intent, what is out of scope and its contrac
 
 The fail-on-main check recognises failing assertions in pytest and unittest output, and TAP-style `not ok` lines. CI tests on Linux and macOS with Python 3.13, the kit's one Python. Attended runs have no sandbox, so stay nearby while they run. The guard blocks some commands but does not isolate the builder.
 
-Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a Mac awake with `caffeinate`. Walk-away is a preview. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
+Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a Mac awake with `caffeinate`. Walk-away runs on real projects have so far used the Codex backend; Claude walk-away runs have not yet been validated on a real project. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
 
 ## More to read
 
