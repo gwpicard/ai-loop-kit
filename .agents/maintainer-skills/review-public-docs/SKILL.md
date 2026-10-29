@@ -24,7 +24,9 @@ with the review record.
 
 This review checks that claims are true. The version's notes file also gets a
 review against the release-notes standard, before the release pull request.
-`.agents/maintainer-skills/release-notes/SKILL.md` says how.
+`.agents/maintainer-skills/release-notes/SKILL.md` says how. The quality of
+the writing, rather than its truth, is reviewed against
+`.agents/maintainer-skills/writing-review/SKILL.md`.
 
 ## The printout
 
