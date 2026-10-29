@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 (29 October 2026)
+
+Fixes from using 1.6.0: run faults return a piece to ready and a passing earlier
+build goes straight to review; earlier build code is no longer taken for work
+that is already done; files the Test command creates, and long prompts on Linux,
+no longer stop a run. See the
+[1.6.1 release notes](docs/release-notes/v1.6.1.md).
+
 ## 1.6.0 (26 October 2026)
 
 Walk-away runs onto a loop branch, with one final pull request into `main`;

@@ -193,7 +193,7 @@ class RunFixture:
             self.assertGreater(handback["seconds"], 0)
         else:
             self.assertGreaterEqual(handback["seconds"], 0)
-        self.assertEqual(handback["kit"], "1.6.0")
+        self.assertEqual(handback["kit"], "1.6.1")
         self.assertRegex(handback["date"], r"^\d{4}-\d{2}-\d{2}$")
 
     def conflict_with_main(self, mode):
