@@ -104,7 +104,7 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
                       if len(_states(i)) == 1} | in_run)
     pieces = []
     for n in numbers:
-        event, issue, lost, risks = latest.get(n, {}), issues.get(n), False, {}
+        event, issue, lost, risks, lane = latest.get(n, {}), issues.get(n), False, {}, None
         try:
             if issue is None and reachable:
                 issue = gh.issue(n)
