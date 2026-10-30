@@ -10,7 +10,7 @@ built with nobody steering, and its judge proves that.
 ## Kit
 !`echo "KIT=${CLAUDE_PLUGIN_ROOT}"`
 
-Write the KIT path above out in full in every command. Read
+Write the KIT path out in full in every command. Read
 `<KIT>/spec-format.md` before you write a spec.
 
 ## Now
@@ -45,8 +45,8 @@ Write the KIT path above out in full in every command. Read
    `Settings: may change` in `## Judge` only for a piece about lint, test
    or CI settings.
    When a piece needs stronger tests in an existing mutation adapter, name
-   its path in Contract so the builder may strengthen it, but keep it out of
-   Exit `Files:`, which are frozen at ready. Use a separate judge that does not depend on the editable
+   its path in Contract so the builder may strengthen it. Keep the adapter out of
+   Exit `Files:`: those files are frozen at ready. Use a separate judge that does not depend on the editable
    adapter.
    `mutmut-changed.py` selects functions from committed `base...HEAD`
    changes. A builder's check before committing may find no changed
