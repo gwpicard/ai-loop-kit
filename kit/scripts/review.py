@@ -276,7 +276,7 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
                    for line in (_section(body, section, include_heading=True) or [])),
                "RESEARCH": contract_research(body), "EVIDENCE": evidence,
                "BASELINE": "\n".join(f"{key}: {line}" for key, line in baseline.items()),
-               "READY_COMMIT": base}
+               "READY_COMMIT": base, "EXIT_FILE_TYPES": ", ".join(_exit_file_types(ready))}
     logs = root / ".loop" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     denied = [*ready.get("files", []), *CHECK_FILES, *ready.get("protected_paths", []),
@@ -387,15 +387,36 @@ def _review_piece(root: Path, folder: Path, n: int, k: int, issue: dict,
     return results
 
 
+_TYPE_MISMATCH = "The frozen test target is not compatible with the reproducer file type."
+
+
+def _exit_checks(ready: dict) -> list[dict]:
+    """Return the approved Exit test checks, with the fallback for older ready records."""
+    checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
+    if not checks and ready.get("command"):
+        checks = [{"command": ready["command"], "files": ready.get("files", [])}]
+    return checks
+
+
+def _exit_file_types(ready: dict) -> list[str]:
+    """List the suffix each Exit check would accept for a reproducer, once per check."""
+    types = []
+    for check in _exit_checks(ready):
+        files = set(check.get("files", []))
+        for suffix in sorted({Path(name).suffix.lower() for name in files} - {""}):
+            if not _adapt_exit_command(check.get("command", ""), files, "reproducer" + suffix,
+                                       expected_suffix=suffix)[1]:
+                types.append(suffix)
+                break
+    return list(dict.fromkeys(types))
+
+
 def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
                              ready: dict, test_file: Path,
                              item: str, n: int, k: int) -> dict:
     """Run one approved-item test in a prepared checkout of the judged commit."""
     source = (reviewer_folder / test_file).read_text(errors="replace")
-    checks = [check for check in ready.get("checks", []) if check.get("type") == "tests"]
-    if not checks:
-        command = ready.get("command", "")
-        checks = ([{"command": command, "files": ready.get("files", [])}] if command else [])
+    checks = _exit_checks(ready)
     if not checks:
         return {"reproduced": False, "source": source,
                 "output": "No applicable approved Exit test command is available."}
@@ -413,16 +434,20 @@ def _run_contract_reproducer(root: Path, reviewer_folder: Path, judged: str,
         record_prepare_outputs(target, before_prepare, before_dirs)
         (target / test_file).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(reviewer_folder / test_file, target / test_file)
-        commands, outputs = [], []
+        commands, outputs, mismatched = [], [], 0
         for number, check in enumerate(checks, 1):
             adapted, adapt_error = _adapt_exit_command(
                 check.get("command", ""), set(check.get("files", [])), test_file.as_posix(),
                 expected_suffix=test_file.suffix)
             if adapt_error:
                 outputs.append(f"Exit check {number} could not be adapted: {adapt_error}")
+                mismatched += adapt_error == _TYPE_MISMATCH
                 continue
             commands.append(adapted)
         if not commands:
+            if mismatched == len(checks):
+                outputs.insert(0, f"no approved Exit test uses {test_file.suffix}; reproducers "
+                                  f"must use {', '.join(_exit_file_types(ready))}")
             return {"reproduced": False, "source": source, "output": "\n".join(outputs)[-3000:]}
         reproduced = False
         for command in commands:
@@ -511,7 +536,7 @@ def _adapt_exit_command(command: str, approved_files: set[str], test_file: str,
     if (expected_suffix and
             Path(next(token for token, _, _ in target if approved(token))).suffix.lower()
             != expected_suffix.lower()):
-        return "", "The frozen test target is not compatible with the reproducer file type."
+        return "", _TYPE_MISMATCH
     prefix = "./" if command[paths[0][0]:].lstrip("'\"").startswith("./") else ""
     edits = [(paths[0][0], paths[0][1], shlex.quote(prefix + test_file))]
     edits.extend((start, end, "") for start, end in paths[1:])

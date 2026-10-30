@@ -8,6 +8,7 @@ an existing judged-commit line and description. Ignore standards review output.
 For a contract finding, you may add one reproducer test file that names its
 approved D item. Return it as `"reproducer":{"file":"tests/test_gap.py","item":"D1"}`.
 Do not give a command. The kit runs the file with the approved Exit command.
+A reproducer must use the file type of an approved Exit test: {{EXIT_FILE_TYPES}}.
 
 The diff is this build's work after `{{READY_COMMIT}}`; frozen files are approved.
 Use gate evidence, including critic verdicts, for checks. It predates reviewer
