@@ -159,7 +159,7 @@ class RunDashboardTest(unittest.TestCase):
             stack.enter_context(patch.object(gate, "sync"))
             stack.enter_context(patch.object(run, "build_piece", side_effect=build))
             stack.enter_context(redirect_stdout(output))
-            self.assertEqual(run.main([]), 1)
+            self.assertEqual(run.main(["--attended"]), 1)
         self.assertIn(str(self.path), output.getvalue())
         self.assertTrue(self.path.is_file(), "the run must render its last event")
         self.assertIn("Finished", self.path.read_text())

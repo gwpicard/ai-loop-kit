@@ -57,8 +57,9 @@ changed dependency in `package.json` or `pyproject.toml` must be named under
 `New dependency:`. Each name needs a reason after a colon, such as
 `requests: retry support`. An optional sixth line, `Depends on: 12, 15`,
 names pieces that must be done first. The run holds this piece until they
-are, and says why. A piece in approval is not done. While a dependency is
-missing, the judge must still fail by assertion, not by an import error.
+are, and says why. A piece in approval is not done. While a blocker is not done, ready runs
+the static checks only and records the base check as pending; it runs when
+every blocker is done.
 
 An `## Exit` section contains one or more checks. Use `### Tests` with
 `Command:` and `Files:`, `### Measure` with `Command:`, `Target:` and

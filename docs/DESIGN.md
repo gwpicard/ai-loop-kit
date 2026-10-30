@@ -172,9 +172,9 @@ script can read it. Nothing lives only in a context window.
 | Move | From, to | Started by | The gate checks |
 | --- | --- | --- | --- |
 | capture | new, shaping | shape skill | nothing |
-| ready | shaping, ready | shape skill | the ready checks (section 8) |
+| ready | shaping, ready | shape skill | the ready checks (section 8); with unfinished blockers, the checks that need no base |
 | pull-back | ready, shaping | person or agent | a typed reason |
-| claim | ready, building | `run.py` | spec and bar hashes unchanged; the pushed branch has nothing the local one lacks |
+| claim | ready, building | `run.py` | spec and bar hashes unchanged; the base check has run (a pending ready is refused); the pushed branch has nothing the local one lacks |
 | submit | building, approval | `run.py` | the submit checks (section 8), all run by the gate |
 | give-back | building, shaping | `run.py` | a typed reason; adds `needs-you` |
 | requeue | building, ready | `run.py` | a typed reason (`environment`) and a cause; no `needs-you`; keeps the ready record; at most 2 since the last ready |
@@ -369,7 +369,7 @@ Keep: `npm test`
 | Protected paths | Only these protected paths may change; the guard lets the builder edit them for this piece |
 | New dependency | Any dependency added that is not named here fails the attempt |
 | Shared files | Ready warns when another ready piece names the same file |
-| Needs services | A piece that needs services is refused for walk-away |
+| Needs services | A piece that needs services is refused for walk-away; a run with no flag is then attended |
 | Open choices | Must be empty at ready: the person answers before the build |
 | Depends on (optional) | Pieces that must be done first. Ready refuses the piece's own number and a missing or dropped piece |
 
@@ -382,8 +382,9 @@ again on every pick and never stored, so a hand-back holds its dependents and
 the pieces that depend on them, and every other piece goes on. A ready record
 that cannot be read holds the piece too. A hold alone does not fail the run.
 A piece in approval is not done, so until the run merges into the base, its
-dependents wait for the person's merge and the next run. The judge of a
-dependent must still fail by assertion while the dependency is missing.
+dependents wait for the person's merge and the next run. For a piece with
+unfinished blockers, "ready" means the contract is approved and the judge is
+captured; the base check runs when its blockers are done (section 8).
 It warns when a ready piece lists the same shared file. A piece that needs
 services cannot run unattended. At submit, the gate refuses any new
 dependency in `package.json` or `pyproject.toml` that the issue does not name.
@@ -586,6 +587,16 @@ or reshapes it. A partial pass is built as normal. The remaining risk: a
 helper can change on the base so that the judge still fails but tests less.
 The re-check does not see that; the review of the base's own changes, and the
 final pull request into `main`, are where a person sees it.
+
+**Ready with unfinished blockers.** When a piece's `Depends on:` names a piece
+that is not `done`, the base cannot yet prove its judge. The gate then runs
+only the checks that need no base: the spec, the dependencies, the branch and
+its judge commit, the frozen Exit-file hash, shared files, the `(stays)` ID
+search and the test lint. It skips Prepare, the regression check, the keep
+check and the Exit checks on `main`. The record holds `base_check: "pending"`
+and `blockers`, `gate.py status` marks the piece, and a claim is refused
+until the base check has run. With no unfinished blocker, the full checks
+above apply.
 
 The ready message reports each Exit check. Tests name the contract IDs that
 fail on main. Measure reports the median and missed target. Critics reports
@@ -814,8 +825,10 @@ failure returns the piece to shaping as `environment`, with cause
 
 ### Walk-away runs
 
-`run.py --walk-away` is for a run nobody watches. It starts only if
-`gate.py doctor --walk-away` passes:
+A plain `run.py` is a walk-away run when `gate.py doctor --walk-away` passes,
+and otherwise falls back to an attended run with the reason. `--walk-away`
+refuses to start instead of falling back. The run starts only if the checks
+pass:
 
 - Claude Code 2.1.285 or later, or a working Codex.
 - A live probe: a real session must fail to write to the home folder, read
@@ -863,6 +876,7 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 | The spec says what the person meant | words: the person approves the contract |
 | The person merges every pull request into `main` | the only merge in the kit refuses `main`, `master` and the default branch (code); the hook refuses `gh pr merge` from agents |
 | Walk-away shell commands stay in the build folder and reach only allowed hosts | sandbox, checked by a live probe |
+| The kit starts only the unmodified `claude` binary and `codex`, under the person's own login, and does not call a model through the Agent SDK or an API client on their subscription | code: `tests/house-rules.sh` fails on such an import or dependency under `kit/` and `extras/` |
 
 The guard is a seatbelt, not a sandbox. It splits words and matches patterns.
 It reads the `git -C`, `git -c`, `gh -R`, `bash -c`, `sh -c` and `eval` forms,
@@ -1047,13 +1061,15 @@ These facts about the platform shaped the design. Each one cost time once.
 
 ## 14. Where the kit goes next
 
-**Planned for 1.7: walking away by default.** These parts are not built yet.
-Today a walk-away run is asked for with `--walk-away`, and the local run page
-only shows progress.
+**1.7: walking away by default.** The default run is built; the other parts
+are not yet. The local run page only shows progress.
 
-- **Walk-away is the default run.** A run starts as walk-away when the
+- **Walk-away is the default run (built).** A run starts as walk-away when the
   walk-away preflight passes, and falls back to an attended run, with the
-  reason, when it does not.
+  reason, when it does not. `--attended` skips the checks and `--walk-away`
+  refuses when they fail. A piece that needs services makes the run attended.
+  `--detach` starts the run in its own session, so it outlives the Claude Code
+  session that started it. Only the Codex backend is still a preview.
 - **A dashboard.** A local server lists the pieces in shaping and the pieces
   that are ready. The person selects pieces and starts the run there, and the
   page becomes a live view of the state machine. GitHub labels remain the

@@ -17,7 +17,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from errors import Refused
+import network
+from errors import JudgeRefused, Refused
+from failures import judge_assertion_failed, judge_has_runner_error  # noqa: F401
 from spec import Spec as Spec
 from spec import _section
 from spec import parse_research_section as parse_research_section
@@ -152,6 +154,14 @@ def sh(args: list[str], cwd: Path, check: bool = True,
     return res
 
 
+def sh_network(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
+    """A `git` call that waits on the network (fetch, push), under the network limit."""
+    try:
+        return sh(args, cwd, check=check, timeout=network.NETWORK_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise network.step_timeout(" ".join(args[:2])) from None
+
+
 def repo_root(start: Path) -> Path:
     return Path(sh(["git", "rev-parse", "--show-toplevel"], start).stdout.strip())
 
@@ -170,9 +180,9 @@ def refresh_main(root: Path) -> None:
     if "origin" not in sh(["git", "remote"], root, check=False).stdout.split():
         return
     try:
-        failed = sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False,
-                    timeout=60).returncode != 0
-    except subprocess.TimeoutExpired:
+        failed = sh_network(["git", "fetch", "--quiet", "origin", "main"], root,
+                            check=False).returncode != 0
+    except network.StepTimeout:
         failed = True
     if failed:
         print("warning: could not fetch main from origin; loop settings may be out of date",
@@ -228,7 +238,7 @@ def main_ref(root: Path) -> str:
         return cache[key]
     base = base_branch(root)
     if sh(["git", "remote"], root).stdout.strip():
-        sh(["git", "fetch", "--quiet", "origin", base], root, check=False)
+        sh_network(["git", "fetch", "--quiet", "origin", base], root, check=False)
     for result in (f"origin/{base}", base):
         if rev(root, result):
             if cache is not None:
@@ -547,24 +557,6 @@ def skipped_tests(output: str) -> bool:
                for line in output.splitlines() for pattern in patterns)
 
 
-_WRONG_TEST_REASON = re.compile(
-    r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|ModuleNotFoundError|"
-    r"ImportError|FileNotFoundError):|^ERROR collecting(?:\s|$)", re.MULTILINE)
-
-
-def judge_has_runner_error(output: str, code: int) -> bool:
-    """Recognise a missing test command or a broken test module."""
-    return ((code == 127 and "command not found" in output)
-            or bool(_WRONG_TEST_REASON.search(output)))
-
-
-def judge_assertion_failed(output: str, item: str) -> bool:
-    """Apply the ready gate's failure-line and named-item rule."""
-    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
-    named = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
-    return any(fail_line.search(line) and named.search(line) for line in output.splitlines())
-
-
 def exit_ready(folder: Path, checks: tuple, contract: dict, stays: tuple) -> tuple[list[dict], str]:
     """Prove every Exit check is unmet on main and save its baseline."""
     import measure
@@ -578,28 +570,32 @@ def exit_ready(folder: Path, checks: tuple, contract: dict, stays: tuple) -> tup
             if check.get("legacy_kind") == "scaffold":
                 check["main_output"] = output
             elif code == 0:
-                raise Refused("the judge already passes on main, so there is nothing to build",
-                              "make the judge test what the Contract items ask for")
+                raise JudgeRefused("the judge already passes on main, so there is nothing to build",
+                                   "make the judge test what the Contract items ask for",
+                                   "spec-unclear")
             if check.get("legacy_kind") != "scaffold" and judge_has_runner_error(output, code):
-                raise Refused("the judge fails on main for the wrong reason "
-                              f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
-                              "fix the judge so it fails on an assertion")
+                raise JudgeRefused(
+                    "the judge fails on main for the wrong reason "
+                    f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
+                    "fix the judge so it fails on an assertion")
             if check.get("legacy_kind") != "scaffold":
                 named = [item for item in building if judge_assertion_failed(output, item)]
                 if not named:
-                    raise Refused("the judge fails on main, but its output names no spec ID "
-                                  f"({', '.join(building)}):\n{output.strip()[-1500:]}",
-                                  "put each Contract ID in a failing test name")
+                    raise JudgeRefused(
+                        "the judge fails on main, but its output names no spec ID "
+                        f"({', '.join(building)}):\n{output.strip()[-1500:]}",
+                        "put each Contract ID in a failing test name")
                 required = building
                 missing = [item for item in required if item not in named]
                 if missing:
-                    raise Refused(f"no failing judge test names {', '.join(missing)}",
-                                  "give every Contract item at least one failing test")
+                    raise JudgeRefused(f"no failing judge test names {', '.join(missing)}",
+                                       "give every Contract item at least one failing test")
                 failing_stays = [item for item in stays if judge_assertion_failed(output, item)]
                 if failing_stays:
-                    raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
-                                  "a (stays) item holds on the base now, not after the pieces it "
-                                  "depends on land; test only what it says, or remove the mark")
+                    raise JudgeRefused(
+                        f"{', '.join(failing_stays)} is marked (stays) but fails on main",
+                        "a (stays) item holds on the base now, not after the pieces it "
+                        "depends on land; test only what it says, or remove the mark")
                 check["main_output"] = output
         elif check["type"] == "measure":
             output, baseline = measure.ready(folder, check["command"], check["target"])
@@ -645,8 +641,7 @@ class GitHub:
         self.root = root
 
     def _gh(self, *args: str, stdin: Optional[str] = None) -> str:
-        res = subprocess.run(["gh", *args], cwd=self.root, capture_output=True,
-                             text=True, input=stdin)
+        res = network.run_limited(["gh", *args], self.root, " ".join(["gh", *args[:2]]), stdin)
         if res.returncode != 0:
             text = res.stderr.strip()
             text = text if args[0] == "auth" else text.partition("\n")[0]
@@ -685,6 +680,9 @@ class GitHub:
         if add or remove:
             self._gh(*args)
 
+    def api(self, path: str) -> str:
+        return self._gh("api", path)
+
     def comment(self, n: int, text: str) -> None:
         self._gh("issue", "comment", str(n), "--body-file", "-", stdin=text)
 
@@ -714,10 +712,12 @@ class GitHub:
         try:
             repo = self._gh("repo", "view", "--json", "nameWithOwner", "--jq",
                             ".nameWithOwner").strip()
+        except network.StepTimeout:
+            raise
         except (RuntimeError, AttributeError):
             return "unknown"
-        result = subprocess.run(["gh", "api", f"repos/{repo}/branches/main/protection"],
-                                cwd=self.root, capture_output=True, text=True)
+        result = network.run_limited(["gh", "api", f"repos/{repo}/branches/main/protection"],
+                                     self.root, "gh api")
         if result.returncode == 0:
             return "enabled"
         if "404" in result.stderr or "Not Found" in result.stderr:

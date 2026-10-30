@@ -92,7 +92,8 @@ def quality_on_fresh_main(root: Path, main: str, command: str, test_command: str
 
 def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
            proposed_prepare: str | None = None, proposed_test: str | None = None,
-           walk_away: bool = False, agent: str | None = None) -> list[tuple[bool, str, str]]:
+           walk_away: bool = False, agent: str | None = None,
+           pieces: list[int] | None = None) -> list[tuple[bool, str, str]]:
     """Setup's checks, in code. Each is (passed, what, next step)."""
     checks: list[tuple[bool, str, str]] = []
 
@@ -236,5 +237,6 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
             tmp.rmdir()
     if walk_away and all(ok for ok, _, _ in checks):
         import walkaway
-        checks.extend(walkaway.preflight(gh, root, baseline_checked=True, agent=agent))
+        checks.extend(walkaway.preflight(gh, root, baseline_checked=True, agent=agent,
+                                          pieces=pieces))
     return checks

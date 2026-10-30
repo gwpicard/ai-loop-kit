@@ -52,7 +52,7 @@ class RunEventsTest(unittest.TestCase):
         for name, replacement in patches.items():
             stack.enter_context(patch.object(run, name, **replacement))
         stack.enter_context(redirect_stdout(io.StringIO()))
-        return run.main(arguments)
+        return run.main(["--attended", *arguments])
 
     def test_D1_each_successful_move_appends_one_event(self):
         for (before, after), name in gate.MOVES.items():
@@ -117,7 +117,8 @@ class RunEventsTest(unittest.TestCase):
         number = self.piece("ready")
         with self.assertRaises(KeyboardInterrupt):
             self.cli([str(number)], build_piece={"side_effect": KeyboardInterrupt})
-        self.assertEqual([e["event"] for e in self.events()], ["run-start", "run-stop"])
+        self.assertEqual([e["event"] for e in self.events()],
+                         ["run-start", "run-pieces", "run-stop"])
         self.assertFalse(run.lock_path(self.root).exists())
 
     def test_D2_handback_records_attempt_and_safe_reason(self):

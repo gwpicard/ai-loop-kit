@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -12,6 +14,7 @@ from loopkit import STATE_PREFIX, Refused, branch_name, main_ref, rev, sh
 
 READY_RETRIES = 4
 READY_RETRY_SECONDS = 5
+READY_RECENT_SECONDS = 300
 
 
 def worktree_home(root: Path) -> Path:
@@ -167,11 +170,38 @@ def cleanup_interrupted_reviews(root: Path, prefixes: tuple[str, ...] = ()) -> l
     return removed
 
 
-def ready_pieces(gh, log: Optional[Callable[[str], None]] = None) -> list[int]:
-    """Retry GitHub's ready-label search briefly when its index lags a move."""
+def recent_ready(root: Path, now: Optional[datetime] = None) -> bool:
+    """True when the newest ready or requeue event is within READY_RECENT_SECONDS."""
+    try:
+        lines = (root / ".loop" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return False
+    newest = None
+    for line in lines:
+        try:
+            event = json.loads(line)
+            if event["event"] not in ("ready", "requeue"):
+                continue
+            moved = datetime.fromisoformat(event["time"])
+            if moved.tzinfo is None:
+                moved = moved.replace(tzinfo=timezone.utc)
+        except (ValueError, KeyError, TypeError):
+            continue
+        newest = moved if newest is None or moved > newest else newest
+    if newest is None:
+        return False
+    return (now or datetime.now(timezone.utc)) - newest <= timedelta(seconds=READY_RECENT_SECONDS)
+
+
+def ready_pieces(gh, log: Optional[Callable[[str], None]] = None,
+                 root: Optional[Path] = None) -> list[int]:
+    """Retry GitHub's ready-label search briefly when its index lags a recent move.
+
+    With a project folder, retry only when a piece was moved to ready lately."""
+    retry = root is None or recent_ready(root)
     for attempt in range(READY_RETRIES + 1):
         pieces = sorted(i["number"] for i in gh.issues_with_label(STATE_PREFIX + "ready"))
-        if pieces or attempt == READY_RETRIES:
+        if pieces or attempt == READY_RETRIES or not retry:
             return pieces
         message = (f"ready label search is empty; retrying in {READY_RETRY_SECONDS} seconds "
                    f"({attempt + 1}/{READY_RETRIES})")

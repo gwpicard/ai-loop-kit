@@ -21,11 +21,12 @@ from typing import Callable, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import agents  # noqa: E402
+import answers  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (LOCKFILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
                      base_branch, base_merges, last_record, loop_settings, main_ref, exclude_paths, prepare, record_prepare_outputs, record_text, rev,
-                     records, sh, untracked_paths)
+                     records, sh, sh_network, untracked_paths)
 from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
 from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,F401
@@ -38,6 +39,7 @@ import landing  # noqa: E402
 from frozen import already_satisfied, earlier_build_paths, expected_tree, frozen_file_reason, neighbour_edits  # noqa: E402
 from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
+from recovery import finish_submit
 
 DEFAULT_IDLE_LIMIT = 10 * 60
 
@@ -89,6 +91,17 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
     recovered = []
     for issue in gh.issues_with_label(STATE_PREFIX + "building"):
         note = "the previous run ended while this piece was building"
+        n = issue["number"]
+        try:
+            finished = finish_submit(gh, root, n)
+        except Exception as error:  # a failed pull request has already sent the piece to shaping
+            recovered.append(f"piece {n}: crash recovery failed: {str(error).strip()[:200]}")
+            _run_metrics_path(root, n).unlink(missing_ok=True)
+            continue
+        if finished:
+            recovered.append(f"piece {n}: finished after a crash: moved to approval")
+            _run_metrics_path(root, n).unlink(missing_ok=True)
+            continue
         attempts, seconds = _recovered_run_metrics(root, issue["number"])
         metrics = {"attempts": attempts, "started": time.monotonic() - seconds}
         recovered.append(_requeue(gh, root, issue["number"], note, "dead-run", metrics))
@@ -97,10 +110,11 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
 
 
 def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
-               metrics: dict, cause: str = "") -> str:
+               metrics: dict, cause: str = "", recommendation: dict | None = None) -> str:
     """Return a claimed piece with the run's actual attempt count and duration."""
     gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type, cause=cause,
-              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"])
+              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"],
+              usage=metrics.get("usage"), recommendation=recommendation)
     return f"piece {n}: back to shaping, {reason}"
 
 
@@ -111,7 +125,8 @@ def _requeue(gh: GitHub, root: Path, n: int, reason: str, cause: str, metrics: d
         return _hand_back(gh, root, n, f"returned to ready twice; {reason}", "environment",
                           metrics, cause)
     gate.move(gh, root, n, "ready", reason=reason, reason_type="environment", cause=cause,
-              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"])
+              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"],
+              usage=metrics.get("usage"))
     return f"piece {n}: returned to ready: {reason}"
 
 
@@ -119,7 +134,7 @@ def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
     """Refresh the remote base before deciding whether a failed check is stale."""
     main = main_ref(folder)
     if main.startswith("origin/"):
-        sh(["git", "fetch", "--quiet", "origin", main.removeprefix("origin/")], folder, check=False)
+        sh_network(["git", "fetch", "--quiet", "origin", main.removeprefix("origin/")], folder, check=False)
     return rev(folder, main)
 
 
@@ -281,7 +296,7 @@ def worktree(root: Path, n: int) -> Path:
 def check_pushed_branch(root: Path, n: int) -> None:
     """Refuse before claim if GitHub has commits missing from the local branch."""
     branch = branch_name(n)
-    if sh(["git", "fetch", "--quiet", "origin", branch], root, check=False).returncode != 0:
+    if sh_network(["git", "fetch", "--quiet", "origin", branch], root, check=False).returncode != 0:
         return  # not pushed yet
     remote = sh(["git", "rev-parse", "FETCH_HEAD"], root).stdout.strip()
     if sh(["git", "merge-base", "--is-ancestor", remote, branch], root, check=False).returncode:
@@ -354,7 +369,7 @@ def _review_and_land(gh: GitHub, root: Path, folder: Path, n: int, k: int, issue
             return f"piece {n}: back to shaping, contract finding reproduced"
     return landing.land(gh, root, folder, n, open_pull_request(
         gh, root, folder, n, issue, k, output, review,
-        time.monotonic() - metrics["started"]), review)
+        time.monotonic() - metrics["started"], metrics.get("usage")), review)
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
@@ -427,6 +442,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             return _review_and_land(gh, root, folder, n, 0, issue, ready, output, walk_away, metrics)
         last_failure = f"The earlier build code failed. The judge said:\n{output.strip()[-3000:]}"
     came_back = came_back_reason(gh.comments(n))
+    answered = answers.answers_text(gh.comments(n))
     main_quality_results: dict[tuple[str, str], bool] = {}
     kind_history: list[str] = []
     for k in range(1, attempts + 1):
@@ -451,20 +467,24 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if walk_away:
             walkaway.write_heartbeat(root, n, k)
         prompt = brief(n, issue["body"], ready, last_failure, came_back, folder,
-                       backend=ready["agent"])
+                       backend=ready["agent"], answers=answered)
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
         attempt_start = rev(folder, "HEAD") or "HEAD"
+        attempt_event: dict = {}
         idle_status = build_once(
             folder, prompt, ready["files"], logfile, ready.get("settings", False),
             idle_limit_seconds(folder, ready.get("idle_limit")),
             ready.get("protected_paths", []), build_contract, walk_away, domains,
-            {}, backend=ready["agent"], model=ready.get("agent_model", ""),
+            attempt_event, backend=ready["agent"], model=ready.get("agent_model", ""),
             effort=ready.get("agent_effort", ""),
             protected_exceptions=ready.get("risks", {}).get("protected_paths", []),
             on_wait=lambda seconds: log(
                 f"piece {n}: usage limit; waiting {seconds} seconds before one retry"))
+        for key, value in agents.usage_from(attempt_event).items():
+            metrics["usage"] = {**metrics.get("usage", {}),
+                                key: metrics.get("usage", {}).get(key, 0) + value}
         if idle_status == "usage-limit":
             reason = ("Claude Code remained rate limited after one reset wait; "
                       "retry this walk-away run")
@@ -496,7 +516,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 if outcome_reason:
                     reason_type = "environment" if outcome_kind == "environment" else "spec-unclear"
                     _hand_back(gh, root, n, outcome_reason, reason_type, metrics,
-                               cause="" if outcome_kind == "environment" else outcome_kind)
+                               cause="" if outcome_kind == "environment" else outcome_kind,
+                               recommendation=walkaway.outcome_recommendation(outcome)
+                               if outcome_kind == "needs-answer" else None)
                     gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {outcome_reason}")
                     return f"piece {n}: back to shaping, {outcome_kind}: {outcome_reason}"
                 commit_leftovers(folder, n, k)
@@ -626,9 +648,9 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                       k: int, output: str, review: Optional[dict] = None,
-                      seconds: float = 0) -> str:
+                      seconds: float = 0, usage: Optional[dict] = None) -> str:
     import pr
-    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review, seconds)
+    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review, seconds, usage)
 
 
 def main(argv: Optional[list[str]] = None) -> int:

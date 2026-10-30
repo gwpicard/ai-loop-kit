@@ -87,9 +87,11 @@ For example, ask for `tally --top 2 words.txt` to print `b 3` and then `a 2`. Th
 
 ## Walk away
 
-To build with nobody watching, ask Claude: "Start a walk-away run." The run refuses to start unless a live probe shows that an agent session cannot write to your home folder, read credential folders such as `~/.ssh` or reach an outside host. It then builds the ready pieces, keeps a Mac awake while it works, and posts a summary to a tracking issue when it ends.
+To build with nobody watching, ask Claude to start a run. When a live probe shows that an agent session cannot write to your home folder, read credential folders such as `~/.ssh` or reach an outside host, the run is a walk-away run. It builds the ready pieces, keeps a Mac awake while it works, keeps going after you close Claude Code, and posts a summary to a tracking issue when it ends.
 
-Walk-away runs are the way the kit is meant to be used. Version 1.7 is planned to make walk-away runs the default, with a local dashboard where you choose pieces, watch the run's progress and answer its questions.
+If a check fails, or a piece needs services, the run is attended instead. It prints which check failed and how to fix it. Add `--attended` to choose an attended run, or `--walk-away` to refuse to run unless the checks pass. The Codex backend stays a preview, and a Codex run says so.
+
+Walk-away runs are the way the kit is meant to be used.
 
 ## Previews
 
@@ -119,7 +121,7 @@ You approve the task, including its intent, what is out of scope and its contrac
 
 The fail-on-main check recognises failing assertions in pytest and unittest output, and TAP-style `not ok` lines. CI tests on Linux and macOS with Python 3.13, the kit's one Python. Attended runs have no sandbox, so stay nearby while they run. The guard blocks some commands but does not isolate the builder.
 
-Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a Mac awake with `caffeinate`. Walk-away runs on real projects have so far used the Codex backend; Claude walk-away runs have not yet been validated on a real project. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
+Claude walk-away runs need Claude Code 2.1.285 or later. A walk-away run keeps a Mac awake with `caffeinate`. Walk-away runs on real projects have so far used the Codex backend; Claude walk-away runs have so far run only in the kit's own tests. Weak tests can let weak code pass, so read the task and pull request. Mutation testing is experimental and needs mutmut 3.8 or later with tests that call changed code in-process. Docker and team use have not been tested.
 
 ## More to read
 

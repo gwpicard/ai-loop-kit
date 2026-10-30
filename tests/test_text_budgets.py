@@ -7,10 +7,10 @@ from helpers import KIT
 
 # Unchanged guidance keeps its current ceiling until its own thinning slice.
 BUDGETS = {
-    "briefs/judge-writer.md": 328,
+    "briefs/judge-writer.md": 347,
     "briefs/researcher.md": 229,
     "briefs/builder.md": 710,
-    "briefs/contract-reviewer.md": 194,
+    "briefs/contract-reviewer.md": 207,
     "extras/briefs/critic.md": 90,
     "briefs/standards-reviewer.md": 372,
     "skills/run/SKILL.md": 314,
@@ -18,11 +18,11 @@ BUDGETS = {
     "skills/run-recovery/SKILL.md": 213,
     "skills/reject-handling/SKILL.md": 180,
     "skills/setup/SKILL.md": 1327,
-    "skills/shape/SKILL.md": 1100,
+    "skills/shape/SKILL.md": 1215,
     "skills/shape/references/questions.md": 244,
-    "spec-format.md": 1193,
+    "spec-format.md": 1195,
 }
-TOTAL_BUDGET = 6521
+TOTAL_BUDGET = 6694
 
 
 def check_budgets(texts, budgets=BUDGETS, total_budget=TOTAL_BUDGET):

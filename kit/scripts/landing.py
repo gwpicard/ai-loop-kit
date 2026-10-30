@@ -8,7 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import gate
-from loopkit import GitHub, Refused, base_branch, base_merges, branch_name, rev, sh
+import github_checks
+from loopkit import GitHub, Refused, base_branch, base_merges, branch_name, rev, sh, sh_network
+from network import StepTimeout
 
 # Files that act as soon as they land: workflows run with the repository's
 # secrets, hooks run on every commit, and AGENTS.md changes the loop's rules.
@@ -33,7 +35,7 @@ def land(gh: GitHub, root: Path, folder: Path, n: int, result: str, review: dict
         return (f"{result} Not merged: the contract review left findings. "
                 "next: read them in the pull request, then merge it or reshape the piece")
     head = rev(folder, "HEAD") or ""
-    sh(["git", "fetch", "--quiet", "origin", base], folder, check=False)
+    sh_network(["git", "fetch", "--quiet", "origin", base], folder, check=False)
     changed = sh(["git", "diff", "--name-only", f"origin/{base}...HEAD"], folder).stdout.split()
     risky = runs_code(changed)
     if risky:
@@ -50,10 +52,14 @@ def land(gh: GitHub, root: Path, folder: Path, n: int, result: str, review: dict
                 "next: merge it on GitHub after a look, or run the piece again")
     try:
         gh.merge_pr(url, base, head)
+    except StepTimeout as error:  # the merge may or may not have happened; do not ask again
+        return (f"{result} Not merged: network error: {error}. "
+                "next: check the pull request on GitHub, then run the piece again")
     except Exception as error:  # a conflict, a moved branch, or GitHub said no
         if (gh.pr_for_branch(branch_name(n)) or {}).get("state") != "MERGED":
-            return f"{result} Not merged: {error}"
-    sh(["git", "fetch", "--quiet", "origin", base], folder, check=False)
+            billing = github_checks.billing_report(gh, root, n, head)
+            return f"{result} Not merged: {billing or error}"
+    sh_network(["git", "fetch", "--quiet", "origin", base], folder, check=False)
     try:
         gate.move(gh, root, n, "done")
     except Exception as error:

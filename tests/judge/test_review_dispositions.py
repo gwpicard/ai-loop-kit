@@ -171,16 +171,18 @@ class ReviewDispositionsTest(RunFixture, unittest.TestCase):
         self.assertTrue(result["preparation_failed"])
         self.assertIn("prepare failed", result["output"])
 
-    def test_failure_classifier_reuses_ready_gate_rule(self):
+    def test_D5_failure_classifier_counts_only_assertion_blocks(self):
         output = ("________________ test_D1 ________________\n"
                   "E AssertionError: D1 FileNotFoundError\n")
         self.assertTrue(review.judge_assertion_failed(output, "D1"))
         self.assertFalse(review.judge_has_runner_error(output, 1))
-        crash = ("FAIL: test_D1_runner\nRuntimeError: D1 runner crashed\n"
-                 "FAIL: test_X9_unrelated\nAssertionError: X9 unrelated\n")
-        self.assertTrue(review.judge_assertion_failed(crash, "D1"))
-        self.assertTrue(review.judge_assertion_failed(
-            "FAIL: test_D1\nRuntimeError: D1 expected AssertionError\n", "D1"))
+        crash = ("________________ test_D1_runner ________________\n"
+                 "E RuntimeError: D1 runner crashed\n"
+                 "________________ test_X9_unrelated ________________\n"
+                 "E AssertionError: X9 unrelated\n")
+        self.assertFalse(review.judge_assertion_failed(crash, "D1"))
+        self.assertFalse(review.judge_assertion_failed(
+            "ERROR: test_D1\nAttributeError: D1 expected AssertionError\n", "D1"))
 
     def test_javascript_reproducer_continues_after_unadaptable_check(self):
         if not shutil.which("node"):

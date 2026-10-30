@@ -17,9 +17,9 @@ from risk_checks import path_mentioned
 KIT = Path(__file__).resolve().parent.parent
 CLAUDE_MCP_ARGS = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 CAPABILITIES = {
-    "researcher": (("question",), {"web-search", "web-open"}, "dated Research lines"),
+    "researcher": (("question",), {"web-search", "web-open"}, "dated Research lines", ()),
     "judge-writer": (("Intent", "Approach", "Contract", "Files"),
-                     {"read", "write", "shell"}, "verdict"),
+                     {"read", "write", "shell"}, "verdict", ("Dependencies",)),
 }
 
 
@@ -159,6 +159,21 @@ def json_events(output: str):
             yield event
 
 
+def usage_from(event: dict) -> dict:
+    """The cost and token use a final event reports. A figure it does not report is left out."""
+    found: dict = {}
+    cost = event.get("total_cost_usd")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+        found["cost_usd"] = cost
+    usage = event.get("usage")
+    counts = [usage[key] for key in ("input_tokens", "output_tokens")
+              if isinstance(usage, dict) and isinstance(usage.get(key), int)
+              and not isinstance(usage[key], bool)]
+    if counts:
+        found["tokens"] = sum(counts)
+    return found
+
+
 def log_line(line: str, backend: str, result_event: dict | None = None) -> str:
     """Convert one JSONL event into readable text for the session log."""
     try:
@@ -167,7 +182,7 @@ def log_line(line: str, backend: str, result_event: dict | None = None) -> str:
         return line + "\n"
     if not isinstance(event, dict):
         return ""
-    if result_event is not None and event.get("type") in {"result", "turn.failed"}:
+    if result_event is not None and event.get("type") in {"result", "turn.failed", "turn.completed"}:
         result_event.update(event)
     if backend == "claude":
         if event.get("type") == "result" and (event.get("is_error") or event.get("error")):

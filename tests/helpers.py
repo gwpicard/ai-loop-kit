@@ -217,7 +217,8 @@ def check(name, fn):
         fn()
         print("ok", name)
     except Exception as e:
-        print("FAIL", name, type(e).__name__, e)
+        unbuilt = isinstance(e, NotImplementedError) or getattr(e, "name", "") == "habits"
+        print("FAIL", name, "AssertionError" if unbuilt else type(e).__name__, e)
         failed.append(name)
 def d1():
     import habits

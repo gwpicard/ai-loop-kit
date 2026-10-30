@@ -63,7 +63,7 @@ class FreshMainTest(unittest.TestCase):
                 patch.object(run_cli.signal, "signal"), \
                 patch.object(run, "ready_pieces", return_value=[]), \
                 redirect_stdout(io.StringIO()):
-            run.main([])
+            run.main(["--attended"])
         self.assertEqual(loopkit.base_branch(self.p.root), "trip")
 
     def test_a_failed_fetch_warns_and_no_remote_is_quiet(self):

@@ -66,7 +66,8 @@ def dependent_files(folder: Path, approach: str, changed: list[str],
 
 
 def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = "",
-          folder: Optional[Path] = None, backend: str = "claude") -> str:  # noqa: UP045
+          folder: Optional[Path] = None, backend: str = "claude",  # noqa: UP045
+          answers: str = "") -> str:
     text = (KIT / "briefs" / "builder.md").read_text()
     files = "\n".join(f"- `{f}`" for f in ready["files"]) or "- (none: the command is the judge)"
     command = ready.get("command", "")
@@ -93,6 +94,8 @@ def brief(n: int, body: str, ready: dict, last_failure: str, came_back: str = ""
         earlier = ("This piece was built before and came back for these reasons:\n"
                    f"{came_back}\nThe branch still holds that earlier build. Change it so the "
                    f"reasons no longer apply.\n\n{earlier}")
+    if answers:
+        earlier = f"The person answered these questions:\n{answers}\n\n{earlier}"
     for key, value in {"PIECE": str(n), "SPEC": body.strip(),
                        "APPROACH": ready.get("approach", "") or "No approach was supplied.",
                        "RESEARCH": research_brief(ready),

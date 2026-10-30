@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import network
 from loopkit import SECRET_PATTERNS, Refused
 
 IGNORE = ["/.loop/", ".env", ".env.*", "!.env.example", ".venv/", "__pycache__/",
@@ -24,6 +25,8 @@ PROTECTION = {"required_status_checks": None, "enforce_admins": True,
 
 
 def run(args: list[str], cwd: Path, stdin: str | None = None) -> subprocess.CompletedProcess:
+    if args[0] == "gh" or args[:2] == ["git", "push"]:  # the calls that wait on the network
+        return network.run_limited(args, cwd, " ".join(args[:3] if args[0] == "gh" else args[:2]), stdin)
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, input=stdin, check=False)
 
 

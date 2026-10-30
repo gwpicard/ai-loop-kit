@@ -197,7 +197,7 @@ class BuilderEnvironmentTest(unittest.TestCase):
         os.chdir(self.p.root)
         with patch("run_cli.GitHub", return_value=self.p.gh), \
                 patch.object(run, "build_once", side_effect=OSError("builder unavailable")):
-            status = run.main([str(n)])
+            status = run.main(["--attended", str(n)])
         requeue = next(r for r in records(self.p.gh.comments(n))
                        if r.get("move") == "requeue")
         self.assertEqual(requeue["type"], "environment")
