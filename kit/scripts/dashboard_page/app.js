@@ -72,7 +72,45 @@ function card(piece) {
   return item;
 }
 
+const seen = new Set();
+let firstLook = true;
+
+function post(path, body) {
+  return fetch(path, {method: "POST",
+    headers: {"Content-Type": "application/json", "X-Loop-Token": token},
+    body: JSON.stringify(body)});
+}
+
+function showNotes(snapshot) {
+  const list = document.getElementById("note-list");
+  const toast = document.getElementById("toast");
+  list.replaceChildren();
+  (snapshot.notifications || []).forEach(function (note) {
+    const key = note.kind + note.piece + note.message + note.time;
+    const item = document.createElement("li");
+    item.textContent = note.message + (note.time ? " (" + note.time + ")" : "");
+    list.appendChild(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      if (!firstLook) { toast.textContent = note.message; }
+    }
+  });
+  firstLook = false;
+  const notify = (snapshot.preferences || {}).notify || {};
+  document.getElementById("pref-macos").checked = notify.macos === true;
+  document.getElementById("pref-sound").value = notify.sound || "";
+}
+
+function savePrefs() {
+  post("/api/preferences", {notify: {
+    macos: document.getElementById("pref-macos").checked,
+    sound: document.getElementById("pref-sound").value || null}});
+}
+document.getElementById("pref-macos").onchange = savePrefs;
+document.getElementById("pref-sound").onchange = savePrefs;
+
 function show(snapshot) {
+  showNotes(snapshot);
   busy = snapshot.run.starting || snapshot.run.status === "running";
   refreshButton();
   document.getElementById("run").textContent = "Run: " +

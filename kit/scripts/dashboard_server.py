@@ -3,7 +3,8 @@
 
 Usage: `kit-python dashboard_server.py` prints a URL with a token and serves
 until closed. It reads `.loop/events.jsonl` and GitHub. Its one action is
-`POST /api/run`, which starts a detached walk-away run.
+`POST /api/run`, which starts a detached walk-away run, and
+`POST /api/preferences`, which saves the notification setting.
 """
 from __future__ import annotations
 if __name__ == "__main__":
@@ -25,6 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import dashboard_run
 import holds
+import notifications
 import procs
 from loopkit import STATE_PREFIX, GitHub, branch_name, records
 
@@ -38,6 +40,7 @@ CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'sel
 LANE_ORDER = ("to-shape", "shaped", "in-run", "landed")
 HANDED_BACK = ("give-back", "reject")
 MAX_BODY = 4096
+POSTS = ("/api/run", "/api/preferences")
 
 
 def read_events(root: Path) -> tuple[list[dict], list[str]]:
@@ -156,7 +159,9 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
     return {"run": {"status": status, "started": next(
                 (e.get("time") for e in events if e.get("event") == "run-start"), None),
                     "starting": starting},
-            "pieces": pieces, "notices": notices}
+            "pieces": pieces, "notices": notices,
+            "notifications": notifications.current(root),
+            "preferences": notifications.read_preferences(root)}
 
 
 class _Server(ThreadingHTTPServer):
@@ -191,7 +196,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, b"forbidden")
         parts = urlsplit(self.path)
         if self.command not in ("GET", "HEAD") and not (
-                self.command == "POST" and parts.path == "/api/run"):
+                self.command == "POST" and parts.path in POSTS):
             return self._send(405, b"read only", extra=(("Allow", "GET, HEAD, POST"),))
         token = (parse_qs(parts.query).get("t") or [""])[0]
         if parts.path == "/" and token:
@@ -208,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         if COOKIE not in jar or not dash.is_token(jar[COOKIE].value):
             return self._send(403, b"forbidden")
         if self.command == "POST":
-            return self._run(dash)
+            return self._post(dash, parts.path)
         if parts.path in FILES:
             name, kind = FILES[parts.path]
             page = (PAGE / name).read_bytes().replace(b"{{token}}", dash.token.encode())
@@ -219,8 +224,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._stream(dash)
         self._send(404, b"not found")
 
-    def _run(self, dash: Dashboard) -> None:
-        """Start a walk-away run. Needs the token header, JSON and the server's own origin."""
+    def _post(self, dash: Dashboard, path: str) -> None:
+        """Start a run or save the setting. Needs the token header, JSON and the server's own origin."""
         origin = self.headers.get("Origin")
         if not dash.is_token(self.headers.get("X-Loop-Token", "")) or (
                 origin is not None and origin not in {f"http://{h}" for h in dash.hosts}):
@@ -232,7 +237,11 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size)) if 0 < size <= MAX_BODY else None
         except ValueError:
             body = None
-        status, answer = dashboard_run.start(dash, body)
+        if path == "/api/preferences":
+            status, answer = notifications.save_preferences(dash.root, body)
+            dash.publish()
+        else:
+            status, answer = dashboard_run.start(dash, body)
         self._send(status, json.dumps(answer).encode(), "application/json")
 
     def _stream(self, dash: Dashboard) -> None:
@@ -273,6 +282,7 @@ class Dashboard:
         self._changed = threading.Condition()
         self._version, self._text = 0, ""
         self.starting, self.start_lock = False, threading.Lock()
+        self.stuck_sent: set = set()
         self._threads: list[threading.Thread] = []
 
     def is_token(self, value: str) -> bool:
@@ -307,7 +317,9 @@ class Dashboard:
 
     def publish(self) -> None:
         try:
-            text = json.dumps(snapshot(self.root, self.gh, self.starting))
+            found = snapshot(self.root, self.gh, self.starting)
+            notifications.deliver_stuck(self.root, found["notifications"], self.stuck_sent)
+            text = json.dumps(found)
         except Exception as error:  # keep serving; say what failed
             text = json.dumps({"run": {"status": "none", "started": None, "starting": self.starting}, "pieces": [],
                                "notices": [f"Could not build the view: {error}"]})

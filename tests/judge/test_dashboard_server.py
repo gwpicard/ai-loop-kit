@@ -241,7 +241,8 @@ class StateTest(Served):
                          {"number", "title", "lane", "stage", "attempt", "since", "last_event",
                           "pr_url", "waiting_on", "handback_reason"})
         self.assertEqual((pieces[0]["lane"], pieces[0]["title"]), ("to-shape", "Shape me"))
-        self.assertEqual(set(self.state()), {"run", "pieces", "notices"})
+        self.assertEqual(set(self.state()),
+                         {"run", "pieces", "notices", "notifications", "preferences"})
         self.assertEqual(set(self.state()["run"]), {"status", "started", "starting"})
 
     def test_D4_each_state_maps_to_its_lane(self):
@@ -424,15 +425,16 @@ class ReadOnlyTest(Served):
                 out[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
         return out
 
-    def test_D13_other_methods_return_405_except_an_authenticated_post_to_the_run_path(self):
+    def test_D14_other_methods_return_405_except_an_authenticated_post_to_the_run_and_preferences_paths(self):
         self.serve()
         for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS"):
             status, _, _ = self.request("/api/state", method=method)
             self.assertEqual(status, 405, method)
-        for method in ("PUT", "DELETE", "PATCH", "OPTIONS"):
-            status, _, _ = self.request("/api/run", method=method)
-            self.assertEqual(status, 405, method)
-        self.assertEqual(self.request("/api/run", method="POST", cookie=False)[0], 403)
+        for path in ("/api/run", "/api/preferences"):
+            for method in ("PUT", "DELETE", "PATCH", "OPTIONS"):
+                status, _, _ = self.request(path, method=method)
+                self.assertEqual(status, 405, (path, method))
+            self.assertEqual(self.request(path, method="POST", cookie=False)[0], 403)
 
     def test_D9_get_and_head_write_nothing_and_change_nothing_on_github(self):
         gh = Spy()

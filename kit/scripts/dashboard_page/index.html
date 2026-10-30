@@ -10,6 +10,12 @@
 <div id="start"><label><input type="checkbox" id="keep-going"> Keep going until nothing is ready</label>
 <button id="run-button" type="button" disabled>Run ticked pieces</button>
 <div id="answer" role="status"></div></div>
+<section id="alerts"><h2>Notifications</h2>
+<div id="toast" role="status"></div>
+<form id="prefs"><label><input type="checkbox" id="pref-macos"> Show macOS notifications</label>
+<label>Sound <select id="pref-sound"><option value="">None</option><option>Glass</option>
+<option>Ping</option><option>Hero</option></select></label></form>
+<ul id="note-list"></ul></section>
 <main id="lanes">
 <section data-lane="to-shape"><h2>To shape</h2><ul></ul></section>
 <section data-lane="shaped"><h2>Shaped</h2><ul></ul></section>

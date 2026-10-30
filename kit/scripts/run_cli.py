@@ -17,6 +17,7 @@ import base_check
 import dashboard
 import gate
 import holds
+import notifications
 import procs
 import walkaway
 from doctor import print_checks
@@ -180,9 +181,11 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 print("warning: could not write .loop/dashboard.html", file=sys.stderr)
                 page_warned = True
 
+    notices = notifications.EventWatcher(root)
     watching = ExitStack()
     watching.enter_context(awake)
-    watching.enter_context(dashboard.watch_run_events(root, render_page))
+    watching.enter_context(dashboard.watch_run_events(
+        root, lambda: (notices.poll(), render_page())))
     print(f"Run page: {root / '.loop' / 'dashboard.html'}")
     try:
         gate.run_event(root, "run-start", reason="started")
