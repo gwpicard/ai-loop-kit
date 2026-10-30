@@ -43,6 +43,15 @@ def final_pull_request(api, gh: GitHub, root: Path, results: list[str]) -> None:
         results.append(line)
 
 
+def record_pieces(root: Path, pieces: list[int], known: list[int]) -> list[int]:
+    """Record the run's selection for the live view, and again when pieces join it.
+    Returns every piece recorded so far. An empty selection writes nothing."""
+    if not set(pieces) - set(known):
+        return known
+    gate.run_event(root, "run-pieces", pieces=list(pieces))
+    return list(known) + [p for p in pieces if p not in known]
+
+
 def start_detached(root: Path, argv: list[str],
                    command: Optional[list[str]] = None) -> tuple[int, Path]:
     """Start a run in its own session, so closing the caller does not end it."""
@@ -189,6 +198,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         results.extend(api.recover_building(gh, root))
         gate.sync(gh, root)
         pieces = args.pieces or api.ready_pieces(gh, api.log)
+        record_pieces(root, pieces, [])
         render_page()
         if not pieces:
             print("Nothing is ready. Shape a piece first.")

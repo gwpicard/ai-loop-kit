@@ -34,7 +34,8 @@ def watch_run_events(root: Path, observer: Callable[[], None]):
 
 
 def run_event(root: Path, event: str, piece: int | None = None,
-              state: str = "", attempt: int = 0, reason: str = "") -> None:
+              state: str = "", attempt: int = 0, reason: str = "",
+              pieces: list[int] | None = None) -> None:
     """Append public metadata only. Callers supply fixed event names and reasons."""
     try:
         with suppress(OSError):
@@ -50,9 +51,12 @@ def run_event(root: Path, event: str, piece: int | None = None,
         path = root / ".loop" / "events.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as output:
-            output.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(),
-                                     "piece": piece, "event": event, "state": state,
-                                     "attempt": attempt, "reason": reason}) + "\n")
+            record = {"time": datetime.now(timezone.utc).isoformat(),
+                      "piece": piece, "event": event, "state": state,
+                      "attempt": attempt, "reason": reason}
+            if pieces is not None:
+                record["pieces"] = [int(n) for n in pieces]
+            output.write(json.dumps(record) + "\n")
     except OSError:
         if root not in _EVENT_WARNED:
             _EVENT_WARNED.add(root)

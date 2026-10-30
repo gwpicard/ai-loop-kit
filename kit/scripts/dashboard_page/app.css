@@ -1,0 +1,12 @@
+:root {color-scheme: light dark; --ink: #20382e; --paper: #f5f4ed; --card: #fff; --line: #ccc; --warn: #fff0cf; --warn-line: #934900}
+@media (prefers-color-scheme: dark) {:root {--ink: #e8efe9; --paper: #16201b; --card: #1f2c25; --line: #3b4b42; --warn: #3a2a10; --warn-line: #e0a050}}
+body {font: 1rem Georgia, serif; margin: 0 1rem 2rem; color: var(--ink); background: var(--paper)}
+h1 {font-size: 2rem; margin-bottom: .25rem}
+h2 {font-size: 1.1rem; margin: 0 0 .5rem}
+#lanes {display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; align-items: start}
+section {background: var(--card); border: 1px solid var(--line); padding: .75rem}
+ul {list-style: none; margin: 0; padding: 0}
+li {border-top: 1px solid var(--line); padding: .6rem 0; overflow-wrap: anywhere; font-size: .95rem}
+li small {display: block; font: .8rem ui-monospace, monospace}
+[role=alert] {border: 2px solid var(--warn-line); padding: .75rem; background: var(--warn); margin: .5rem 0; font: .9rem ui-monospace, monospace}
+a {color: inherit}

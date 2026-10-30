@@ -117,7 +117,8 @@ class RunEventsTest(unittest.TestCase):
         number = self.piece("ready")
         with self.assertRaises(KeyboardInterrupt):
             self.cli([str(number)], build_piece={"side_effect": KeyboardInterrupt})
-        self.assertEqual([e["event"] for e in self.events()], ["run-start", "run-stop"])
+        self.assertEqual([e["event"] for e in self.events()],
+                         ["run-start", "run-pieces", "run-stop"])
         self.assertFalse(run.lock_path(self.root).exists())
 
     def test_D2_handback_records_attempt_and_safe_reason(self):
