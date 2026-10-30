@@ -202,9 +202,9 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             api.log("removed abandoned review " + "; ".join(removed_reviews))
         results.extend(api.recover_building(gh, root))
         gate.sync(gh, root)
-        pieces = args.pieces or api.ready_pieces(gh, api.log)
+        pieces = args.pieces or api.ready_pieces(gh, api.log, root)
         recorded = record_pieces(root, pieces, [])
-        initial = set(api.ready_pieces(gh, api.log)) if args.keep_going and args.pieces \
+        initial = set(api.ready_pieces(gh, api.log, root)) if args.keep_going and args.pieces \
             else set(pieces)
         render_page()
         if not pieces:
@@ -219,7 +219,7 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         def join_ready() -> bool:
             """Add pieces that became ready, or came back, since the run began."""
             nonlocal recorded
-            found = [n for n in api.ready_pieces(gh, api.log) if n not in pending and (
+            found = [n for n in api.ready_pieces(gh, api.log, root) if n not in pending and (
                 (n not in initial and n not in tried and n not in pieces)
                 or (n in handed_back and n not in rejoined))]
             if not found:
