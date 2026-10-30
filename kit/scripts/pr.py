@@ -98,9 +98,17 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
     checked = {}
     gate.move(gh, root, n, "approval", folder=folder, pr=url, attempts=k, seconds=seconds,
               evidence=checked)
+    return finish_pull_request(gh, root, folder, n, issue, k, output, review, url,
+                               checked["output"])
+
+
+def finish_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
+                        k: int, output: str, review: Optional[dict], url: str,
+                        judged: str) -> str:
+    """Create or update the pull request once the submit record exists."""
     submitted = last_record(gh.comments(n), "submit") or {}
     ready = last_record(gh.comments(n), "ready") or {}
-    facts, evidence = pull_request_facts(folder, ready, checked["output"])
+    facts, evidence = pull_request_facts(folder, ready, judged)
     regression = submitted["regression"]
     evidence += (f"\n- Regression: `{regression['command']}`; exit {regression['exit']}; "
                  f"commit `{regression['commit']}`.")

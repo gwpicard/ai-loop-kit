@@ -38,6 +38,7 @@ import landing  # noqa: E402
 from frozen import already_satisfied, earlier_build_paths, expected_tree, frozen_file_reason, neighbour_edits  # noqa: E402
 from loop_pr import final_pull_request  # noqa: E402,F401
 from extras import require_extras
+from recovery import finish_submit
 
 DEFAULT_IDLE_LIMIT = 10 * 60
 
@@ -89,6 +90,17 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
     recovered = []
     for issue in gh.issues_with_label(STATE_PREFIX + "building"):
         note = "the previous run ended while this piece was building"
+        n = issue["number"]
+        try:
+            finished = finish_submit(gh, root, n)
+        except Exception as error:  # a failed pull request has already sent the piece to shaping
+            recovered.append(f"piece {n}: crash recovery failed: {str(error).strip()[:200]}")
+            _run_metrics_path(root, n).unlink(missing_ok=True)
+            continue
+        if finished:
+            recovered.append(f"piece {n}: finished after a crash: moved to approval")
+            _run_metrics_path(root, n).unlink(missing_ok=True)
+            continue
         attempts, seconds = _recovered_run_metrics(root, issue["number"])
         metrics = {"attempts": attempts, "started": time.monotonic() - seconds}
         recovered.append(_requeue(gh, root, issue["number"], note, "dead-run", metrics))
