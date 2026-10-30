@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from errors import Refused
+from failures import judge_assertion_failed, judge_has_runner_error  # noqa: F401
 from spec import Spec as Spec
 from spec import _section
 from spec import parse_research_section as parse_research_section
@@ -545,24 +546,6 @@ def skipped_tests(output: str) -> bool:
                 r"\bOK\s*\(skipped\s*=\s*[1-9]\d*\)", r"^\s*#\s*skipped\s+[1-9]\d*\b")
     return any(re.search(pattern, line, re.IGNORECASE)
                for line in output.splitlines() for pattern in patterns)
-
-
-_WRONG_TEST_REASON = re.compile(
-    r"^\s*(?:E\s+)?(?:SyntaxError|IndentationError|ModuleNotFoundError|"
-    r"ImportError|FileNotFoundError):|^ERROR collecting(?:\s|$)", re.MULTILINE)
-
-
-def judge_has_runner_error(output: str, code: int) -> bool:
-    """Recognise a missing test command or a broken test module."""
-    return ((code == 127 and "command not found" in output)
-            or bool(_WRONG_TEST_REASON.search(output)))
-
-
-def judge_assertion_failed(output: str, item: str) -> bool:
-    """Apply the ready gate's failure-line and named-item rule."""
-    fail_line = re.compile(r"FAIL|ERROR|Error|not ok|_{3,}")
-    named = re.compile(rf"(?<![A-Za-z0-9]){re.escape(item)}(?![0-9])")
-    return any(fail_line.search(line) and named.search(line) for line in output.splitlines())
 
 
 def exit_ready(folder: Path, checks: tuple, contract: dict, stays: tuple) -> tuple[list[dict], str]:
