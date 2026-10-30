@@ -64,7 +64,10 @@ function card(piece) {
     item.appendChild(questionForm(piece));
   }
   if (piece.handback_reason) {
-    line(item, "handed back: " + piece.handback_reason);
+    line(item, "handed back" + (piece.handback_type ? " (" + piece.handback_type + ")" : "") + ": " + piece.handback_reason);
+  }
+  if (piece.reshape_command) {
+    item.appendChild(reshapeRow(piece));
   }
   if (piece.last_event) {
     line(item, piece.last_event + (piece.since ? " at " + piece.since : ""));
@@ -76,6 +79,28 @@ function card(piece) {
     item.appendChild(link);
   }
   return item;
+}
+
+function reshapeRow(piece) {
+  const row = document.createElement("div");
+  line(row, "To reshape it while the run goes on, open a terminal in the project and run:");
+  const code = document.createElement("code");
+  code.textContent = piece.reshape_command;
+  row.appendChild(code);
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.textContent = "Copy";
+  copy.setAttribute("aria-label", "Copy the shaping command for piece " + piece.number);
+  copy.onclick = function () {
+    navigator.clipboard.writeText(piece.reshape_command).then(function () {
+      copy.textContent = "Copied";
+    }).catch(function () { copy.textContent = "Select the command and copy it"; });
+  };
+  row.appendChild(copy);
+  if (piece.worktree_note) {
+    line(row, piece.worktree_note);
+  }
+  return row;
 }
 
 const drafts = {};

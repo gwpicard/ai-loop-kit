@@ -2,10 +2,9 @@
 """Serve a live view of every piece and the run on localhost.
 
 Usage: `kit-python dashboard_server.py` prints a URL with a token and serves
-until closed. It reads `.loop/events.jsonl` and GitHub. Its one action is
-`POST /api/run`, which starts a detached walk-away run, and
-`POST /api/preferences`, which saves the notification setting, and
-`POST /api/answer`, which records the answer to a builder's question.
+until closed. It reads `.loop/events.jsonl` and GitHub. Its actions are
+`POST /api/run` (start a detached walk-away run), `POST /api/preferences`
+(save the notification setting) and `POST /api/answer` (record an answer).
 """
 from __future__ import annotations
 if __name__ == "__main__":
@@ -30,6 +29,7 @@ import dashboard_run
 import holds
 import notifications
 import procs
+import run_start
 from loopkit import NEEDS_YOU, STATE_PREFIX, GitHub, branch_name, records
 
 POLL_SECONDS = 1.0      # how often the events file is checked
@@ -72,9 +72,18 @@ def _states(issue: dict) -> list[str]:
             if label.startswith(STATE_PREFIX)]
 
 
-def _reason(comments: list[str]) -> str | None:
+def _reason(comments: list[str]) -> tuple[str | None, str | None]:
     found = [r for r in records(comments) if r.get("move") in HANDED_BACK]
-    return str(found[-1].get("reason", ""))[:500] if found else None
+    return (str(found[-1].get("reason", ""))[:500], str(found[-1].get("type") or "")) if found else (None, None)
+
+
+def _kept_note(root: Path, n: int) -> str | None:  # None when the gate released the folder
+    try:
+        folder = run_start.existing_worktree(root, n)
+        why = folder and run_start.worktree_reason(root, folder, branch_name(n))
+    except Exception:
+        return None
+    return f"The build folder {folder} was kept ({why}). next: run gate.py doctor." if why else None
 
 
 def _link(gh, n: int) -> str | None:
@@ -85,8 +94,7 @@ def _link(gh, n: int) -> str | None:
 def snapshot(root: Path, gh, starting: bool = False) -> dict:
     """The run, and every piece in its lane. GitHub labels are the source of truth."""
     events, notices = read_events(root)
-    boundary = next((e for e in reversed(events) if e.get("event") in ("run-start", "run-stop")),
-                    {})
+    boundary = next((e for e in reversed(events) if e.get("event") in ("run-start", "run-stop")), {})
     live = boundary.get("event") == "run-start" and procs.lock_holder(root) is not None
     status = ("running" if live else "interrupted" if boundary.get("event") == "run-start"
               else "finished" if boundary else "none")
@@ -102,9 +110,8 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
     except Exception:  # GitHub could not answer, or ran past its time limit
         reachable = False
         notices.append("Could not reach GitHub. Showing local events.")
-    numbers = sorted({n for n, i in issues.items()
-                      if len(_states(i)) == 1} | in_run)
-    pieces, questions, asked = [], set(), None
+    numbers = sorted({n for n, i in issues.items() if len(_states(i)) == 1} | in_run)
+    pieces, asked = [], None
     for n in numbers:
         event, issue, lost, risks, lane = latest.get(n, {}), issues.get(n), False, {}, None
         try:
@@ -115,14 +122,13 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
                 notices.append(f"Piece {n}: local events and GitHub labels disagree "
                                f"(page: {event['state']}; GitHub: {', '.join(labels) or 'no state'}). "
                                "GitHub labels are the source of truth.")
-            state = labels[0] if len(labels) == 1 else (
-                "" if issue else event.get("state") or "ready")
-            lane, stage, waiting, reason, url = None, state, [], None, None
+            state = labels[0] if len(labels) == 1 else ("" if issue else event.get("state") or "ready")
+            lane, stage, waiting, reason, url, kind = None, state, [], None, None, None
             if state == "shaping":
                 lane, stage = ("in-run", "handed-back") if n in handed else ("to-shape", "shaping")
                 if (n in handed or NEEDS_YOU in issue["labels"]) and reachable:
                     notes = gh.comments(n)
-                    reason = _reason(notes) if n in handed else None
+                    reason, kind = _reason(notes) if n in handed else (None, None)
                     asked = answers.latest_question(notes)
             elif state == "ready":
                 if reachable:
@@ -149,30 +155,28 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
                     "done": "landed"}.get(state, "in-run")
             if lane == "shaped" and live and n in selected:
                 lane = "in-run"
-            stage, waiting, reason, url = state, [], None, None
+            stage, waiting, reason, url, kind = state, [], None, None, None
             issue = None
-        found = {"number": n, "title": issue["title"] if issue else f"Piece {n}",
-                 "lane": lane, "stage": stage, "attempt": event.get("attempt") or 0,
-                 "since": event.get("time"), "last_event": event.get("event"),
+        found = {"number": n, "title": issue["title"] if issue else f"Piece {n}", "lane": lane, "stage": stage,
+                 "attempt": event.get("attempt") or 0, "since": event.get("time"), "last_event": event.get("event"),
                  "pr_url": url, "waiting_on": waiting, "handback_reason": reason}
+        if stage == "handed-back":
+            found.update(handback_type=kind, reshape_command=f'claude "/ai-loop-kit:shape {n}"',
+                         worktree_note=_kept_note(root, n))
         if asked:
             found["question"] = asked
-            questions.add(n)
             asked = None
         if lane == "shaped":
-            found.update(depends_on=risks.get("depends_on") or [],
-                         needs_services=risks.get("needs_services") or [])
+            found.update(depends_on=risks.get("depends_on") or [], needs_services=risks.get("needs_services") or [])
         pieces.append(found)
     open_questions = {p["number"] for p in pieces if p.get("question", {}).get("answered") is False}
     for p in pieces:
         if blocking := [d for d in p["waiting_on"] if d in open_questions]:
             p["question_blockers"] = blocking
     pieces.sort(key=lambda p: (LANE_ORDER.index(p["lane"]), p["number"]))
-    return {"run": {"status": status, "started": next(
-                (e.get("time") for e in events if e.get("event") == "run-start"), None),
-                    "starting": starting},
-            "pieces": pieces, "notices": notices,
-            "notifications": notifications.current(root),
+    started = next((e.get("time") for e in events if e.get("event") == "run-start"), None)
+    return {"run": {"status": status, "started": started, "starting": starting},
+            "pieces": pieces, "notices": notices, "notifications": notifications.current(root),
             "preferences": notifications.read_preferences(root)}
 
 
@@ -188,8 +192,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
-    def _send(self, status: int, body: bytes = b"", kind: str = "text/plain",
-              extra: tuple = ()) -> None:
+    def _send(self, status: int, body: bytes = b"", kind: str = "text/plain", extra: tuple = ()) -> None:
         self.send_response(status)
         self.send_header("Content-Type", kind + "; charset=utf-8")
         self.send_header("Content-Security-Policy", CSP)
@@ -207,15 +210,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Host") not in dash.hosts:
             return self._send(403, b"forbidden")
         parts = urlsplit(self.path)
-        if self.command not in ("GET", "HEAD") and not (
-                self.command == "POST" and parts.path in POSTS):
+        if self.command not in ("GET", "HEAD") and not (self.command == "POST" and parts.path in POSTS):
             return self._send(405, b"read only", extra=(("Allow", "GET, HEAD, POST"),))
         token = (parse_qs(parts.query).get("t") or [""])[0]
         if parts.path == "/" and token:
             if not dash.is_token(token):
                 return self._send(403, b"forbidden")
-            return self._send(302, b"", extra=(
-                ("Location", "/"),
+            return self._send(302, b"", extra=(("Location", "/"),
                 ("Set-Cookie", f"{COOKIE}={dash.token}; HttpOnly; SameSite=Strict; Path=/")))
         jar = cookies.SimpleCookie()
         try:
@@ -284,8 +285,7 @@ class Handler(BaseHTTPRequestHandler):
 class Dashboard:
     """The server, its token, and the thread that keeps the snapshot current."""
 
-    def __init__(self, root: Path, gh, poll: float = POLL_SECONDS,
-                 refresh: float = GITHUB_SECONDS) -> None:
+    def __init__(self, root: Path, gh, poll: float = POLL_SECONDS, refresh: float = GITHUB_SECONDS) -> None:
         self.root, self.gh, self.poll, self.refresh = root, gh, poll, refresh
         self.token = secrets.token_urlsafe(32)
         self.httpd = _Server(("127.0.0.1", 0), Handler)
