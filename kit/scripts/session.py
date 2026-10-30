@@ -17,6 +17,7 @@ from typing import Callable, Optional
 
 import agents
 import sandbox
+from errors import JudgeRefused
 from loopkit import Refused, bar_hash_in, sh, untracked_paths
 from procs import _untrack_process, track_process
 
@@ -223,6 +224,64 @@ def run_session(folder: Path, prompt: str, logfile: Path, idle_seconds: int, *,
         result_event = {}
 
 
+def _writer_notes(text: str) -> str:
+    """The notes of the last verdict block, even when the verdict is invalid; else empty."""
+    blocks = re.findall(r"<verdict>\s*(.*?)\s*</verdict>", text, flags=re.I | re.S)
+    try:
+        notes = json.loads(blocks[-1]).get("notes") if blocks else ""
+    except (ValueError, AttributeError):
+        return ""
+    return notes if isinstance(notes, str) else ""
+
+
+def _judge_round(folder: Path, data: dict, prompt: str, log: Path, backend: str) -> dict:
+    """One judge-writer session: run it, check its verdict and commit its judge files."""
+    from review import _last_verdict
+
+    baseline = _judge_start(folder, data)
+    events = log.with_suffix(".jsonl")
+    result: dict = {}
+    status = run_session(folder, prompt, log, 300, role="judge-writer", backend=backend,
+                         result_event=result, raw_events=events)
+    text = agents.event_text(events.read_text(), backend)
+    if status or result.get("is_error") or result.get("type") == "turn.failed":
+        raise ValueError(f"judge-writer requires {agents.CAPABILITIES['judge-writer'][1]}: "
+                         f"{status or result}; see {log}")
+    try:
+        verdict = _last_verdict(text, "judge-writer")
+    except ValueError as error:
+        notes = _writer_notes(text)
+        raise ValueError(f"{error}" + (f"\nthe writer's notes: {notes}" if notes else "")) from None
+    _judge_finish(folder, baseline, verdict)
+    return {"text": text, "notes": verdict["notes"]}
+
+
+def _write_judge(args, data: dict, prompt: str, backend: str) -> str:
+    """Write the judge; with --prove, prove it on the base and allow one repair."""
+    from judge_proof import prove, retry_prompt
+
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+    os.environ["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    log = args.output.with_suffix(".log")
+    done = _judge_round(args.folder, data, prompt, log, backend)
+    if not args.prove:
+        return done["text"]
+    for attempt in range(2):
+        try:
+            print(prove(args.folder, data))
+            return done["text"]
+        except JudgeRefused as refusal:
+            if attempt:
+                raise Refused(f"{refusal.reason}\nthe writer's notes: {done['notes']}",
+                              refusal.next_step) from None
+            done = _judge_round(args.folder, data, retry_prompt(prompt, refusal),
+                                log.with_name(log.stem + "-retry.log"), backend)
+        except Refused as refusal:
+            raise Refused(f"{refusal.reason}\nthe writer's notes: {done['notes']}",
+                          refusal.next_step) from None
+    raise AssertionError("unreachable")
+
+
 def main() -> int:
     """Run one shaping capability with approved JSON input and checked output."""
     import argparse
@@ -233,6 +292,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--role", choices=tuple(agents.CAPABILITIES), required=True)
     parser.add_argument("--agent", choices=("claude", "codex"))
+    parser.add_argument("--prove", action="store_true",
+                        help="judge-writer only: prove the judge on the base, with one repair")
     for name in ("input", "output", "folder"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     args = parser.parse_args()
@@ -254,23 +315,21 @@ def main() -> int:
             raise ValueError(f"{args.role} input requires only: {', '.join(fields)}")
         prompt = (agents.KIT / "briefs" / f"{args.role}.md").read_text()
         prompt += "\n\n" + json.dumps(data) + f"\nReturn {output}."
-        baseline = _judge_start(args.folder, data) if args.role == "judge-writer" else None
-        log = args.output.with_suffix(".log")
-        events = log.with_suffix(".jsonl")
-        result = {}
+        if args.prove and args.role != "judge-writer":
+            raise ValueError("--prove applies to the judge-writer role only")
         backend = agents.selected(args.folder, args.agent)
         if args.role == "judge-writer":
-            os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-            os.environ["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
-        status = run_session(args.folder, prompt, log, 300, role=args.role,
-                             backend=backend, result_event=result, raw_events=events)
-        status = status or (agents.environment_evidence(log) if args.role == "researcher" else "")
-        text = agents.event_text(events.read_text(), backend)
-        if status or result.get("is_error") or result.get("type") == "turn.failed":
-            raise ValueError(f"{args.role} requires {tools}: {status or result}; see {log}")
-        if args.role == "judge-writer":
-            _judge_finish(args.folder, baseline, _last_verdict(text, args.role))
+            text = _write_judge(args, data, prompt, backend)
         else:
+            log = args.output.with_suffix(".log")
+            events = log.with_suffix(".jsonl")
+            result = {}
+            status = run_session(args.folder, prompt, log, 300, role=args.role,
+                                 backend=backend, result_event=result, raw_events=events)
+            status = status or agents.environment_evidence(log)
+            text = agents.event_text(events.read_text(), backend)
+            if status or result.get("is_error") or result.get("type") == "turn.failed":
+                raise ValueError(f"{args.role} requires {tools}: {status or result}; see {log}")
             rows = text.splitlines()
             kept = ["" if re.match(r"\s*[-*]\s*Unconfirmed:\s*\S", x) else x for x in rows]
             findings, gaps = parse_research(kept)

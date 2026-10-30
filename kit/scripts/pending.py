@@ -9,6 +9,7 @@ import tempfile
 from contextlib import suppress
 from pathlib import Path
 
+from errors import JudgeRefused
 from loopkit import Refused, new_paths, prepare, run_keep, sh, untracked_paths
 import regression
 from run_start import capture_probe_files, remove_worktree, restore_probe_files
@@ -61,8 +62,8 @@ def run_in_main(root: Path, n: int, spec, blockers: list[int], main: str, head: 
         lint, test_lint_unchecked = lint_files(
             [folder / f for f in spec.files], folder, " ".join(spec.done_when.values()))
         if lint:
-            raise Refused("the judge has quality problems:\n" + "\n".join(lint),
-                          "fix the judge files, then run gate.py check again")
+            raise JudgeRefused("the judge has quality problems:\n" + "\n".join(lint),
+                               "fix the judge files, then run gate.py check again")
         made_by_test = new_paths(folder, before, before_dirs, snapshot_or_generated)
         check_records, output = ([dict(c) for c in spec.checks], "") if blockers else \
             gate.exit_ready(folder, spec.checks, spec.done_when, spec.stays)

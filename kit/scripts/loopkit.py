@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 import network
-from errors import Refused
+from errors import JudgeRefused, Refused
 from failures import judge_assertion_failed, judge_has_runner_error  # noqa: F401
 from spec import Spec as Spec
 from spec import _section
@@ -570,28 +570,32 @@ def exit_ready(folder: Path, checks: tuple, contract: dict, stays: tuple) -> tup
             if check.get("legacy_kind") == "scaffold":
                 check["main_output"] = output
             elif code == 0:
-                raise Refused("the judge already passes on main, so there is nothing to build",
-                              "make the judge test what the Contract items ask for")
+                raise JudgeRefused("the judge already passes on main, so there is nothing to build",
+                                   "make the judge test what the Contract items ask for",
+                                   "spec-unclear")
             if check.get("legacy_kind") != "scaffold" and judge_has_runner_error(output, code):
-                raise Refused("the judge fails on main for the wrong reason "
-                              f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
-                              "fix the judge so it fails on an assertion")
+                raise JudgeRefused(
+                    "the judge fails on main for the wrong reason "
+                    f"(a broken test, not a missing feature):\n{output.strip()[-1500:]}",
+                    "fix the judge so it fails on an assertion")
             if check.get("legacy_kind") != "scaffold":
                 named = [item for item in building if judge_assertion_failed(output, item)]
                 if not named:
-                    raise Refused("the judge fails on main, but its output names no spec ID "
-                                  f"({', '.join(building)}):\n{output.strip()[-1500:]}",
-                                  "put each Contract ID in a failing test name")
+                    raise JudgeRefused(
+                        "the judge fails on main, but its output names no spec ID "
+                        f"({', '.join(building)}):\n{output.strip()[-1500:]}",
+                        "put each Contract ID in a failing test name")
                 required = building
                 missing = [item for item in required if item not in named]
                 if missing:
-                    raise Refused(f"no failing judge test names {', '.join(missing)}",
-                                  "give every Contract item at least one failing test")
+                    raise JudgeRefused(f"no failing judge test names {', '.join(missing)}",
+                                       "give every Contract item at least one failing test")
                 failing_stays = [item for item in stays if judge_assertion_failed(output, item)]
                 if failing_stays:
-                    raise Refused(f"{', '.join(failing_stays)} is marked (stays) but fails on main",
-                                  "a (stays) item holds on the base now, not after the pieces it "
-                                  "depends on land; test only what it says, or remove the mark")
+                    raise JudgeRefused(
+                        f"{', '.join(failing_stays)} is marked (stays) but fails on main",
+                        "a (stays) item holds on the base now, not after the pieces it "
+                        "depends on land; test only what it says, or remove the mark")
                 check["main_output"] = output
         elif check["type"] == "measure":
             output, baseline = measure.ready(folder, check["command"], check["target"])

@@ -64,9 +64,9 @@ Use the KIT path above in every command. Write it out in full. Read
    Save JSON containing approved `Intent`, `Approach`, `Contract` and `Files`
    strings. `Files` lists exact Exit paths, one per line. The JSON also holds `Dependencies` (each blocker's Approach, headed by its number; empty when there is none). Exclude shaping chat.
    Save input and output in the system temp folder. Run
-   `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder .`.
+   `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder . --prove`.
    The launcher requires a clean piece branch, checks paths and verdict, and
-   commits judge files. On success, run
+   commits judge files. `--prove` proves the judge on the base and skips that proof while a blocker is not done. On success, run
    `git switch <base>`.
    Done when: `git log <base>..piece/<n>` shows the judge commit (the newest
    commit for a returned piece), and you are back on `<base>`.
