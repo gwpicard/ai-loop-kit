@@ -52,7 +52,7 @@ class RunEventsTest(unittest.TestCase):
         for name, replacement in patches.items():
             stack.enter_context(patch.object(run, name, **replacement))
         stack.enter_context(redirect_stdout(io.StringIO()))
-        return run.main(arguments)
+        return run.main(["--attended", *arguments])
 
     def test_D1_each_successful_move_appends_one_event(self):
         for (before, after), name in gate.MOVES.items():

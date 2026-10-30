@@ -27,7 +27,7 @@ class ConflictRetryTest(unittest.TestCase):
                     patch.object(run_cli, "retry_conflict",
                                  side_effect=Refused("bar changed", "shape again")), \
                     patch.object(run, "build_piece") as build, redirect_stderr(errors):
-                status = run.main(["--retry-conflict", "1"])
+                status = run.main(["--attended", "--retry-conflict", "1"])
             self.assertEqual(status, 2)
             self.assertIn("next: shape again", errors.getvalue())
             self.assertFalse(run.lock_path(project.root).exists())
@@ -46,7 +46,7 @@ class ConflictRetryTest(unittest.TestCase):
                     patch.object(run_cli.signal, "signal"), \
                     patch.object(run, "build_piece", return_value="retry started") as build, \
                     redirect_stdout(io.StringIO()):
-                run.main(["--retry-conflict", str(number)])
+                run.main(["--attended", "--retry-conflict", str(number)])
             self.assertEqual(build.call_count, 1)
             self.assertEqual(build.call_args.args[2], number)
             self.assertEqual(gate.state_of(project.gh.issue(number)), "ready")

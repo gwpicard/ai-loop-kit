@@ -234,7 +234,7 @@ class EndToEndTest(LandFixture, unittest.TestCase):
                 patch.object(run_cli, "repo_root", return_value=self.p.root), \
                 patch.object(run_cli, "GitHub", return_value=self.p.gh), \
                 patch.object(run_cli.signal, "signal"), redirect_stdout(out):
-            run.main([])
+            run.main(["--attended"])
         self.assertIn(f"piece {first}: merged into trip", out.getvalue())
         self.assertEqual(gate.state_of(self.p.gh.issue(first)), "done")
         self.assertIn(f"piece {second}: back to shaping, already satisfied", out.getvalue())

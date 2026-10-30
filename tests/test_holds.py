@@ -141,7 +141,7 @@ class RunHoldsTest(unittest.TestCase):
                     n for n, i in self.gh.issues.items() if "state:ready" in i["labels"])), \
                 patch.object(run, "build_piece", side_effect=self.build) as builder, \
                 redirect_stdout(out):
-            status = run.main([str(n) for n in pieces or []])
+            status = run.main(["--attended", *[str(n) for n in pieces or []]])
         return status, out.getvalue(), [c.args[2] for c in builder.call_args_list]
 
     def test_without_the_line_order_and_output_are_unchanged(self):

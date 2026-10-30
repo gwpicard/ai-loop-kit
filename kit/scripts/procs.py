@@ -101,6 +101,15 @@ def kill_active_processes() -> bool:
     return bool(groups)
 
 
+def lock_holder(root: Path) -> Optional[int]:
+    """The pid of the live run that holds the lock, read without taking the lock."""
+    try:
+        pid = int(json.loads(lock_path(root).read_text())["pid"])
+    except (ValueError, KeyError, TypeError, OSError):
+        return None
+    return pid if pid and process_alive(pid) else None
+
+
 def acquire_lock(root: Path) -> Path:
     """Create the run lock, taking over only when its recorded process is dead."""
     from loopkit import Refused

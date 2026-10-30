@@ -369,7 +369,7 @@ Keep: `npm test`
 | Protected paths | Only these protected paths may change; the guard lets the builder edit them for this piece |
 | New dependency | Any dependency added that is not named here fails the attempt |
 | Shared files | Ready warns when another ready piece names the same file |
-| Needs services | A piece that needs services is refused for walk-away |
+| Needs services | A piece that needs services is refused for walk-away; a run with no flag is then attended |
 | Open choices | Must be empty at ready: the person answers before the build |
 | Depends on (optional) | Pieces that must be done first. Ready refuses the piece's own number and a missing or dropped piece |
 
@@ -825,8 +825,10 @@ failure returns the piece to shaping as `environment`, with cause
 
 ### Walk-away runs
 
-`run.py --walk-away` is for a run nobody watches. It starts only if
-`gate.py doctor --walk-away` passes:
+A plain `run.py` is a walk-away run when `gate.py doctor --walk-away` passes,
+and otherwise falls back to an attended run with the reason. `--walk-away`
+refuses to start instead of falling back. The run starts only if the checks
+pass:
 
 - Claude Code 2.1.285 or later, or a working Codex.
 - A live probe: a real session must fail to write to the home folder, read
@@ -1058,13 +1060,15 @@ These facts about the platform shaped the design. Each one cost time once.
 
 ## 14. Where the kit goes next
 
-**Planned for 1.7: walking away by default.** These parts are not built yet.
-Today a walk-away run is asked for with `--walk-away`, and the local run page
-only shows progress.
+**1.7: walking away by default.** The default run is built; the other parts
+are not yet. The local run page only shows progress.
 
-- **Walk-away is the default run.** A run starts as walk-away when the
+- **Walk-away is the default run (built).** A run starts as walk-away when the
   walk-away preflight passes, and falls back to an attended run, with the
-  reason, when it does not.
+  reason, when it does not. `--attended` skips the checks and `--walk-away`
+  refuses when they fail. A piece that needs services makes the run attended.
+  `--detach` starts the run in its own session, so it outlives the Claude Code
+  session that started it. Only the Codex backend is still a preview.
 - **A dashboard.** A local server lists the pieces in shaping and the pieces
   that are ready. The person selects pieces and starts the run there, and the
   page becomes a live view of the state machine. GitHub labels remain the

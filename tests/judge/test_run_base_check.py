@@ -110,7 +110,7 @@ class RunBaseCheckTest(unittest.TestCase):
                 patch.object(run, "ready_pieces", side_effect=lambda *a: self.ready_pieces()), \
                 patch.object(run, "build_piece", side_effect=self.build), \
                 redirect_stdout(out):
-            status = run.main([])
+            status = run.main(["--attended"])
         return status, out.getvalue()
 
     def finish_blocker(self):
