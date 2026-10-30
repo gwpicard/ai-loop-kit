@@ -109,6 +109,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                    help="skip the unattended checks and run attended")
     p.add_argument("--detach", action="store_true",
                    help="start the run in its own session and return, logging to .loop/logs")
+    p.add_argument("--keep-going", action="store_true",
+                   help="also build pieces that become ready, or come back, during the run")
     p.add_argument("--agent", choices=("claude", "codex"),
                    help="override the ready record's non-interactive agent for this run")
     p.add_argument("--retry-conflict", type=int, metavar="PIECE",
@@ -198,7 +200,9 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         results.extend(api.recover_building(gh, root))
         gate.sync(gh, root)
         pieces = args.pieces or api.ready_pieces(gh, api.log)
-        record_pieces(root, pieces, [])
+        recorded = record_pieces(root, pieces, [])
+        initial = set(api.ready_pieces(gh, api.log)) if args.keep_going and args.pieces \
+            else set(pieces)
         render_page()
         if not pieces:
             print("Nothing is ready. Shape a piece first.")
@@ -206,9 +210,30 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
             print("\n".join(line for line in results if "final pull request" in line.lower()))
             return 0
         wants, pending, tried = holds.wanted(gh, pieces), list(pieces), {}
-        while pending:
-            n, held = holds.pick(gh, pending, wants, tried)
-            if n is None:  # every piece left waits for one that is not done
+        handed_back: set[int] = set()
+        rejoined: set[int] = set()
+
+        def join_ready() -> bool:
+            """Add pieces that became ready, or came back, since the run began."""
+            nonlocal recorded
+            found = [n for n in api.ready_pieces(gh, api.log) if n not in pending and (
+                (n not in initial and n not in tried and n not in pieces)
+                or (n in handed_back and n not in rejoined))]
+            if not found:
+                return False
+            rejoined.update(n for n in found if n in tried)
+            wants.update(holds.wanted(gh, found))
+            pending.extend(found)
+            pieces.extend(n for n in found if n not in pieces)
+            recorded = record_pieces(root, [n for n in found if n not in recorded], recorded)
+            render_page()
+            return True
+
+        while True:
+            n, held = holds.pick(gh, pending, wants, tried) if pending else (None, {})
+            if n is None:  # nothing is left, or every piece left waits for one not done
+                if args.keep_going and not api.stop_requested(root) and join_ready():
+                    continue
                 results.extend(held.values())
                 if walk_away:
                     summary_results.extend(walkaway.piece_summary(root, p, line, "ready", started_at)
@@ -243,6 +268,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 result = f"piece {n}: stopped by an error: {e}"
             results.append(result)
             tried[n] = result
+            if state == "shaping":
+                handed_back.add(n)
             if walk_away:
                 summary_results.append(walkaway.piece_summary(root, n, result, state, started_at))
         final_pull_request(api, gh, root, results)
