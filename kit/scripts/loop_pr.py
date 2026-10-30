@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 import holds
-from loopkit import CHECK_FILES, GitHub, base_branch, loop_settings, rev, sh
+from loopkit import CHECK_FILES, GitHub, base_branch, loop_settings, rev, sh, sh_network
 
 BODY_LIMIT = 60000  # GitHub refuses a body above 65,536 characters
 HELD = ("back to shaping", "refused", "stopped by an error", "held until")
@@ -33,7 +33,7 @@ def final_pull_request(gh: GitHub, root: Path, results: list[str]) -> str:
     if not rev(root, "HEAD") or base_branch(root) == "main":
         return ""
     base = base_branch(root)
-    sh(["git", "fetch", "--quiet", "origin", "main", base], root, check=False)
+    sh_network(["git", "fetch", "--quiet", "origin", "main", base], root, check=False)
     ahead = sh(["git", "rev-list", "--count", f"origin/main..origin/{base}"], root, check=False)
     if ahead.returncode or ahead.stdout.strip() == "0":
         return ""

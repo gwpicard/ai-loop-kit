@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import gate
-from loopkit import (GitHub, branch_name, changed_check_settings, last_record, main_ref, rev, sh)
+from loopkit import (GitHub, branch_name, changed_check_settings, last_record, main_ref, rev, sh, sh_network)
 import run
 
 def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str]:
@@ -92,7 +92,7 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                       k: int, output: str, review: Optional[dict] = None,
                       seconds: float = 0) -> str:
-    sh(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
+    sh_network(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
     existing = gh.pr_for_branch(branch_name(n))
     url = existing["url"] if existing and existing["state"] == "OPEN" else ""
     checked = {}

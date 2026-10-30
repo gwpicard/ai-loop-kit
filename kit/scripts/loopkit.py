@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import network
 from errors import Refused
 from failures import judge_assertion_failed, judge_has_runner_error  # noqa: F401
 from spec import Spec as Spec
@@ -153,6 +154,14 @@ def sh(args: list[str], cwd: Path, check: bool = True,
     return res
 
 
+def sh_network(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
+    """A `git` call that waits on the network (fetch, push), under the network limit."""
+    try:
+        return sh(args, cwd, check=check, timeout=network.NETWORK_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise network.step_timeout(" ".join(args[:2])) from None
+
+
 def repo_root(start: Path) -> Path:
     return Path(sh(["git", "rev-parse", "--show-toplevel"], start).stdout.strip())
 
@@ -171,9 +180,9 @@ def refresh_main(root: Path) -> None:
     if "origin" not in sh(["git", "remote"], root, check=False).stdout.split():
         return
     try:
-        failed = sh(["git", "fetch", "--quiet", "origin", "main"], root, check=False,
-                    timeout=60).returncode != 0
-    except subprocess.TimeoutExpired:
+        failed = sh_network(["git", "fetch", "--quiet", "origin", "main"], root,
+                            check=False).returncode != 0
+    except network.StepTimeout:
         failed = True
     if failed:
         print("warning: could not fetch main from origin; loop settings may be out of date",
@@ -229,7 +238,7 @@ def main_ref(root: Path) -> str:
         return cache[key]
     base = base_branch(root)
     if sh(["git", "remote"], root).stdout.strip():
-        sh(["git", "fetch", "--quiet", "origin", base], root, check=False)
+        sh_network(["git", "fetch", "--quiet", "origin", base], root, check=False)
     for result in (f"origin/{base}", base):
         if rev(root, result):
             if cache is not None:
@@ -628,8 +637,7 @@ class GitHub:
         self.root = root
 
     def _gh(self, *args: str, stdin: Optional[str] = None) -> str:
-        res = subprocess.run(["gh", *args], cwd=self.root, capture_output=True,
-                             text=True, input=stdin)
+        res = network.run_limited(["gh", *args], self.root, " ".join(["gh", *args[:2]]), stdin)
         if res.returncode != 0:
             text = res.stderr.strip()
             text = text if args[0] == "auth" else text.partition("\n")[0]
@@ -697,10 +705,12 @@ class GitHub:
         try:
             repo = self._gh("repo", "view", "--json", "nameWithOwner", "--jq",
                             ".nameWithOwner").strip()
+        except network.StepTimeout:
+            raise
         except (RuntimeError, AttributeError):
             return "unknown"
-        result = subprocess.run(["gh", "api", f"repos/{repo}/branches/main/protection"],
-                                cwd=self.root, capture_output=True, text=True)
+        result = network.run_limited(["gh", "api", f"repos/{repo}/branches/main/protection"],
+                                     self.root, "gh api")
         if result.returncode == 0:
             return "enabled"
         if "404" in result.stderr or "Not Found" in result.stderr:

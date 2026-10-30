@@ -4,7 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import gate
-from loopkit import STATE_PREFIX, GitHub, Refused, branch_name, records, rev, sh
+from loopkit import STATE_PREFIX, GitHub, Refused, branch_name, records, rev, sh, sh_network
+from network import StepTimeout
 
 NOTE = ("The run stopped after the gate recorded the submit, so the next run finished the "
         "move. The review was not repeated and its findings were not kept.")
@@ -34,7 +35,11 @@ def finish_submit(gh: GitHub, root: Path, n: int) -> bool:
     submit = found[-1] if found else {}
     if submit.get("move") != "submit" or not submit.get("commit"):
         return False
-    if sh(["git", "fetch", "--quiet", "origin", branch_name(n)], root, check=False).returncode:
+    try:
+        if sh_network(["git", "fetch", "--quiet", "origin", branch_name(n)], root,
+                      check=False).returncode:
+            return False
+    except StepTimeout:  # counts as a failed fetch
         return False
     head = sh(["git", "rev-parse", "FETCH_HEAD"], root, check=False).stdout.strip()
     if head != submit["commit"]:

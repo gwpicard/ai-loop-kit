@@ -25,7 +25,7 @@ import walkaway  # noqa: E402
 from loopkit import (LOCKFILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
                      base_branch, base_merges, last_record, loop_settings, main_ref, exclude_paths, prepare, record_prepare_outputs, record_text, rev,
-                     records, sh, untracked_paths)
+                     records, sh, sh_network, untracked_paths)
 from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
 from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,F401
@@ -131,7 +131,7 @@ def latest_main_commit(folder: Path) -> Optional[str]:  # noqa: UP045
     """Refresh the remote base before deciding whether a failed check is stale."""
     main = main_ref(folder)
     if main.startswith("origin/"):
-        sh(["git", "fetch", "--quiet", "origin", main.removeprefix("origin/")], folder, check=False)
+        sh_network(["git", "fetch", "--quiet", "origin", main.removeprefix("origin/")], folder, check=False)
     return rev(folder, main)
 
 
@@ -293,7 +293,7 @@ def worktree(root: Path, n: int) -> Path:
 def check_pushed_branch(root: Path, n: int) -> None:
     """Refuse before claim if GitHub has commits missing from the local branch."""
     branch = branch_name(n)
-    if sh(["git", "fetch", "--quiet", "origin", branch], root, check=False).returncode != 0:
+    if sh_network(["git", "fetch", "--quiet", "origin", branch], root, check=False).returncode != 0:
         return  # not pushed yet
     remote = sh(["git", "rev-parse", "FETCH_HEAD"], root).stdout.strip()
     if sh(["git", "merge-base", "--is-ancestor", remote, branch], root, check=False).returncode:
