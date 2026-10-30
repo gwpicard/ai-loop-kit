@@ -766,13 +766,22 @@ run.py
   `.loop/` files but refuses other untracked work. A write failure warns once
   and leaves the run and gate moves running.
 - **Local run page.** The run writes `.loop/dashboard.html` after each event
-  and prints its full path. The run skill reports that path. The static page
+  and prints its full path; `gate.py sync` writes it again. The static page
   includes all its data and refreshes every five seconds without a server.
   It shows each selected piece's last recorded state, attempt, UTC time and
   pull request link, plus the run state and last event. Earlier runs are
   excluded. A visible notice reports disagreements with the GitHub labels,
   which remain the source of truth, or a failed GitHub check. Text is escaped.
   A page write failure warns and leaves the run running.
+- **Dashboard server.** The run skill starts `dashboard_server.py`, which
+  serves a live view of every piece and the run on localhost, and prints a URL
+  that carries a token. The token is set in an HttpOnly cookie. Reads use GET and
+  HEAD and change nothing. Three POST actions each require the token in a
+  header and the server's own origin. They start a detached run of ticked
+  ready pieces, save the notification setting, or record the answer to a
+  builder's question as `gate.py answer` does. A failed walk-away check refuses the run and is
+  listed with its fix. Notifications appear on the page and, if the person
+  turns them on, on macOS, where the text reaches `osascript` as an argument.
 - **Idle limit.** An attempt stops after ten minutes with no output and no
   file change in the build folder (`Idle limit:` changes it). The hard limit
   is 40 minutes. Judge runs have a 900-second limit; Keep uses `Keep limit:`.
@@ -1061,8 +1070,8 @@ These facts about the platform shaped the design. Each one cost time once.
 
 ## 14. Where the kit goes next
 
-**1.7: walking away by default.** The default run is built; the other parts
-are not yet. The local run page only shows progress.
+**1.7: walking away by default.** All four parts are built and pass the
+kit's own checks. None of the 1.7 code has yet run on a real project.
 
 - **Walk-away is the default run (built).** A run starts as walk-away when the
   walk-away preflight passes, and falls back to an attended run, with the
@@ -1070,16 +1079,16 @@ are not yet. The local run page only shows progress.
   refuses when they fail. A piece that needs services makes the run attended.
   `--detach` starts the run in its own session, so it outlives the Claude Code
   session that started it. Only the Codex backend is still a preview.
-- **A dashboard.** A local server lists the pieces in shaping and the pieces
-  that are ready. The person selects pieces and starts the run there, and the
-  page becomes a live view of the state machine. GitHub labels remain the
-  source of truth.
-- **The run reports and asks.** It notifies the person when a piece lands or
-  is handed back, when the run finishes, and when it goes quiet for too long.
+- **A dashboard (built).** A local server lists the pieces in shaping and
+  the pieces that are ready. The person selects pieces and starts the run
+  there, and the page becomes a live view of the state machine. GitHub labels
+  remain the source of truth.
+- **The run reports and asks (built).** It notifies the person when a piece
+  lands or is handed back, when the run finishes, and when it goes quiet for too long.
   When it meets a choice it cannot settle, it asks a question on the
   dashboard and holds that piece and its dependents.
-- **Pieces that wait to become ready.** A piece whose contract is approved
-  and whose judge is captured may wait for its dependencies; the run puts it
+- **Pieces that wait to become ready (built).** A piece whose contract is
+  approved and whose judge is captured may wait for its dependencies; the run puts it
   through the ready check when they land. A new project can then be shaped
   in one sitting.
 
