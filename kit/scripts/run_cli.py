@@ -77,7 +77,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         except Refused as error:
             print(f"refused: {error.reason}\nnext: {error.next_step}", file=sys.stderr)
             return 2
-        if not print_checks(gate.doctor(gh, root, walk_away=True, agent=args.agent)):
+        if not print_checks(gate.doctor(gh, root, walk_away=True, agent=args.agent,
+                                       pieces=selected)):
             print("refused: walk-away pre-run check failed", file=sys.stderr)
             return 2
     started_at = datetime.now(timezone.utc)

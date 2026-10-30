@@ -14,12 +14,15 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import agents
+import holds
 import sandbox
 from loopkit import (JUDGE_TIMEOUT, STATE_PREFIX, Refused, base_merges, command_env,
-                     loop_settings, main_ref, prepare, run_judge, secret_env_names, sh)
+                     last_record, loop_settings, main_ref, prepare, run_judge, secret_env_names, sh)
 
 MIN_FREE_BYTES = 10 * 1024 ** 3
 STALE_AFTER_SECONDS = 10 * 60
+NO_TESTS_SKIP = "skipped: the base branch has no tests yet; the scaffold piece adds them"
+NO_TESTS_STEP = "shape and ready a scaffold piece first"
 
 
 def approved_domains(root: Path) -> list[str]:
@@ -60,8 +63,24 @@ def codex_sandbox_test(root: Path, timeout: int = JUDGE_TIMEOUT) -> tuple[bool, 
         sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
 
 
+def base_has_tests(root: Path) -> bool:
+    from doctor import TEST_PATH
+    files = sh(["git", "ls-tree", "-r", "--name-only", main_ref(root)], root).stdout.splitlines()
+    return any(TEST_PATH.search(path.lower()) for path in files)
+
+
+def empty_base_scaffold(gh, root: Path, pieces: list[int]) -> bool:
+    """True when the base has no tests and the piece the run builds first is a ready scaffold."""
+    if base_has_tests(root):
+        return False
+    first, _ = holds.pick(gh, list(pieces), holds.wanted(gh, pieces), {})
+    return first is not None and (last_record(gh.comments(first), "ready") or {}
+                                  ).get("kind") == "scaffold"
+
+
 def preflight(gh, root: Path, *, baseline_checked: bool = False,
-              agent: Optional[str] = None) -> list[tuple[bool, str, str]]:
+              agent: Optional[str] = None,
+              pieces: Optional[list[int]] = None) -> list[tuple[bool, str, str]]:
     """Return explicit checks. A failed check always has one next step."""
     checks = []
     try:
@@ -130,6 +149,8 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
                          f"approval queue is below its limit ({waiting}/{waiting_limit})",
                          "review or merge an approval pull request, then retry"))
 
+    empty = pieces is not None and not base_has_tests(root)
+    scaffold = empty and empty_base_scaffold(gh, root, pieces)
     if not baseline_checked:
         try:
             main = main_ref(root)
@@ -141,11 +162,14 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
                 test_code, test_output = run_judge(folder, settings.get("test", ""))
                 checks.append(_check(prepared, "Prepare passes on a fresh main worktree",
                                      "fix the Prepare command before retrying the walk-away run"))
-                checks.append(_check(test_code == 0, "Test passes on a fresh main worktree",
+                checks.append(_check(test_code == 0 or scaffold, "Test passes on a fresh main worktree",
+                                     NO_TESTS_STEP if empty else
                                      "fix the Test command before retrying the walk-away run"))
+                if scaffold:
+                    checks[-1] = (True, f"Test on a fresh main worktree: {NO_TESTS_SKIP}", "")
                 if not prepared:
                     checks[-2] = (False, checks[-2][1] + ": " + poutput[-300:].strip(), checks[-2][2])
-                if test_code:
+                if test_code and not scaffold:
                     checks[-1] = (False, checks[-1][1] + ": " + test_output[-300:].strip(), checks[-1][2])
             finally:
                 sh(["git", "worktree", "remove", "--force", str(folder)], root, check=False)
@@ -165,11 +189,13 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
                          "resolve the active sandbox probe failure, then run gate.py doctor --walk-away"))
     if not active:
         checks[-1] = (False, checks[-1][1] + f": {detail}", checks[-1][2])
-    if backend != "claude" and active:
+    if scaffold and backend != "claude" and active:
+        checks.append((True, f"the Test command inside the Codex builder sandbox: {NO_TESTS_SKIP}", ""))
+    elif backend != "claude" and active:
         tested, output = codex_sandbox_test(root)
         checks.append(_check(tested, "the Test command passes inside the Codex builder sandbox"
                              + ("" if tested else f": {output}"),
-                             "fix the refused path or tool named above (an old uv can panic in "
+                             NO_TESTS_STEP if empty else "fix the refused path or tool named above (an old uv can panic in "
                              "the sandbox: upgrade it), then run gate.py doctor --walk-away"))
     return checks
 

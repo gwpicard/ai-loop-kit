@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TOTAL_BUDGET = 7670
+TOTAL_BUDGET = 7699
 
 
 def python_lines(root):
