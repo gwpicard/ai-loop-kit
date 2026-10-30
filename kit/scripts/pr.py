@@ -91,13 +91,13 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                       k: int, output: str, review: Optional[dict] = None,
-                      seconds: float = 0) -> str:
+                      seconds: float = 0, usage: Optional[dict] = None) -> str:
     sh_network(["git", "push", "--quiet", "-u", "origin", branch_name(n)], folder)
     existing = gh.pr_for_branch(branch_name(n))
     url = existing["url"] if existing and existing["state"] == "OPEN" else ""
     checked = {}
     gate.move(gh, root, n, "approval", folder=folder, pr=url, attempts=k, seconds=seconds,
-              evidence=checked)
+              evidence=checked, usage=usage)
     return finish_pull_request(gh, root, folder, n, issue, k, output, review, url,
                                checked["output"])
 

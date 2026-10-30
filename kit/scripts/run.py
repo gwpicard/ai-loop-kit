@@ -112,7 +112,8 @@ def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
                metrics: dict, cause: str = "") -> str:
     """Return a claimed piece with the run's actual attempt count and duration."""
     gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type, cause=cause,
-              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"])
+              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"],
+              usage=metrics.get("usage"))
     return f"piece {n}: back to shaping, {reason}"
 
 
@@ -123,7 +124,8 @@ def _requeue(gh: GitHub, root: Path, n: int, reason: str, cause: str, metrics: d
         return _hand_back(gh, root, n, f"returned to ready twice; {reason}", "environment",
                           metrics, cause)
     gate.move(gh, root, n, "ready", reason=reason, reason_type="environment", cause=cause,
-              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"])
+              attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"],
+              usage=metrics.get("usage"))
     return f"piece {n}: returned to ready: {reason}"
 
 
@@ -366,7 +368,7 @@ def _review_and_land(gh: GitHub, root: Path, folder: Path, n: int, k: int, issue
             return f"piece {n}: back to shaping, contract finding reproduced"
     return landing.land(gh, root, folder, n, open_pull_request(
         gh, root, folder, n, issue, k, output, review,
-        time.monotonic() - metrics["started"]), review)
+        time.monotonic() - metrics["started"], metrics.get("usage")), review)
 
 
 def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
@@ -468,15 +470,19 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
         attempt_start = rev(folder, "HEAD") or "HEAD"
+        attempt_event: dict = {}
         idle_status = build_once(
             folder, prompt, ready["files"], logfile, ready.get("settings", False),
             idle_limit_seconds(folder, ready.get("idle_limit")),
             ready.get("protected_paths", []), build_contract, walk_away, domains,
-            {}, backend=ready["agent"], model=ready.get("agent_model", ""),
+            attempt_event, backend=ready["agent"], model=ready.get("agent_model", ""),
             effort=ready.get("agent_effort", ""),
             protected_exceptions=ready.get("risks", {}).get("protected_paths", []),
             on_wait=lambda seconds: log(
                 f"piece {n}: usage limit; waiting {seconds} seconds before one retry"))
+        for key, value in agents.usage_from(attempt_event).items():
+            metrics["usage"] = {**metrics.get("usage", {}),
+                                key: metrics.get("usage", {}).get(key, 0) + value}
         if idle_status == "usage-limit":
             reason = ("Claude Code remained rate limited after one reset wait; "
                       "retry this walk-away run")
@@ -638,9 +644,9 @@ def pull_request_facts(folder: Path, ready: dict, output: str) -> tuple[str, str
 
 def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                       k: int, output: str, review: Optional[dict] = None,
-                      seconds: float = 0) -> str:
+                      seconds: float = 0, usage: Optional[dict] = None) -> str:
     import pr
-    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review, seconds)
+    return pr.open_pull_request(gh, root, folder, n, issue, k, output, review, seconds, usage)
 
 
 def main(argv: Optional[list[str]] = None) -> int:

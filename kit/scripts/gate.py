@@ -450,11 +450,16 @@ def _kit_version() -> str:
         return "unknown"
 
 
+def _usage_keys(source: dict | None) -> dict:
+    """The reported cost and token figures; a key with no figure is not written."""
+    return {key: source[key] for key in ("cost_usd", "tokens") if source and key in source}
+
+
 def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
          reason_type: str = "", folder: Optional[Path] = None, pr: str = "",
          cause: str = "", attempts: Optional[int] = None,
          seconds: Optional[float] = None, evidence: dict | None = None,
-         needs_you: bool = False) -> str:
+         needs_you: bool = False, usage: dict | None = None) -> str:
     issue = gh.issue(n)
     frm = state_of(issue)
     name = MOVES.get((frm, to))
@@ -536,6 +541,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             evidence["output"] = output
         record["attempts"] = max(0, int(attempts or 0))
         record["seconds"] = round(max(0.0, float(seconds or 0)), 3)
+        record.update(_usage_keys(usage))
         note += f" The gate ran the judge and it passed. Pull request: {pr}"
     elif name == "merged":
         found = gh.pr_for_branch(branch_name(n))
@@ -557,6 +563,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             "seconds": round(max(0.0, float(elapsed)), 3),
             "kit": _kit_version(),
             "date": datetime.now(timezone.utc).date().isoformat(),
+            **_usage_keys(usage if usage is not None else previous_submit),
         })
     add = [STATE_PREFIX + to]
     remove = [STATE_PREFIX + frm]
