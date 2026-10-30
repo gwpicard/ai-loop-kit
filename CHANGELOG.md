@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0 (30 October 2026)
+
+Walk-away becomes the default run. A local dashboard starts and follows runs.
+Builders can ask questions, which you answer on the dashboard or with
+`gate.py answer`. Pieces can wait for their blockers before they are built. See the [1.7.0 release notes](docs/release-notes/v1.7.0.md).
+
 ## 1.6.1 (29 October 2026)
 
 Fixes from using 1.6.0: run faults return a piece to ready and a passing earlier

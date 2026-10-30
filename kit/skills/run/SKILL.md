@@ -12,8 +12,8 @@ description: Build ready pieces with the selected Claude Code or Codex backend a
 
 ## Steps
 1. Show ready pieces; each gets three attempts by default. If none are ready, suggest `/ai-loop-kit:shape` and stop.
-2. Start `"<KIT>/bin/kit-python" "<KIT>/scripts/run.py" --detach`, writing KIT in full; it outlives this session. Optional piece numbers select pieces. `Agent:` in AGENTS.md selects the backend; `--agent codex` or `--agent claude` overrides it. It walks away when the unattended checks pass, else runs attended and names the failed check; `--attended` forces that.
-3. Print the full path to `.loop/dashboard.html`, the run page. Read the printed log until "Run finished." Report every pull request link, hand-back reason and held piece with its `next:` step. The person reviews and merges, unless `Base merges: run` merged it into the base.
+2. Start `"<KIT>/bin/kit-python" "<KIT>/scripts/run.py" --detach`, writing KIT in full; it outlives this session. Optional piece numbers select pieces. `Agent:` in AGENTS.md selects the backend; `--agent codex` or `--agent claude` overrides it. It walks away when the unattended checks pass, else runs attended and names the failed check; `--attended` forces that. `--keep-going` also builds pieces that become ready, or come back, while it works.
+3. Start `"<KIT>/bin/kit-python" "<KIT>/scripts/dashboard_server.py"` in the background and give the person the URL it prints, the live dashboard, and the full path to `.loop/dashboard.html`, the run page. Read the printed log until "Run finished." Report every pull request link, hand-back reason and held piece with its `next:` step. For a builder's question, give its recommendation and offer `gate.py answer <n> --text "<answer>"`, with `--reshape` to change the contract. The person reviews and merges, unless `Base merges: run` merged it into the base.
 4. After merges, run `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" sync`.
 
 If interrupted, orphaned, locked, dirty, stopped, conflicting or returned for environment trouble, load [run-recovery](../run-recovery/SKILL.md).

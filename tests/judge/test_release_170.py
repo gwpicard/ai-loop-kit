@@ -4,19 +4,19 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-NOTES = ROOT / "docs/release-notes/v1.6.1.md"
+NOTES = ROOT / "docs/release-notes/v1.7.0.md"
 
 
-class Release161Test(unittest.TestCase):
-    def test_plugin_version_is_161(self):
+class Release170Test(unittest.TestCase):
+    def test_plugin_version_is_170(self):
         plugin = json.loads((ROOT / "kit/.claude-plugin/plugin.json").read_text())
-        self.assertEqual(plugin["version"], "1.6.1")
+        self.assertEqual(plugin["version"], "1.7.0")
 
     def test_changelog_links_the_release_notes(self):
         changelog = (ROOT / "CHANGELOG.md").read_text()
-        release = changelog.split("## 1.6.0", 1)[0]
-        self.assertIn("## 1.6.1", release)
-        self.assertIn("docs/release-notes/v1.6.1.md", release)
+        release = changelog.split("## 1.6.1", 1)[0]
+        self.assertIn("## 1.7.0", release)
+        self.assertIn("docs/release-notes/v1.7.0.md", release)
 
     def test_release_notes_have_the_standard_sections(self):
         notes = NOTES.read_text()
@@ -33,8 +33,8 @@ class Release161Test(unittest.TestCase):
     def test_version_pins_are_updated(self):
         for name in ("tests/test_loop.py", "tests/test_run.py", "tests/run_fixtures.py"):
             source = (ROOT / name).read_text()
-            self.assertIn('"1.6.1"', source)
-            self.assertNotIn('"1.6.0"', source)
+            self.assertIn('"1.7.0"', source)
+            self.assertNotIn('"1.6.1"', source)
 
     def test_tracked_files_have_no_issue_or_pull_request_numbers(self):
         pattern = "(^|[^A-Za-z0-9$}])" + chr(35) + "[0-9]{2,4}([^0-9]|$)"

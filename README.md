@@ -91,6 +91,8 @@ To build with nobody watching, ask Claude to start a run. When a live probe show
 
 If a check fails, or a piece needs services, the run is attended instead. It prints which check failed and how to fix it. Add `--attended` to choose an attended run, or `--walk-away` to refuse to run unless the checks pass. The Codex backend stays a preview, and a Codex run says so.
 
+When Claude starts a run, it also gives you the address of a local dashboard. The page shows every piece and the run as they change, and you can tick ready pieces there and start a run. When a builder meets a choice it cannot settle, the builder hands the piece back with a question, usually with a recommendation: answer and retry, or answer and reshape the piece. Answer on the page, or tell Claude the answer. Notifications appear on the page and, if you turn them on, on your Mac. Ask Claude to keep going if the run should also build pieces that become ready while it works.
+
 Walk-away runs are the way the kit is meant to be used.
 
 ## Previews
