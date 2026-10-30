@@ -20,8 +20,8 @@ how it works and why.
 - History (the old ledger, lessons, build notes, the first kit and its design)
   is kept outside the repository. Do not treat it as current.
 - `.agents/maintainer-skills/`: `humanizer`, `release-notes`,
-  `review-issues`, `review-public-docs`, `stack-research` and
-  `writing-review`, for the maintainer.
+  `review-issues`, `review-public-docs` and `writing-review`, for the
+  maintainer.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
 - `.githooks/commit-msg`: strips model attribution from commit messages.
 
