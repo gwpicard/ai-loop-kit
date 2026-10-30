@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Finish a piece whose submit was recorded before the run died."""
 from __future__ import annotations
 
