@@ -238,11 +238,17 @@ def main() -> int:
     args = parser.parse_args()
     try:
         data = json.loads(args.input.read_text())
-        fields, tools, output = agents.CAPABILITIES[args.role]
+        fields, tools, output, optional = agents.CAPABILITIES[args.role]
         if isinstance(data, dict) and "Contract" in data and not isinstance(data["Contract"], str):
             raise Refused("Contract must be a string",
                           "encode Contract as one JSON string, using \\n between items")
-        if not isinstance(data, dict) or set(data) != set(fields) or any(
+        if isinstance(data, dict):
+            for key in optional:
+                if key in data and not isinstance(data[key], str):
+                    raise Refused(f"{key} must be a string",
+                                  f"encode {key} as one JSON string, or leave it out")
+        allowed = {*fields, *optional}
+        if not isinstance(data, dict) or not set(fields) <= set(data) <= allowed or any(
                 not isinstance(data[key], str) or (key != "Approach" and not data[key].strip())
                 for key in fields):
             raise ValueError(f"{args.role} input requires only: {', '.join(fields)}")

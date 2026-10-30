@@ -4,7 +4,9 @@ Write judges for the approved Intent, Approach and Contract. Files lists the
 spec's Exit paths, one per line. Write only to these exact paths. Do not
 choose other names or add helpers elsewhere. You see code, not shaping chat.
 
-Call the public interface. Put each Contract ID in a test name. Start each
+Call the public interface. Dependencies, when given, holds the Approach of
+pieces that will exist when this one builds; call their public interfaces.
+Put each Contract ID in a test name. Start each
 file with a one-line Intent comment. Keep test IDs unique; rename stale tests
 that clash with a new Contract ID.
 
