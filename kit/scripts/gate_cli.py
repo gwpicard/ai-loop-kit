@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("to", choices=STATES)
     m.add_argument("--reason", default="")
     m.add_argument("--type", dest="reason_type", choices=REASON_TYPES, default="")
+    a = sub.add_parser("answer", help="answer a builder's question")
+    a.add_argument("n", type=int)
+    a.add_argument("--text", required=True)
+    a.add_argument("--reshape", action="store_true", help="send the piece back to shaping")
     s = sub.add_parser("spec")
     s.add_argument("n", type=int)
     s.add_argument("--body-file", required=True)
@@ -69,7 +73,7 @@ def main(argv: list[str] | None = None, api=None) -> int:
 
     root = repo_root(Path.cwd())
     gh = GitHub(root)
-    if args.cmd in ("check", "move"):  # ready and claim read settings from main
+    if args.cmd in ("check", "move", "answer"):  # ready and claim read settings from main
         refresh_main(root)
     try:
         if args.cmd == "init":
@@ -84,6 +88,8 @@ def main(argv: list[str] | None = None, api=None) -> int:
             print(f"ok: piece {args.n} would pass the ready gate (bar {rec['bar'][:12]})")
         elif args.cmd == "move":
             print("ok: " + api.move(gh, root, args.n, args.to, args.reason, args.reason_type))
+        elif args.cmd == "answer":
+            print("ok: " + api.answer(gh, root, args.n, args.text, args.reshape))
         elif args.cmd == "spec":
             api.replace_spec(gh, args.n, Path(args.body_file).read_text())
             print(f"ok: piece {args.n} spec replaced")

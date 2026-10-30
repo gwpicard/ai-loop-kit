@@ -4,7 +4,8 @@
 Usage: `kit-python dashboard_server.py` prints a URL with a token and serves
 until closed. It reads `.loop/events.jsonl` and GitHub. Its one action is
 `POST /api/run`, which starts a detached walk-away run, and
-`POST /api/preferences`, which saves the notification setting.
+`POST /api/preferences`, which saves the notification setting, and
+`POST /api/answer`, which records the answer to a builder's question.
 """
 from __future__ import annotations
 if __name__ == "__main__":
@@ -24,11 +25,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import answers
 import dashboard_run
 import holds
 import notifications
 import procs
-from loopkit import STATE_PREFIX, GitHub, branch_name, records
+from loopkit import NEEDS_YOU, STATE_PREFIX, GitHub, branch_name, records
 
 POLL_SECONDS = 1.0      # how often the events file is checked
 GITHUB_SECONDS = 20.0   # the longest GitHub state goes without a refresh
@@ -40,7 +42,7 @@ CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'sel
 LANE_ORDER = ("to-shape", "shaped", "in-run", "landed")
 HANDED_BACK = ("give-back", "reject")
 MAX_BODY = 4096
-POSTS = ("/api/run", "/api/preferences")
+POSTS = ("/api/run", "/api/preferences", "/api/answer")
 
 
 def read_events(root: Path) -> tuple[list[dict], list[str]]:
@@ -70,8 +72,8 @@ def _states(issue: dict) -> list[str]:
             if label.startswith(STATE_PREFIX)]
 
 
-def _reason(gh, n: int) -> str | None:
-    found = [r for r in records(gh.comments(n)) if r.get("move") in HANDED_BACK]
+def _reason(comments: list[str]) -> str | None:
+    found = [r for r in records(comments) if r.get("move") in HANDED_BACK]
     return str(found[-1].get("reason", ""))[:500] if found else None
 
 
@@ -102,7 +104,7 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
         notices.append("Could not reach GitHub. Showing local events.")
     numbers = sorted({n for n, i in issues.items()
                       if len(_states(i)) == 1} | in_run)
-    pieces = []
+    pieces, questions, asked = [], set(), None
     for n in numbers:
         event, issue, lost, risks, lane = latest.get(n, {}), issues.get(n), False, {}, None
         try:
@@ -118,8 +120,10 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
             lane, stage, waiting, reason, url = None, state, [], None, None
             if state == "shaping":
                 lane, stage = ("in-run", "handed-back") if n in handed else ("to-shape", "shaping")
-                if n in handed and reachable:
-                    reason = _reason(gh, n)
+                if (n in handed or NEEDS_YOU in issue["labels"]) and reachable:
+                    notes = gh.comments(n)
+                    reason = _reason(notes) if n in handed else None
+                    asked = answers.latest_question(notes)
             elif state == "ready":
                 if reachable:
                     risks = dashboard_run.ready_risks(gh, n)
@@ -151,10 +155,18 @@ def snapshot(root: Path, gh, starting: bool = False) -> dict:
                  "lane": lane, "stage": stage, "attempt": event.get("attempt") or 0,
                  "since": event.get("time"), "last_event": event.get("event"),
                  "pr_url": url, "waiting_on": waiting, "handback_reason": reason}
+        if asked:
+            found["question"] = asked
+            questions.add(n)
+            asked = None
         if lane == "shaped":
             found.update(depends_on=risks.get("depends_on") or [],
                          needs_services=risks.get("needs_services") or [])
         pieces.append(found)
+    open_questions = {p["number"] for p in pieces if p.get("question", {}).get("answered") is False}
+    for p in pieces:
+        if blocking := [d for d in p["waiting_on"] if d in open_questions]:
+            p["question_blockers"] = blocking
     pieces.sort(key=lambda p: (LANE_ORDER.index(p["lane"]), p["number"]))
     return {"run": {"status": status, "started": next(
                 (e.get("time") for e in events if e.get("event") == "run-start"), None),
@@ -225,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"not found")
 
     def _post(self, dash: Dashboard, path: str) -> None:
-        """Start a run or save the setting. Needs the token header, JSON and the server's own origin."""
+        """Start a run, save a setting or record an answer. Needs the token header, JSON and the server's own origin."""
         origin = self.headers.get("Origin")
         if not dash.is_token(self.headers.get("X-Loop-Token", "")) or (
                 origin is not None and origin not in {f"http://{h}" for h in dash.hosts}):
@@ -239,6 +251,9 @@ class Handler(BaseHTTPRequestHandler):
             body = None
         if path == "/api/preferences":
             status, answer = notifications.save_preferences(dash.root, body)
+            dash.publish()
+        elif path == "/api/answer":
+            status, answer = dashboard_run.answer(dash, body)
             dash.publish()
         else:
             status, answer = dashboard_run.start(dash, body)

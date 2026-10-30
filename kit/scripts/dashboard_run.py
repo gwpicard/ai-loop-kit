@@ -1,15 +1,17 @@
-"""Start a walk-away run for the pieces ticked on the dashboard.
+"""Start a walk-away run for the pieces ticked on the dashboard, or record an answer.
 
 `start` checks the pieces and the walk-away checks, then starts the detached run.
-It writes nothing itself: the run's log is the only file.
+It writes nothing itself: the run's log is the only file. `answer` writes only what
+`gate.py answer` writes.
 """
 from __future__ import annotations
 
+import answers
 import gate
 import holds
 import procs
 import run_cli
-from loopkit import Refused, last_record
+from loopkit import Refused, last_record, refresh_main
 
 
 def ready_risks(gh, n: int) -> dict:
@@ -43,6 +45,24 @@ def start(dash, body) -> tuple[int, dict]:
     finally:
         dash.starting = False
         dash.publish()
+
+
+def answer(dash, body) -> tuple[int, dict]:
+    """Record the person's answer to a builder's question, as `gate.py answer` does."""
+    piece = body.get("piece") if isinstance(body, dict) else None
+    text = body.get("text") if isinstance(body, dict) else None
+    path = body.get("path") if isinstance(body, dict) else None
+    if type(piece) is not int or not isinstance(text, str) or not text.strip() \
+            or path not in answers.PATHS:
+        return _refuse(400, "send a piece number, the answer text, and a path of retry or reshape")
+    try:
+        if path == "retry":
+            refresh_main(dash.root)
+        return 200, {"result": gate.answer(dash.gh, dash.root, piece, text, path == "reshape")}
+    except Refused as error:
+        return _refuse(409, error.reason, next=error.next_step)
+    except Exception as error:  # GitHub could not answer
+        return _refuse(500, f"could not record the answer: {error}")
 
 
 def _check_and_start(dash, pieces: list[int], keep_going: bool) -> tuple[int, dict]:

@@ -17,3 +17,4 @@ li input {margin-right: .5rem}
 #alerts { margin: 1rem 0; }
 #toast:not(:empty) { padding: .5rem; border: 1px solid; font-weight: bold; }
 #prefs label { margin-right: 1rem; }
+textarea {display: block; width: 100%; box-sizing: border-box; font: inherit; margin: .3rem 0}

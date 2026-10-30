@@ -57,6 +57,12 @@ function card(piece) {
   if (piece.waiting_on.length) {
     line(item, "waiting on " + piece.waiting_on.map(function (n) { return "#" + n; }).join(", "));
   }
+  if (piece.question_blockers) {
+    line(item, "held by an open question on " + piece.question_blockers.map(function (n) { return "#" + n; }).join(", "));
+  }
+  if (piece.question) {
+    item.appendChild(questionForm(piece));
+  }
   if (piece.handback_reason) {
     line(item, "handed back: " + piece.handback_reason);
   }
@@ -70,6 +76,45 @@ function card(piece) {
     item.appendChild(link);
   }
   return item;
+}
+
+const drafts = {};
+
+function questionForm(piece) {
+  const asked = piece.question;
+  const form = document.createElement("form");
+  line(form, "Question: " + asked.text);
+  const advice = asked.recommendation;
+  if (advice) {
+    line(form, "Recommended: answer and " + advice.path + (advice.because ? " (" + advice.because + ")" : ""));
+  }
+  if (asked.answered) {
+    line(form, "Answered. Make the piece ready again when its checks pass.");
+    return form;
+  }
+  const box = document.createElement("textarea");
+  box.setAttribute("aria-label", "Answer for piece " + piece.number);
+  box.maxLength = 2000;
+  box.value = drafts[piece.number] || "";
+  box.oninput = function () { drafts[piece.number] = box.value; };
+  form.appendChild(box);
+  ["retry", "reshape"].forEach(function (path) {
+    const send = document.createElement("button");
+    send.type = "button";
+    send.textContent = "Answer and " + path + (advice && advice.path === path ? " (recommended)" : "");
+    send.onclick = function () {
+      post("/api/answer", {piece: piece.number, text: box.value, path: path}).then(function (response) {
+        return response.json().then(function (data) { return {ok: response.ok, data: data}; });
+      }).then(function (result) {
+        if (result.ok) { delete drafts[piece.number]; }
+        answer.replaceChildren();
+        say(result.ok ? "Piece " + piece.number + ": " + result.data.result
+                      : "Not answered: " + result.data.error + (result.data.next ? " Next: " + result.data.next : ""));
+      }).catch(function () { say("Could not reach the dashboard server."); });
+    };
+    form.appendChild(send);
+  });
+  return form;
 }
 
 const seen = new Set();

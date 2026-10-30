@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import agents
+import answers
 import holds
 import sandbox
 from loopkit import (JUDGE_TIMEOUT, STATE_PREFIX, Refused, base_merges, command_env,
@@ -304,6 +305,8 @@ def builder_outcome(path: Path) -> tuple[str, str]:
     lines = path.read_text(errors="replace").splitlines()
     kind = lines[0].strip() if lines else ""
     body = [line.strip() for line in lines[1:] if line.strip()]
+    if kind == "needs-answer":
+        body = answers.split_recommendation(body)[0]
     if kind in ("needs-answer", "environment"):
         return kind, "\n".join(body)[:500]
     if kind != "spec-unclear":
@@ -314,6 +317,12 @@ def builder_outcome(path: Path) -> tuple[str, str]:
     file_cited = not cite.startswith("Command:") and re.fullmatch(r"`?.+:[1-9][0-9]*`?", cite)
     valid = command_cited or file_cited
     return kind, f"{reason[:500]}\nCitation: {cite}" if reason and valid else ""
+
+
+def outcome_recommendation(path: Path) -> dict:
+    """The path and reason a builder recommended with a question; empty when invalid."""
+    body = [line.strip() for line in path.read_text(errors="replace").splitlines()[1:]]
+    return answers.split_recommendation(body)[1]
 
 
 def summary_text(results: list[str], started: datetime, finished: datetime) -> str:

@@ -21,6 +21,7 @@ from typing import Callable, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import agents  # noqa: E402
+import answers  # noqa: E402
 import walkaway  # noqa: E402
 from loopkit import (LOCKFILES, STATE_PREFIX, GitHub, Refused, branch_name,  # noqa: E402
                      clean_quality_outputs, record_quality_outputs,
@@ -109,11 +110,11 @@ def recover_building(gh: GitHub, root: Path) -> list[str]:
 
 
 def _hand_back(gh: GitHub, root: Path, n: int, reason: str, reason_type: str,
-               metrics: dict, cause: str = "") -> str:
+               metrics: dict, cause: str = "", recommendation: dict | None = None) -> str:
     """Return a claimed piece with the run's actual attempt count and duration."""
     gate.move(gh, root, n, "shaping", reason=reason, reason_type=reason_type, cause=cause,
               attempts=metrics["attempts"], seconds=time.monotonic() - metrics["started"],
-              usage=metrics.get("usage"))
+              usage=metrics.get("usage"), recommendation=recommendation)
     return f"piece {n}: back to shaping, {reason}"
 
 
@@ -441,6 +442,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             return _review_and_land(gh, root, folder, n, 0, issue, ready, output, walk_away, metrics)
         last_failure = f"The earlier build code failed. The judge said:\n{output.strip()[-3000:]}"
     came_back = came_back_reason(gh.comments(n))
+    answered = answers.answers_text(gh.comments(n))
     main_quality_results: dict[tuple[str, str], bool] = {}
     kind_history: list[str] = []
     for k in range(1, attempts + 1):
@@ -465,7 +467,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
         if walk_away:
             walkaway.write_heartbeat(root, n, k)
         prompt = brief(n, issue["body"], ready, last_failure, came_back, folder,
-                       backend=ready["agent"])
+                       backend=ready["agent"], answers=answered)
         metrics["attempts"] = k
         _save_run_metrics(root, n, metrics["started_at"], k)
         build_contract = dict(ready.get("contract", {}))
@@ -514,7 +516,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                 if outcome_reason:
                     reason_type = "environment" if outcome_kind == "environment" else "spec-unclear"
                     _hand_back(gh, root, n, outcome_reason, reason_type, metrics,
-                               cause="" if outcome_kind == "environment" else outcome_kind)
+                               cause="" if outcome_kind == "environment" else outcome_kind,
+                               recommendation=walkaway.outcome_recommendation(outcome)
+                               if outcome_kind == "needs-answer" else None)
                     gh.comment(n, f"**Run:** attempt {k} reports {outcome_kind}: {outcome_reason}")
                     return f"piece {n}: back to shaping, {outcome_kind}: {outcome_reason}"
                 commit_leftovers(folder, n, k)

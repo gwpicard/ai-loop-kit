@@ -35,6 +35,7 @@ import regression
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 from frozen import earlier_build_paths, frozen_file_reason
+import answers  # noqa: E402
 import holds  # noqa: E402
 import loop_pr  # noqa: E402
 import pending  # noqa: E402
@@ -459,7 +460,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
          reason_type: str = "", folder: Optional[Path] = None, pr: str = "",
          cause: str = "", attempts: Optional[int] = None,
          seconds: Optional[float] = None, evidence: dict | None = None,
-         needs_you: bool = False, usage: dict | None = None) -> str:
+         needs_you: bool = False, usage: dict | None = None,
+         recommendation: dict | None = None) -> str:
     issue = gh.issue(n)
     frm = state_of(issue)
     name = MOVES.get((frm, to))
@@ -565,6 +567,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
             "date": datetime.now(timezone.utc).date().isoformat(),
             **_usage_keys(usage if usage is not None else previous_submit),
         })
+        if recommendation:
+            record["recommendation"] = recommendation
     add = [STATE_PREFIX + to]
     remove = [STATE_PREFIX + frm]
     if name in ("give-back", "reject") or needs_you:
@@ -574,7 +578,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     gh.comment(n, record_text(record, note))
     gh.set_labels(n, add, remove)
     run_event(root, name, n, to, int(attempts or record.get("attempts", 0)),
-              reason_type if reason_type in REASON_TYPES else name)
+              reason_type if reason_type in REASON_TYPES else name, cause=cause if cause in CAUSES else "")
     if issue.get("state", "OPEN") == "OPEN":
         if to == "done":
             gh.close(n, "completed")
@@ -583,6 +587,23 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     if to in ("shaping", "done", "dropped"):  # In approval, the work waits in its pull request.
         release_worktree(root, n)
     return note
+
+
+def answer(gh: GitHub, root: Path, n: int, text: str, reshape: bool = False) -> str:
+    """Record the person's answer to a builder's question; unless reshaping, make the piece ready."""
+    found = answers.latest_question(gh.comments(n))
+    if state_of(gh.issue(n)) != "shaping" or not found or found["answered"] or not text.strip():
+        raise Refused(f"piece {n} has no open question to answer, or the answer is empty",
+                      "answer a piece in shaping that a builder asked about, once, with text")
+    gh.comment(n, record_text({"move": "answer", "reshape": reshape,
+                               "text": text.strip()[:answers.ANSWER_LIMIT]}, "Answer recorded."))
+    if reshape:
+        return "answer recorded; the piece stays in shaping to be reshaped"
+    try:
+        return "answer recorded; " + move(gh, root, n, "ready")
+    except Refused as r:
+        raise Refused(f"answer recorded, but the piece is not ready: {r.reason}", r.next_step
+                      or f"fix the cause, then run gate.py move {n} ready") from r
 
 
 def capture(gh: GitHub, title: str, body: str, root: Path | None = None) -> int:

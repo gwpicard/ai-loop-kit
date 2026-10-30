@@ -425,12 +425,12 @@ class ReadOnlyTest(Served):
                 out[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
         return out
 
-    def test_D14_other_methods_return_405_except_an_authenticated_post_to_the_run_and_preferences_paths(self):
+    def test_D15_other_methods_return_405_except_an_authenticated_post_to_the_run_preferences_and_answer_paths(self):
         self.serve()
         for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS"):
             status, _, _ = self.request("/api/state", method=method)
             self.assertEqual(status, 405, method)
-        for path in ("/api/run", "/api/preferences"):
+        for path in ("/api/run", "/api/preferences", "/api/answer"):
             for method in ("PUT", "DELETE", "PATCH", "OPTIONS"):
                 status, _, _ = self.request(path, method=method)
                 self.assertEqual(status, 405, (path, method))

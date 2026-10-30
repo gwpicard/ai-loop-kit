@@ -35,7 +35,7 @@ def watch_run_events(root: Path, observer: Callable[[], None]):
 
 def run_event(root: Path, event: str, piece: int | None = None,
               state: str = "", attempt: int = 0, reason: str = "",
-              pieces: list[int] | None = None) -> None:
+              pieces: list[int] | None = None, cause: str = "") -> None:
     """Append public metadata only. Callers supply fixed event names and reasons."""
     try:
         with suppress(OSError):
@@ -54,6 +54,8 @@ def run_event(root: Path, event: str, piece: int | None = None,
             record = {"time": datetime.now(timezone.utc).isoformat(),
                       "piece": piece, "event": event, "state": state,
                       "attempt": attempt, "reason": reason}
+            if cause:
+                record["cause"] = cause
             if pieces is not None:
                 record["pieces"] = [int(n) for n in pieces]
             output.write(json.dumps(record) + "\n")
