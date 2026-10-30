@@ -10,3 +10,7 @@ li {border-top: 1px solid var(--line); padding: .6rem 0; overflow-wrap: anywhere
 li small {display: block; font: .8rem ui-monospace, monospace}
 [role=alert] {border: 2px solid var(--warn-line); padding: .75rem; background: var(--warn); margin: .5rem 0; font: .9rem ui-monospace, monospace}
 a {color: inherit}
+#start {margin: .5rem 0 1rem}
+button {font: inherit; padding: .4rem .8rem}
+#answer p {margin: .3rem 0; overflow-wrap: anywhere; font: .9rem ui-monospace, monospace}
+li input {margin-right: .5rem}

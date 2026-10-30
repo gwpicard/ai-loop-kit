@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Serve a live, read-only view of every piece and the run on localhost.
+"""Serve a live view of every piece and the run on localhost.
 
 Usage: `kit-python dashboard_server.py` prints a URL with a token and serves
-until closed. It only reads `.loop/events.jsonl` and GitHub.
+until closed. It reads `.loop/events.jsonl` and GitHub. Its one action is
+`POST /api/run`, which starts a detached walk-away run.
 """
 from __future__ import annotations
 if __name__ == "__main__":
@@ -22,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import dashboard_run
 import holds
 import procs
 from loopkit import STATE_PREFIX, GitHub, branch_name, records
@@ -35,6 +37,7 @@ COOKIE = "loop_dashboard"
 CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'"
 LANE_ORDER = ("to-shape", "shaped", "in-run", "landed")
 HANDED_BACK = ("give-back", "reject")
+MAX_BODY = 4096
 
 
 def read_events(root: Path) -> tuple[list[dict], list[str]]:
@@ -74,7 +77,7 @@ def _link(gh, n: int) -> str | None:
     return url if urlsplit(url).scheme in ("http", "https") else None
 
 
-def snapshot(root: Path, gh) -> dict:
+def snapshot(root: Path, gh, starting: bool = False) -> dict:
     """The run, and every piece in its lane. GitHub labels are the source of truth."""
     events, notices = read_events(root)
     boundary = next((e for e in reversed(events) if e.get("event") in ("run-start", "run-stop")),
@@ -98,7 +101,7 @@ def snapshot(root: Path, gh) -> dict:
                       if len(_states(i)) == 1} | in_run)
     pieces = []
     for n in numbers:
-        event, issue, lost = latest.get(n, {}), issues.get(n), False
+        event, issue, lost, risks = latest.get(n, {}), issues.get(n), False, {}
         try:
             if issue is None and reachable:
                 issue = gh.issue(n)
@@ -116,8 +119,8 @@ def snapshot(root: Path, gh) -> dict:
                     reason = _reason(gh, n)
             elif state == "ready":
                 if reachable:
-                    wants = holds.wanted(gh, [n])[n] or []
-                    waiting = holds.unfinished(gh, tuple(wants))
+                    risks = dashboard_run.ready_risks(gh, n)
+                    waiting = holds.unfinished(gh, tuple(risks.get("depends_on") or []))
                 lane = "in-run" if live and n in selected else "shaped"
                 stage = "waiting" if lane == "in-run" else "ready"
             elif state == "building":
@@ -141,13 +144,18 @@ def snapshot(root: Path, gh) -> dict:
                 lane = "in-run"
             stage, waiting, reason, url = state, [], None, None
             issue = None
-        pieces.append({"number": n, "title": issue["title"] if issue else f"Piece {n}",
-                       "lane": lane, "stage": stage, "attempt": event.get("attempt") or 0,
-                       "since": event.get("time"), "last_event": event.get("event"),
-                       "pr_url": url, "waiting_on": waiting, "handback_reason": reason})
+        found = {"number": n, "title": issue["title"] if issue else f"Piece {n}",
+                 "lane": lane, "stage": stage, "attempt": event.get("attempt") or 0,
+                 "since": event.get("time"), "last_event": event.get("event"),
+                 "pr_url": url, "waiting_on": waiting, "handback_reason": reason}
+        if lane == "shaped":
+            found.update(depends_on=risks.get("depends_on") or [],
+                         needs_services=risks.get("needs_services") or [])
+        pieces.append(found)
     pieces.sort(key=lambda p: (LANE_ORDER.index(p["lane"]), p["number"]))
     return {"run": {"status": status, "started": next(
-                (e.get("time") for e in events if e.get("event") == "run-start"), None)},
+                (e.get("time") for e in events if e.get("event") == "run-start"), None),
+                    "starting": starting},
             "pieces": pieces, "notices": notices}
 
 
@@ -182,6 +190,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Host") not in dash.hosts:
             return self._send(403, b"forbidden")
         parts = urlsplit(self.path)
+        if self.command not in ("GET", "HEAD") and not (
+                self.command == "POST" and parts.path == "/api/run"):
+            return self._send(405, b"read only", extra=(("Allow", "GET, HEAD, POST"),))
         token = (parse_qs(parts.query).get("t") or [""])[0]
         if parts.path == "/" and token:
             if not dash.is_token(token):
@@ -196,14 +207,33 @@ class Handler(BaseHTTPRequestHandler):
             pass
         if COOKIE not in jar or not dash.is_token(jar[COOKIE].value):
             return self._send(403, b"forbidden")
+        if self.command == "POST":
+            return self._run(dash)
         if parts.path in FILES:
             name, kind = FILES[parts.path]
-            return self._send(200, (PAGE / name).read_bytes(), kind)
+            page = (PAGE / name).read_bytes().replace(b"{{token}}", dash.token.encode())
+            return self._send(200, page, kind)
         if parts.path == "/api/state":
             return self._send(200, json.dumps(dash.wait_first()).encode(), "application/json")
         if parts.path == "/api/events":
             return self._stream(dash)
         self._send(404, b"not found")
+
+    def _run(self, dash: Dashboard) -> None:
+        """Start a walk-away run. Needs the token header, JSON and the server's own origin."""
+        origin = self.headers.get("Origin")
+        if not dash.is_token(self.headers.get("X-Loop-Token", "")) or (
+                origin is not None and origin not in {f"http://{h}" for h in dash.hosts}):
+            return self._send(403, b"forbidden")
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            return self._send(415, b"send application/json")
+        try:
+            size = int(self.headers.get("Content-Length", ""))
+            body = json.loads(self.rfile.read(size)) if 0 < size <= MAX_BODY else None
+        except ValueError:
+            body = None
+        status, answer = dashboard_run.start(dash, body)
+        self._send(status, json.dumps(answer).encode(), "application/json")
 
     def _stream(self, dash: Dashboard) -> None:
         self.send_response(200)
@@ -224,12 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    do_GET = do_HEAD = _handle
-
-    def _refuse(self) -> None:
-        self._send(405, b"read only", extra=(("Allow", "GET, HEAD"),))
-
-    do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _refuse
+    do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _handle
 
 
 class Dashboard:
@@ -247,6 +272,7 @@ class Dashboard:
         self.stopped = threading.Event()
         self._changed = threading.Condition()
         self._version, self._text = 0, ""
+        self.starting, self.start_lock = False, threading.Lock()
         self._threads: list[threading.Thread] = []
 
     def is_token(self, value: str) -> bool:
@@ -279,11 +305,11 @@ class Dashboard:
         except (OSError, ValueError):
             pass
 
-    def _publish(self) -> None:
+    def publish(self) -> None:
         try:
-            text = json.dumps(snapshot(self.root, self.gh))
+            text = json.dumps(snapshot(self.root, self.gh, self.starting))
         except Exception as error:  # keep serving; say what failed
-            text = json.dumps({"run": {"status": "none", "started": None}, "pieces": [],
+            text = json.dumps({"run": {"status": "none", "started": None, "starting": self.starting}, "pieces": [],
                                "notices": [f"Could not build the view: {error}"]})
         with self._changed:
             if text != self._text:
@@ -302,7 +328,7 @@ class Dashboard:
     def _watch(self) -> None:
         key, last = self._key(), 0.0
         while True:
-            self._publish()
+            self.publish()
             last = time.monotonic()
             while not self.stopped.wait(self.poll):
                 now = self._key()
