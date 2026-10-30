@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import gate
+import github_checks
 from loopkit import GitHub, Refused, base_branch, base_merges, branch_name, rev, sh, sh_network
 from network import StepTimeout
 
@@ -56,7 +57,8 @@ def land(gh: GitHub, root: Path, folder: Path, n: int, result: str, review: dict
                 "next: check the pull request on GitHub, then run the piece again")
     except Exception as error:  # a conflict, a moved branch, or GitHub said no
         if (gh.pr_for_branch(branch_name(n)) or {}).get("state") != "MERGED":
-            return f"{result} Not merged: {error}"
+            billing = github_checks.billing_report(gh, root, n, head)
+            return f"{result} Not merged: {billing or error}"
     sh_network(["git", "fetch", "--quiet", "origin", base], folder, check=False)
     try:
         gate.move(gh, root, n, "done")

@@ -680,6 +680,9 @@ class GitHub:
         if add or remove:
             self._gh(*args)
 
+    def api(self, path: str) -> str:
+        return self._gh("api", path)
+
     def comment(self, n: int, text: str) -> None:
         self._gh("issue", "comment", str(n), "--body-file", "-", stdin=text)
 
