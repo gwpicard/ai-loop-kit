@@ -125,7 +125,8 @@ table {{border-collapse: collapse; width: 100%; background: white}}
 th, td {{padding: .7rem; text-align: left; border-bottom: 1px solid #ccc; overflow-wrap: anywhere}}
 [role=alert] {{border: 2px solid #934900; padding: 1rem; background: #fff0cf}}
 </style></head><body><h1>Run progress</h1><p>{status}</p>
-<p>This page refreshes every five seconds. Times are in UTC.</p>{warnings}
+<p>This page refreshes every five seconds. Times are in UTC.</p>
+<p>Written {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</p>{warnings}
 <table><caption>Pieces in this run</caption><thead><tr>
 <th>Piece</th><th>Title</th><th>State</th><th>Attempt</th><th>Last change</th><th>Pull request</th>
 </tr></thead><tbody>{''.join(rows)}</tbody></table>

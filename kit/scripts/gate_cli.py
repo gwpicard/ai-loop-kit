@@ -95,6 +95,12 @@ def main(argv: list[str] | None = None, api=None) -> int:
             print(f"ok: piece {args.n} spec replaced")
         elif args.cmd == "sync":
             print("\n".join(api.sync(gh, root)) or "ok: nothing merged since the last sync")
+            if (root / ".loop" / "events.jsonl").is_file():
+                try:
+                    import dashboard
+                    dashboard.render(root, gh)
+                except Exception:
+                    print("warning: could not write .loop/dashboard.html", file=sys.stderr)
         elif args.cmd == "status":
             print(api.status(gh, root))
         elif args.cmd == "doctor":
