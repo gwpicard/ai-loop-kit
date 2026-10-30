@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import base_check
 import dashboard
 import gate
 import holds
@@ -153,9 +154,14 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 results.append(waiting)
                 break
             try:
-                result = api.build_piece(gh, root, n, args.attempts, args.walk_away, args.agent)
-                state = gate.state_of(gh.issue(n))
-                failed = state not in ("approval", "done") or failed
+                try:
+                    base_check.confirm(gh, root, n)
+                except Refused as r:  # hand the piece back; the run carries on
+                    result, state, failed = base_check.hand_back(gh, root, n, r), "shaping", True
+                else:
+                    result = api.build_piece(gh, root, n, args.attempts, args.walk_away, args.agent)
+                    state = gate.state_of(gh.issue(n))
+                    failed = state not in ("approval", "done") or failed
             except Refused as r:
                 failed = True
                 state = "unchanged"

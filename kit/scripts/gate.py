@@ -453,7 +453,8 @@ def _kit_version() -> str:
 def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
          reason_type: str = "", folder: Optional[Path] = None, pr: str = "",
          cause: str = "", attempts: Optional[int] = None,
-         seconds: Optional[float] = None, evidence: dict | None = None) -> str:
+         seconds: Optional[float] = None, evidence: dict | None = None,
+         needs_you: bool = False) -> str:
     issue = gh.issue(n)
     frm = state_of(issue)
     name = MOVES.get((frm, to))
@@ -559,7 +560,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         })
     add = [STATE_PREFIX + to]
     remove = [STATE_PREFIX + frm]
-    if name in ("give-back", "reject"):
+    if name in ("give-back", "reject") or needs_you:
         add.append(NEEDS_YOU)
     elif NEEDS_YOU in issue["labels"] and to in ("ready", "dropped", "done"):
         remove.append(NEEDS_YOU)
