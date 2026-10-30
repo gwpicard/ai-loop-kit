@@ -38,7 +38,7 @@ Use the KIT path above in every command. Write it out in full. Read
    dependency, Shared files, Needs services and Open choices. Write `none`
    when a line has no entries, and settle every open choice before ready.
    Add `Depends on: <piece numbers>` only when this piece needs another's
-   code first; stub that code so the judge fails by assertion.
+   code first; its Approach names how its tests build inputs through each blocker's public interface, and the judge calls that interface as the blocker's Approach describes it.
    Mark a Contract item that holds on the base today as `(stays)`; never bend a
    test so it fails on main. Put rules the gate must enforce in Contract or
    Exit. Add
@@ -62,7 +62,7 @@ Use the KIT path above in every command. Write it out in full. Read
    If `git switch` names a folder under the kit's worktree home, stop. Report the folder and run
    `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" doctor`. Never shape inside that folder.
    Save JSON containing approved `Intent`, `Approach`, `Contract` and `Files`
-   strings. `Files` lists exact Exit paths, one per line. Exclude shaping chat.
+   strings. `Files` lists exact Exit paths, one per line. The JSON also holds `Dependencies` (each blocker's Approach, headed by its number; empty when there is none). Exclude shaping chat.
    Save input and output in the system temp folder. Run
    `"<KIT>/bin/kit-python" "<KIT>/scripts/session.py" --role judge-writer --input <file> --output <verdict> --folder .`.
    The launcher requires a clean piece branch, checks paths and verdict, and
@@ -71,17 +71,18 @@ Use the KIT path above in every command. Write it out in full. Read
    Done when: `git log <base>..piece/<n>` shows the judge commit (the newest
    commit for a returned piece), and you are back on `<base>`.
 7. Run the project's Test command on the piece branch. An Exit Tests check
-   fails on main; a Measure or Critics check uses its own baseline. Read the
+   fails on main; a Measure or Critics check uses its own baseline. With unfinished blockers, `gate.py check <n>` reports the base check as pending and runs the static checks only. Read the
    output and fix lint, type or format errors in the check files. Then run `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" check <n>` and fix what it
    names on the piece branch.
    Done when: it prints `ok`.
 8. If the approved spec needs an edit while shaping, write the full revised body to a temporary file and use `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" spec <n> --body-file <file>`. Get the person's approval before replacing an approved contract. Move it with `"<KIT>/bin/kit-python" "<KIT>/scripts/gate.py" move <n> ready`.
+   With unfinished blockers, ready means the contract is approved and the judge is captured; the run does the base check when the blockers are done and hands the piece back to shaping with the reason if it refuses.
    Done when: the piece is in ready, or you reported the refusal and its `next:` line.
 
 ## Rules
 - Never change a `state:` label by hand. Only the gate moves a piece.
 - Never write the code the piece asks for.
-- Use `## Exit` for the checks that decide when the piece is done: one or more `### Tests`, `### Measure` or `### Critics` checks, each unmet on main for the right reason and each naming its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
+- Use `## Exit` for the checks that decide when the piece is done: one or more `### Tests`, `### Measure` or `### Critics` checks, each unmet on main for the right reason (for a piece with unfinished blockers, at its base check) and each naming its files. Combine checks when the contract needs them together. Follow `<KIT>/spec-format.md`.
 - Keep `Playbook: fix` as builder guidance; it does not affect the gate.
 - Do not use the old `Kind:` format for new specs.
 - Never reset, recreate or force-push a piece branch. Once pushed, it only grows.

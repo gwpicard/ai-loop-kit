@@ -172,9 +172,9 @@ script can read it. Nothing lives only in a context window.
 | Move | From, to | Started by | The gate checks |
 | --- | --- | --- | --- |
 | capture | new, shaping | shape skill | nothing |
-| ready | shaping, ready | shape skill | the ready checks (section 8) |
+| ready | shaping, ready | shape skill | the ready checks (section 8); with unfinished blockers, the checks that need no base |
 | pull-back | ready, shaping | person or agent | a typed reason |
-| claim | ready, building | `run.py` | spec and bar hashes unchanged; the pushed branch has nothing the local one lacks |
+| claim | ready, building | `run.py` | spec and bar hashes unchanged; the base check has run (a pending ready is refused); the pushed branch has nothing the local one lacks |
 | submit | building, approval | `run.py` | the submit checks (section 8), all run by the gate |
 | give-back | building, shaping | `run.py` | a typed reason; adds `needs-you` |
 | requeue | building, ready | `run.py` | a typed reason (`environment`) and a cause; no `needs-you`; keeps the ready record; at most 2 since the last ready |
@@ -382,8 +382,9 @@ again on every pick and never stored, so a hand-back holds its dependents and
 the pieces that depend on them, and every other piece goes on. A ready record
 that cannot be read holds the piece too. A hold alone does not fail the run.
 A piece in approval is not done, so until the run merges into the base, its
-dependents wait for the person's merge and the next run. The judge of a
-dependent must still fail by assertion while the dependency is missing.
+dependents wait for the person's merge and the next run. For a piece with
+unfinished blockers, "ready" means the contract is approved and the judge is
+captured; the base check runs when its blockers are done (section 8).
 It warns when a ready piece lists the same shared file. A piece that needs
 services cannot run unattended. At submit, the gate refuses any new
 dependency in `package.json` or `pyproject.toml` that the issue does not name.
@@ -586,6 +587,16 @@ or reshapes it. A partial pass is built as normal. The remaining risk: a
 helper can change on the base so that the judge still fails but tests less.
 The re-check does not see that; the review of the base's own changes, and the
 final pull request into `main`, are where a person sees it.
+
+**Ready with unfinished blockers.** When a piece's `Depends on:` names a piece
+that is not `done`, the base cannot yet prove its judge. The gate then runs
+only the checks that need no base: the spec, the dependencies, the branch and
+its judge commit, the frozen Exit-file hash, shared files, the `(stays)` ID
+search and the test lint. It skips Prepare, the regression check, the keep
+check and the Exit checks on `main`. The record holds `base_check: "pending"`
+and `blockers`, `gate.py status` marks the piece, and a claim is refused
+until the base check has run. With no unfinished blocker, the full checks
+above apply.
 
 The ready message reports each Exit check. Tests name the contract IDs that
 fail on main. Measure reports the median and missed target. Critics reports

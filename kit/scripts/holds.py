@@ -29,6 +29,19 @@ def check(gh: GitHub, n: int, depends: tuple[int, ...]) -> None:
                           "fix the Depends on line, or reopen that piece")
 
 
+def unfinished(gh: GitHub, depends: tuple[int, ...]) -> list[int]:
+    """The pieces in Depends on that are not done. Ready is then pending its base check."""
+    return [d for d in depends if state(gh, d) != "done"]
+
+
+def require_checked(ready: dict) -> None:
+    """A claim needs the base check: a pending ready record has not had it yet."""
+    if ready.get("base_check") == "pending":
+        blockers = ", ".join(str(d) for d in ready.get("blockers", []))
+        raise Refused(f"the base check has not run; it runs when pieces {blockers} are done",
+                      "the run does the base check when the blockers are done; build them first")
+
+
 def wanted(gh: GitHub, pieces: list[int]) -> dict[int, list[int] | None]:
     """What each piece waits for, frozen in its ready record. None: the record could not
     be read, so the piece is held rather than built too early."""

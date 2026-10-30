@@ -23,22 +23,22 @@ from loopkit import (CAUSES, NEEDS_YOU, STATE_PREFIX, STATES, GitHub, Refused,  
                      REASON_TYPES, SECRET_PATTERNS, agent_options, bar_hash_at, base_branch,
                      branch_name, changed_check_settings, named_check_settings, exit_bar,
                      bar_file_list, conflict_markers, last_record, main_ref, keep_limit_seconds,
-                     loop_settings, exit_attempt, exit_ready, parse_spec, prepare, new_paths,
-                     record_text, records, repo_root, rev, untracked_paths, run_judge, run_keep,
+                     loop_settings, exit_attempt, parse_spec,
+                     record_text, records, repo_root, rev, run_judge, run_keep,
                      sh, skipped_tests, spec_hash, LOCKFILES)
+from loopkit import exit_ready as exit_ready  # noqa: E402  (tests patch it here)
 from doctor import doctor as doctor, quality_on_fresh_main
 from extras import critics, require_extras
 from gate_cli import build_parser as build_parser
 import measure  # noqa: E402
 import regression
-from testlint import lint_files  # noqa: E402
 from research import stale_findings  # noqa: E402
 from risk_checks import path_covers, path_mentioned, unnamed_dependencies
 from frozen import earlier_build_paths, frozen_file_reason
 import holds  # noqa: E402
 import loop_pr  # noqa: E402
-from run_start import (capture_probe_files, release_worktree, remove_worktree,  # isort: skip
-                       restore_probe_files)
+import pending  # noqa: E402
+from run_start import release_worktree  # isort: skip
 
 # (from, to): the move's name. Anything else is refused.
 MOVES = {
@@ -92,6 +92,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
                       "add 'Settings: may change' in '## Judge' if the piece must change "
                       "them, or take them out of the Contract")
     holds.check(gh, n, spec.risks.get("depends_on", ()))
+    blockers = holds.unfinished(gh, spec.risks.get("depends_on", ()))  # base check pending
     settings = loop_settings(root)
     require_extras(settings, {"checks": spec.checks, "keep": spec.keep})
     branch = branch_name(n)
@@ -111,8 +112,6 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
     if not regression_command:
         raise Refused("AGENTS.md has no Test command for the required regression check",
                       "set the Test command in AGENTS.md, then run ready again")
-    regression_main = {"reason": "scaffold: no test runner on main"}
-    keep_output = ""
     shared_conflicts = []
     wanted_shared = set(spec.risks.get("shared_files", ()))
     if wanted_shared:
@@ -124,58 +123,11 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             overlaps = sorted(wanted_shared & set(other_shared))
             if overlaps:
                 shared_conflicts.append({"issue": other["number"], "files": overlaps})
-    # Run the judge on today's main, with only the judge files added.
-    tmp = Path(tempfile.mkdtemp(prefix=f"loop-ready-{n}-"))
-    folder = tmp / "main"
-    before_injection = injected = {}
-    made_by_test: set[str] = set()
-    try:
-        sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
-        ok, poutput = (True, "") if spec.kind == "scaffold" else prepare(folder)
-        before = untracked_paths(folder)
-        before_dirs = {child.name for child in folder.iterdir() if child.is_dir()}
-        if not ok:
-            raise Refused("the Prepare command fails on a fresh copy of main:\n"
-                          f"{poutput.strip()[-1500:]}",
-                          "fix the Prepare command in AGENTS.md, then run gate.py doctor")
-        if spec.kind != "scaffold":
-            regression_main, keep_output = regression.check(folder, regression_command, keep_limit)
-            if regression_main["reason"]:
-                raise Refused(f"the regression check on main {regression_main['reason']}:\n"
-                              f"{keep_output.strip()[-1500:]}\nCommand: {regression_command}",
-                              "fix main or the Test command and environment, then run ready again")
-        if keep_command and keep_command != regression_command:
-            kcode, koutput = run_keep(folder, keep_command, timeout=keep_limit)
-            keep_output += "\n" + koutput
-            if kcode != 0:
-                raise Refused(f"the keep check already fails on main:\n{koutput.strip()[-1500:]}",
-                              "fix main first, or correct the Keep: command")
-        if bar_files:
-            try:
-                before_injection = capture_probe_files(folder, bar_files)
-                sh(["git", "checkout", head, "--", *bar_files], folder)
-                injected = capture_probe_files(folder, bar_files)
-            except OSError as error:
-                raise Refused(f"cannot read judge file {error.filename or bar_files[0]}",
-                              "make the judge file readable, then run ready again") from None
-        lint, test_lint_unchecked = lint_files(
-            [folder / f for f in spec.files], folder, " ".join(spec.done_when.values()))
-        if lint:
-            raise Refused("the judge has quality problems:\n" + "\n".join(lint),
-                          "fix the judge files, then run gate.py check again")
-        made_by_test = new_paths(folder, before, before_dirs, snapshot_or_generated)
-        check_records, output = exit_ready(folder, spec.checks, spec.done_when, spec.stays)
-        test_outputs = sorted(new_paths(folder, before, before_dirs, snapshot_or_generated))
-        kind_record = {"checks": check_records}
-        if spec.kind in ("goal", "gauntlet"):
-            kind_record.update(check_records[0])
-    finally:
-        if injected:
-            restore_probe_files(folder, before_injection, injected)
-        # the Test command's caches and reports are the kit's
-        remove_worktree(root, folder, made=lambda p: generated(p) or covered(p, made_by_test))
-        with suppress(OSError):
-            tmp.rmdir()
+    ran = pending.run_in_main(root, n, spec, blockers, main, head, bar_files,
+                              regression_command, keep_command, keep_limit)
+    regression_main, keep_output, output = ran["regression_main"], ran["keep_output"], ran["output"]
+    test_outputs, kind_record = ran["test_outputs"], ran["kind_record"]
+    test_lint_unchecked = ran["test_lint_unchecked"]
 
     if spec.stays:
         judge_text = "".join(sh(["git", "show", f"{head}:{f}"], root).stdout for f in spec.files)
@@ -210,7 +162,8 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             "large_files": list(spec.large_files), "commit": head, "main": main_sha,
             "exit_bar": bar_hash_at(root, head, spec.files, spec.files) if spec.files else "",
             "base": main.removeprefix("origin/"),  # the base this ready judged against
-            "spec": spec_hash(issue["body"] or "")}
+            "spec": spec_hash(issue["body"] or ""),
+            **({"base_check": "pending", "blockers": blockers} if blockers else {})}
 
 
 def check_frozen(issue: dict, comments: list[str]) -> dict:
@@ -517,7 +470,12 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
     comments = gh.comments(n)
     if name == "ready":
         record = {**check_ready(gh, root, issue), "from": frm, "to": to}
-        for check in record["checks"]:
+        base_pending = record.get("base_check") == "pending"
+        if base_pending:
+            note += (" Base check pending: pieces "
+                     f"{', '.join(map(str, record['blockers']))} are not done. The contract is "
+                     "approved and the judge is captured; the base check runs when they are done.")
+        for check in [] if base_pending else record["checks"]:
             if check.get("legacy_kind") == "scaffold":
                 note += " Scaffold piece: the fails-on-main check does not apply."
             elif check["type"] == "tests":
@@ -532,7 +490,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
                 note += f" Critics on main: {wins}/3 wins; fewer than the required 2."
         note += (f" {', '.join(item['file'] for item in record['test_lint_unchecked'])} "
                  "not checked by the test lint." if record["test_lint_unchecked"] else "")
-        if record["keep"]:
+        if record["keep"] and not base_pending:
             note += f" The keep check `{record['keep']}` passes on main."
         note += f" Bar `{record['bar'][:12] or 'none'}` is fixed."
         if "bar_files" in record and (
@@ -548,6 +506,7 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
                      f"ready piece {conflict['issue']}.")
     elif name == "claim":
         ready = check_frozen(issue, comments)
+        holds.require_checked(ready)
         require_extras(ready, loop_settings(root))
         check_claim_bar(root, n, ready)
         stale = claim_stale_research(ready)
@@ -693,9 +652,17 @@ def ignore_loop_folder(root: Path) -> None:
 
 def status(gh: GitHub, root: Optional[Path] = None) -> str:
     issues = gh.issues_with_label()
-    lines = [f"{s}: " + (", ".join(
-        f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''} {i['title']}"
-        for i in issues if STATE_PREFIX + s in i["labels"]) or "none") for s in STATES[:4]]
+
+    def mark(i: dict) -> str:
+        pending = False
+        if STATE_PREFIX + "ready" in i["labels"]:
+            with suppress(Exception):  # status still lists the piece if its comments fail
+                pending = (last_record(gh.comments(i["number"]), "ready")
+                           or {}).get("base_check") == "pending"
+        return f"{i['number']}{' (needs you)' if NEEDS_YOU in i['labels'] else ''}" \
+               f"{' (base check pending)' if pending else ''} {i['title']}"
+    lines = [f"{s}: " + (", ".join(mark(i) for i in issues if STATE_PREFIX + s in i["labels"])
+                         or "none") for s in STATES[:4]]
     if root is not None:
         import walkaway
         heartbeat = walkaway.heartbeat_status(root)
