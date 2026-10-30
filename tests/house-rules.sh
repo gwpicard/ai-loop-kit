@@ -9,7 +9,10 @@
 #   4. every shell file under kit/ and tests/ passes sh -n;
 #   5. every script under kit/ and tests/ that starts with a shebang is
 #      saved as runnable, apart from files that are only ever sourced;
-#   6. the commit-msg hook is saved as runnable.
+#   6. the commit-msg hook is saved as runnable;
+#   7. no code under kit/ or extras/ imports or depends on the Agent SDK or an
+#      Anthropic API client (the kit starts only the unmodified claude and
+#      codex binaries under the person's own login).
 #
 # The patterns are built from pieces so this file does not report itself.
 #
@@ -131,6 +134,36 @@ LIST
     fail ".githooks/commit-msg is saved as $hook_mode, not 100755"
   fi
 
+  # 7. No Agent SDK or API client under kit/ or extras/. Mentions of
+  # CLAUDE_CODE_OAUTH_TOKEN or `claude setup-token` in text are fine: only an
+  # import or a declared dependency fails.
+  vendor=$(printf '%s%s' 'anth' 'ropic')
+  sdk_names="${vendor}|claude_agent_sdk|claude-agent-sdk|claude_code_sdk|claude-code-sdk"
+  py_import="^[[:space:]]*(import|from)[[:space:]]+(${sdk_names})([^A-Za-z0-9_-]|\$)"
+  js_import="(from|import|require)[[:space:]]*\(?[[:space:]]*['\"]@${vendor}-ai/"
+  sdk_hits=$(
+    {
+      git -C "$root" grep -InE "$py_import" -- 'kit/*.py' 'extras/*.py'
+      git -C "$root" grep -InE "$js_import" -- \
+        'kit/*.js' 'kit/*.ts' 'extras/*.js' 'extras/*.ts'
+      git -C "$root" grep -InE "\"@${vendor}-ai/" -- \
+        'kit/package.json' 'kit/*/package.json' \
+        'extras/package.json' 'extras/*/package.json'
+      git -C "$root" grep -InE "[\"'][[:space:]]*(${sdk_names})[[:space:]]*([][<>=~!;,\"']|\$)" -- \
+        'kit/pyproject.toml' 'kit/*/pyproject.toml' \
+        'extras/pyproject.toml' 'extras/*/pyproject.toml'
+      git -C "$root" grep -InE "^[[:space:]]*(${sdk_names})[[:space:]]*([][<>=~!;,#]|\$)" -- \
+        'kit/requirements*.txt' 'kit/*/requirements*.txt' \
+        'extras/requirements*.txt' 'extras/*/requirements*.txt'
+    } 2>/dev/null | cut -c1-120
+  )
+  if [ -n "$sdk_hits" ]; then
+    fail "kit or extras code imports or depends on the Agent SDK or an API client:"
+    printf '%s\n' "$sdk_hits" | sed 's/^/    /'
+  else
+    pass "no kit or extras code imports or depends on the Agent SDK or an API client"
+  fi
+
   [ "$failures" -eq 0 ]
 }
 
@@ -197,6 +230,10 @@ expect_refusal not-runnable \
   'chmod 644 "$repo/tests/ok.sh"'
 expect_refusal bad-syntax \
   'printf "#!/usr/bin/env sh\nif then fi\n" > "$repo/tests/bad.sh"; chmod 755 "$repo/tests/bad.sh"'
+
+# The login rule: an Agent SDK or API client import or dependency is refused.
+expect_refusal sdk-import \
+  'printf "import %s%s\n" "anth" "ropic" > "$repo/kit/scripts/x.py"'
 
 # The number rule must also reach files that are not Markdown or shell.
 expect_refusal number-in-python \

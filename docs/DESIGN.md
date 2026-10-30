@@ -876,6 +876,7 @@ reports in a row stop the piece as `builder-failed`, with the reason recorded.
 | The spec says what the person meant | words: the person approves the contract |
 | The person merges every pull request into `main` | the only merge in the kit refuses `main`, `master` and the default branch (code); the hook refuses `gh pr merge` from agents |
 | Walk-away shell commands stay in the build folder and reach only allowed hosts | sandbox, checked by a live probe |
+| The kit starts only the unmodified `claude` binary and `codex`, under the person's own login, and does not call a model through the Agent SDK or an API client on their subscription | code: `tests/house-rules.sh` fails on such an import or dependency under `kit/` and `extras/` |
 
 The guard is a seatbelt, not a sandbox. It splits words and matches patterns.
 It reads the `git -C`, `git -c`, `gh -R`, `bash -c`, `sh -c` and `eval` forms,
