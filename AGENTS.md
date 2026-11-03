@@ -44,7 +44,9 @@ Agents cannot: the settings deny it. To see whether it is set, read
 
 Work merges to `main`. `stable` is the default branch and only a release
 moves it. Every pull request names `main` as its base: use
-`gh pr create --base main`. A `Closes #N` line does not close the issue when
+`gh pr create --base main`. The one exception is a kit run on this
+repository: its piece pull requests name the run's base branch (see "The
+loop" below), and only its final pull request names `main`. A `Closes #N` line does not close the issue when
 the base is not the default branch. The person or the run closes the issue
 after the merge.
 
@@ -101,3 +103,20 @@ decides when it is ready; a label written by hand means nothing.
 ## Where to read next
 
 Read `docs/DESIGN.md`, then `kit/spec-format.md`.
+
+## The loop
+
+This project uses AI Loop Kit to build itself. The run uses a released copy
+of the kit, never the code it is changing. Pieces are GitHub issues with one
+`state:` label. Only the gate (gate.py) changes a state label. The run merges
+gated pieces into the base branch; the person merges the base branch into
+main.
+Test command: `sh tests/run-all.sh`
+Agent: claude
+Protected paths: `.claude/`, `.githooks/`, `.github/`, `.agents/guard/`
+Idle limit: 10
+Waiting limit: 3
+Base branch: loop/1.8
+Base merges: run
+Keep limit: 30
+Sandbox domains: pypi.org, files.pythonhosted.org
