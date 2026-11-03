@@ -6,6 +6,7 @@ from helpers import SPEC, Project, git
 # isort: split
 
 import os
+import signal
 import stat
 import textwrap
 from pathlib import Path
@@ -16,6 +17,10 @@ import run
 FAKE_CLAUDE = textwrap.dedent('''\
     #!/bin/sh
     # A stand-in for claude -p. FAKE_MODE picks how it behaves. The prompt is on standard input.
+    if [ "$1" = --version ]; then
+      echo '2.1.300 (Claude Code)'
+      exit 0
+    fi
     PROMPT=$(cat)
     if [ "$LOOP_REVIEWER" = 1 ]; then
       case "$FAKE_REVIEW_MODE:$PROMPT" in
@@ -161,8 +166,22 @@ FAKE_CLAUDE = textwrap.dedent('''\
     ''').lstrip()
 
 
+def arm_time_limit(test, seconds=None):
+    """Fail the test with a traceback, instead of waiting for ever, once the limit passes."""
+    limit = getattr(test, "time_limit_seconds", 600) if seconds is None else seconds
+
+    def expire(signum, frame):
+        raise TimeoutError(f"{test.id()} ran longer than its time limit of {limit} seconds")
+
+    old_handler = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, limit)
+    test.addCleanup(signal.signal, signal.SIGALRM, old_handler)
+    test.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+
 class RunFixture:
     def setUp(self):
+        arm_time_limit(self)
         self.p = Project()
         self.addCleanup(self.p.close)
         fake = Path(self.p.tmp.name) / "fake-claude"

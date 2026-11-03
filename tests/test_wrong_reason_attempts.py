@@ -14,6 +14,7 @@ from loopkit import records
 
 class WrongReasonAttemptTests(unittest.TestCase):
     def setUp(self):
+        run_fixtures.arm_time_limit(self)
         self.p = Project()
         self.addCleanup(self.p.close)
         fake = Path(self.p.tmp.name) / "fake-claude"

@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from helpers import KIT, git, pump_events
+from helpers import KIT, git, pump_events, wait_for_pid
 from test_audit import audit
 import run_fixtures as run_test_fixture
 
@@ -97,6 +97,7 @@ class ScenarioTest(unittest.TestCase):
                                timing["elapsed_seconds"], delta=2)
 
     def test_real_run_sigterm_stops_a_child_during_review(self):
+        run_test_fixture.arm_time_limit(self)
         n = self.p.piece()
         gate.move(self.p.gh, self.p.root, n, "ready")
         state = self.p.tmp.name + "/github.json"
@@ -163,8 +164,9 @@ class ScenarioTest(unittest.TestCase):
             "CHILD_PID_FILE": str(child_pid_file),
         })
         process = subprocess.Popen([sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
-                                   cwd=self.p.root, env=env, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, start_new_session=True)
+                                   cwd=self.p.root, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                   start_new_session=True)
         def cleanup_run():
             if process.poll() is None:
                 process.kill()
@@ -172,11 +174,7 @@ class ScenarioTest(unittest.TestCase):
             if process.stdout:
                 process.stdout.close()
         self.addCleanup(cleanup_run)
-        deadline = time.monotonic() + 20
-        while not child_pid_file.is_file() and process.poll() is None and time.monotonic() < deadline:
-            time.sleep(.05)
-        self.assertTrue(child_pid_file.is_file(), process.stdout.read() if process.poll() is not None else "review child did not start")
-        child_pid = int(child_pid_file.read_text())
+        child_pid = wait_for_pid(child_pid_file, process)
         group = os.getpgid(child_pid)
         evidence = self.p.root / ".loop" / "logs" / "reviewer-processes"
         self.assertIn(str(group), evidence.read_text().splitlines())
@@ -197,8 +195,8 @@ class ScenarioTest(unittest.TestCase):
 
         restarted = subprocess.run(
             [sys.executable, str(KIT / "scripts" / "run.py"), str(n)],
-            cwd=self.p.root, env={**env, "CHILD_SLEEP": "0"}, capture_output=True, text=True,
-            timeout=60, check=False)
+            cwd=self.p.root, env={**env, "CHILD_SLEEP": "0"}, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual(restarted.returncode, 0, restarted.stdout + restarted.stderr)
         self.assertIn("returned to ready", restarted.stdout)
         self.assertIn("pull request ready", restarted.stdout)
