@@ -1,8 +1,9 @@
 # Contributing
 
 AI Loop Kit is being built, and its maintainer sets the order of the work. Read
-`docs/DESIGN.md` to see how the kit works. A feature joins the kit only when a
-real run shows it is needed.
+`docs/DESIGN.md` to see how the kit works. A change joins the kit only with
+evidence that it is needed: a failure or friction in real use, or a gap
+against the kit's goal of letting the person walk away.
 
 ## Report a problem
 

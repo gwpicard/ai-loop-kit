@@ -114,9 +114,20 @@ each failure with a mechanism, not an instruction.
 6. **Small and modular.** Each script and skill has one job and a size limit.
    Skills hold judgement; rules live in scripts [ETH AGENTS.md].
 7. **Grow from evidence.** From 15 October 2026 every change follows the earn
-   rule: a real run shows the need, the failure is written down, a test
-   reproduces it, then the smallest fix. The first kit was designed in full
-   before it ran, grew to about 35,000 lines and never built a piece.
+   rule: evidence shows the need, the evidence is written down, a test
+   reproduces the failure or checks the new behaviour, then the smallest
+   change. The evidence is a failure in a real run, friction in real use
+   (the person had to step in, wait or remember something), or a gap against
+   the walk-away goal that the person names. New capability enters as
+   **preview** and becomes stable only after a real run uses it. The first
+   kit was designed in full before it ran, grew to about 35,000 lines and
+   never built a piece.
+8. **Shrink where possible.** Adding less is not enough; the kit also
+   removes what it no longer needs. A change that makes code, text or a check
+   redundant removes it in the same pull request. At each release, every
+   preview is either proven, kept as preview with a stated reason, or
+   removed. The size budget only moves down after a measured reduction
+   (section 16).
 
 ## 3. The core and the extras
 
@@ -1092,7 +1103,7 @@ kit's own checks. None of the 1.7 code has yet run on a real project.
   through the ready check when they land. A new project can then be shaped
   in one sitting.
 
-Beyond 1.7, each step waits for a real run that needs it.
+Beyond 1.7, each step waits for evidence that it is needed (section 2).
 
 - **A combined branch.** Pieces join a run branch by trial merges in a
   scratch copy; each join runs every joined piece's checks again; a piece
