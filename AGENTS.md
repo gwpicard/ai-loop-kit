@@ -29,15 +29,16 @@ how it works and why.
 
 A change enters `kit/` only with evidence that the kit needs it: a failure in
 a real run, friction in real use (the person had to step in, wait or remember
-something), or a gap against the walk-away goal that the person names. Write
-the evidence in `docs/OPEN.md` first, add a test that reproduces the failure
-or checks the new behaviour, then make the smallest change. New capability
-enters as preview and becomes stable only after a real run uses it.
+something), or a gap, named by the person, between what the kit does and the
+walk-away goal. Write the evidence in `docs/OPEN.md` first, add a test that
+reproduces the failure or checks the new behaviour, then make the smallest
+change.
 
-The kit also gets smaller where it can. A change that makes code, text or a
-check redundant removes it in the same pull request. At each release, every
-preview is either proven, kept as preview with a stated reason, or removed.
-Keep the kit small enough to read in one sitting.
+New capability enters as preview. It leaves preview only when the maintainer
+decides so, after a real run has used it. When a change makes code, text or a
+check redundant, the same pull request removes it. At each release, the
+maintainer decides for every preview: it leaves preview, stays with a stated
+reason, or is removed. Keep the kit small enough to read in one sitting.
 
 ## Commands
 

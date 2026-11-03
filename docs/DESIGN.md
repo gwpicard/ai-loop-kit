@@ -113,26 +113,27 @@ each failure with a mechanism, not an instruction.
    independent layers.
 6. **Small and modular.** Each script and skill has one job and a size limit.
    Skills hold judgement; rules live in scripts [ETH AGENTS.md].
-7. **Grow from evidence.** From 15 October 2026 every change follows the earn
-   rule: evidence shows the need, the evidence is written down, a test
-   reproduces the failure or checks the new behaviour, then the smallest
-   change. The evidence is a failure in a real run, friction in real use
-   (the person had to step in, wait or remember something), or a gap against
-   the walk-away goal that the person names. New capability enters as
-   **preview** and becomes stable only after a real run uses it. The first
-   kit was designed in full before it ran, grew to about 35,000 lines and
-   never built a piece.
+7. **Grow from evidence.** The first kit was designed in full before it ran,
+   grew to about 35,000 lines and never built a piece. Since 15 October 2026
+   every kit change follows the earn rule: evidence shows the need, the
+   evidence is written down, a test reproduces the failure or checks the new
+   behaviour, then the smallest change follows. Since 3 November 2026 the
+   evidence may be a failure in a real run, friction in real use (the person
+   had to step in, wait or remember something), or a gap, named by the
+   person, between what the kit does and the walk-away goal.
 8. **Shrink where possible.** Adding less is not enough; the kit also
-   removes what it no longer needs. A change that makes code, text or a check
-   redundant removes it in the same pull request. At each release, every
-   preview is either proven, kept as preview with a stated reason, or
-   removed. The size budget only moves down after a measured reduction
-   (section 16).
+   removes what it no longer needs. New capability enters as **preview** and
+   leaves preview only when the maintainer decides so, after a real run has
+   used it. When a change makes code, text or a check redundant, the same
+   pull request removes it. At each release, the maintainer decides for every
+   preview: it leaves preview, stays with a stated reason, or is removed. The
+   size budget is lowered only after a measured reduction (section 16). Words
+   alone hold these rules today.
 
 ## 3. The core and the extras
 
 The core is the smallest set of parts that keeps the one-sentence promise.
-Each core part exists because a real failure showed it was needed.
+Each core part was added because a real failure showed it was needed.
 
 | Core part | The failure it stops |
 | --- | --- |
@@ -1177,7 +1178,7 @@ needs a measured reduction first.
 | held | A ready piece the run skips because a piece it depends on is not done |
 | wave | Pieces whose dependencies are all in earlier waves; the final pull request groups by wave |
 | base branch | The branch pieces build on and pull requests target: `main`, or the `Base branch:` setting |
-| preview | A feature with automated tests only, not yet run on a real project |
+| preview | A feature that has passed its automated tests but has not left preview: that needs a real run and the maintainer's decision (section 2) |
 
 ## Sources
 

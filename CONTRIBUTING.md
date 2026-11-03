@@ -2,8 +2,9 @@
 
 AI Loop Kit is being built, and its maintainer sets the order of the work. Read
 `docs/DESIGN.md` to see how the kit works. A change joins the kit only with
-evidence that it is needed: a failure or friction in real use, or a gap
-against the kit's goal of letting the person walk away.
+evidence that it is needed: a failure or friction in real use, or a gap,
+named by the maintainer, between what the kit does and its goal of letting
+the person walk away.
 
 ## Report a problem
 
