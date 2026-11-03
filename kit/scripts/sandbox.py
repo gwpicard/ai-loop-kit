@@ -19,6 +19,10 @@ import agents
 
 MIN_VERSION = (2, 1, 285)
 PROBE_PATH = Path.home() / "sandbox-probe"
+CREDENTIAL_PATHS = ["~/.ssh", "~/.config/gh", "~/Library/Keychains"]
+PROBE_RESULT = re.compile(r"(HOME_WRITE|READ|NETWORK)_(ALLOWED|BLOCKED)"
+                          r"(?:[ \t]+(?!(?:HOME_WRITE|READ|NETWORK)_)(\S+))?")
+STARTUP_ERROR = re.compile(r"apply-seccomp|setgroups|uid_map|userns")
 
 
 def version_tuple(value: str) -> tuple[int, int, int]:
@@ -33,7 +37,7 @@ def version_ok(value: str) -> bool:
 def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
     """Return strict per-session sandbox settings for one build worktree."""
     home = Path.home()
-    credentials = ["~/.ssh", "~/.config/gh", "~/Library/Keychains"]
+    credentials = CREDENTIAL_PATHS
     caches = [home / ".npm", home / ".cache" / "pip"]
     temp = Path(tempfile.gettempdir())
     work = folder.resolve()
@@ -209,19 +213,64 @@ def excluded_commands(root: Path) -> list[str]:
     return found
 
 
+def probe_read_paths() -> list[str]:
+    """The credential paths that exist on this host, so each read test is real."""
+    return [path for path in CREDENTIAL_PATHS if Path(path).expanduser().exists()]
+
+
+def startup_cause(text: str) -> Optional[str]:
+    """Name a sandbox that could not start because of the host's namespace policy."""
+    if not STARTUP_ERROR.search(text):
+        return None
+    return ("the sandbox could not start: the host restricts nested user namespaces "
+            "(on Ubuntu, kernel.apparmor_restrict_unprivileged_userns). Whether to change "
+            "that is a security decision for you; the kit does not change it.")
+
+
+def probe_prompt(paths: list[str]) -> str:
+    """One shell line per check, each ending in a fixed marker and free of expansions."""
+    def check(command: str, marker: str, path: str = "") -> str:
+        suffix = f" {path}" if path else ""
+        return (f"{command} >/dev/null 2>&1 && echo {marker}_ALLOWED{suffix} "
+                f"|| echo {marker}_BLOCKED{suffix}")
+    lines = [check("touch ~/sandbox-probe", "HOME_WRITE"),
+             *(check(f"ls {path}", "READ", path) for path in paths),
+             check("curl --noproxy '*' -Is --max-time 8 https://example.com", "NETWORK")]
+    return ("Use Bash to run this shell script exactly. It prints no file contents.\n"
+            + "\n".join(lines)
+            + "\nDo not retry any command outside the sandbox.")
+
+
+def probe_text(output: str) -> tuple[str, str]:
+    """The joined tool-result text and the final result message of a session."""
+    results, final = [], ""
+    for event in agents.json_events(output):
+        if event.get("type") == "user":
+            results.extend(event.get("message", {}).get("content", []))
+        elif event.get("type") == "result":
+            final = str(event.get("result") or "")
+    text = "\n".join(str(item.get("content", "")) for item in results
+                     if isinstance(item, dict) and item.get("type") == "tool_result")
+    return text, final
+
+
+def probe_verdict(found: list, paths: list[str]) -> tuple[bool, str]:
+    if any(state == "ALLOWED" for _, state, _ in found):
+        return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
+    if not paths:
+        return True, ("Claude sandbox blocked the home write and unlisted network request; "
+                      "no credential path was found, so no read was tested")
+    return True, ("Claude sandbox blocked the home write, credential reads of "
+                  + ", ".join(paths) + " and unlisted network request")
+
+
 def probe(folder: Path, domains: Optional[list[str]] = None,
           claude: str = "claude", timeout: int = 90) -> tuple[bool, str]:
     """Ask a real Claude session to try bounded, content-free boundary checks."""
     if PROBE_PATH.exists():
         return False, f"{PROBE_PATH} already exists; move it before the sandbox probe"
-    prompt = (
-        "Use Bash to run this shell script exactly. It prints no file contents: "
-        "touch ~/sandbox-probe >/dev/null 2>&1; echo HOME_WRITE_EXIT:$?; "
-        "for p in ~/.ssh ~/.config/gh ~/Library/Keychains; do "
-        "ls \"$p\" >/dev/null 2>&1; echo READ_EXIT:$?; done; "
-        "curl --noproxy '*' -Is --max-time 8 https://example.com >/dev/null 2>&1; "
-        "echo NETWORK_EXIT:$?. Do not retry any command outside the sandbox."
-    )
+    paths = probe_read_paths()
+    prompt = probe_prompt(paths)
     args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
             "--permission-mode", "acceptEdits", "--tools", "Bash",
             "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
@@ -237,20 +286,18 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     output = result.stdout + result.stderr
     if "Not logged in" in output or "authentication_failed" in output:
         return False, "Claude sandbox probe could not authenticate; run /login and retry"
+    text, final = probe_text(result.stdout)
+    cause = startup_cause(text + "\n" + result.stderr)
+    if cause:
+        return False, f"Claude sandbox probe failed: {cause}"
     if result.returncode:
         return False, f"Claude sandbox probe exited {result.returncode}: {output[-500:].strip()}"
-    results = []
-    for event in agents.json_events(output):
-        if event.get("type") == "user":
-            results.extend(event.get("message", {}).get("content", []))
-    text = "\n".join(str(result.get("content", "")) for result in results
-                      if isinstance(result, dict) and result.get("type") == "tool_result")
-    statuses = re.findall(r"(?:HOME_WRITE_EXIT|READ_EXIT|NETWORK_EXIT):(\d+)", text)
-    if len(statuses) != 5:
-        return False, "Claude sandbox probe did not return all five shell exit statuses"
-    if any(code == "0" for code in statuses):
-        return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
-    return True, "Claude sandbox blocked the home write, three credential reads and unlisted network request"
+    found = PROBE_RESULT.findall(text)
+    expected = 2 + len(paths)
+    if len(found) != expected:
+        shown = (text or final or output).strip()[-500:].strip()
+        return False, f"Claude sandbox probe returned {len(found)} of {expected} shell results: {shown}"
+    return probe_verdict(found, paths)
 
 
 def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
