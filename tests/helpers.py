@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -199,6 +200,36 @@ class FakeGitHub:
 
     def pr_for_branch(self, branch: str) -> Optional[dict]:
         return self.prs.get(branch)
+
+
+def _read_pid(path: Path) -> Optional[int]:
+    try:
+        text = Path(path).read_text().strip()
+    except FileNotFoundError:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+def wait_for_pid(path, process=None, timeout: float = 20) -> int:
+    """Wait until the file holds a whole number; an empty file is not yet written."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pid = _read_pid(path)
+        if pid is not None:
+            return pid
+        if process is not None and process.poll() is not None:
+            raise AssertionError(f"process exited before writing {path}:\n{process.stdout.read()}")
+        time.sleep(0.05)
+    pid = _read_pid(path)
+    if pid is not None:
+        return pid
+    output = ""
+    if process is not None:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        output = f":\n{process.stdout.read()}"
+    raise AssertionError(f"no pid in {path} after {timeout} seconds{output}")
 
 
 def git(cwd: Path, *args: str) -> str:
