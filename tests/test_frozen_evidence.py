@@ -13,11 +13,12 @@ from helpers import Project, git
 # isort: split
 import gate
 import run
-from run_fixtures import FAKE_CLAUDE
+from run_fixtures import FAKE_CLAUDE, arm_time_limit
 
 
 class FrozenEvidenceTest(unittest.TestCase):
     def setUp(self):
+        arm_time_limit(self)
         self.p = Project()
         self.addCleanup(self.p.close)
         (self.p.root / ".loop").mkdir()
