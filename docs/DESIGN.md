@@ -127,7 +127,7 @@ Each core part exists because a real failure showed it was needed.
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails on an import error, proves nothing |
 | The bar is frozen: the Exit files byte for byte, and the build may not edit or delete the helpers beside them | A builder edits the test instead of the code |
-| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt | A field run lost old behaviour when only the judge ran |
+| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt. A tiered run narrows this after an attempt to the test files the piece touched | A field run lost old behaviour when only the judge ran |
 | No old test and no check setting changed | A builder rewrote `.gitignore`; another turned off a lint rule |
 | A fresh session for each attempt, three at most, given only the last failure | A failed idea carries forward in a long session [Ralph] |
 | A sanctioned `bar-wrong` outcome | A builder that cannot say the test is wrong is pushed to cheat |
@@ -654,6 +654,15 @@ is a rejection, since the piece has left building.
 | Any distinct `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names, including unittest `FAIL:` and `ERROR:` headers. The gate blames the bar only when both failures locate a diagnostic in the same judge file and Keep passes without judge files, with nothing skipped | A judge that breaks the project's lint can never pass |
 | Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
 
+**Narrow tier.** When the run sets `AI_LOOP_KIT_TIER=narrow`, the gate
+replaces the Test command and `Keep:` with the `Test files command:` from
+the loop section, run once on the test files that the attempt changed or
+that Exit `Files:` names. Its `{files}` placeholder receives those paths.
+With no such files, no command runs and the judge alone decides. Without a
+`Test files command:`, the full Test command runs and `Keep:` is skipped.
+Quality commands still run, and the submit record notes `"tier": "narrow"`.
+Project commands never see the variable, so a builder cannot set the tier.
+
 The diagnostic must name a judge file in an explicit lint error (`error`,
 `fatal` or an `E`/`F` code followed by three or four digits) or an exception
 traceback. A warning, informational location or passing test's name is not
@@ -926,6 +935,9 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    project, or on a branch with a pull request when `main` already has
    work. Doctor checks it all on a fresh copy of `main` (code). A project
    with no tests yet gets a warning and the scaffold piece as its next step.
+   An optional `Test files command:` says how to run a list of test files,
+   with the placeholder `{files}`, for example `python -m pytest {files}`.
+   Ready freezes it for the narrow tier (section 8).
    A project may add `Base branch: <name>` to the loop section. Then every
    piece builds on that branch, not on `main`: ready judges against it, the
    run merges it into each piece, and each pull request targets it. The gate
