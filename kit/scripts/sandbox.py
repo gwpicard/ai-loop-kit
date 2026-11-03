@@ -72,10 +72,15 @@ def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
     }
 
 
+def guard_path() -> Path:
+    """The guard hook that sessions load, beside the kit scripts."""
+    return Path(__file__).resolve().parents[1] / "hooks" / "guard.py"
+
+
 def session_settings(folder: Path, domains: Optional[list[str]] = None,
                      walk_away: bool = True) -> dict:
     """Combine the existing guard with a walk-away file-tool boundary."""
-    guard = Path(__file__).resolve().parents[1] / "hooks" / "guard.py"
+    guard = guard_path()
     boundary = Path(__file__).resolve()
     launcher = Path(__file__).resolve().parents[1] / "bin" / "kit-python"
     # Through sh, so a lost executable bit does not matter, and any failure
