@@ -990,8 +990,9 @@ Walk-away guidance is a conditional reference. The ordinary run skill stays
 within its word budget in `tests/test_text_budgets.py`, counting frontmatter
 and command snippets with `len(text.split())`. Runtime output and project data add variable text.
 The word-budget test caps every skill, reference, agent definition and brief,
-and their combined total. Unchanged files keep their present ceilings until
-their own thinning change.
+and their combined total. The ceilings carry headroom, so a change that stays
+under them edits no budget. A ceiling is raised only at a release, to the
+measured size plus about 5 per cent, rounded up.
 
 Doctor checks GitHub sign-in with `gh auth status --active`. An expired
 inactive account does not block setup. If an active account fails, doctor
@@ -1139,8 +1140,9 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
 above its `TOTAL_BUDGET` of runtime lines in total. The suite reports the total and the
-default-install size separately. The total budget follows the measured size; a smaller budget
-needs a measured reduction first.
+default-install size separately. The total budget carries headroom, so a change that
+stays under it edits no budget. The ceiling is raised only at a release: the
+maintainer then sets it to the measured size plus about 5 per cent, rounded up.
 
 ## Words used in this file
 
