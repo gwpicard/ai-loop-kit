@@ -41,6 +41,8 @@ def run_probe(test, stdout, paths=(SSH,), stderr="", returncode=0, before=False,
     seen = {}
 
     def fake_run(args, **kwargs):
+        if "-p" not in args:  # git calls that build the session environment
+            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         seen["prompt"] = args[args.index("-p") + 1]
         if leak:
             sandbox.PROBE_PATH.write_text("")
