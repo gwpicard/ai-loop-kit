@@ -250,8 +250,8 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     if any(state == "ALLOWED" for _, state, _ in found):
         return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
     reads = f", credential reads of {', '.join(paths)}" if paths else ""
-    none = "" if paths else "; no credential path was found, so no read was tested"
-    return True, f"Claude sandbox blocked the home write{reads} and unlisted network request{none}"
+    untested = "" if paths else "; no credential path was found, so no read was tested"
+    return True, f"Claude sandbox blocked the home write{reads} and unlisted network request{untested}"
 
 
 def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
