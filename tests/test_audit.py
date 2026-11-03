@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from helpers import Project, git
-from run_fixtures import FAKE_CLAUDE
+from run_fixtures import FAKE_CLAUDE, arm_time_limit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "field"))
 import audit  # noqa: E402
@@ -20,6 +20,7 @@ from loopkit import record_text
 
 class AuditTest(unittest.TestCase):
     def setUp(self):
+        arm_time_limit(self)
         self.p = Project()
         self.addCleanup(self.p.close)
         fake = Path(self.p.tmp.name) / "fake-claude"
