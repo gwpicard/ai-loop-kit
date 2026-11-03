@@ -7,6 +7,9 @@ coverage/
 Thumbs.db
 .agents/tmp/
 
+# Python writes compiled files here when the tests import the kit.
+__pycache__/
+
 # A printout of the project's open issues, regenerated on demand.
 # One person's view of a shared record, so it never belongs to everyone.
 plan.local.md
