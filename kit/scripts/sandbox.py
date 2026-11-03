@@ -20,9 +20,7 @@ import agents
 MIN_VERSION = (2, 1, 285)
 PROBE_PATH = Path.home() / "sandbox-probe"
 CREDENTIAL_PATHS = ["~/.ssh", "~/.config/gh", "~/Library/Keychains"]
-PROBE_RESULT = re.compile(r"(HOME_WRITE|READ|NETWORK)_(ALLOWED|BLOCKED)"
-                          r"(?:[ \t]+(?!(?:HOME_WRITE|READ|NETWORK)_)(\S+))?")
-STARTUP_ERROR = re.compile(r"apply-seccomp|setgroups|uid_map|userns")
+PROBE_RESULT = re.compile(r"(HOME_WRITE|READ|NETWORK)_(ALLOWED|BLOCKED)(?:[ \t]+(?!(?:HOME_WRITE|READ|NETWORK)_)(\S+))?")
 
 
 def version_tuple(value: str) -> tuple[int, int, int]:
@@ -36,9 +34,8 @@ def version_ok(value: str) -> bool:
 
 def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
     """Return strict per-session sandbox settings for one build worktree."""
-    home = Path.home()
     credentials = CREDENTIAL_PATHS
-    caches = [home / ".npm", home / ".cache" / "pip"]
+    caches = [Path.home() / ".npm", Path.home() / ".cache" / "pip"]
     temp = Path(tempfile.gettempdir())
     work = folder.resolve()
     env_paths = [path for path in work.glob(".env*") if path.name != ".env.example"]
@@ -97,7 +94,6 @@ def session_settings(folder: Path, domains: Optional[list[str]] = None,
 def codex_builder_paths(folder: Path) -> list[Path]:
     """Prepare temp space and find only the git paths needed for this checkout."""
     from loopkit import sh
-
     work = folder.resolve()
     temp = work / ".loop" / "tmp"
     if not temp.resolve().is_relative_to(work):
@@ -120,7 +116,6 @@ def codex_permission_args(folder: Path, writable: Optional[list[Path]] = None,  
                           deny_secrets: bool = True) -> list[str]:
     """Build a write boundary, with secret denials for walk-away sessions."""
     from loopkit import loop_settings
-
     work = folder.resolve()
     workspace_rules = {".": "write"}
     filesystem = {
@@ -134,19 +129,16 @@ def codex_permission_args(folder: Path, writable: Optional[list[Path]] = None,  
         filesystem.update({str(Path.home() / name): "deny" for name in (
             ".ssh", ".aws", ".config/gh", ".config/gcloud", "Library/Keychains")})
     for raw in loop_settings(work).get("secret paths", []) if deny_secrets else []:
-        path = Path(raw)
-        target = (path if path.is_absolute() else work / path).resolve()
+        target = (work / raw).resolve()
         if target.is_relative_to(work):
             workspace_rules[target.relative_to(work).as_posix()] = "deny"
         else:
             filesystem[str(target)] = "deny"
-
     def toml_value(value):
         if isinstance(value, dict):
             return "{" + ",".join(f"{json.dumps(key)}={toml_value(item)}"
                                   for key, item in value.items()) + "}"
         return json.dumps(value)
-
     return ["--config", 'default_permissions="ai-loop"',
             "--config", 'permissions.ai-loop.extends=":workspace"',
             "--config", f"permissions.ai-loop.filesystem={toml_value(filesystem)}",
@@ -157,10 +149,8 @@ def guard_tool_input(tool: str, data: dict, folder: Path) -> Optional[str]:
     """Limit Claude file tools to the active build worktree."""
     if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
         return None
-    raw = data.get("file_path") or data.get("notebook_path") or ""
-    path = Path(str(raw))
-    if not path.is_absolute():
-        path = folder / path
+    # Joining an absolute path to the folder yields the absolute path unchanged.
+    path = folder / str(data.get("file_path") or data.get("notebook_path") or "")
     try:
         path.resolve().relative_to(folder.resolve())
     except (OSError, ValueError):
@@ -170,8 +160,7 @@ def guard_tool_input(tool: str, data: dict, folder: Path) -> Optional[str]:
 
 def guard_main(argv: Optional[list[str]] = None) -> int:
     """PreToolUse hook entry point for file-tool writes in walk-away sessions."""
-    args = sys.argv[1:] if argv is None else argv
-    if args != ["guard"]:
+    if (sys.argv[1:] if argv is None else argv) != ["guard"]:
         return 2
     try:
         call = json.load(sys.stdin)
@@ -187,14 +176,10 @@ def guard_main(argv: Optional[list[str]] = None) -> int:
 
 def walkaway_settings_files(root: Path) -> list[Path]:
     home = Path.home()
-    candidates = [
-        Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
-        home / ".claude" / "managed-settings.json",
-        home / ".claude" / "settings.json",
-        home / ".claude" / "settings.local.json",
-        root / ".claude" / "settings.json",
-        root / ".claude" / "settings.local.json",
-    ]
+    candidates = [Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
+                  home / ".claude" / "managed-settings.json",
+                  *(base / ".claude" / name for base in (home, root)
+                    for name in ("settings.json", "settings.local.json"))]
     return list(dict.fromkeys(path for path in candidates if path.is_file()))
 
 
@@ -207,61 +192,20 @@ def excluded_commands(root: Path) -> list[str]:
         except (OSError, ValueError):
             found.append(f"{path}: unreadable settings")
             continue
-        commands = data.get("sandbox", {}).get("excludedCommands", [])
-        if commands:
+        if data.get("sandbox", {}).get("excludedCommands", []):
             found.append(f"{path}: sandbox.excludedCommands is set")
     return found
 
 
 def probe_read_paths() -> list[str]:
-    """The credential paths that exist on this host, so each read test is real."""
     return [path for path in CREDENTIAL_PATHS if Path(path).expanduser().exists()]
 
 
 def startup_cause(text: str) -> Optional[str]:
-    """Name a sandbox that could not start because of the host's namespace policy."""
-    if not STARTUP_ERROR.search(text):
-        return None
-    return ("the sandbox could not start: the host restricts nested user namespaces "
-            "(on Ubuntu, kernel.apparmor_restrict_unprivileged_userns). Whether to change "
-            "that is a security decision for you; the kit does not change it.")
-
-
-def probe_prompt(paths: list[str]) -> str:
-    """One shell line per check, each ending in a fixed marker and free of expansions."""
-    def check(command: str, marker: str, path: str = "") -> str:
-        suffix = f" {path}" if path else ""
-        return (f"{command} >/dev/null 2>&1 && echo {marker}_ALLOWED{suffix} "
-                f"|| echo {marker}_BLOCKED{suffix}")
-    lines = [check("touch ~/sandbox-probe", "HOME_WRITE"),
-             *(check(f"ls {path}", "READ", path) for path in paths),
-             check("curl --noproxy '*' -Is --max-time 8 https://example.com", "NETWORK")]
-    return ("Use Bash to run this shell script exactly. It prints no file contents.\n"
-            + "\n".join(lines)
-            + "\nDo not retry any command outside the sandbox.")
-
-
-def probe_text(output: str) -> tuple[str, str]:
-    """The joined tool-result text and the final result message of a session."""
-    results, final = [], ""
-    for event in agents.json_events(output):
-        if event.get("type") == "user":
-            results.extend(event.get("message", {}).get("content", []))
-        elif event.get("type") == "result":
-            final = str(event.get("result") or "")
-    text = "\n".join(str(item.get("content", "")) for item in results
-                     if isinstance(item, dict) and item.get("type") == "tool_result")
-    return text, final
-
-
-def probe_verdict(found: list, paths: list[str]) -> tuple[bool, str]:
-    if any(state == "ALLOWED" for _, state, _ in found):
-        return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
-    if not paths:
-        return True, ("Claude sandbox blocked the home write and unlisted network request; "
-                      "no credential path was found, so no read was tested")
-    return True, ("Claude sandbox blocked the home write, credential reads of "
-                  + ", ".join(paths) + " and unlisted network request")
+    return ("the sandbox could not start: the host restricts nested user namespaces (on Ubuntu, "
+            "kernel.apparmor_restrict_unprivileged_userns). Whether to change that is a security "
+            "decision for you; the kit does not change it."
+            if re.search(r"apply-seccomp|setgroups|uid_map|userns", text) else None)
 
 
 def probe(folder: Path, domains: Optional[list[str]] = None,
@@ -270,7 +214,11 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     if PROBE_PATH.exists():
         return False, f"{PROBE_PATH} already exists; move it before the sandbox probe"
     paths = probe_read_paths()
-    prompt = probe_prompt(paths)
+    checks = [("touch ~/sandbox-probe", "HOME_WRITE", ""), *((f"ls {p}", "READ", f" {p}") for p in paths),
+              ("curl --noproxy '*' -Is --max-time 8 https://example.com", "NETWORK", "")]
+    prompt = "\n".join(["Use Bash to run this shell script exactly. It prints no file contents.", *(
+        f"{run} >/dev/null 2>&1 && echo {mark}_ALLOWED{tail} || echo {mark}_BLOCKED{tail}"
+        for run, mark, tail in checks), "Do not retry any command outside the sandbox."])
     args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
             "--permission-mode", "acceptEdits", "--tools", "Bash",
             "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
@@ -286,18 +234,24 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     output = result.stdout + result.stderr
     if "Not logged in" in output or "authentication_failed" in output:
         return False, "Claude sandbox probe could not authenticate; run /login and retry"
-    text, final = probe_text(result.stdout)
-    cause = startup_cause(text + "\n" + result.stderr)
-    if cause:
+    events = list(agents.json_events(output))
+    text = "\n".join(str(item.get("content", "")) for event in events if event.get("type") == "user"
+                     for item in event.get("message", {}).get("content", [])
+                     if isinstance(item, dict) and item.get("type") == "tool_result")
+    final = next((str(e.get("result") or "") for e in events if e.get("type") == "result"), "")
+    if cause := startup_cause(text + "\n" + result.stderr):
         return False, f"Claude sandbox probe failed: {cause}"
     if result.returncode:
         return False, f"Claude sandbox probe exited {result.returncode}: {output[-500:].strip()}"
-    found = PROBE_RESULT.findall(text)
-    expected = 2 + len(paths)
+    found, expected = PROBE_RESULT.findall(text), 2 + len(paths)
     if len(found) != expected:
         shown = (text or final or output).strip()[-500:].strip()
         return False, f"Claude sandbox probe returned {len(found)} of {expected} shell results: {shown}"
-    return probe_verdict(found, paths)
+    if any(state == "ALLOWED" for _, state, _ in found):
+        return False, "Claude sandbox allowed a forbidden write, credential read or unlisted network request"
+    reads = f", credential reads of {', '.join(paths)}" if paths else ""
+    none = "" if paths else "; no credential path was found, so no read was tested"
+    return True, f"Claude sandbox blocked the home write{reads} and unlisted network request{none}"
 
 
 def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
@@ -357,10 +311,9 @@ def usage_limit_event(event: dict) -> bool:
 
 def reset_wait_seconds(event: dict, now: Optional[datetime] = None) -> int:
     """Use the reset time Claude reports, or the plan's 30 minute fallback."""
-    values = [event.get(key) for key in ("reset_at", "resetAt", "resets_at", "resetsAt")]
     details = event.get("rate_limit") or event.get("rateLimit") or event.get("usageLimits")
-    if isinstance(details, dict):
-        values += [details.get(key) for key in ("reset_at", "resetAt", "resets_at", "resetsAt")]
+    values = [source.get(key) for source in (event, details if isinstance(details, dict) else {})
+              for key in ("reset_at", "resetAt", "resets_at", "resetsAt")]
     for value in values:
         if isinstance(value, (int, float)):
             timestamp = value / 1000 if value > 10_000_000_000 else value
