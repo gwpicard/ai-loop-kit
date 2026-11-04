@@ -127,7 +127,7 @@ Each core part exists because a real failure showed it was needed.
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails on an import error, proves nothing |
 | The bar is frozen: the Exit files byte for byte, and the build may not edit or delete the helpers beside them | A builder edits the test instead of the code |
-| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt. A tiered run narrows this after an attempt to the test files the piece touched | A field run lost old behaviour when only the judge ran |
+| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt. A tiered run narrows this after an attempt to the test files the piece touched | A field run lost old behaviour when only the judge ran. The final suite on the base catches what a narrow check misses |
 | No old test and no check setting changed | A builder rewrote `.gitignore`; another turned off a lint rule |
 | A fresh session for each attempt, three at most, given only the last failure | A failed idea carries forward in a long session [Ralph] |
 | A sanctioned `bar-wrong` outcome | A builder that cannot say the test is wrong is pushed to cheat |
@@ -662,6 +662,12 @@ With no such files, no command runs and the judge alone decides. Without a
 `Test files command:`, the full Test command runs and `Keep:` is skipped.
 Quality commands still run, and the submit record notes `"tier": "narrow"`.
 Project commands never see the variable, so a builder cannot set the tier.
+Only a walk-away run that merges onto a base branch (`Base merges: run`)
+sets it, and it clears it when the run ends. That run's piece pull requests
+name the narrow check, not a full Test command result. Before the final pull
+request, the run runs the full Test command and `Keep:` once on the base
+(section 9). An attended run, or one whose pieces open pull requests into
+`main`, keeps the full suite at ready and after every attempt.
 
 The diagnostic must name a judge file in an explicit lint error (`error`,
 `fatal` or an `E`/`F` code followed by three or four digits) or an exception
@@ -874,6 +880,18 @@ are done, reuses that baseline instead of running the full suite on the base
 again, as long as its Test and Keep commands match the record. Prepare, the
 test lint and the Exit checks still run on the base. The final suite catches
 what the baseline cannot.
+
+The tiers. A walk-away run onto a base branch with `Base merges: run` checks
+each attempt with the narrow tier (section 8). Every other run, attended or
+not, keeps the full suite at ready and after every attempt: its pieces open
+pull requests into `main`, and each should carry the full result. The tiered
+run pays for the full suite twice instead: the baseline at the start, and the
+final suite at the end. When at least one piece merged in the run, it runs Prepare, the
+Test command and any distinct `Keep:` in a fresh copy of the base tip. A pass
+adds `Full suite passed on <base>` to the results. A failure adds `Full suite
+failed on <base>`, makes the run exit non-zero, and still opens the final
+pull request, with the failure under "Held in this run" and the title marked
+incomplete.
 
 During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
 with `caffeinate`, waits once for a reported usage limit, and at the end
@@ -1188,6 +1206,7 @@ maintainer then sets it to the measured size plus about 5 per cent, rounded up.
 | held | A ready piece the run skips because a piece it depends on is not done |
 | wave | Pieces whose dependencies are all in earlier waves; the final pull request groups by wave |
 | base branch | The branch pieces build on and pull requests target: `main`, or the `Base branch:` setting |
+| tier | How much of the project's suite runs after each attempt: full, or narrow in a walk-away run onto a base branch, which runs the full suite once on the base at the end |
 | preview | A feature with automated tests only, not yet run on a real project |
 
 ## Sources
