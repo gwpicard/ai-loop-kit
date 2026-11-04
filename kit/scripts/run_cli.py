@@ -65,7 +65,7 @@ def final_suite(gh: GitHub, root: Path, pieces: list[int], results: list[str]) -
         line = f"Full suite could not run; final pull request held until it passes: {error}"
     if line:
         results.append(line)
-    return "held until" in line
+    return "held until" in line or "back to shaping" in line
 
 
 def record_pieces(root: Path, pieces: list[int], known: list[int]) -> list[int]:

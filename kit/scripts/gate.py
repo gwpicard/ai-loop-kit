@@ -48,12 +48,13 @@ MOVES = {
     ("building", "shaping"): "give-back", ("building", "approval"): "submit",
     ("approval", "done"): "merged", ("building", "ready"): "requeue",
     ("approval", "shaping"): "reject", ("dropped", "shaping"): "reopen",
+    ("done", "shaping"): "suite-fail",
 }
 for _s in ("shaping", "ready", "building", "approval"):
     MOVES[(_s, "dropped")] = "drop"
 
-NEEDS_REASON = {"pull-back", "give-back", "requeue", "reject", "drop", "reopen"}
-NEEDS_TYPE = {"pull-back", "give-back", "requeue", "reject", "reopen"}
+NEEDS_REASON = {"pull-back", "give-back", "requeue", "reject", "drop", "reopen", "suite-fail"}
+NEEDS_TYPE = {"pull-back", "give-back", "requeue", "reject", "reopen", "suite-fail"}
 
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
