@@ -127,7 +127,7 @@ Each core part exists because a real failure showed it was needed.
 | --- | --- |
 | The judge fails on `main` on an assertion | A test that already passes, or fails on an import error, proves nothing |
 | The bar is frozen: the Exit files byte for byte, and the build may not edit or delete the helpers beside them | A builder edits the test instead of the code |
-| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt | A field run lost old behaviour when only the judge ran |
+| The project's Test command and any distinct `Keep:` pass on `main` and after every attempt. A tiered run narrows this after an attempt to the test files the piece touched | A field run lost old behaviour when only the judge ran |
 | No old test and no check setting changed | A builder rewrote `.gitignore`; another turned off a lint rule |
 | A fresh session for each attempt, three at most, given only the last failure | A failed idea carries forward in a long session [Ralph] |
 | A sanctioned `bar-wrong` outcome | A builder that cannot say the test is wrong is pushed to cheat |
@@ -654,6 +654,15 @@ is a rejection, since the piece has left building.
 | Any distinct `Keep:` passes. After a failure the gate retries it once with the judge files in place. If it passes, the pull request records cause `keep-flaky` and the failed test names, including unittest `FAIL:` and `ERROR:` headers. The gate blames the bar only when both failures locate a diagnostic in the same judge file and Keep passes without judge files, with nothing skipped | A judge that breaks the project's lint can never pass |
 | Each `Quality:` command passes. A failure is retried, unless the same command also fails on a fresh `main` | The project's own quality bar |
 
+**Narrow tier.** When the run sets `AI_LOOP_KIT_TIER=narrow`, the gate
+replaces the Test command and `Keep:` with the `Test files command:` from
+the loop section, run once on the test files that the attempt changed or
+that Exit `Files:` names. Its `{files}` placeholder receives those paths.
+With no such files, no command runs and the judge alone decides. Without a
+`Test files command:`, the full Test command runs and `Keep:` is skipped.
+Quality commands still run, and the submit record notes `"tier": "narrow"`.
+Project commands never see the variable, so a builder cannot set the tier.
+
 The diagnostic must name a judge file in an explicit lint error (`error`,
 `fatal` or an `E`/`F` code followed by three or four digits) or an exception
 traceback. A warning, informational location or passing test's name is not
@@ -858,6 +867,14 @@ pass:
 - Green Prepare and Test on a fresh `main`, 10 GB free, room in the approval
   queue.
 
+The green Test command and `Keep:` on a fresh base are the run's full
+baseline. Doctor records them in `.loop/baseline.json` with the base commit.
+In a tiered run, a piece made ready during the run, such as one whose blockers
+are done, reuses that baseline instead of running the full suite on the base
+again, as long as its Test and Keep commands match the record. Prepare, the
+test lint and the Exit checks still run on the base. The final suite catches
+what the baseline cannot.
+
 During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
 with `caffeinate`, waits once for a reported usage limit, and at the end
 writes `.loop/summary.md` and posts it to a tracking issue. It never merges into `main`.
@@ -926,6 +943,9 @@ overwrite work. `CONTRIBUTING.md` gives the release steps.
    project, or on a branch with a pull request when `main` already has
    work. Doctor checks it all on a fresh copy of `main` (code). A project
    with no tests yet gets a warning and the scaffold piece as its next step.
+   An optional `Test files command:` says how to run a list of test files,
+   with the placeholder `{files}`, for example `python -m pytest {files}`.
+   Ready freezes it for the narrow tier (section 8).
    A project may add `Base branch: <name>` to the loop section. Then every
    piece builds on that branch, not on `main`: ready judges against it, the
    run merges it into each piece, and each pull request targets it. The gate
@@ -990,8 +1010,9 @@ Walk-away guidance is a conditional reference. The ordinary run skill stays
 within its word budget in `tests/test_text_budgets.py`, counting frontmatter
 and command snippets with `len(text.split())`. Runtime output and project data add variable text.
 The word-budget test caps every skill, reference, agent definition and brief,
-and their combined total. Unchanged files keep their present ceilings until
-their own thinning change.
+and their combined total. The ceilings carry headroom, so a change that stays
+under them edits no budget. A ceiling is raised only at a release, to the
+measured size plus about 5 per cent, rounded up.
 
 Doctor checks GitHub sign-in with `gh auth status --active`. An expired
 inactive account does not block setup. If an active account fails, doctor
@@ -1139,8 +1160,9 @@ tool call, and the kit drives the person's own tools and sign-ins.
 `extras/`. It checks extra test files against the 800-line file ceiling but
 excludes them from the runtime total. It fails above 800 lines per file or
 above its `TOTAL_BUDGET` of runtime lines in total. The suite reports the total and the
-default-install size separately. The total budget follows the measured size; a smaller budget
-needs a measured reduction first.
+default-install size separately. The total budget carries headroom, so a change that
+stays under it edits no budget. The ceiling is raised only at a release: the
+maintainer then sets it to the measured size plus about 5 per cent, rounded up.
 
 ## Words used in this file
 

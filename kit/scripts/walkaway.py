@@ -104,9 +104,10 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         if settings_errors:
             checks[-1] = (False, checks[-1][1] + ": " + "; ".join(settings_errors), checks[-1][2])
 
-        guard = root / "kit" / "hooks" / "guard.py"
+        guard = sandbox.guard_path()
         checks.append(_check(guard.is_file(), "the kit guard hook is available to sessions",
-                             "restore kit/hooks/guard.py and the run session hook"))
+                             "reinstall the ai-loop-kit plugin, so that hooks/guard.py is "
+                             "present in its install folder, then run gate.py doctor --walk-away"))
 
         bypass = any(os.environ.get(key) for key in
                      ("CLAUDE_CODE_BYPASS_PERMISSIONS", "CLAUDE_CODE_DANGEROUSLY_SKIP_PERMISSIONS"))
