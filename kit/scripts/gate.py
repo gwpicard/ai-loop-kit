@@ -125,7 +125,9 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             if overlaps:
                 shared_conflicts.append({"issue": other["number"], "files": overlaps})
     ran = pending.run_in_main(root, n, spec, blockers, main, head, bar_files,
-                              regression_command, keep_command, keep_limit)
+                              regression_command, keep_command, keep_limit,
+                              baseline=regression.baseline_covers(
+                                  root, regression_command, keep_command))
     regression_main, keep_output, output = ran["regression_main"], ran["keep_output"], ran["output"]
     test_outputs, kind_record = ran["test_outputs"], ran["kind_record"]
     test_lint_unchecked = ran["test_lint_unchecked"]
