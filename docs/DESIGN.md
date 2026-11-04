@@ -666,7 +666,9 @@ Only a walk-away run that merges onto a base branch (`Base merges: run`)
 sets it, and it clears it when the run ends. That run's piece pull requests
 name the narrow check, not a full Test command result. Before the final pull
 request, the run runs the full Test command and `Keep:` once on the base
-(section 9). An attended run, or one whose pieces open pull requests into
+(section 9). When that fails, a binary search over the piece merges names
+the piece that broke it, and the gate's `suite-fail` move takes that piece
+from done back to shaping. An attended run, or one whose pieces open pull requests into
 `main`, keeps the full suite at ready and after every attempt.
 
 The diagnostic must name a judge file in an explicit lint error (`error`,
@@ -888,10 +890,22 @@ pull requests into `main`, and each should carry the full result. The tiered
 run pays for the full suite twice instead: the baseline at the start, and the
 final suite at the end. When at least one piece merged in the run, it runs Prepare, the
 Test command and any distinct `Keep:` in a fresh copy of the base tip. A pass
-adds `Full suite passed on <base>` to the results. A failure adds `Full suite
-failed on <base>`, makes the run exit non-zero, and still opens the final
-pull request, with the failure under "Held in this run" and the title marked
-incomplete.
+adds `Full suite passed on <base>` to the results.
+
+A failure searches for the piece that broke the suite. Taking the baseline as
+good and the tip as bad, the run halves the list of this run's piece merges
+and runs the suite on the base as it stood after the middle merge, so n
+pieces cost at most `ceil(log2(n)) + 1` runs, the tip's included. A piece is
+blamed for the base right after its merge, so two pieces that break the suite
+only together blame the later one. The named piece moves from done back to
+shaping with `needs-you`, its issue is reopened, and a comment holds the
+command and the last 3,000 characters of the output. The result reads
+`piece N: back to shaping, broke the full suite on <base>`. When no merge
+fails, the result says `no single piece found` and no piece moves.
+
+Either way the run leaves the base as it is: it does not revert the merge. It
+exits non-zero and still opens the final pull request, with the failure under
+"Held in this run" and the title marked incomplete.
 
 During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
 with `caffeinate`, waits once for a reported usage limit, and at the end

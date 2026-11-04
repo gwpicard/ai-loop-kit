@@ -701,6 +701,9 @@ class GitHub:
     def close(self, n: int, reason: str) -> None:
         self._gh("issue", "close", str(n), "--reason", reason)
 
+    def reopen(self, n: int) -> None:
+        self._gh("issue", "reopen", str(n))
+
     def labels(self) -> list[str]:
         data = json.loads(self._gh("label", "list", "--limit", "200", "--json", "name"))
         return [d["name"] for d in data]
