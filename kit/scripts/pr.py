@@ -102,6 +102,15 @@ def open_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                                checked["output"])
 
 
+def regression_line(regression: dict) -> str:
+    """The evidence line for the submit record's check: narrow in a tiered run, else full."""
+    facts = f"`{regression['command']}`; exit {regression['exit']}; commit `{regression['commit']}`."
+    if regression.get("tier") == "narrow":
+        return (f"- Narrow check: {facts} The full Test command runs on the base before "
+                "the final pull request.")
+    return f"- Regression: {facts}"
+
+
 def finish_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dict,
                         k: int, output: str, review: Optional[dict], url: str,
                         judged: str) -> str:
@@ -110,8 +119,7 @@ def finish_pull_request(gh: GitHub, root: Path, folder: Path, n: int, issue: dic
     ready = last_record(gh.comments(n), "ready") or {}
     facts, evidence = pull_request_facts(folder, ready, judged)
     regression = submitted["regression"]
-    evidence += (f"\n- Regression: `{regression['command']}`; exit {regression['exit']}; "
-                 f"commit `{regression['commit']}`.")
+    evidence += "\n" + regression_line(regression)
     review = review or {}
     unresolved = review.get("contract_findings", [])
     gate_claim = f"The gate ran the frozen judge itself after attempt {k}, and it passed."
