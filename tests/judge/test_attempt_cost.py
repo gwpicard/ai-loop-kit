@@ -101,12 +101,12 @@ class AttemptCostTest(RunFixture, unittest.TestCase):
         self.assertEqual(submit["tokens"], 100)
         self.assertNotIn("cost_usd", submit)
 
-    def test_D6_total_budget_rises_by_no_more_than_the_piece_adds(self):
+    def test_D9_the_python_stays_within_the_total_budget(self):
         import test_size_inventory as inventory
         measured = sum(lines for owner in ("kit", "extras")
                        for name, lines in inventory.python_lines(inventory.ROOT / owner).items()
                        if not f"{owner}/{name}".startswith("extras/tests/"))
-        self.assertLessEqual(inventory.TOTAL_BUDGET, measured)
+        self.assertLessEqual(measured, inventory.TOTAL_BUDGET)
 
     def test_D4_stays_attempts_and_seconds_are_recorded_as_before(self):
         n = self.build_with([{"type": "result"}], mode="good")

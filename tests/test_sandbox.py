@@ -206,23 +206,29 @@ class SandboxTest(unittest.TestCase):
             response = "\n".join([
                 json.dumps({"type": "user", "message": {"content": [{
                     "type": "tool_result", "content":
-                    "HOME_WRITE_EXIT:1 READ_EXIT:1 READ_EXIT:1 READ_EXIT:1 NETWORK_EXIT:6"} ]}}),
+                    "HOME_WRITE_BLOCKED READ_BLOCKED ~/.ssh "
+                    "READ_BLOCKED ~/.config/gh NETWORK_BLOCKED"}]}}),
                 json.dumps({"type": "result", "is_error": False}),
             ])
             process = type("Result", (), {"returncode": 0, "stdout": response, "stderr": ""})()
             with patch.object(sandbox, "PROBE_PATH", Path(temp) / "absent"), \
+                 patch.object(sandbox, "probe_read_paths", create=True,
+                              return_value=["~/.ssh", "~/.config/gh"]), \
                  patch.object(sandbox.subprocess, "run", return_value=process):
                 ok, reason = sandbox.probe(Path(temp), ["pypi.org"])
-        self.assertTrue(ok)
-        self.assertIn("blocked", reason)
+        self.assertTrue(ok, reason)
+        self.assertIn("~/.config/gh", reason)
 
     def test_probe_fails_when_any_boundary_check_succeeds(self):
         with tempfile.TemporaryDirectory() as temp:
             response = json.dumps({"type": "user", "message": {"content": [{
                 "type": "tool_result", "content":
-                "HOME_WRITE_EXIT:1 READ_EXIT:0 READ_EXIT:1 READ_EXIT:1 NETWORK_EXIT:6"}]}})
+                "HOME_WRITE_BLOCKED READ_ALLOWED ~/.ssh "
+                "READ_BLOCKED ~/.config/gh NETWORK_BLOCKED"}]}})
             process = type("Result", (), {"returncode": 0, "stdout": response, "stderr": ""})()
             with patch.object(sandbox, "PROBE_PATH", Path(temp) / "absent"), \
+                 patch.object(sandbox, "probe_read_paths", create=True,
+                              return_value=["~/.ssh", "~/.config/gh"]), \
                  patch.object(sandbox.subprocess, "run", return_value=process):
                 ok, _ = sandbox.probe(Path(temp))
         self.assertFalse(ok)
