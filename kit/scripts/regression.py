@@ -1,6 +1,7 @@
 """Run the required project tests, independently of a piece's extra Keep."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -12,6 +13,34 @@ from loopkit import Refused, rev, run_keep, sh, skipped_tests
 def tiered() -> bool:
     """The run, not a builder, asks for the narrow tier through its own environment."""
     return os.environ.get("AI_LOOP_KIT_TIER") == "narrow"
+
+
+def _baseline_path(root: Path) -> Path:
+    return root / ".loop" / "baseline.json"
+
+
+def write_baseline(root: Path, commit: str, test: str, keep: str) -> None:
+    """Record the start-of-run full check that passed on the base."""
+    path = _baseline_path(root)
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"commit": commit, "test": test, "keep": keep or test}))
+
+
+def read_baseline(root: Path) -> dict:
+    try:
+        record = json.loads(_baseline_path(root).read_text())
+    except (OSError, ValueError):
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def baseline_covers(root: Path, test: str, keep: str) -> bool:
+    """A tiered run reuses the baseline only for the same Test and Keep commands."""
+    if not tiered():
+        return False
+    record = read_baseline(root)
+    return bool(record.get("commit")) and record.get("test") == test \
+        and record.get("keep") == (keep or test)
 
 
 def _reason(code: int, output: str) -> str:

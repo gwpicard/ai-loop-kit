@@ -16,9 +16,15 @@ from run_start import capture_probe_files, remove_worktree, restore_probe_files
 from testlint import lint_files
 
 
+def _from_baseline(root: Path) -> dict:
+    """The tiered run's start-of-run full check stands in for the suite on the base."""
+    return {"reason": "", "exit": 0, "baseline": regression.read_baseline(root)["commit"],
+            "output": ""}
+
+
 def run_in_main(root: Path, n: int, spec, blockers: list[int], main: str, head: str,
                 bar_files: list[str], regression_command: str, keep_command: str,
-                keep_limit: int) -> dict:
+                keep_limit: int, baseline: bool = False) -> dict:
     """Run the judge on today's main, with only the judge files added."""
     import gate  # the seam tests patch exit_ready on gate
     from gate import covered, generated, snapshot_or_generated
@@ -39,13 +45,16 @@ def run_in_main(root: Path, n: int, spec, blockers: list[int], main: str, head: 
                           "fix the Prepare command in AGENTS.md, then run gate.py doctor")
         if blockers:
             regression_main = {"reason": "base check pending"}
+        elif baseline:
+            regression_main = _from_baseline(root)
         elif spec.kind != "scaffold":
             regression_main, keep_output = regression.check(folder, regression_command, keep_limit)
             if regression_main["reason"]:
                 raise Refused(f"the regression check on main {regression_main['reason']}:\n"
                               f"{keep_output.strip()[-1500:]}\nCommand: {regression_command}",
                               "fix main or the Test command and environment, then run ready again")
-        if keep_command and keep_command != regression_command and not blockers:
+        if keep_command and keep_command != regression_command and not blockers \
+                and not baseline:
             kcode, koutput = run_keep(folder, keep_command, timeout=keep_limit)
             keep_output += "\n" + koutput
             if kcode != 0:

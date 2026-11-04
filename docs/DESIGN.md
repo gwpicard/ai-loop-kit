@@ -867,6 +867,14 @@ pass:
 - Green Prepare and Test on a fresh `main`, 10 GB free, room in the approval
   queue.
 
+The green Test command and `Keep:` on a fresh base are the run's full
+baseline. Doctor records them in `.loop/baseline.json` with the base commit.
+In a tiered run, a piece made ready during the run, such as one whose blockers
+are done, reuses that baseline instead of running the full suite on the base
+again, as long as its Test and Keep commands match the record. Prepare, the
+test lint and the Exit checks still run on the base. The final suite catches
+what the baseline cannot.
+
 During the run it writes `.loop/heartbeat` every minute, keeps a Mac awake
 with `caffeinate`, waits once for a reported usage limit, and at the end
 writes `.loop/summary.md` and posts it to a tracking issue. It never merges into `main`.
