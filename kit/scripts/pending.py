@@ -34,6 +34,7 @@ def run_in_main(root: Path, n: int, spec, blockers: list[int], main: str, head: 
     made_by_test: set[str] = set()
     regression_main = {"reason": "scaffold: no test runner on main"}
     keep_output = ""
+    baseline = baseline and spec.kind != "scaffold"
     try:
         sh(["git", "worktree", "add", "--detach", "--quiet", str(folder), main], root)
         ok, poutput = (True, "") if spec.kind == "scaffold" or blockers else prepare(folder)
