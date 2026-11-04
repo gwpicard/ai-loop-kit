@@ -79,6 +79,16 @@ def empty_base_scaffold(gh, root: Path, pieces: list[int]) -> bool:
                                   ).get("kind") == "scaffold"
 
 
+def _claude_version(claude: str, root: Path) -> str:
+    """Return the `claude --version` output, or an empty string when it cannot run."""
+    try:
+        version = subprocess.run([claude, "--version"], cwd=root, capture_output=True,
+                                 text=True, check=False)
+    except OSError:
+        return ""
+    return version.stdout.strip() if version.returncode == 0 else ""
+
+
 def preflight(gh, root: Path, *, baseline_checked: bool = False,
               agent: Optional[str] = None,
               pieces: Optional[list[int]] = None) -> list[tuple[bool, str, str]]:
@@ -90,10 +100,8 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         return [_check(False, str(error), "set `Agent: claude` or `Agent: codex` in AGENTS.md")]
     if backend == "claude":
         claude = os.environ.get("LOOP_CLAUDE", "claude")
-        version = subprocess.run([claude, "--version"], cwd=root, capture_output=True,
-                                 text=True, check=False)
-        version_text = version.stdout.strip() if version.returncode == 0 else ""
-        checks.append(_check(version.returncode == 0 and sandbox.version_ok(version_text),
+        version_text = _claude_version(claude, root)
+        checks.append(_check(bool(version_text) and sandbox.version_ok(version_text),
                              f"Claude Code {version_text or 'version unavailable'} supports strict sandbox mode",
                              "install Claude Code 2.1.285 or later and check that it is on PATH"))
 
