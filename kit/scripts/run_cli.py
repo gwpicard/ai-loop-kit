@@ -24,6 +24,7 @@ import regression
 import suite
 import walkaway
 from doctor import print_checks
+from loop_pr import HELD
 from loopkit import (STATE_PREFIX, GitHub, Refused, base_branch, base_merges, last_record,
                      loop_settings, refresh_main, repo_root)
 
@@ -65,7 +66,7 @@ def final_suite(gh: GitHub, root: Path, pieces: list[int], results: list[str]) -
         line = f"Full suite could not run; final pull request held until it passes: {error}"
     if line:
         results.append(line)
-    return "held until" in line or "back to shaping" in line
+    return any(marker in line for marker in HELD)
 
 
 def record_pieces(root: Path, pieces: list[int], known: list[int]) -> list[int]:

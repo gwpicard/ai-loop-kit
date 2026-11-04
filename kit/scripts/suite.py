@@ -64,7 +64,7 @@ def final_check(gh: GitHub, root: Path, base: str, numbers: list[int]) -> str:
     if ok:
         return f"Full suite passed on {base} ({len(pieces)} pieces)"
     print(output.strip()[-1500:])
-    n, found, _ = find_breaker(root, base, pieces, settings)
+    n, found = find_breaker(root, base, pieces, settings)
     if n is None:
         return (f"Full suite failed on {base}; no single piece found; "
                 "final pull request held until it passes")
@@ -72,24 +72,22 @@ def final_check(gh: GitHub, root: Path, base: str, numbers: list[int]) -> str:
 
 
 def find_breaker(root: Path, base: str, merged: list[tuple[int, str]],
-                 settings: dict) -> tuple[int | None, str, int]:
+                 settings: dict) -> tuple[int | None, str]:
     """Binary search for the first piece whose merge fails the full suite.
 
     The start-of-run baseline counts as good and the base tip as bad. Returns the piece, or
-    None when no merge fails, the output of its failing run ("" when that run was the tip's)
-    and the suite runs taken, the tip's included.
+    None when no merge fails, and the output of its failing run ("" when that run was the tip's).
     """
     tip = sh(["git", "rev-parse", f"origin/{base}"], root, check=False).stdout.strip()
     good, bad = -1, len(merged) - 1 if merged and merged[-1][1] == tip else len(merged)
-    outputs, runs = {}, 1
+    outputs = {}
     while bad - good > 1:
         mid = (good + bad) // 2
         ok, outputs[mid] = full_suite(root, merged[mid][1], settings)
-        runs += 1
         good, bad = (mid, bad) if ok else (good, mid)
     if bad == len(merged):
-        return None, "", runs
-    return merged[bad][0], outputs.get(bad, ""), runs
+        return None, ""
+    return merged[bad][0], outputs.get(bad, "")
 
 
 def hand_back(gh: GitHub, root: Path, base: str, n: int, output: str, command: str) -> str:
