@@ -10,8 +10,8 @@ from contextlib import suppress
 from pathlib import Path
 
 import regression
-from loopkit import (GitHub, keep_limit_seconds, loop_settings, prepare, run_keep, sh,
-                     sh_network)
+from loop_pr import in_main
+from loopkit import GitHub, keep_limit_seconds, loop_settings, prepare, run_keep, sh, sh_network
 from run_start import remove_worktree
 
 
@@ -48,8 +48,7 @@ def merged_this_run(gh: GitHub, root: Path, base: str,
             merged[commit] = int(number)
     order = sh(["git", "rev-list", "--first-parent", "--reverse", f"origin/{base}"], root,
                check=False).stdout.split()
-    in_main = set(sh(["git", "rev-list", "origin/main"], root, check=False).stdout.split())
-    return [(merged[c], c) for c in order if c in merged and c not in in_main]
+    return [(merged[c], c) for c in order if c in merged and not in_main(root, c)]
 
 
 def final_check(gh: GitHub, root: Path, base: str, numbers: list[int]) -> str:
