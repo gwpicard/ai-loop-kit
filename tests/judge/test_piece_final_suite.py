@@ -32,11 +32,13 @@ except ImportError as error:
 ROOT = Path(__file__).resolve().parents[2]
 TEST = "test ! -e broken.txt"
 SENTENCE = "A field run lost old behaviour when only the judge ran"
-HELD = "Full suite failed on trip; final pull request held until it passes"
 
 
 class MergedGitHub(FakeGitHub):
     """The fake GitHub, with the merge commit that the real list of pull requests carries."""
+
+    def reopen(self, n: int) -> None:
+        self.issues[n]["state"] = "OPEN"
 
     def merged(self, n: int, base: str, commit: str) -> None:
         self.prs[f"piece/{n}"] = {"url": f"https://example.invalid/pull/{n}", "state": "MERGED",
@@ -145,14 +147,20 @@ class FinalSuiteTest(unittest.TestCase):
         final = self.gh.prs["trip"]
         self.assertEqual((final["base"], final["title"]), ("main", "Bring trip into main"))
 
-    def test_D7_a_broken_base_fails_the_full_suite_and_names_the_hold(self):
+    def done_issue(self):
+        n = self.ready_issue()
+        self.gh.set_labels(n, [STATE_PREFIX + "done"], [STATE_PREFIX + "ready"])
+        return n
+
+    def test_D7_a_broken_base_fails_the_full_suite_and_names_the_piece(self):
         self.settings()
-        self.land(21, "one.txt")
-        self.land(22, "broken.txt")
+        first, second = self.done_issue(), self.done_issue()
+        self.land(first, "one.txt")
+        self.land(second, "broken.txt")
         self.assertTrue(suite is not None and hasattr(suite, "final_check"),
                         "suite.final_check must exist")
-        line = suite.final_check(self.gh, self.p.root, "trip", [21, 22])
-        self.assertEqual(line, HELD)
+        line = suite.final_check(self.gh, self.p.root, "trip", [first, second])
+        self.assertEqual(line, f"piece {second}: back to shaping, broke the full suite on trip")
 
     def test_D7_a_failed_suite_exits_non_zero_and_still_opens_a_marked_final_pull_request(self):
         self.settings()
@@ -164,12 +172,13 @@ class FinalSuiteTest(unittest.TestCase):
 
         with patch.object(self, "land", side_effect=land):
             status, out = self.run_pieces(pieces, True, merge_into="trip")
+        line = f"piece {pieces[1]}: back to shaping, broke the full suite on trip"
         self.assertEqual(status, 1)
-        self.assertIn(HELD, out)
+        self.assertIn(line, out)
         final = self.gh.prs["trip"]
         self.assertEqual(final["base"], "main")
         self.assertIn("(incomplete: 1 not on trip)", final["title"])
-        self.assertIn("## Held in this run\n- " + HELD, final["body"])
+        self.assertIn("## Held in this run\n- " + line, final["body"])
 
     def test_D8_a_tiered_submit_names_the_narrow_check_in_the_pull_request(self):
         body = self.submitted_body(tiered=True)
