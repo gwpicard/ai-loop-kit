@@ -6,7 +6,7 @@ import re
 import shlex
 from pathlib import Path
 
-from loopkit import Refused, main_ref, rev, run_keep, sh, skipped_tests
+from loopkit import Refused, rev, run_keep, sh, skipped_tests
 
 
 def tiered() -> bool:
@@ -41,9 +41,9 @@ def check(folder: Path, command: str, limit: int,
 
 
 def changed_test_files(folder: Path, ready: dict) -> list[str]:
-    """Test files changed since the base, in any state, plus test files the Exit names."""
+    """Test files changed since ready, in any state, plus test files the Exit names."""
     from gate import _is_test_support
-    listings = (["git", "diff", "--no-renames", "--name-only", f"{main_ref(folder)}...HEAD"],
+    listings = (["git", "diff", "--no-renames", "--name-only", f"{ready['commit']}...HEAD"],
                 ["git", "diff", "--no-renames", "--name-only", "HEAD"],
                 ["git", "ls-files", "--others", "--exclude-standard"])
     names = {name for args in listings for name in sh(args, folder).stdout.splitlines()}
