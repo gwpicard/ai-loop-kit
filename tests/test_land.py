@@ -222,7 +222,8 @@ class EndToEndTest(LandFixture, unittest.TestCase):
         import run_cli
         from contextlib import redirect_stdout
         from io import StringIO
-        from run_fixtures import FAKE_CLAUDE
+        from run_fixtures import FAKE_CLAUDE, arm_time_limit
+        arm_time_limit(self)
         fake = self.p.root.parent / "fake-claude"
         fake.write_text(FAKE_CLAUDE)
         fake.chmod(fake.stat().st_mode | stat.S_IXUSR)

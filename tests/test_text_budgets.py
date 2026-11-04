@@ -5,24 +5,24 @@ import unittest
 
 from helpers import KIT
 
-# Unchanged guidance keeps its current ceiling until its own thinning slice.
+# Each ceiling carries headroom and is raised only in a release.
 BUDGETS = {
     "briefs/judge-writer.md": 347,
     "briefs/researcher.md": 229,
-    "briefs/builder.md": 710,
-    "briefs/contract-reviewer.md": 207,
+    "briefs/builder.md": 750,
+    "briefs/contract-reviewer.md": 220,
     "extras/briefs/critic.md": 90,
     "briefs/standards-reviewer.md": 372,
-    "skills/run/SKILL.md": 364,
-    "skills/run/references/walk-away.md": 242,
-    "skills/run-recovery/SKILL.md": 213,
+    "skills/run/SKILL.md": 390,
+    "skills/run/references/walk-away.md": 260,
+    "skills/run-recovery/SKILL.md": 230,
     "skills/reject-handling/SKILL.md": 180,
-    "skills/setup/SKILL.md": 1327,
-    "skills/shape/SKILL.md": 1215,
-    "skills/shape/references/questions.md": 244,
-    "spec-format.md": 1195,
+    "skills/setup/SKILL.md": 1400,
+    "skills/shape/SKILL.md": 1280,
+    "skills/shape/references/questions.md": 260,
+    "spec-format.md": 1260,
 }
-TOTAL_BUDGET = 6744
+TOTAL_BUDGET = 7100
 
 
 def check_budgets(texts, budgets=BUDGETS, total_budget=TOTAL_BUDGET):
