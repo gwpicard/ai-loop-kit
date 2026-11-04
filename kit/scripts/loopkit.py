@@ -320,6 +320,7 @@ def command_env(folder: Path, protected_paths: Optional[list[str]] = None,
     also drop secret-shaped variables. With package_cache, uv keeps its cache in
     `.loop/cache/uv`, which a sandboxed agent can write."""
     env = dict(os.environ)
+    env.pop("AI_LOOP_KIT_TIER", None)  # the run's check tier never reaches project commands
     if package_cache:
         cache = folder.resolve() / ".loop" / "cache" / "uv"
         if not cache.resolve().is_relative_to(folder.resolve()):
@@ -374,7 +375,8 @@ def loop_settings(folder: Path, text: Optional[str] = None) -> dict:
             out[m.group(1).lower()] = m.group(2).strip().strip("`").strip()
             continue
         m = re.match(
-            r"^\s*[-*]?\s*(Quality|Standards|Protected paths|Waiting limit|Idle limit|Keep limit|"
+            r"^\s*[-*]?\s*(Test files command|Quality|Standards|Protected paths|Waiting limit|"
+            r"Idle limit|Keep limit|"
             r"Keep|Agent model|Agent effort|Agent|Sandbox domains|Secret paths|Base branch|Base merges)\s*:\s*(.*)$", line, re.IGNORECASE)
         if m:
             key, value = m.group(1).lower(), m.group(2).strip().strip("`").strip()
