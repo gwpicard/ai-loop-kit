@@ -27,9 +27,18 @@ how it works and why.
 
 ## How the kit grows
 
-A feature enters `kit/` only when a real run shows it is needed. Write the
-failure in `docs/OPEN.md` first, add a test that reproduces it, then add the
-feature. Keep the kit small enough to read in one sitting.
+A change enters `kit/` only with evidence that the kit needs it: a failure in
+a real run, friction in real use (the person had to step in, wait or remember
+something), or a gap, named by the person, between what the kit does and the
+walk-away goal. Write the evidence in `docs/OPEN.md` first, add a test that
+reproduces the failure or checks the new behaviour, then make the smallest
+change.
+
+New capability enters as preview. It leaves preview only when the maintainer
+decides so, after a real run has used it. When a change makes code, text or a
+check redundant, the same pull request removes it. At each release, the
+maintainer decides for every preview: it leaves preview, stays with a stated
+reason, or is removed. Keep the kit small enough to read in one sitting.
 
 ## Commands
 
