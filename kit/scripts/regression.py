@@ -30,13 +30,14 @@ def _reason(code: int, output: str) -> str:
 
 
 def check(folder: Path, command: str, limit: int,
-          protected_paths: list[str] | None = None) -> tuple[dict, str]:
+          protected_paths: list[str] | None = None, label: str = "Regression",
+          ) -> tuple[dict, str]:
     code, output = run_keep(folder, command, timeout=limit, protected_paths=protected_paths)
     reason = _reason(code, output)
     result = {"command": command, "limit": limit, "commit": rev(folder, "HEAD"),
               "exit": code, "output": output[-3000:], "reason": reason}
-    evidence = (output + f"\nRegression: {command}\nCommit: {result['commit']}\nExit: {code}\n"
-                + (f"Regression {reason}\n" if reason else ""))
+    evidence = (output + f"\n{label}: {command}\nCommit: {result['commit']}\nExit: {code}\n"
+                + (f"{label} {reason}\n" if reason else ""))
     return result, evidence
 
 
@@ -67,16 +68,9 @@ def narrow(folder: Path, ready: dict,
                  "exit": 0, "output": "", "reason": ""},
                 "Narrow tests: no test files changed\n")
     command = template.replace("{files}", " ".join(shlex.quote(name) for name in files))
-    limit = ready["regression_limit"]
-    code, output = run_keep(folder, command, timeout=limit, protected_paths=protected_paths)
-    reason = _reason(code, output)
-    result = {"command": command, "files": files, "limit": limit,
-              "commit": rev(folder, "HEAD"), "exit": code, "output": output[-3000:],
-              "reason": reason}
-    evidence = (f"Narrow tests: {command}\nFiles: {', '.join(files)}\n{output}"
-                f"\nCommit: {result['commit']}\nExit: {code}\n"
-                + (f"Narrow tests {reason}\n" if reason else ""))
-    return result, evidence
+    result, evidence = check(folder, command, ready["regression_limit"], protected_paths,
+                             label="Narrow tests")
+    return {**result, "files": files}, evidence
 
 
 def require_record(ready: dict) -> None:
