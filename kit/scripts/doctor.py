@@ -90,6 +90,13 @@ def quality_on_fresh_main(root: Path, main: str, command: str, test_command: str
             tmp.rmdir()
 
 
+def record_baseline(root: Path, folder: Path, test: str, keep: str) -> None:
+    """The start-of-run full check on the base, for a tiered run's ready checks to reuse."""
+    import regression
+    commit = sh(["git", "rev-parse", "HEAD"], folder).stdout.strip()
+    regression.write_baseline(root, commit, test, keep)
+
+
 def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
            proposed_prepare: str | None = None, proposed_test: str | None = None,
            walk_away: bool = False, agent: str | None = None,
@@ -212,6 +219,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
             command_result(*run_judge(folder, settings["test"]), settings["test"], "the tests pass")
         command_result(*run_keep(folder, keep_command, timeout=keep_timeout), keep_command,
                        "the tests pass" if keep_command == settings["test"] else "Keep passes")
+        if walk_away and all(ok for ok, _, _ in checks):
+            record_baseline(root, folder, settings["test"], keep_command)
 
         def probe(command: str, proposed: bool = False) -> None:
             qprepare = (proposed_prepare if proposed and proposed_prepare is not None

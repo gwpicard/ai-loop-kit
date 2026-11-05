@@ -126,9 +126,13 @@ class RuntimeThinningTest(unittest.TestCase):
         gh.comments.assert_called_once_with(1)
 
     def test_walkaway_guard_availability_is_independent_of_manifest(self):
+        # D4: the guard is looked up at sandbox.guard_path(), not in the project.
+        self.assertTrue(hasattr(walkaway.sandbox, "guard_path"),
+                        "sandbox.guard_path must exist")
         with TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            hooks = root / "kit" / "hooks"
+            root = Path(temporary) / "project"
+            root.mkdir()
+            hooks = Path(temporary) / "plugin" / "hooks"
             hooks.mkdir(parents=True)
             for has_guard in (False, True):
                 for manifest in (None, '{}', '{"command":"guard.py"}'):
@@ -143,7 +147,9 @@ class RuntimeThinningTest(unittest.TestCase):
                             config.unlink(missing_ok=True)
                         else:
                             config.write_text(manifest)
-                        with patch.object(agents, "selected", return_value="claude"), \
+                        with patch.object(walkaway.sandbox, "guard_path",
+                                          return_value=guard), \
+                                patch.object(agents, "selected", return_value="claude"), \
                                 patch.object(walkaway.subprocess, "run", return_value=
                                              SimpleNamespace(returncode=0, stdout="2.1.285")), \
                                 patch.object(walkaway.sandbox, "excluded_commands",

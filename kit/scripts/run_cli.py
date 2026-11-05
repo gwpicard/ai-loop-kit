@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -19,10 +20,13 @@ import gate
 import holds
 import notifications
 import procs
+import regression
+import suite
 import walkaway
 from doctor import print_checks
-from loopkit import (STATE_PREFIX, GitHub, Refused, last_record, loop_settings, refresh_main,
-                     repo_root)
+from loop_pr import HELD
+from loopkit import (STATE_PREFIX, GitHub, Refused, base_branch, base_merges, last_record,
+                     loop_settings, refresh_main, repo_root)
 
 from extras import require_extras
 
@@ -42,6 +46,27 @@ def final_pull_request(api, gh: GitHub, root: Path, results: list[str]) -> None:
         line = f"could not open the final pull request: {error}"
     if line:
         results.append(line)
+
+
+def merges_onto_base(root: Path) -> bool:
+    """True when the run merges onto a base branch. Unreadable settings keep the full rule."""
+    try:
+        return base_merges(root)
+    except Exception:  # the full suite after every attempt is the safe default
+        return False
+
+
+def final_suite(gh: GitHub, root: Path, pieces: list[int], results: list[str]) -> bool:
+    """Run the full suite on the base of a tiered run. True when it failed; it never stops a run."""
+    if not regression.tiered():
+        return False
+    try:
+        line = suite.final_check(gh, root, base_branch(root), pieces)
+    except Exception as error:  # the pieces are built; report and finish
+        line = f"Full suite could not run; final pull request held until it passes: {error}"
+    if line:
+        results.append(line)
+    return any(marker in line for marker in HELD)
 
 
 def record_pieces(root: Path, pieces: list[int], known: list[int]) -> list[int]:
@@ -188,6 +213,8 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
         root, lambda: (notices.poll(), render_page())))
     print(f"Run page: {root / '.loop' / 'dashboard.html'}")
     try:
+        if walk_away and merges_onto_base(root):  # the full suite runs once on the base instead
+            os.environ["AI_LOOP_KIT_TIER"] = "narrow"
         gate.run_event(root, "run-start", reason="started")
         if args.retry_conflict is not None:
             try:
@@ -275,10 +302,12 @@ def main(argv: Optional[list[str]] = None, api=None) -> int:
                 handed_back.add(n)
             if walk_away:
                 summary_results.append(walkaway.piece_summary(root, n, result, state, started_at))
+        failed = final_suite(gh, root, pieces, results) or failed
         final_pull_request(api, gh, root, results)
         print("\nRun finished.\n" + "\n".join(results))
         return int(failed)
     finally:
+        os.environ.pop("AI_LOOP_KIT_TIER", None)
         gate.run_event(root, "run-stop", reason="ended")
         if api.stop_requested(root):
             api.clear_stop(root)

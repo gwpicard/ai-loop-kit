@@ -48,12 +48,13 @@ MOVES = {
     ("building", "shaping"): "give-back", ("building", "approval"): "submit",
     ("approval", "done"): "merged", ("building", "ready"): "requeue",
     ("approval", "shaping"): "reject", ("dropped", "shaping"): "reopen",
+    ("done", "shaping"): "suite-fail",
 }
 for _s in ("shaping", "ready", "building", "approval"):
     MOVES[(_s, "dropped")] = "drop"
 
-NEEDS_REASON = {"pull-back", "give-back", "requeue", "reject", "drop", "reopen"}
-NEEDS_TYPE = {"pull-back", "give-back", "requeue", "reject", "reopen"}
+NEEDS_REASON = {"pull-back", "give-back", "requeue", "reject", "drop", "reopen", "suite-fail"}
+NEEDS_TYPE = {"pull-back", "give-back", "requeue", "reject", "reopen", "suite-fail"}
 
 # The judge passes and the keep check fails only because of the judge files.
 BAR_WRONG = "the bar is wrong: the keep check fails on the judge files themselves"
@@ -125,7 +126,9 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             if overlaps:
                 shared_conflicts.append({"issue": other["number"], "files": overlaps})
     ran = pending.run_in_main(root, n, spec, blockers, main, head, bar_files,
-                              regression_command, keep_command, keep_limit)
+                              regression_command, keep_command, keep_limit,
+                              baseline=regression.baseline_covers(
+                                  root, regression_command, keep_command))
     regression_main, keep_output, output = ran["regression_main"], ran["keep_output"], ran["output"]
     test_outputs, kind_record = ran["test_outputs"], ran["kind_record"]
     test_lint_unchecked = ran["test_lint_unchecked"]
@@ -147,6 +150,7 @@ def check_ready(gh: GitHub, root: Path, issue: dict) -> dict:
             **{key: getattr(spec, key) for key in
                ("intent", "approach", "playbook", "files", "command", "kind", "settings")},
             "test_outputs": test_outputs, "regression": regression_command,
+            "regression_files": settings.get("test files command", ""),
             "regression_limit": keep_limit,
             "regression_main": regression_main, "keep_limit": settings.get("keep limit", "15"),
             "check_seconds": check_times(keep_output + "\n" + output), **kind_record,
@@ -285,12 +289,14 @@ def judge(folder: Path, ready: dict) -> tuple[bool, str]:
     if code != 0:
         return False, output
     regression.require_record(ready)
-    regression_result, regression_output = regression.check(
-        folder, ready["regression"], ready["regression_limit"], protected_paths)
+    tiered = regression.tiered()
+    regression_result, regression_output = (
+        regression.narrow(folder, ready, protected_paths) if tiered else regression.check(
+            folder, ready["regression"], ready["regression_limit"], protected_paths))
     if regression_result["reason"]:
         return False, regression_output
     output += "\n\n" + regression_output
-    if ready.get("keep") and ready["keep"] != ready["regression"]:
+    if ready.get("keep") and ready["keep"] != ready["regression"] and not tiered:
         keep_timeout = keep_limit_seconds({"keep limit": ready.get("keep_limit", "15")})
         kcode, koutput = run_keep(folder, ready["keep"], timeout=keep_timeout,
                                   protected_paths=protected_paths)
@@ -538,7 +544,8 @@ def move(gh: GitHub, root: Path, n: int, to: str, reason: str = "",
         record["check_seconds"] = check_times(output)
         record["commit"] = rev(folder, "HEAD")
         record["regression"] = {"command": ready["regression"], "exit": 0,
-                                "commit": record["commit"]}
+                                "commit": record["commit"],
+                                **({"tier": "narrow"} if regression.tiered() else {})}
         if evidence is not None:
             evidence["output"] = output
         record["attempts"] = max(0, int(attempts or 0))

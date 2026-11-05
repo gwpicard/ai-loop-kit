@@ -79,6 +79,16 @@ def empty_base_scaffold(gh, root: Path, pieces: list[int]) -> bool:
                                   ).get("kind") == "scaffold"
 
 
+def _cli_version(program: str, root: Path) -> str:
+    """Return the `<program> --version` output, or an empty string when it cannot run."""
+    try:
+        version = subprocess.run([program, "--version"], cwd=root, capture_output=True,
+                                 text=True, check=False)
+    except OSError:
+        return ""
+    return version.stdout.strip() if version.returncode == 0 else ""
+
+
 def preflight(gh, root: Path, *, baseline_checked: bool = False,
               agent: Optional[str] = None,
               pieces: Optional[list[int]] = None) -> list[tuple[bool, str, str]]:
@@ -90,10 +100,8 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         return [_check(False, str(error), "set `Agent: claude` or `Agent: codex` in AGENTS.md")]
     if backend == "claude":
         claude = os.environ.get("LOOP_CLAUDE", "claude")
-        version = subprocess.run([claude, "--version"], cwd=root, capture_output=True,
-                                 text=True, check=False)
-        version_text = version.stdout.strip() if version.returncode == 0 else ""
-        checks.append(_check(version.returncode == 0 and sandbox.version_ok(version_text),
+        version_text = _cli_version(claude, root)
+        checks.append(_check(bool(version_text) and sandbox.version_ok(version_text),
                              f"Claude Code {version_text or 'version unavailable'} supports strict sandbox mode",
                              "install Claude Code 2.1.285 or later and check that it is on PATH"))
 
@@ -104,9 +112,10 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         if settings_errors:
             checks[-1] = (False, checks[-1][1] + ": " + "; ".join(settings_errors), checks[-1][2])
 
-        guard = root / "kit" / "hooks" / "guard.py"
+        guard = sandbox.guard_path()
         checks.append(_check(guard.is_file(), "the kit guard hook is available to sessions",
-                             "restore kit/hooks/guard.py and the run session hook"))
+                             "reinstall the ai-loop-kit plugin, so that hooks/guard.py is "
+                             "present in its install folder, then run gate.py doctor --walk-away"))
 
         bypass = any(os.environ.get(key) for key in
                      ("CLAUDE_CODE_BYPASS_PERMISSIONS", "CLAUDE_CODE_DANGEROUSLY_SKIP_PERMISSIONS"))
@@ -118,11 +127,9 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
 
     else:
         codex = os.environ.get("LOOP_CODEX", "codex")
-        version = subprocess.run([codex, "--version"], cwd=root, capture_output=True,
-                                 text=True, check=False)
-        version_text = version.stdout.strip() if version.returncode == 0 else "version unavailable"
-        checks.append(_check(version.returncode == 0,
-                             f"Codex CLI {version_text} is available",
+        version_text = _cli_version(codex, root)
+        checks.append(_check(bool(version_text),
+                             f"Codex CLI {version_text or 'version unavailable'} is available",
                              "install Codex CLI and check that it is on PATH"))
 
     removed_names = secret_env_names()
