@@ -88,7 +88,7 @@ each failure with a mechanism, not an instruction.
 5. **The loop heals or hands back.** A failure goes into the next attempt. A
    piece that cannot pass goes back to shaping with a typed reason and its
    cause, never forward.
-6. **The person decides twice:** the contract, and the release. Nothing in
+6. **The person decides twice:** the contract, and the merge. Nothing in
    between needs them, except a question the run cannot settle or a piece it
    leaves for individual review.
 
