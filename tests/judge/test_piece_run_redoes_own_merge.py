@@ -26,6 +26,9 @@ def merge(folder, branch):
     return subprocess.run(["git", "merge", "--no-edit", branch], cwd=folder,
                           capture_output=True, text=True)
 
+# The fake build must not leave __pycache__ in the build folder.
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
 
 MAIN_HABITS = ("def add(items, name):\n    raise NotImplementedError(name)\n\n\n"
                "def count(items):\n    return len(items)\n")
