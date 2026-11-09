@@ -119,6 +119,24 @@ class OwnUnfinishedMergeTest(RunFixture, unittest.TestCase):
                       handback["reason"])
         self.assertTrue(git(folder, "rev-parse", "--verify", "MERGE_HEAD"))
 
+    def test_D3_only_a_merge_of_the_base_is_dropped(self):
+        n, folder = self.unfinished_merge_of_side_branch()
+        result, _, _ = self.run_again(n)
+        self.assertIn("back to shaping", result)
+        git(folder, "merge", "--abort")
+        (self.p.root / "habits.py").write_text(MAIN_HABITS)
+        (self.p.root / "from_main.txt").write_text("main\n")
+        git(self.p.root, "add", "habits.py", "from_main.txt")
+        git(self.p.root, "commit", "--quiet", "-m", "Main changes")
+        git(self.p.root, "push", "--quiet", "origin", "main")
+        self.assertNotEqual(merge(folder, "origin/main").returncode, 0)
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        os.environ["FAKE_MODE"] = "good"
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = run.build_piece(self.p.gh, self.p.root, n, 1)
+        self.assertNotIn("back to shaping", result)
+        self.assertIn("pull request ready", result)
+
     def test_D4_an_untracked_file_is_uncommitted_changes(self):
         n, folder = self.built_piece()
         self.assertEqual(run.dirty_folder_reason(folder), "")
