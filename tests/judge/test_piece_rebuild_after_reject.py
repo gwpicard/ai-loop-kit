@@ -21,6 +21,9 @@ from loopkit import records
 GOOD = "def add(items, name):\n    return items if name in items else items + [name]\n"
 REASON = "Rename nothing, but explain the duplicate check in a comment"
 
+# The fake build must not leave __pycache__ in the build folder.
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
 
 def commit_variant(folder, note):
     (folder / "habits.py").write_text(GOOD + f"# {note}\n")
