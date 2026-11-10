@@ -282,6 +282,22 @@ def dirty_folder_reason(folder: Path) -> str:
             + hint)
 
 
+def own_merge(folder: Path, main: str) -> bool:
+    """True when the folder holds an unfinished merge of the base (or of an older base)."""
+    merge_head = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
+    return merge_head.returncode == 0 and sh(
+        ["git", "merge-base", "--is-ancestor", merge_head.stdout.strip(), main], folder,
+        check=False).returncode == 0
+
+
+def drop_own_merge(folder: Path, main: str, n: int) -> None:
+    """Abort an unfinished merge of the base left by an earlier run; the run merges again."""
+    if not own_merge(folder, main):
+        return
+    sh(["git", "merge", "--abort"], folder)
+    log(f"piece {n}: dropped the earlier unfinished merge of {main}; the merge is redone")
+
+
 def worktree(root: Path, n: int) -> Path:
     folder = existing_worktree(root, n) or worktree_home(root) / f"piece-{n}"
     if not folder.exists():
@@ -385,6 +401,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     folder = worktree(root, n)
     log(f"piece {n}: build worktree: {folder}")
     exclude_paths(folder, ready.get("test_outputs", []))
+    main = main_ref(root)
+    drop_own_merge(folder, main, n)
     dirty = dirty_folder_reason(folder)
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
@@ -394,7 +412,6 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     # Bring the piece up to date with main, so the pull request merges cleanly.
     # A conflict is left for the builder to resolve; the gate's keep check then
     # proves that what main gained still works.
-    main = main_ref(root)
     merge_note = ""
     if sh(["git", "merge", "--no-edit", "--quiet", main], folder, check=False).returncode != 0:
         conflicts = sh(["git", "diff", "--name-only", "--diff-filter=U"], folder).stdout.split()
@@ -451,7 +468,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                       else "the person asked the run to stop")
             return _hand_back(gh, root, n, reason, "stopped", metrics)
         logfile = logs / f"piece-{n}-attempt-{k}.log"
-        dirty_reason = dirty_folder_reason(folder)
+        # The run's own unfinished merge of the base is the builder's to finish.
+        dirty_reason = "" if own_merge(folder, main) else dirty_folder_reason(folder)
         if dirty_reason:
             status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
             reason = dirty_reason
