@@ -267,13 +267,18 @@ def prepare_again(folder: Path, ready: dict, since: str) -> tuple[bool, bool, st
     return True, ok, output
 
 
+def merge_head(folder: Path) -> str:
+    """The commit an unfinished merge in the folder is merging, or "" when there is none."""
+    found = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
+    return found.stdout.strip() if found.returncode == 0 else ""
+
+
 def dirty_folder_reason(folder: Path) -> str:
     dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
     if not dirty:
         return ""
-    merge_head = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
     merge_states = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-    if merge_head.returncode == 0 and all(line[:2] in merge_states for line in dirty.splitlines()):
+    if merge_head(folder) and all(line[:2] in merge_states for line in dirty.splitlines()):
         return ""
     hint = (" If they are test reports or caches, add them to .gitignore on the base."
             if re.search(r"report|cache|coverage|junit|output", dirty) else "")
@@ -284,10 +289,9 @@ def dirty_folder_reason(folder: Path) -> str:
 
 def own_merge(folder: Path, main: str) -> bool:
     """True when the folder holds an unfinished merge of the base (or of an older base)."""
-    merge_head = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
-    return merge_head.returncode == 0 and sh(
-        ["git", "merge-base", "--is-ancestor", merge_head.stdout.strip(), main], folder,
-        check=False).returncode == 0
+    head = merge_head(folder)
+    return bool(head) and sh(["git", "merge-base", "--is-ancestor", head, main], folder,
+                             check=False).returncode == 0
 
 
 def drop_own_merge(folder: Path, main: str, n: int) -> None:
