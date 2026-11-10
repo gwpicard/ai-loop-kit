@@ -319,6 +319,23 @@ def own_merge(folder: Path, main: str) -> bool:
                              check=False).returncode == 0
 
 
+def stray_beside_merge(folder: Path, main: str) -> str:
+    """The dirty-folder reason when the run's own unfinished merge has files the merge did not make."""
+    if not own_merge(folder, main):
+        return ""
+    made = set(sh(["git", "diff", "--name-only", "HEAD...MERGE_HEAD"], folder).stdout.split())
+    dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout
+    stray = [line for line in dirty.splitlines() if line[3:] not in made]
+    return dirty_folder_reason(folder) if stray else ""
+
+
+def attempt_dirty_reason(folder: Path, main: str) -> str:
+    """The dirty-folder reason before an attempt; the files of the run's own merge are the builder's."""
+    if own_merge(folder, main):
+        return stray_beside_merge(folder, main)
+    return dirty_folder_reason(folder)
+
+
 def drop_own_merge(folder: Path, main: str, n: int) -> None:
     """Abort an unfinished merge of the base left by an earlier run; the run merges again."""
     if not own_merge(folder, main):
@@ -498,8 +515,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                       else "the person asked the run to stop")
             return _hand_back(gh, root, n, reason, "stopped", metrics)
         logfile = logs / f"piece-{n}-attempt-{k}.log"
-        # The run's own unfinished merge of the base is the builder's to finish.
-        dirty_reason = "" if own_merge(folder, main) else dirty_folder_reason(folder)
+        dirty_reason = attempt_dirty_reason(folder, main)
         if dirty_reason:
             status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
             reason = dirty_reason
@@ -543,6 +559,12 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
             return _hand_back(gh, root, n, reason, "builder-failed", metrics)
+        # Committing the leftovers would conclude the merge with a stray file in it.
+        stray = stray_beside_merge(folder, main)
+        if stray:
+            status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
+            gh.comment(n, f"**Run:** {stray}\n\n```\n{status[-1200:]}\n```")
+            return _hand_back(gh, root, n, stray, "environment", metrics)
         outcome = folder / ".loop" / "outcome"
         ran, ok, poutput = prepare_again(folder, ready, attempt_start)
         if ran and not ok:
