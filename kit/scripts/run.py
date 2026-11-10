@@ -194,8 +194,9 @@ def came_back_reason(comments: list[str]) -> str:
     return "\n".join(reasons)
 
 
-# The moves that send a piece back to shaping.
-BACK_TO_SHAPING = ("reject", "pull-back", "give-back", "suite-fail", "reopen")
+# The moves that send a piece back to shaping, from the gate's own table.
+BACK_TO_SHAPING = tuple(name for (before, after), name in gate.MOVES.items()
+                        if after == "shaping" and before != "new")
 
 
 def rejected_commit(comments: list[str]) -> tuple[str, str]:
