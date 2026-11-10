@@ -127,9 +127,7 @@ def start_session(backend: str, prompt: str, folder: Path, *, role: str,
     if backend == "claude" and walk_away:
         env.update({"LOOP_WALK_AWAY": "1", "LOOP_BUILD_ROOT": str(work)})
     if backend == "codex" and writable:
-        env["TMPDIR"] = str(writable[0])
-        # zsh writes here-document files under TMPPREFIX (default /tmp/zsh), not TMPDIR.
-        env["TMPPREFIX"] = str(writable[0] / "zsh")
+        env.update(sandbox.codex_temp_env(writable))
     # The prompt goes in on standard input: Linux refuses one argument over 128 KB. A file
     # ends in end of file, which Codex needs (an open pipe stalls it), and it is unnamed.
     with tempfile.TemporaryFile(dir=work) as prompt_file:

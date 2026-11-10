@@ -96,6 +96,11 @@ def session_settings(folder: Path, domains: Optional[list[str]] = None,
     return settings
 
 
+def codex_temp_env(writable: list[Path]) -> dict[str, str]:
+    """Point temp files at the first writable path; zsh here-documents use TMPPREFIX."""
+    return {"TMPDIR": str(writable[0]), "TMPPREFIX": str(writable[0] / "zsh")}
+
+
 def codex_builder_paths(folder: Path) -> list[Path]:
     """Prepare temp space and find only the git paths needed for this checkout."""
     from loopkit import sh
