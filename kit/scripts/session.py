@@ -37,7 +37,7 @@ def _judge_untracked(folder: Path, files: list[str]) -> dict:
     return {name: ((path := folder / name).lstat().st_mode,
                    os.readlink(path) if path.is_symlink() else bar_hash_in(folder, [name]))
             for name in untracked_paths(folder) - set(files) - skip
-            if not name.startswith(".loop/") and not _JUDGE_CACHE.search(name)}
+            if not _JUDGE_CACHE.search(name)}
 
 
 def _judge_dirty(folder: Path) -> bool:
