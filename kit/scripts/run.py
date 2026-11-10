@@ -27,7 +27,7 @@ from loopkit import (LOCKFILES, STATE_PREFIX, GitHub, Refused, branch_name,  # n
                      clean_quality_outputs, record_quality_outputs,
                      base_branch, base_merges, last_record, loop_settings, main_ref, exclude_paths, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, sh_network, untracked_paths)
-from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
+from run_start import (cleanup_interrupted_reviews, drop_own_merge, existing_worktree, own_merge_files, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
 from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,F401
 from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
@@ -292,56 +292,20 @@ def prepare_again(folder: Path, ready: dict, since: str) -> tuple[bool, bool, st
     return True, ok, output
 
 
-def merge_head(folder: Path) -> str:
-    """The commit an unfinished merge in the folder is merging, or "" when there is none."""
-    found = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
-    return found.stdout.strip() if found.returncode == 0 else ""
-
-
-def dirty_folder_reason(folder: Path) -> str:
+def dirty_folder_reason(folder: Path, main: str = "") -> str:
     dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
     if not dirty:
         return ""
+    merge_head = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
     merge_states = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-    if merge_head(folder) and all(line[:2] in merge_states for line in dirty.splitlines()):
+    made = own_merge_files(folder, main) if main else set()  # the run's own merge of the base
+    if merge_head.returncode == 0 and all(line[:2] in merge_states or line[3:] in made for line in dirty.splitlines()):
         return ""
     hint = (" If they are test reports or caches, add them to .gitignore on the base."
             if re.search(r"report|cache|coverage|junit|output", dirty) else "")
     return ("build folder has uncommitted changes the run did not make. "
             "next: inspect the folder and commit or move those changes before running again"
             + hint)
-
-
-def own_merge(folder: Path, main: str) -> bool:
-    """True when the folder holds an unfinished merge of the base (or of an older base)."""
-    head = merge_head(folder)
-    return bool(head) and sh(["git", "merge-base", "--is-ancestor", head, main], folder,
-                             check=False).returncode == 0
-
-
-def stray_beside_merge(folder: Path, main: str) -> str:
-    """The dirty-folder reason when the run's own unfinished merge has files the merge did not make."""
-    if not own_merge(folder, main):
-        return ""
-    made = set(sh(["git", "diff", "--name-only", "HEAD...MERGE_HEAD"], folder).stdout.split())
-    dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout
-    stray = [line for line in dirty.splitlines() if line[3:] not in made]
-    return dirty_folder_reason(folder) if stray else ""
-
-
-def attempt_dirty_reason(folder: Path, main: str) -> str:
-    """The dirty-folder reason before an attempt; the files of the run's own merge are the builder's."""
-    if own_merge(folder, main):
-        return stray_beside_merge(folder, main)
-    return dirty_folder_reason(folder)
-
-
-def drop_own_merge(folder: Path, main: str, n: int) -> None:
-    """Abort an unfinished merge of the base left by an earlier run; the run merges again."""
-    if not own_merge(folder, main):
-        return
-    sh(["git", "merge", "--abort"], folder)
-    log(f"piece {n}: dropped the earlier unfinished merge of {main}; the merge is redone")
 
 
 def worktree(root: Path, n: int) -> Path:
@@ -448,7 +412,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     log(f"piece {n}: build worktree: {folder}")
     exclude_paths(folder, ready.get("test_outputs", []))
     main = main_ref(root)
-    drop_own_merge(folder, main, n)
+    if drop_own_merge(folder, main):
+        log(f"piece {n}: dropped the earlier unfinished merge of {main}; the merge is redone")
     dirty = dirty_folder_reason(folder)
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
@@ -515,7 +480,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                       else "the person asked the run to stop")
             return _hand_back(gh, root, n, reason, "stopped", metrics)
         logfile = logs / f"piece-{n}-attempt-{k}.log"
-        dirty_reason = attempt_dirty_reason(folder, main)
+        dirty_reason = dirty_folder_reason(folder, main)
         if dirty_reason:
             status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
             reason = dirty_reason
@@ -559,11 +524,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
             return _hand_back(gh, root, n, reason, "builder-failed", metrics)
-        # Committing the leftovers would conclude the merge with a stray file in it.
-        stray = stray_beside_merge(folder, main)
-        if stray:
-            status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
-            gh.comment(n, f"**Run:** {stray}\n\n```\n{status[-1200:]}\n```")
+        if own_merge_files(folder, main) and (stray := dirty_folder_reason(folder, main)):  # not into the merge
             return _hand_back(gh, root, n, stray, "environment", metrics)
         outcome = folder / ".loop" / "outcome"
         ran, ok, poutput = prepare_again(folder, ready, attempt_start)
