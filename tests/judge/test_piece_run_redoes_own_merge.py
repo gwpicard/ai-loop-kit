@@ -148,5 +148,29 @@ class OwnUnfinishedMergeTest(RunFixture, unittest.TestCase):
                       run.dirty_folder_reason(folder))
 
 
+    def test_D5_a_stray_file_beside_the_runs_own_merge_is_handed_back(self):
+        n, folder = self.unfinished_merge_of_main()
+        gate.move(self.p.gh, self.p.root, n, "shaping", reason="try again", reason_type="conflict")
+        gate.move(self.p.gh, self.p.root, n, "ready")
+        os.environ["FAKE_MODE"] = "good"
+        calls = []
+        original = run.build_once
+
+        def build_once(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:  # a failed attempt: a stray file, the merge left unfinished
+                (args[0] / "stray.txt").write_text("left by attempt 1\n")
+                args[3].write_text("")
+                return ""
+            return original(*args, **kwargs)
+
+        with patch.object(run, "build_once", side_effect=build_once), \
+                contextlib.redirect_stdout(io.StringIO()):
+            result = run.build_piece(self.p.gh, self.p.root, n, 2)
+        self.assertIn("back to shaping", result)
+        handback = [r for r in records(self.p.gh.comments(n)) if r.get("move") == "give-back"][-1]
+        self.assertIn("build folder has uncommitted changes the run did not make",
+                      handback["reason"])
+
 if __name__ == "__main__":
     unittest.main()
