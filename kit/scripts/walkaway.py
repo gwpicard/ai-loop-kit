@@ -52,7 +52,7 @@ def codex_sandbox_test(root: Path, timeout: int = JUDGE_TIMEOUT) -> tuple[bool, 
             return False, "Prepare failed: " + output[-300:].strip()
         writable = sandbox.codex_builder_paths(folder)
         env = {**command_env(folder, scrub_secrets=True, package_cache=True),
-               "TMPDIR": str(writable[0])}
+               **sandbox.codex_temp_env(writable)}
         args = [os.environ.get("LOOP_CODEX", "codex"), "sandbox",
                 *sandbox.codex_permission_args(folder, writable), "sh", "-c", settings["test"]]
         result = subprocess.run(args, cwd=folder, env=env, capture_output=True, text=True,

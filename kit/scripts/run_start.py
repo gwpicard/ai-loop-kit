@@ -45,6 +45,22 @@ def existing_worktree(root: Path, n: int) -> Path | None:
     return None
 
 
+def own_merge_files(folder: Path, main: str) -> set[str]:
+    """The files of an unfinished merge of the base, or of an older base; empty for any other merge."""
+    head = sh(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], folder, check=False).stdout.strip()
+    if not head or sh(["git", "merge-base", "--is-ancestor", head, main], folder, check=False).returncode:
+        return set()
+    return set(sh(["git", "diff", "--name-only", "HEAD...MERGE_HEAD"], folder).stdout.splitlines())
+
+
+def drop_own_merge(folder: Path, main: str) -> bool:
+    """Abort an unfinished merge of the base that an earlier run left; the run merges again."""
+    if not own_merge_files(folder, main):
+        return False
+    sh(["git", "merge", "--abort"], folder)
+    return True
+
+
 def worktree_reason(root: Path, folder: Path, merged_into: str = "", made=None) -> str:
     """Return why cleanup must keep a folder. Ignored artefacts, and files `made` accepts as
     the kit's own (such as test caches), do not count."""

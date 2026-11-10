@@ -22,7 +22,8 @@ from loopkit import Refused, bar_hash_in, sh, untracked_paths
 from procs import _untrack_process, track_process
 
 _JUDGE_CACHE = re.compile(
-    r"(^|/)(__pycache__|\.(pytest_cache|benchmarks|hypothesis|mypy_cache|ruff_cache))/")
+    r"(^|/)(__pycache__|pytest-of-[^/]+|"
+    r"\.(pytest_cache|benchmarks|hypothesis|mypy_cache|ruff_cache))/")
 # Ignored installed packages: Node test tools such as Vitest keep caches in node_modules,
 # and `uv run` reinstalls the project into .venv when its cache is fresh.
 _JUDGE_PACKAGES = re.compile(r"(^|/)(node_modules|\.venv)/")

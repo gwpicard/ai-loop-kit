@@ -27,7 +27,7 @@ from loopkit import (LOCKFILES, STATE_PREFIX, GitHub, Refused, branch_name,  # n
                      clean_quality_outputs, record_quality_outputs,
                      base_branch, base_merges, last_record, loop_settings, main_ref, exclude_paths, prepare, record_prepare_outputs, record_text, rev,
                      records, sh, sh_network, untracked_paths)
-from run_start import (cleanup_interrupted_reviews, existing_worktree, ready_pieces,  # noqa: E402
+from run_start import (cleanup_interrupted_reviews, drop_own_merge, existing_worktree, own_merge_files, ready_pieces,  # noqa: E402
                        release_worktree as release_worktree, worktree_home)
 from builder_prompt import brief, dependent_files, research_brief  # noqa: E402,F401
 from procs import (AttemptIdle, _ACTIVE_GROUPS, acquire_lock,
@@ -194,6 +194,31 @@ def came_back_reason(comments: list[str]) -> str:
     return "\n".join(reasons)
 
 
+# The moves that send a piece back to shaping, from the gate's own table.
+BACK_TO_SHAPING = tuple(name for (before, after), name in gate.MOVES.items()
+                        if after == "shaping" and before != "new")
+
+
+def rejected_commit(comments: list[str]) -> tuple[str, str]:
+    """The commit the person rejected and their reason, when the latest move back
+    to shaping is a reject; otherwise two empty strings."""
+    submit: dict = {}
+    found = ("", "")
+    for r in records(comments):
+        if r.get("move") == "submit":
+            submit = r
+        elif r.get("move") in BACK_TO_SHAPING:
+            found = ((submit.get("commit", ""), r.get("reason", ""))
+                     if r.get("move") == "reject" else ("", ""))
+    return found
+
+
+def rejected_failure(k: int, commit: str, reason: str) -> str:
+    """Why an attempt that passes the judge still fails: its code is the rejected commit."""
+    return (f"Attempt {k} left the code at the rejected commit {commit[:12]}, which the "
+            f"person rejected. Change the code to answer their reason: {reason}")
+
+
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict,
                  walk_away: bool = False, domains: Optional[list[str]] = None,
                  evidence: str = "") -> dict:
@@ -267,13 +292,14 @@ def prepare_again(folder: Path, ready: dict, since: str) -> tuple[bool, bool, st
     return True, ok, output
 
 
-def dirty_folder_reason(folder: Path) -> str:
+def dirty_folder_reason(folder: Path, main: str = "") -> str:
     dirty = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
     if not dirty:
         return ""
     merge_head = sh(["git", "rev-parse", "--verify", "MERGE_HEAD"], folder, check=False)
     merge_states = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-    if merge_head.returncode == 0 and all(line[:2] in merge_states for line in dirty.splitlines()):
+    made = own_merge_files(folder, main) if main else set()  # the run's own merge of the base
+    if merge_head.returncode == 0 and all(line[:2] in merge_states or line[3:] in made for line in dirty.splitlines()):
         return ""
     hint = (" If they are test reports or caches, add them to .gitignore on the base."
             if re.search(r"report|cache|coverage|junit|output", dirty) else "")
@@ -385,6 +411,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     folder = worktree(root, n)
     log(f"piece {n}: build worktree: {folder}")
     exclude_paths(folder, ready.get("test_outputs", []))
+    main = main_ref(root)
+    if drop_own_merge(folder, main):
+        log(f"piece {n}: dropped the earlier unfinished merge of {main}; the merge is redone")
     dirty = dirty_folder_reason(folder)
     if dirty:
         status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
@@ -394,7 +423,6 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     # Bring the piece up to date with main, so the pull request merges cleanly.
     # A conflict is left for the builder to resolve; the gate's keep check then
     # proves that what main gained still works.
-    main = main_ref(root)
     merge_note = ""
     if sh(["git", "merge", "--no-edit", "--quiet", main], folder, check=False).returncode != 0:
         conflicts = sh(["git", "diff", "--name-only", "--diff-filter=U"], folder).stdout.split()
@@ -431,7 +459,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     logs.mkdir(parents=True, exist_ok=True)
     last_failure = merge_note
     tests_only = all(check["type"] == "tests" for check in ready.get("checks", []))
-    if not merge_note and tests_only and earlier_build_paths(
+    rejected, rejected_reason = rejected_commit(gh.comments(n))
+    if not merge_note and tests_only and not rejected and earlier_build_paths(
             folder, ready.get("bar_files", ready["files"])):
         log(f"piece {n}: the folder holds earlier build code; the gate judges it first")
         try:
@@ -451,7 +480,7 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
                       else "the person asked the run to stop")
             return _hand_back(gh, root, n, reason, "stopped", metrics)
         logfile = logs / f"piece-{n}-attempt-{k}.log"
-        dirty_reason = dirty_folder_reason(folder)
+        dirty_reason = dirty_folder_reason(folder, main)
         if dirty_reason:
             status = sh(["git", "status", "--porcelain", "--untracked-files=all"], folder).stdout.strip()
             reason = dirty_reason
@@ -495,6 +524,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = f"builder attempt idle for {idle_limit_seconds(folder, ready.get('idle_limit')) // 60} minutes; see {logfile}"
             gh.comment(n, f"**Run:** {reason}")
             return _hand_back(gh, root, n, reason, "builder-failed", metrics)
+        if own_merge_files(folder, main) and (stray := dirty_folder_reason(folder, main)):  # not into the merge
+            return _hand_back(gh, root, n, stray, "environment", metrics)
         outcome = folder / ".loop" / "outcome"
         ran, ok, poutput = prepare_again(folder, ready, attempt_start)
         if ran and not ok:
@@ -606,6 +637,11 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             gh.comment(n, f"**Run:** attempt {k} failed a Quality check; retrying.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             continue
+        if passed and rejected and rev(folder, "HEAD") == rejected:
+            last_failure = rejected_failure(k, rejected, rejected_reason)
+            log(f"piece {n}: attempt {k} left the rejected commit {rejected[:12]}")
+            gh.comment(n, f"**Run:** attempt {k} of {attempts} failed. {last_failure}")
+            continue
         if passed:
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
@@ -635,7 +671,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = last_failure if last_failure.startswith("Attempt ") else \
                 "the person asked the run to stop"
             return _hand_back(gh, root, n, reason, "stopped", metrics)
-    reason = (last_failure.splitlines()[0] if last_failure.startswith("environment needs") else
+    at_rejected = rejected and last_failure == rejected_failure(attempts, rejected, rejected_reason)
+    reason = (last_failure.splitlines()[0] if last_failure.startswith("environment needs")
+              or at_rejected else
               f"the judge still fails after {attempts} attempts; see the comments above")
     _hand_back(gh, root, n, reason, "builder-failed", metrics)
     return f"piece {n}: back to shaping, needs you"
