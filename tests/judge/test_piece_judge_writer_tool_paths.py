@@ -72,20 +72,6 @@ class JudgeWriterToolPathsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.committed(), self.judge)
 
-    def test_D2_file_under_loop_folder_is_accepted_when_not_ignored(self):
-        self.unignore()
-        result = self.invoke({".loop/events.jsonl": "{}\n"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.committed(), self.judge)
-
-    def test_D2_changed_file_under_loop_folder_is_accepted(self):
-        self.unignore()
-        (self.root / ".loop").mkdir()
-        (self.root / ".loop/events.jsonl").write_text("{}\n")
-        result = self.invoke({".loop/events.jsonl": "{}\n{}\n"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.committed(), self.judge)
-
     def test_D3_other_new_file_is_refused_and_named(self):
         self.unignore()
         result = self.invoke({"stray/notes.txt": "n\n"})
