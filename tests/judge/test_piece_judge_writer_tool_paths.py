@@ -42,6 +42,7 @@ class JudgeWriterToolPathsTest(unittest.TestCase):
         fake.chmod(0o755)
         source, output = self.base / "input.json", self.base / "answer.txt"
         source.write_text(json.dumps(self.data))
+        self.before = git(self.root, "rev-parse", "HEAD")
         verdict = {"judge_files": [self.judge], "tests_per_id": True, "notes": "ok"}
         env = {**os.environ, "LOOP_CLAUDE": str(fake), "LOOP_CODEX": str(fake),
                "WRITES": json.dumps({self.judge: "# judge\n", **writes}),
@@ -54,7 +55,8 @@ class JudgeWriterToolPathsTest(unittest.TestCase):
         return result
 
     def committed(self):
-        return git(self.root, "diff", "--name-only", "main...HEAD")
+        """Files the session committed, not the test's own setup commits."""
+        return git(self.root, "diff", "--name-only", f"{self.before}..HEAD")
 
     def test_D1_pytest_of_user_folder_is_accepted_when_not_ignored(self):
         self.unignore()
