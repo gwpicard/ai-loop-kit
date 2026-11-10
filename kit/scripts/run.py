@@ -194,6 +194,31 @@ def came_back_reason(comments: list[str]) -> str:
     return "\n".join(reasons)
 
 
+# The moves that send a piece back to shaping, from the gate's own table.
+BACK_TO_SHAPING = tuple(name for (before, after), name in gate.MOVES.items()
+                        if after == "shaping" and before != "new")
+
+
+def rejected_commit(comments: list[str]) -> tuple[str, str]:
+    """The commit the person rejected and their reason, when the latest move back
+    to shaping is a reject; otherwise two empty strings."""
+    submit: dict = {}
+    found = ("", "")
+    for r in records(comments):
+        if r.get("move") == "submit":
+            submit = r
+        elif r.get("move") in BACK_TO_SHAPING:
+            found = ((submit.get("commit", ""), r.get("reason", ""))
+                     if r.get("move") == "reject" else ("", ""))
+    return found
+
+
+def rejected_failure(k: int, commit: str, reason: str) -> str:
+    """Why an attempt that passes the judge still fails: its code is the rejected commit."""
+    return (f"Attempt {k} left the code at the rejected commit {commit[:12]}, which the "
+            f"person rejected. Change the code to answer their reason: {reason}")
+
+
 def review_piece(root: Path, folder: Path, n: int, k: int, issue: dict, ready: dict,
                  walk_away: bool = False, domains: Optional[list[str]] = None,
                  evidence: str = "") -> dict:
@@ -452,7 +477,8 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
     logs.mkdir(parents=True, exist_ok=True)
     last_failure = merge_note
     tests_only = all(check["type"] == "tests" for check in ready.get("checks", []))
-    if not merge_note and tests_only and earlier_build_paths(
+    rejected, rejected_reason = rejected_commit(gh.comments(n))
+    if not merge_note and tests_only and not rejected and earlier_build_paths(
             folder, ready.get("bar_files", ready["files"])):
         log(f"piece {n}: the folder holds earlier build code; the gate judges it first")
         try:
@@ -628,6 +654,11 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             gh.comment(n, f"**Run:** attempt {k} failed a Quality check; retrying.\n\n"
                           f"```\n{output.strip()[-1500:]}\n```")
             continue
+        if passed and rejected and rev(folder, "HEAD") == rejected:
+            last_failure = rejected_failure(k, rejected, rejected_reason)
+            log(f"piece {n}: attempt {k} left the rejected commit {rejected[:12]}")
+            gh.comment(n, f"**Run:** attempt {k} of {attempts} failed. {last_failure}")
+            continue
         if passed:
             log(f"piece {n}: attempt {k} took {time.monotonic() - started:.1f}s; "
                 f"log: {logfile.relative_to(root)}")
@@ -657,7 +688,9 @@ def build_claimed(gh: GitHub, root: Path, n: int, issue: dict, attempts: int,
             reason = last_failure if last_failure.startswith("Attempt ") else \
                 "the person asked the run to stop"
             return _hand_back(gh, root, n, reason, "stopped", metrics)
-    reason = (last_failure.splitlines()[0] if last_failure.startswith("environment needs") else
+    at_rejected = rejected and last_failure == rejected_failure(attempts, rejected, rejected_reason)
+    reason = (last_failure.splitlines()[0] if last_failure.startswith("environment needs")
+              or at_rejected else
               f"the judge still fails after {attempts} attempts; see the comments above")
     _hand_back(gh, root, n, reason, "builder-failed", metrics)
     return f"piece {n}: back to shaping, needs you"
