@@ -283,6 +283,60 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     return True, f"Claude sandbox blocked the home write{reads} and unlisted network request{untested}"
 
 
+BUILDER_RESULT = re.compile(r"KIT_(PYTHON|HELPER)_(ALLOWED|BLOCKED)")
+
+
+def builder_checks() -> list[tuple[str, str, str]]:
+    """The commands a builder must run, as (mark, shell check, name in a reason)."""
+    kit = Path(__file__).resolve().parents[1]
+    python = f'"{kit}/bin/kit-python" -c "import sys; print(sys.version_info >= (3, 13))"'
+    helper = f'head -1 "{kit}/scripts/builder_prompt.py"'
+    return [("PYTHON", f"{python} 2>/dev/null | grep -qx True", f"kit-python ({python})"),
+            ("HELPER", f"{helper} >/dev/null 2>&1", f"the kit's helper ({helper})")]
+
+
+def builder_probe(folder: Path, domains: Optional[list[str]] = None,
+                  claude: str = "claude", timeout: int = 90) -> tuple[bool, str]:
+    """Ask a sandboxed Claude session to run the kit commands a builder needs."""
+    checks = builder_checks()
+    prompt = "\n".join(["Use Bash to run this shell script exactly. It prints no file contents.", *(
+        f"{run} && echo KIT_{mark}_ALLOWED || echo KIT_{mark}_BLOCKED" for mark, run, _ in checks),
+        "Do not retry any command outside the sandbox."])
+    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
+            "--permission-mode", "acceptEdits", "--tools", "Bash",
+            "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
+    try:
+        result = subprocess.run(args, cwd=folder, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, timeout=timeout,
+                                check=False, env=agents.command_env(folder, scrub_secrets=True))
+    except subprocess.TimeoutExpired:
+        return False, f"Claude builder probe timed out after {timeout} seconds"
+    except OSError as error:
+        return False, f"Claude builder probe could not run: {error.strerror or 'OS error'}"
+    return builder_result(result)
+
+
+def builder_result(result) -> tuple[bool, str]:
+    """Read the builder probe's marks; never echo the session's arguments."""
+    output = result.stdout or ""
+    if "Not logged in" in output or "authentication_failed" in output:
+        return False, "Claude builder probe could not authenticate; run /login and retry"
+    if result.returncode:
+        return False, f"Claude builder probe exited {result.returncode}"
+    text = "\n".join(str(item.get("content", "")) for event in agents.json_events(output)
+                     if event.get("type") == "user"
+                     for item in event.get("message", {}).get("content", [])
+                     if isinstance(item, dict) and item.get("type") == "tool_result")
+    found = dict(BUILDER_RESULT.findall(text))
+    checks = builder_checks()
+    if len(found) != len(checks):
+        return False, f"Claude builder probe returned {len(found)} of {len(checks)} shell results"
+    blocked = [name for mark, _, name in checks if found[mark] == "BLOCKED"]
+    if blocked:
+        return False, "the sandbox blocked " + "; ".join(blocked)
+    return True, "a sandboxed builder ran kit-python and read the kit's helper"
+
+
 def codex_probe(folder: Path, timeout: int = 120) -> tuple[bool, str]:
     """Check Codex's workspace-write boundary before an unattended run."""
     if PROBE_PATH.exists():
