@@ -32,6 +32,24 @@ def version_ok(value: str) -> bool:
     return version_tuple(value) >= MIN_VERSION
 
 
+def uv_path() -> Optional[Path]:
+    """The uv program that kit-python would use, resolved, or None."""
+    found = shutil.which("uv")
+    home = Path.home()
+    candidates = [home / ".local" / "bin" / "uv", home / ".cargo" / "bin" / "uv",
+                  Path("/opt/homebrew/bin/uv"), Path("/usr/local/bin/uv")]
+    path = Path(found) if found else next((c for c in candidates if c.exists()), None)
+    return path.resolve() if path else None
+
+
+def kit_read_paths() -> list[str]:
+    """The kit, the Python install it runs on and uv, so a builder can run kit-python."""
+    uv = uv_path()
+    return [str(Path(__file__).resolve().parents[1]),
+            str(Path(sys.base_prefix).resolve().parent),
+            *([str(uv)] if uv else [])]
+
+
 def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
     """Return strict per-session sandbox settings for one build worktree."""
     credentials = CREDENTIAL_PATHS
@@ -51,7 +69,8 @@ def settings_for(folder: Path, domains: Optional[list[str]] = None) -> dict:
             "allowUnsandboxedCommands": False,
             "filesystem": {
                 "allowWrite": [str(work), str(temp), *(str(path) for path in caches)],
-                "allowRead": [str(work), str(temp), *(str(path) for path in caches)],
+                "allowRead": [str(work), str(temp), *(str(path) for path in caches),
+                              *kit_read_paths()],
                 "denyRead": [*(str(Path(path).expanduser()) for path in credentials),
                              *denied_paths],
             },
