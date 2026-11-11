@@ -97,6 +97,22 @@ def record_baseline(root: Path, folder: Path, test: str, keep: str) -> None:
     regression.write_baseline(root, commit, test, keep)
 
 
+def hooks_path_checks(root: Path, agent: str | None) -> list[tuple[bool, str, str]]:
+    """A sandboxed Claude builder cannot run hooks outside its own build folder."""
+    import agents
+    try:
+        if agents.selected(root, agent) != "claude":
+            return []
+    except ValueError:
+        return []
+    hooks = sh(["git", "config", "--get", "core.hooksPath"], root, check=False).stdout.strip()
+    if not os.path.isabs(hooks):
+        return []
+    return [(True, f"warning: core.hooksPath is an absolute path ({hooks}); "
+             "sandboxed builder commits cannot run its hooks",
+             "the person sets a hooks path relative to the repository")]
+
+
 def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
            proposed_prepare: str | None = None, proposed_test: str | None = None,
            walk_away: bool = False, agent: str | None = None,
@@ -168,6 +184,8 @@ def doctor(gh: GitHub, root: Path, extra_quality: list[str] | None = None,
     have = set(gh.labels())
     add(all(STATE_PREFIX + s in have for s in STATES), "the state labels exist",
         "run: gate.py init")
+    if walk_away:
+        checks.extend(hooks_path_checks(root, agent))
 
     old_worktrees = root / ".loop" / "worktrees"
     leftovers = {Path(entry["worktree"]) for entry in worktrees(root)[1:]}
