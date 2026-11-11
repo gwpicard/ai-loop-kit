@@ -237,6 +237,21 @@ def startup_cause(text: str) -> Optional[str]:
             if re.search(r"apply-seccomp|setgroups|uid_map|userns", text) else None)
 
 
+def claude_probe_args(claude: str, prompt: str, folder: Path,
+                      domains: Optional[list[str]]) -> list[str]:
+    """A sandboxed, Bash-only Claude session that runs one probe prompt."""
+    return [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
+            "--permission-mode", "acceptEdits", "--tools", "Bash",
+            "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
+
+
+def tool_result_text(events) -> str:
+    """The text of every shell result a Claude session reported."""
+    return "\n".join(str(item.get("content", "")) for event in events if event.get("type") == "user"
+                     for item in event.get("message", {}).get("content", [])
+                     if isinstance(item, dict) and item.get("type") == "tool_result")
+
+
 def probe(folder: Path, domains: Optional[list[str]] = None,
           claude: str = "claude", timeout: int = 90) -> tuple[bool, str]:
     """Ask a real Claude session to try bounded, content-free boundary checks."""
@@ -248,9 +263,7 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     prompt = "\n".join(["Use Bash to run this shell script exactly. It prints no file contents.", *(
         f"{run} >/dev/null 2>&1 && echo {mark}_ALLOWED{tail} || echo {mark}_BLOCKED{tail}"
         for run, mark, tail in checks), "Do not retry any command outside the sandbox."])
-    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--permission-mode", "acceptEdits", "--tools", "Bash",
-            "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
+    args = claude_probe_args(claude, prompt, folder, domains)
     try:
         result = subprocess.run(args, cwd=folder, capture_output=True, text=True,
                                 timeout=timeout, check=False,
@@ -264,9 +277,7 @@ def probe(folder: Path, domains: Optional[list[str]] = None,
     if "Not logged in" in output or "authentication_failed" in output:
         return False, "Claude sandbox probe could not authenticate; run /login and retry"
     events = list(agents.json_events(output))
-    text = "\n".join(str(item.get("content", "")) for event in events if event.get("type") == "user"
-                     for item in event.get("message", {}).get("content", [])
-                     if isinstance(item, dict) and item.get("type") == "tool_result")
+    text = tool_result_text(events)
     final = next((str(e.get("result") or "") for e in events if e.get("type") == "result"), "")
     if cause := startup_cause(text + "\n" + result.stderr):
         return False, f"Claude sandbox probe failed: {cause}"
@@ -302,9 +313,7 @@ def builder_probe(folder: Path, domains: Optional[list[str]] = None,
     prompt = "\n".join(["Use Bash to run this shell script exactly. It prints no file contents.", *(
         f"{run} && echo KIT_{mark}_ALLOWED || echo KIT_{mark}_BLOCKED" for mark, run, _ in checks),
         "Do not retry any command outside the sandbox."])
-    args = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--permission-mode", "acceptEdits", "--tools", "Bash",
-            "--settings", json.dumps(settings_for(folder, domains)), *agents.CLAUDE_MCP_ARGS]
+    args = claude_probe_args(claude, prompt, folder, domains)
     try:
         result = subprocess.run(args, cwd=folder, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, timeout=timeout,
@@ -323,11 +332,7 @@ def builder_result(result) -> tuple[bool, str]:
         return False, "Claude builder probe could not authenticate; run /login and retry"
     if result.returncode:
         return False, f"Claude builder probe exited {result.returncode}"
-    text = "\n".join(str(item.get("content", "")) for event in agents.json_events(output)
-                     if event.get("type") == "user"
-                     for item in event.get("message", {}).get("content", [])
-                     if isinstance(item, dict) and item.get("type") == "tool_result")
-    found = dict(BUILDER_RESULT.findall(text))
+    found = dict(BUILDER_RESULT.findall(tool_result_text(agents.json_events(output))))
     checks = builder_checks()
     if len(found) != len(checks):
         return False, f"Claude builder probe returned {len(found)} of {len(checks)} shell results"
