@@ -134,6 +134,12 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
         domains = approved_domains(root)
         checks.append(_check(bool(domains), "the project has confirmed sandbox network domains",
                              "agree package registry domains, then add `Sandbox domains: <comma-separated domains>` to AGENTS.md"))
+        # A sandboxed Claude builder cannot run hooks outside its own build folder.
+        hooks = sh(["git", "config", "--get", "core.hooksPath"], root, check=False).stdout.strip()
+        if os.path.isabs(hooks):
+            checks.append((True, f"warning: core.hooksPath is an absolute path ({hooks}); "
+                           "sandboxed builder commits cannot run its hooks",
+                           "the person sets a hooks path relative to the repository"))
 
     else:
         codex = os.environ.get("LOOP_CODEX", "codex")
