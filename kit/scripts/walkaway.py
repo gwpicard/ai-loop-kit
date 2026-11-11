@@ -89,6 +89,16 @@ def _cli_version(program: str, root: Path) -> str:
     return version.stdout.strip() if version.returncode == 0 else ""
 
 
+def builder_check(root: Path, domains: list[str], claude: str) -> tuple[bool, str, str]:
+    """Check that a sandboxed Claude builder can run kit-python and read the kit's helper."""
+    ok, detail = sandbox.builder_probe(root, domains, claude=claude)
+    if ok:
+        return (True, "a sandboxed builder can run the kit's Python and read its helpers", "")
+    return (False, f"a sandboxed builder cannot run the kit's commands: {detail}",
+            f"let the sandbox run the blocked command ({detail}), "
+            "then run gate.py doctor --walk-away")
+
+
 def preflight(gh, root: Path, *, baseline_checked: bool = False,
               agent: Optional[str] = None,
               pieces: Optional[list[int]] = None) -> list[tuple[bool, str, str]]:
@@ -197,6 +207,8 @@ def preflight(gh, root: Path, *, baseline_checked: bool = False,
                          "resolve the active sandbox probe failure, then run gate.py doctor --walk-away"))
     if not active:
         checks[-1] = (False, checks[-1][1] + f": {detail}", checks[-1][2])
+    if backend == "claude":
+        checks.append(builder_check(root, domains, claude))
     if scaffold and backend != "claude" and active:
         checks.append((True, f"the Test command inside the Codex builder sandbox: {NO_TESTS_SKIP}", ""))
     elif backend != "claude" and active:
