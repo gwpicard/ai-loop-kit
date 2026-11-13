@@ -23,6 +23,9 @@ DEFAULTS = {
 }
 
 
+MARKER = "<!-- lite-loop -->"  # on every comment the loop posts; replies lack it
+
+
 class LoopError(Exception):
     """An expected failure with a one-line message."""
 
@@ -211,4 +214,4 @@ def park(issue, question, recommendation):
     remove_label(issue, "building")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
        input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
-             "the loop picks up your reply.\n" % (question, recommendation))
+             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))

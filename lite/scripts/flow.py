@@ -25,7 +25,7 @@ def parse_tests(text):
 
 def post_tests(issue, paths):
     """Comment the locked paths where merge.py reads them. Re-read on failure."""
-    body = "TESTS:\n" + "\n".join(paths) + "\n"
+    body = "TESTS:\n" + "\n".join(paths) + "\n\n" + common.MARKER + "\n"
     try:
         gh(["issue", "comment", str(issue), "--body-file", "-"], input=body, retry=False)
     except common.GitHubError:

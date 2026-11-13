@@ -202,7 +202,7 @@ def _merge(issue, branch, verdict_text, project):
     commit = (pr.get("mergeCommit") or {}).get("oid") or "unknown"
     try:
         gh(["issue", "close", str(issue), "--comment",
-            "Merged into %s as %s." % (loop, commit)], retry=False)
+            "Merged into %s as %s.\n\n%s" % (loop, commit, common.MARKER)], retry=False)
     except common.GitHubError:
         if view("issue", issue, "state").get("state") != "CLOSED":
             return _refuse("merged as %s but the issue did not close" % commit)
