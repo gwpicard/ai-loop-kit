@@ -4,6 +4,7 @@ import fnmatch
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -15,8 +16,8 @@ Result = collections.namedtuple("Result", "ok park reason commit")
 TEST_TIMEOUT = 1800
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
-    "uv.lock", "Cargo.lock", "go.sum", "Gemfile.lock", "package.json",
-    "pyproject.toml", "go.mod", "Cargo.toml"}
+    "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
+    "pyproject.toml", "go.mod", "cargo.toml"}
 TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*")
 TEST_DIRS = ("tests", "test", "__tests__")
 
@@ -40,34 +41,33 @@ def parse_verdict(text):
 
 
 def locked_paths(comments):
-    """Paths in the last `TESTS:` block of the issue comments."""
+    """Paths in every `TESTS:` block of the issue comments."""
     paths = []
     for c in comments:
         lines = (c.get("body") or "").splitlines()
         for i, line in enumerate(lines):
             if re.match(r"\s*TESTS:\s*$", line):
-                found = []
                 for p in lines[i + 1:]:
                     if not p.strip():
                         break
-                    found.append(p.strip().lstrip("-* ").strip("` "))
-                paths = found
+                    paths.append(p.strip().lstrip("-* ").strip("` "))
     return paths
 
 
 def is_test_file(path):
-    parts = path.split("/")
+    parts = path.lower().split("/")
     return (any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES)
             or any(p in TEST_DIRS for p in parts[:-1]))
 
 
 def stop_reason(path, protected):
-    """Why a changed path is on the stops list, or None."""
-    name = path.split("/")[-1]
+    """Why a changed path is on the stops list, or None. Case-insensitive."""
+    low = path.lower()
+    name = low.split("/")[-1]
     for p in protected:
-        if path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/"):
+        if (low + "/").startswith(p.lower().rstrip("/") + "/"):
             return "protected path " + p
-    if path.startswith(".github/workflows/"):
+    if low.startswith(".github/workflows/"):
         return "workflow file"
     if name in LOCKFILES or re.match(r"requirements.*\.txt$", name):
         return "lockfile or package manifest"
@@ -76,21 +76,16 @@ def stop_reason(path, protected):
     return None
 
 
-def changed(project, base, sha):
-    out = git(["diff", "--no-renames", "--name-status", base + "..." + sha],
-              cwd=project)
-    return [tuple(line.split("\t", 1)) for line in out.splitlines() if line]
-
-
 def check_diff(project, base, sha, protected, body, locked):
     """Return a park reason for the first stop or test-lock breach, or None."""
-    for status, path in changed(project, base, sha):
+    out = git(["diff", "-z", "--no-renames", "--name-status", base + "..." + sha],
+              cwd=project).split("\0")
+    for status, path in zip(out[0::2], out[1::2]):
         if path in body:
             continue
         why = stop_reason(path, protected)
-        if why is None and status[0] in "MD" and is_test_file(path):
-            why = "existing test file " + ("deleted" if status[0] == "D"
-                                           else "modified")
+        if why is None and status[0] in "MDT" and is_test_file(path):
+            why = "existing test file changed"
         if why:
             return "%s: %s" % (why, path)
     for path in locked:
@@ -100,10 +95,8 @@ def check_diff(project, base, sha, protected, body, locked):
                      base + ".." + sha, "--", path], cwd=project).split("\n")[0]
         if not first:
             continue
-        a = subprocess.run(["git", "show", first + ":" + path], cwd=project,
-                           capture_output=True)
-        b = subprocess.run(["git", "show", sha + ":" + path], cwd=project,
-                           capture_output=True)
+        a, b = [subprocess.run(["git", "show", ref + ":" + path], cwd=project,
+                               capture_output=True) for ref in (first, sha)]
         if b.returncode != 0:
             return "locked test deleted: " + path
         if a.stdout != b.stdout:
@@ -117,13 +110,17 @@ def run_tests(project, sha, command):
     tree = os.path.join(parent, "tree")
     try:
         git(["worktree", "add", "--detach", tree, sha], cwd=project)
+        p = subprocess.Popen(command, shell=True, cwd=tree, text=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             start_new_session=True)
         try:
-            p = subprocess.run(command, shell=True, cwd=tree, text=True,
-                               capture_output=True, timeout=TEST_TIMEOUT)
+            out, _ = p.communicate(timeout=TEST_TIMEOUT)
         except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
             return "the Test command timed out on " + sha[:10]
         if p.returncode != 0:
-            tail = (p.stdout + p.stderr).strip().splitlines()[-1:] or [""]
+            tail = out.strip().splitlines()[-1:] or [""]
             return "the Test command failed on %s: %s" % (sha[:10], tail[0])
         return None
     finally:
@@ -137,32 +134,24 @@ def run_tests(project, sha, command):
             pass
 
 
-def find_pr(branch, base):
+def find_pr(branch, base, sha):
+    """The open or merged pull request for exactly this commit, or None."""
     out = gh(["pr", "list", "--head", branch, "--base", base, "--state", "all",
-              "--json", "number,state"])
-    prs = [p for p in json.loads(out or "[]") if p["state"] in ("OPEN", "MERGED")]
-    prs.sort(key=lambda p: p["state"] != "MERGED")
-    return prs[0] if prs else None
+              "--json", "number,state,headRefOid,mergeCommit"])
+    prs = [p for p in json.loads(out or "[]")
+           if p["state"] in ("OPEN", "MERGED") and p.get("headRefOid") == sha]
+    return min(prs, key=lambda p: p["state"] != "MERGED", default=None)
 
 
-def has_comment(pr, text):
-    out = gh(["pr", "view", str(pr), "--json", "comments"])
-    return any((c.get("body") or "").strip() == text.strip()
-               for c in json.loads(out or "{}").get("comments", []))
-
-
-def merged_commit(pr):
-    out = json.loads(gh(["pr", "view", str(pr), "--json", "state,mergeCommit"]))
-    if out.get("state") != "MERGED":
-        return None
-    return (out.get("mergeCommit") or {}).get("oid") or "unknown"
+def view(kind, number, field):
+    return json.loads(gh([kind, "view", str(number), "--json", field]) or "{}")
 
 
 def merge(issue, branch, verdict_text, project="."):
     try:
         return _merge(issue, branch, verdict_text, project)
-    except (common.LoopError, OSError, ValueError, KeyError) as e:
-        return _refuse("%s" % e)
+    except Exception as e:  # fail closed: a refusal, never a traceback
+        return _refuse(str(e) or type(e).__name__)
 
 
 def _merge(issue, branch, verdict_text, project):
@@ -171,22 +160,20 @@ def _merge(issue, branch, verdict_text, project):
     verdict, head = parse_verdict(verdict_text)
     if verdict != "APPROVE":
         return _refuse("the review verdict is %s, not APPROVE" % (verdict or "missing"))
-    if not head:
-        return _refuse("the review has no HEAD line")
-    git(["fetch", "origin"], cwd=project)
+    git(["fetch", "--no-prune", "origin"], cwd=project)
     sha = git(["rev-parse", "--verify", "origin/" + branch], cwd=project)
-    if sha != head and not (len(head) < 40 and sha.startswith(head)):
+    if not head or not sha.startswith(head):
         return _refuse("the branch head %s is not the reviewed commit %s"
-                       % (sha[:10], head[:10]))
+                       % (sha[:10], (head or "none")[:10]))
     failure = run_tests(project, sha, settings["Test command"])
     if failure:
         return _refuse(failure)
-    info = json.loads(gh(["issue", "view", str(issue), "--json", "body,comments"]))
+    info = view("issue", issue, "body,comments")
     stop = check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
                       info.get("body") or "", locked_paths(info.get("comments", [])))
     if stop:
         return _refuse(stop, park=True)
-    pr = find_pr(branch, loop)
+    pr = find_pr(branch, loop, sha)
     if pr is None:
         try:
             gh(["pr", "create", "--base", loop, "--head", branch,
@@ -194,50 +181,44 @@ def _merge(issue, branch, verdict_text, project):
                retry=False)
         except common.GitHubError:
             pass
-        pr = find_pr(branch, loop)
+        pr = find_pr(branch, loop, sha)
         if pr is None:
             return _refuse("the pull request could not be created")
-    number = pr["number"]
     if pr["state"] == "OPEN":
-        try:
+        number, err = pr["number"], None
+        comments = view("pr", number, "comments").get("comments", [])
+        if not any((c.get("body") or "").strip() == verdict_text.strip()
+                   for c in comments):
             gh(["pr", "comment", str(number), "--body-file", "-"],
                input=verdict_text, retry=False)
-        except common.GitHubError:
-            if not has_comment(number, verdict_text):
-                return _refuse("the review could not be posted on the pull request")
         try:
             gh(["pr", "merge", str(number), "--squash", "--match-head-commit",
                 sha, "--delete-branch"], retry=False)
         except common.GitHubError as e:
-            if not merged_commit(number):
-                return _refuse(str(e))
-    commit = merged_commit(number)
-    if not commit:
-        return _refuse("the pull request is not merged")
+            err = e
+        pr = find_pr(branch, loop, sha)
+        if pr is None or pr["state"] != "MERGED":
+            return _refuse(str(err or "the pull request is not merged"))
+    commit = (pr.get("mergeCommit") or {}).get("oid") or "unknown"
     try:
         gh(["issue", "close", str(issue), "--comment",
             "Merged into %s as %s." % (loop, commit)], retry=False)
     except common.GitHubError:
-        if json.loads(gh(["issue", "view", str(issue), "--json", "state"])
-                      ).get("state") != "CLOSED":
+        if view("issue", issue, "state").get("state") != "CLOSED":
             return _refuse("merged as %s but the issue did not close" % commit)
     common.event("merged", project, issue=issue, branch=branch, commit=commit)
     return Result(True, False, "merged as " + commit, commit)
 
 
 def main(argv):
-    if len(argv) != 3:
-        print("usage: merge.py <issue> <branch> <verdict-file or ->")
-        return 2
-    text = sys.stdin.read() if argv[2] == "-" else open(argv[2]).read()
-    r = merge(int(argv[0]), argv[1], text, os.getcwd())
-    if r.ok:
-        print(r.reason)
-        return 0
-    print("refused: " + r.reason)
-    print("next: " + ("answer the parked issue" if r.park
-                      else "the loop will review or fix it again"))
-    return 1
+    try:
+        text = sys.stdin.read() if argv[2] == "-" else open(argv[2]).read()
+        r = merge(int(argv[0]), argv[1], text, os.getcwd())
+    except Exception as e:
+        r = _refuse("usage: merge.py <issue> <branch> <verdict-file or -> (%s)" % e)
+    print(r.reason if r.ok else "refused: %s\nnext: %s" % (r.reason, (
+        "answer the parked issue" if r.park else "review or fix it again")))
+    return 0 if r.ok else 1
 
 
 if __name__ == "__main__":

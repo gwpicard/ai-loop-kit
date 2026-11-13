@@ -88,14 +88,12 @@ def _run_gh(args, input=None):
 
 def _wait_for_reset():
     """Wait for a rate limit to reset. Return False if none is exhausted."""
-    code, out, _ = _run_gh(["api", "rate_limit"])
-    if code != 0:
-        return False
+    _, out, _ = _run_gh(["api", "rate_limit"])
     try:
-        resources = json.loads(out)["resources"].values()
+        resets = [r["reset"] for r in json.loads(out)["resources"].values()
+                  if r.get("remaining") == 0]
     except (ValueError, KeyError):
         return False
-    resets = [r["reset"] for r in resources if r.get("remaining") == 0]
     if not resets:
         return False
     sleep(min(max(max(resets) - time.time(), 0), RATE_LIMIT_CAP))
