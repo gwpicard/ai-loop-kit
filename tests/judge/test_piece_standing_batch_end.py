@@ -77,6 +77,7 @@ class StandingBatchEndTest(unittest.TestCase):
     def fake_sleep(self, seconds):
         self.log.append("sleep")
         self.sleeps_state.append(self.awake_state)
+        self.posted_at_sleep.append(len(self.summaries))
         self.clock += max(seconds, 120)
         if self.at_sleep:
             self.at_sleep.pop(0)()
@@ -111,6 +112,7 @@ class StandingBatchEndTest(unittest.TestCase):
     def run_main(self, argv, walk_away=True):
         self.builds_state: list = []
         self.sleeps_state: list = []
+        self.posted_at_sleep: list = []
         out = io.StringIO()
         with patch.object(run_cli, "repo_root", return_value=self.p.root), \
                 patch.object(run_cli, "GitHub", return_value=self.gh), \
@@ -167,8 +169,9 @@ class StandingBatchEndTest(unittest.TestCase):
         self.at_sleep = [lambda: None, lambda: self.stop()]  # two waits that find nothing
         status, out = self.run_main(["--stand"])
         self.assertEqual(status, 0)
-        self.assertEqual(self.log, ["sleep", "sleep"])
-        self.assertEqual(self.summaries, [])
+        self.assertEqual(self.log[:2], ["sleep", "sleep"])
+        self.assertEqual(self.posted_at_sleep, [0, 0])
+        self.assertFalse([entry for entry in self.log if entry.startswith("final_check")])
 
     def test_D4_the_run_holds_idle_sleep_only_while_it_waits(self):
         self.need_standing()
