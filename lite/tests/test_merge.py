@@ -208,11 +208,24 @@ class MergeTest(FakeGh):
     def test_named_path_allowed(self):
         sha = self.branch({".github/workflows/ci.yml": "x\n",
                            "tests/test_old.py": "changed\n"})
-        issue = {"body": "Change .github/workflows/ci.yml and tests/test_old.py",
+        issue = {"body": "Why.\n\n## Paths the builder may change\n"
+                 "- `.github/workflows/ci.yml`\ntests/test_old.py\n\n## Notes\n",
                  "comments": []}
         self.rules(sha, [None, "OPEN", "MERGED"], issue=issue)
         r = self.run_merge(sha)
         self.assertTrue(r.ok, r.reason)
+
+    def test_path_named_elsewhere_grants_nothing(self):
+        sha = self.branch({".github/workflows/ci.yml": "x\n"})
+        issue = {"body": "Change .github/workflows/ci.yml please.\n\n"
+                 "## Paths the builder may change\nnone\n", "comments": []}
+        self.assert_parked(sha, "workflow", issue)
+
+    def test_allowed_paths_parsing(self):
+        self.assertEqual(merge.allowed_paths("a\n## Paths the builder may change\n"
+                                             "`x/y`\n* z\n## Next\nq\n"), {"x/y", "z"})
+        self.assertEqual(merge.allowed_paths("## Paths the builder may change\nNone"), set())
+        self.assertEqual(merge.allowed_paths("x.py in the text"), set())
 
     def test_pr_exists_no_second_create(self):
         sha = self.good()

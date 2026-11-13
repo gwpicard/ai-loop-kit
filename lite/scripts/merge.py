@@ -40,18 +40,26 @@ def parse_verdict(text):
     return None, None
 
 
+def _items(text):
+    return [p.strip().lstrip("-* ").strip("` ") for p in text.splitlines()]
+
+
 def locked_paths(comments):
     """Paths in every `TESTS:` block of the issue comments."""
     paths = []
     for c in comments:
-        lines = (c.get("body") or "").splitlines()
-        for i, line in enumerate(lines):
-            if re.match(r"\s*TESTS:\s*$", line):
-                for p in lines[i + 1:]:
-                    if not p.strip():
-                        break
-                    paths.append(p.strip().lstrip("-* ").strip("` "))
+        for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(.*?)(?:\n[ \t]*\n|\Z)",
+                             c.get("body") or "", re.S | re.M):
+            paths += _items(m.group(1))
     return paths
+
+
+def allowed_paths(body):
+    """Paths listed under the issue's `## Paths the builder may change`."""
+    m = re.search(r"^## Paths the builder may change[^\n]*\n(.*?)(?=^## |\Z)",
+                  body, re.S | re.M | re.I)
+    return {p for p in _items(m.group(1) if m else "")
+            if p.lower() not in ("", "none")}
 
 
 def is_test_file(path):
@@ -76,12 +84,12 @@ def stop_reason(path, protected):
     return None
 
 
-def check_diff(project, base, sha, protected, body, locked):
+def check_diff(project, base, sha, protected, allowed, locked):
     """Return a park reason for the first stop or test-lock breach, or None."""
     out = git(["diff", "-z", "--no-renames", "--name-status", base + "..." + sha],
               cwd=project).split("\0")
     for status, path in zip(out[0::2], out[1::2]):
-        if path in body:
+        if path in allowed:
             continue
         why = stop_reason(path, protected)
         if why is None and status[0] in "MDT" and is_test_file(path):
@@ -89,7 +97,7 @@ def check_diff(project, base, sha, protected, body, locked):
         if why:
             return "%s: %s" % (why, path)
     for path in locked:
-        if path in body:
+        if path in allowed:
             continue
         first = git(["log", "--diff-filter=A", "--reverse", "--format=%H",
                      base + ".." + sha, "--", path], cwd=project).split("\n")[0]
@@ -126,16 +134,10 @@ def run_tests(project, sha, command, tail=1):
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", tree],
                        cwd=project, capture_output=True)
-        subprocess.run(["git", "worktree", "prune"], cwd=project,
-                       capture_output=True)
-        try:
-            os.rmdir(parent)
-        except OSError:
-            pass
+        subprocess.run(["rmdir", parent], capture_output=True)
 
 
 def find_pr(branch, base, sha):
-    """The open or merged pull request for exactly this commit, or None."""
     out = gh(["pr", "list", "--head", branch, "--base", base, "--state", "all",
               "--json", "number,state,headRefOid,mergeCommit"])
     prs = [p for p in json.loads(out or "[]")
@@ -165,13 +167,11 @@ def _merge(issue, branch, verdict_text, project):
     if not head or not sha.startswith(head):
         return _refuse("the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
-    failure = run_tests(project, sha, settings["Test command"])
-    if failure:
+    if failure := run_tests(project, sha, settings["Test command"]):
         return _refuse(failure)
     info = view("issue", issue, "body,comments")
-    stop = check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
-                      info.get("body") or "", locked_paths(info.get("comments", [])))
-    if stop:
+    if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
+                      allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", []))):
         return _refuse(stop, park=True)
     pr = find_pr(branch, loop, sha)
     if pr is None:

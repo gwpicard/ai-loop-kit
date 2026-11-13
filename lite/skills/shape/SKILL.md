@@ -28,10 +28,12 @@ code and never merges.
 6. Split the work into issues an agent can finish in about an hour. Each
    follows `<plugin>/templates/issue.md`: a goal, three to six acceptance
    criteria, how an agent checks it, a `## Paths the builder may change`
-   section (normally `none`), `Depends on: #a, #b`, and a milestone.
+   section (normally `none`), `Depends on: #a, #b`, and a milestone. A path
+   named anywhere else in the issue body grants nothing.
 7. Create each issue with `gh issue create --label shaping --milestone
    <name>`, dependencies first. Then write `Depends on: #n` with the real
-   numbers into the dependants. Show every issue in full. Ask for one yes for the whole batch.
+   numbers into the dependants. Show every issue in full. Ask for one yes
+   for the whole batch.
 8. On the yes, label each issue `ready` with `gh issue edit <n>
    --add-label ready`. The loop builds an issue only when the person's own
    login added that label, which holds when this runs in the person's

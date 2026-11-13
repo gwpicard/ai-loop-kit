@@ -4,6 +4,7 @@ description: Start, stop and watch the AI Loop Lite factory that builds ready is
 ---
 
 # Run the loop
+
 The loop builds issues labelled `ready`, reviews them and merges them into
 the loop branch. This skill only starts, stops and reads it. Never build,
 review or merge by hand, and never push to the default branch.

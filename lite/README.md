@@ -49,7 +49,8 @@ prerequisites first. On your single yes it labels the issues `ready`.
 
 Use the loop skill, or run
 `mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
-from the project root. Stop it with `<plugin>/bin/loop stop`. It ends by itself after the idle limit.
+from the project root. Stop it with `<plugin>/bin/loop stop`. It ends by
+itself after the idle limit.
 
 ## The board and replying
 
@@ -65,7 +66,9 @@ issue again and gives the reply to the next build.
   passes on that commit.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test, unless the issue
-  names that path in its `## Paths the builder may change` section. The tests the test writer added are locked the same way.
+  lists that path in its `## Paths the builder may change` section. A path
+  named elsewhere in the issue grants nothing. The tests the test writer
+  added are locked the same way.
 - The guard hook refuses pushes to the default branch, force pushes,
   recursive deletes and secrets in writes. It applies to the loop's own
   sessions (through `--settings`) and to any session where the plugin is
