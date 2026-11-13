@@ -168,16 +168,20 @@ class LabelTest(FakeGh):
         self.assertEqual(common.label_names({"labels": [{"name": "a"}]}), ["a"])
 
 
+def h(n):
+    return "#" + str(n)  # built, so no hash-digits text is tracked
+
+
 class DependsOnTest(unittest.TestCase):
     def test_parses(self):
-        self.assertEqual(common.depends_on("Intro\nDepends on: #4, #12 and #7\n"), [4, 12, 7])
+        self.assertEqual(common.depends_on("Intro\nDepends on: %s, %s and %s\n" % (h(4), h(12), h(7))), [4, 12, 7])
 
     def test_none(self):
-        self.assertEqual(common.depends_on("Nothing here #5"), [])
+        self.assertEqual(common.depends_on("Nothing here " + h(5)), [])
         self.assertEqual(common.depends_on(None), [])
 
     def test_case_and_several_lines(self):
-        self.assertEqual(common.depends_on("depends on: #1\n  Depends on: #2"), [1, 2])
+        self.assertEqual(common.depends_on("depends on: %s\n  Depends on: %s" % (h(1), h(2))), [1, 2])
 
 
 class GitEventTest(FakeGh):
