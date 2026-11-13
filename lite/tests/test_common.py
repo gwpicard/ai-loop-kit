@@ -91,7 +91,7 @@ class GhTest(FakeGh):
 
     def test_timeout_gives_up_with_one_line(self):
         self.scenario([{"match": "issue", "responses": [{"sleep": 3}]}])
-        with mock.patch.object(common, "TIMEOUT", 0.2):
+        with mock.patch.object(common, "TIMEOUT", 1.0):
             with self.assertRaises(common.GitHubError) as cm:
                 common.gh(["issue", "list"])
         self.assertIn("timed out", str(cm.exception))

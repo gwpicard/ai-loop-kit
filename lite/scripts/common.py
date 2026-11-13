@@ -154,11 +154,14 @@ def ready_is_trusted(number):
                 actor = (e.get("actor") or {}).get("login")
             elif e.get("event") == "unlabeled":
                 actor = None
-    if not actor:
-        return False
+    return bool(actor) and has_write(actor)
+
+
+def has_write(user):
+    """True if the user has write or admin access. Failure counts as no."""
     try:
         perm = json.loads(gh(["api", "repos/{owner}/{repo}/collaborators/%s/"
-                              "permission" % actor]))
+                              "permission" % user]))
     except (GitHubError, ValueError):
         return False
     return perm.get("permission") in ("write", "admin")
