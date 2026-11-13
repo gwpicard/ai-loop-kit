@@ -161,13 +161,19 @@ class StandingLimitsTest(unittest.TestCase):
         self.assertNotEqual(standing.needs_recheck(60, "abc", "def"), "")
 
     def test_D4_a_short_wait_with_an_unmoved_base_does_not_run_the_check_again(self):
-        self.needs_standing()
-        self.at = [(600, self.merge_waiting)]
+        self.assertTrue(standing is not None and hasattr(standing, "wait_for_ready"),
+                        "standing.wait_for_ready must exist")
+        self.merge_waiting()  # nothing holds the run at the waiting limit
+        later = self.gh.create_issue("Later", SPEC, ["state:shaping"])
+        self.gh.comment(later, record_text(
+            {"move": "ready", "risks": {"depends_on": []}, "waiting_limit": "9"}, "ready"))
+        self.at = [(600, lambda: self.gh.set_labels(later, ["state:ready"], ["state:shaping"])),
+                   (1200, lambda: gate.request_stop(self.p.root))]
         status, out = self.run_all("--stand", "--walk-away")
-        self.assertEqual(self.order, ["doctor", f"build {self.ready}"])
+        self.assertEqual(self.order, ["doctor", f"build {self.ready}", f"build {later}"])
         self.assertEqual(len(self.doctor_calls), 1)
 
-    def test_D4_needs_recheck_is_empty_for_a_short_wait_on_the_same_base(self):
+    def test_D3_needs_recheck_is_empty_for_a_short_wait_on_the_same_base(self):
         self.needs_standing()
         self.assertEqual(standing.needs_recheck(6 * HOUR, "abc", "abc"), "")
         self.assertEqual(standing.needs_recheck(0, "abc", "abc"), "")
