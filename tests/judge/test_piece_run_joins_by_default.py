@@ -79,11 +79,23 @@ class RunJoinsByDefaultTest(unittest.TestCase):
 
     def test_D12_a_handed_back_piece_still_listed_as_ready_is_not_built_again(self):
         a = self.piece()
+        late = self.piece(["state:shaping"])
         self.on_build[a] = [lambda: (
             self.gh.set_labels(a, ["state:shaping"], ["state:approval", "state:ready"]),
-            self.stale.append(a))]
+            self.stale.append(a),
+            self.make_ready(late))]
+        status, out = self.run_all("--keep-going")
+        self.assertEqual((status, self.built), (0, [a, late]))
+
+    def test_D12_a_plain_run_does_not_rebuild_a_listed_hand_back(self):
+        a = self.piece()
+        late = self.piece(["state:shaping"])
+        self.on_build[a] = [lambda: (
+            self.gh.set_labels(a, ["state:shaping"], ["state:approval", "state:ready"]),
+            self.stale.append(a),
+            self.make_ready(late))]
         status, out = self.run_all()
-        self.assertEqual(self.built, [a])
+        self.assertEqual((status, self.built), (0, [a, late]))
 
     def test_D13_run_skill_and_readme_drop_keep_going_and_describe_joining(self):
         skill = (ROOT / "kit" / "skills" / "run" / "SKILL.md").read_text()
