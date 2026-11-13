@@ -7,6 +7,7 @@ import time
 
 RETRY_WAITS = (5, 20, 60)
 RATE_LIMIT_CAP = 65 * 60
+TIMEOUT = 120
 TRANSIENT = re.compile(
     r"HTTP 5\d\d|timed? ?out|connection (reset|refused)|no such host"
     r"|network is unreachable|unexpected EOF", re.I)
@@ -14,7 +15,6 @@ RATE_LIMITED = re.compile(r"HTTP (403|429)|rate limit", re.I)
 
 DEFAULTS = {
     "Loop branch": "loop/main",
-    "Coordinator model": "",
     "Builder model": "sonnet",
     "Reviewer model": "sonnet",
     "Protected paths": ".github/, .claude/, .githooks/",
@@ -78,7 +78,9 @@ def read_settings(root="."):
 def _run_gh(args, input=None):
     try:
         p = subprocess.run(["gh"] + list(args), input=input, text=True,
-                           capture_output=True)
+                           capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return 124, "", "gh timed out after %s seconds" % TIMEOUT
     except OSError as e:
         raise GitHubError("cannot run gh: %s" % e)
     return p.returncode, p.stdout, p.stderr
@@ -100,10 +102,11 @@ def _wait_for_reset():
     return True
 
 
-def gh(args, input=None):
+def gh(args, input=None, retry=True):
     """Run gh and return stdout. Retries 5xx and network failures, waits out
-    a rate limit once, and raises GitHubError with one line otherwise."""
-    waits, limited = list(RETRY_WAITS), False
+    a rate limit once, and raises GitHubError with one line otherwise.
+    Pass retry=False for a write that is not safe to repeat."""
+    waits, limited = list(RETRY_WAITS) if retry else [], not retry
     while True:
         code, out, err = _run_gh(args, input)
         if code == 0:
@@ -128,21 +131,38 @@ def remove_label(number, label):
     gh(["issue", "edit", str(number), "--remove-label", label])
 
 
-def label_names(issue):
-    return [l["name"] for l in issue.get("labels", [])]
+def _json_values(text):
+    """Decode the JSON values gh --paginate prints one after another."""
+    decoder, pos, values = json.JSONDecoder(), 0, []
+    while True:
+        text = text[pos:].lstrip()
+        if not text:
+            return values
+        value, pos = decoder.raw_decode(text)
+        values.append(value)
 
 
 def ready_is_trusted(number):
-    """True if the last person to add `ready` has write or admin access."""
-    out = gh(["api", "--paginate", "repos/{owner}/{repo}/issues/%s/timeline"
-              % number, "--jq",
-              '.[] | select(.event=="labeled" and .label.name=="ready")'
-              " | .actor.login"])
-    users = out.split()
-    if not users:
+    """True if the last person to add `ready` has write or admin access.
+    Any failure to find out counts as not trusted."""
+    out = gh(["api", "--paginate",
+              "repos/{owner}/{repo}/issues/%s/timeline" % number])
+    actor = None
+    for page in _json_values(out):
+        for e in page:
+            if (e.get("label") or {}).get("name") != "ready":
+                continue
+            if e.get("event") == "labeled":
+                actor = (e.get("actor") or {}).get("login")
+            elif e.get("event") == "unlabeled":
+                actor = None
+    if not actor:
         return False
-    perm = json.loads(gh(["api", "repos/{owner}/{repo}/collaborators/%s/"
-                          "permission" % users[-1]]))
+    try:
+        perm = json.loads(gh(["api", "repos/{owner}/{repo}/collaborators/%s/"
+                              "permission" % actor]))
+    except (GitHubError, ValueError):
+        return False
     return perm.get("permission") in ("write", "admin")
 
 
@@ -158,8 +178,12 @@ def depends_on(body):
 
 def git(args, cwd=None, check=True):
     """Run git and return stdout without the trailing newline."""
-    p = subprocess.run(["git"] + list(args), cwd=cwd, text=True,
-                       capture_output=True)
+    try:
+        p = subprocess.run(["git"] + list(args), cwd=cwd, text=True,
+                           capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise GitError("git %s timed out after %s seconds"
+                       % (" ".join(args[:2]), TIMEOUT))
     if check and p.returncode != 0:
         lines = p.stderr.strip().splitlines()
         raise GitError("git %s failed: %s" % (

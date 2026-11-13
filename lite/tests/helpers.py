@@ -10,7 +10,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 FAKE_GH = '''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 path = os.environ["FAKE_GH_SCENARIO"]
 args = " ".join(sys.argv[1:])
 with open(path + ".calls", "a") as f:
@@ -24,6 +24,7 @@ for i, rule in enumerate(rules):
         state[str(i)] = n + 1
         json.dump(state, open(state_path, "w"))
         r = rule["responses"][min(n, len(rule["responses"]) - 1)]
+        time.sleep(r.get("sleep", 0))
         sys.stdout.write(r.get("stdout", ""))
         sys.stderr.write(r.get("stderr", ""))
         sys.exit(r.get("code", 0))

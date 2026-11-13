@@ -74,6 +74,29 @@ class GhTest(FakeGh):
         self.assertEqual(common.gh(["issue", "list"]), "fine")
         self.assertEqual([c.args[0] for c in self.sleep.call_args_list], [5, 20])
 
+    def test_no_retry_on_5xx_when_retry_is_false(self):
+        self.scenario([{"match": "issue", "responses": [
+            fail("HTTP 502: Bad Gateway"), ok("late")]}])
+        with self.assertRaises(common.GitHubError):
+            common.gh(["issue", "comment", "3"], retry=False)
+        self.assertEqual(len(self.calls()), 1)
+        self.sleep.assert_not_called()
+
+    def test_timeout_is_transient(self):
+        self.scenario([{"match": "issue", "responses": [
+            {"sleep": 3, "stdout": "slow"}, ok("quick")]}])
+        with mock.patch.object(common, "TIMEOUT", 0.5):
+            self.assertEqual(common.gh(["issue", "list"]), "quick")
+        self.sleep.assert_called_once_with(5)
+
+    def test_timeout_gives_up_with_one_line(self):
+        self.scenario([{"match": "issue", "responses": [{"sleep": 3}]}])
+        with mock.patch.object(common, "TIMEOUT", 0.2):
+            with self.assertRaises(common.GitHubError) as cm:
+                common.gh(["issue", "list"])
+        self.assertIn("timed out", str(cm.exception))
+        self.assertEqual(len(self.calls()), 4)
+
     def test_gives_up_after_three_retries(self):
         self.scenario([{"match": "issue", "responses": [fail("HTTP 500")]}])
         with self.assertRaises(common.GitHubError):
@@ -129,30 +152,63 @@ class GhTest(FakeGh):
         self.sleep.assert_not_called()
 
 
+def ev(kind, login, label="ready"):
+    actor = {"login": login} if login else None
+    return {"event": kind, "label": {"name": label}, "actor": actor}
+
+
 class TrustTest(FakeGh):
-    def rules(self, actors, permission):
-        return [
-            {"match": "/timeline", "responses": [ok("".join(a + "\n" for a in actors))]},
-            {"match": "/permission", "responses": [
-                ok(json.dumps({"permission": permission}))]}]
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(common, "sleep")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def check(self, events, permission="write", pages=1):
+        rules = [{"match": "/timeline", "responses": [
+            ok("".join(json.dumps(events) for _ in range(pages)))]}]
+        if isinstance(permission, dict):
+            rules.append({"match": "/permission", "responses": [permission]})
+        else:
+            rules.append({"match": "/permission", "responses": [
+                ok(json.dumps({"permission": permission}))]})
+        self.scenario(rules)
+        return common.ready_is_trusted(7)
 
     def test_write_and_admin_are_trusted(self):
         for perm in ("write", "admin"):
-            self.scenario(self.rules(["alice"], perm))
-            self.assertTrue(common.ready_is_trusted(7))
+            self.assertTrue(self.check([ev("labeled", "alice")], perm))
 
     def test_read_is_not_trusted(self):
-        self.scenario(self.rules(["mallory"], "read"))
-        self.assertFalse(common.ready_is_trusted(7))
+        self.assertFalse(self.check([ev("labeled", "mallory")], "read"))
 
     def test_no_ready_event_is_not_trusted(self):
-        self.scenario(self.rules([], "admin"))
-        self.assertFalse(common.ready_is_trusted(7))
+        self.assertFalse(self.check([ev("labeled", "alice", "bug")], "admin"))
+        self.assertFalse(self.check([], "admin"))
 
     def test_last_actor_is_checked(self):
-        self.scenario(self.rules(["alice", "bob"], "write"))
-        common.ready_is_trusted(7)
+        self.check([ev("labeled", "alice"), ev("labeled", "bob")])
         self.assertIn("collaborators/bob/permission", self.calls()[-1][1])
+
+    def test_unlabel_then_relabel_by_stranger_is_untrusted(self):
+        events = [ev("labeled", "alice"), ev("unlabeled", "alice"),
+                  ev("labeled", "mallory")]
+        self.assertFalse(self.check(events, "read"))
+        self.assertIn("collaborators/mallory/permission", self.calls()[-1][1])
+
+    def test_removed_label_is_untrusted(self):
+        self.assertFalse(self.check([ev("labeled", "alice"), ev("unlabeled", "alice")]))
+
+    def test_null_actor_is_untrusted_without_a_lookup(self):
+        self.assertFalse(self.check([ev("labeled", None)], "admin"))
+        self.assertTrue(all("permission" not in c[1] for c in self.calls()))
+
+    def test_bot_actor_with_failed_lookup_is_untrusted(self):
+        failure = fail("HTTP 404: x[bot] is not a user")
+        self.assertFalse(self.check([ev("labeled", "x[bot]")], failure))
+
+    def test_paginated_output_is_read(self):
+        self.assertTrue(self.check([ev("labeled", "alice")], "admin", pages=2))
 
 
 class LabelTest(FakeGh):
@@ -163,9 +219,6 @@ class LabelTest(FakeGh):
         self.assertEqual(self.calls(), [
             ["issue", "edit", "3", "--add-label", "ready"],
             ["issue", "edit", "3", "--remove-label", "building"]])
-
-    def test_label_names(self):
-        self.assertEqual(common.label_names({"labels": [{"name": "a"}]}), ["a"])
 
 
 def h(n):
@@ -191,6 +244,10 @@ class GitEventTest(FakeGh):
         with self.assertRaises(common.GitError):
             common.git(["checkout", "nope"], cwd=work)
         self.assertEqual(common.git(["checkout", "nope"], cwd=work, check=False), "")
+        with mock.patch.object(common, "TIMEOUT", 0.001):
+            with self.assertRaises(common.GitError) as cm:
+                common.git(["status"], cwd=work)
+        self.assertIn("timed out", str(cm.exception))
 
     def test_event_appends_lines(self):
         common.event("start", root=self.tmp, issue=3)
