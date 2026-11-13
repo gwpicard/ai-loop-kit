@@ -1,0 +1,8 @@
+{
+  "name": "ai-loop-lite",
+  "version": "0.1.0",
+  "description": "A continuous factory: shape work in one session while a loop builds, reviews and merges it on your own computer.",
+  "author": {
+    "name": "Guillaume Picard"
+  }
+}
