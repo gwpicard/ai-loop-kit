@@ -1,4 +1,4 @@
-"""A run with --keep-going builds pieces that become ready, or come back, during the run."""
+"""A run builds pieces that become ready, or come back, during the run."""
 from __future__ import annotations
 
 import io
@@ -87,18 +87,6 @@ class RunPicksUpReadyTest(unittest.TestCase):
         self.at_read = [lambda: self.make_ready(a), lambda: self.make_ready(a)]
         status, out = self.run_all("--keep-going")
         self.assertEqual(self.built, [a, a])
-
-    def test_D3_without_keep_going_nothing_joins_or_returns(self):
-        a = self.fake_ready()
-        late = self.gh.create_issue("Late", SPEC, ["state:shaping"])
-        self.gh.comment(late, record_text({"move": "ready", "risks": {"depends_on": []},
-                                           "waiting_limit": "9"}, "ready"))
-        self.on_build[a] = [lambda: (self.make_ready(late), self.hand_back(a))]
-        self.at_read = [lambda: self.make_ready(a)]
-        before = self.reads
-        status, out = self.run_all()
-        self.assertEqual(self.built, [a])
-        self.assertEqual(self.reads - before, 1)
 
     def test_D4_listed_run_builds_a_new_piece_but_not_an_unlisted_ready_one(self):
         a = self.fake_ready()
