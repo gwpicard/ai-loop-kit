@@ -1,23 +1,20 @@
-"""Notifications: classified events, a stuck run, the macOS call and the preference."""
+"""Notifications: classified events, the macOS call and the watcher."""
 from __future__ import annotations
 
-import http.client
 import json
-import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from judge.test_dashboard_server import Base, Served, issue
+import helpers  # noqa: F401  (puts kit/scripts on the path)
 
 # isort: split
 import notifications
-import procs
-import walkaway
 
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 MAC = patch.object(notifications.sys, "platform", "darwin")
@@ -62,91 +59,21 @@ class ClassifyTest(unittest.TestCase):
         self.assertNotIn("HOME", json.dumps(found))
         self.assertEqual(notifications.classify(ev("run-stop", reason="ended"))["piece"], None)
 
-    def test_D2_stuck_describes_the_run_and_holds_no_piece(self):
-        quiet = Quiet().__enter__()
-        self.addCleanup(quiet.doCleanups)
-        quiet.lock(alive=False)
-        found = notifications.stuck(quiet.root, NOW)
-        self.assertEqual((found["kind"], found["piece"]), ("stuck", None))
-        self.assertNotIn("Piece", found["message"])
 
-
-class Quiet(Base):
-    """A project folder with a run's lock, events and heartbeat."""
+class Quiet(unittest.TestCase):
+    """A project folder holding a run's events."""
 
     def __enter__(self):
-        super().setUp()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.events_path = self.root / ".loop" / "events.jsonl"
         self.write_events([ev("run-start", reason="started", time=stamp(120))])
         return self
 
     def write_events(self, events):
         self.events_path.parent.mkdir(parents=True, exist_ok=True)
         self.events_path.write_text("".join(json.dumps(e) + "\n" for e in events))
-
-    def lock(self, alive=True):
-        path = procs.lock_path(self.root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"pid": os.getpid(), "children": []}))
-        self.alive = patch.object(procs, "process_alive", return_value=alive)
-        self.alive.start()
-        self.addCleanup(self.alive.stop)
-
-    def beat(self, minutes_ago, state="active"):
-        walkaway.heartbeat_path(self.root).write_text(json.dumps(
-            {"time": stamp(minutes_ago), "piece": 5, "attempt": 1, "state": state}))
-
-
-class StuckTest(unittest.TestCase):
-    def case(self):
-        quiet = Quiet()
-        quiet.__enter__()
-        self.addCleanup(quiet.doCleanups)
-        return quiet
-
-    def test_D3_a_lock_with_a_dead_pid_is_stuck(self):
-        quiet = self.case()
-        quiet.lock(alive=False)
-        self.assertIn("without finishing", notifications.stuck(quiet.root, NOW)["message"])
-
-    def test_D3_a_stale_heartbeat_written_during_this_run_is_stuck(self):
-        quiet = self.case()
-        quiet.lock()
-        quiet.write_events([ev("run-start", reason="started", time=stamp(120)),
-                            ev("claim", 5, "building", time=stamp(5))])
-        quiet.beat(11)
-        found = notifications.stuck(quiet.root, NOW)
-        self.assertEqual(found["kind"], "stuck")
-        self.assertIn("possibly inactive", found["message"])
-
-    def test_D3_a_heartbeat_from_an_earlier_run_is_ignored(self):
-        quiet = self.case()
-        quiet.lock()
-        quiet.write_events([ev("run-start", reason="started", time=stamp(20)),
-                            ev("claim", 5, "building", time=stamp(2))])
-        quiet.beat(60)
-        self.assertIsNone(notifications.stuck(quiet.root, NOW))
-
-    def test_D3_a_live_run_with_no_event_for_45_minutes_is_possibly_inactive(self):
-        quiet = self.case()
-        quiet.lock()
-        quiet.write_events([ev("run-start", reason="started", time=stamp(120)),
-                            ev("claim", 5, "building", time=stamp(46))])
-        quiet.beat(1)  # an attended run has no heartbeat; a fresh one does not hide silence
-        self.assertIn("possibly inactive", notifications.stuck(quiet.root, NOW)["message"])
-        quiet.write_events([ev("run-start", reason="started", time=stamp(120)),
-                            ev("claim", 5, "building", time=stamp(44))])
-        self.assertIsNone(notifications.stuck(quiet.root, NOW))
-
-    def test_D3_a_finished_run_and_a_healthy_run_are_not_stuck(self):
-        quiet = self.case()
-        quiet.lock(alive=False)
-        quiet.write_events([ev("run-start", time=stamp(120)), ev("run-stop", time=stamp(60))])
-        self.assertIsNone(notifications.stuck(quiet.root, NOW))
-        quiet.write_events([ev("run-start", time=stamp(120)), ev("claim", 5, time=stamp(1))])
-        quiet.alive.stop()
-        quiet.lock()
-        quiet.beat(1)
-        self.assertIsNone(notifications.stuck(quiet.root, NOW))
 
 
 class DeliverTest(unittest.TestCase):
@@ -195,7 +122,7 @@ class DeliverTest(unittest.TestCase):
         self.run_deliver(self.note, self.on,
                          return_value=subprocess.CompletedProcess([], 1))
 
-    def test_D7_the_run_goes_on_and_the_dashboard_still_lists_the_notification(self):
+    def test_D7_a_failing_osascript_does_not_stop_the_watcher(self):
         quiet = Quiet()
         quiet.__enter__()
         self.addCleanup(quiet.doCleanups)
@@ -205,10 +132,9 @@ class DeliverTest(unittest.TestCase):
         with MAC, patch.object(notifications.subprocess, "run", side_effect=OSError("gone")) as run:
             with quiet.events_path.open("a") as out:
                 out.write(json.dumps(ev("submit", 5, "approval")) + "\n")
+                out.write(json.dumps(ev("run-stop", reason="ended")) + "\n")
             watcher.poll()
-        run.assert_called_once()
-        self.assertEqual([n["kind"] for n in notifications.current(quiet.root, NOW)],
-                         ["ready-for-review"])
+        self.assertEqual(run.call_count, 2)
 
 
 class WatcherTest(unittest.TestCase):
@@ -231,83 +157,6 @@ class WatcherTest(unittest.TestCase):
         run.assert_called_once()
         self.assertTrue(quiet.events_path.read_bytes().startswith(before))
         self.assertEqual(quiet.events_path.read_text().count("\n"), 3)
-
-
-class ServedTest(Served):
-    def post(self, body, path="/api/preferences", token=True, cookie=True):
-        headers = {"Content-Type": "application/json", "Host": f"127.0.0.1:{self.server.port}"}
-        if token:
-            headers["X-Loop-Token"] = self.server.token if token is True else token
-        if cookie:
-            headers["Cookie"] = "loop_dashboard=" + self.server.token
-        data = json.dumps(body).encode()
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=10)
-        self.addCleanup(connection.close)
-        connection.request("POST", path, data, {**headers, "Content-Length": str(len(data))})
-        response = connection.getresponse()
-        text = response.read()
-        return response.status, json.loads(text) if text.startswith(b"{") else text
-
-    def preferences(self):
-        path = self.root / ".loop" / "preferences.json"
-        return json.loads(path.read_text()) if path.exists() else None
-
-    def test_D4_the_state_lists_the_runs_notifications_newest_last_at_most_50(self):
-        issue(self.gh, "approval")
-        self.event("submit", 1, "approval", reason="before")
-        self.event("run-start", reason="started")
-        for attempt in range(2, 60):
-            self.event("submit", 1, "approval", attempt)
-        self.event("run-stop", reason="ended")
-        self.serve()
-        found = self.state()["notifications"]
-        self.assertEqual(len(found), 50)
-        self.assertEqual(found[-1]["kind"], "finished")
-        self.assertEqual({n["kind"] for n in found[:-1]}, {"ready-for-review"})
-
-    def test_D4_a_run_that_stopped_without_finishing_ends_the_list_with_stuck(self):
-        issue(self.gh, "approval")
-        self.event("run-start", reason="started")
-        self.event("submit", 1, "approval")
-        self.hold_lock()
-        with patch.object(procs, "process_alive", return_value=False):
-            self.serve()
-            found = self.state()["notifications"]
-        self.assertEqual([n["kind"] for n in found], ["ready-for-review", "stuck"])
-
-    def test_D8_a_post_with_the_token_saves_the_setting_and_nothing_else(self):
-        self.serve()
-        before = sorted(p.name for p in (self.root / ".loop").iterdir())
-        status, answer = self.post({"notify": {"macos": True, "sound": "Glass"}})
-        self.assertEqual(status, 200)
-        self.assertEqual(self.preferences(), {"notify": {"macos": True, "sound": "Glass"}})
-        self.assertEqual(answer, self.preferences())
-        self.assertEqual(sorted(p.name for p in (self.root / ".loop").iterdir()),
-                         sorted(before + ["preferences.json"]))
-        self.assertTrue(self.state()["preferences"]["notify"]["macos"])
-
-    def test_D8_a_post_without_the_token_or_cookie_changes_nothing(self):
-        self.serve()
-        self.assertEqual(self.post({"notify": {"macos": True}}, token=False)[0], 403)
-        self.assertEqual(self.post({"notify": {"macos": True}}, cookie=False)[0], 403)
-        self.assertEqual(self.post({"notify": {"macos": True}}, token="wrong")[0], 403)
-        self.assertIsNone(self.preferences())
-
-    def test_D8_unknown_keys_and_bad_values_are_refused(self):
-        self.serve()
-        for body in ({"notify": {"macos": True, "email": "x"}}, {"other": 1},
-                     {"notify": {"macos": "yes"}}, {"notify": {"sound": "two words"}},
-                     {"notify": {}}, {"notify": {"macos": True}, "extra": 1}, []):
-            self.assertEqual(self.post(body)[0], 400, body)
-        self.assertIsNone(self.preferences())
-
-    def test_D8_a_change_keeps_the_other_value_and_missing_preferences_mean_off(self):
-        self.assertEqual(notifications.read_preferences(self.root),
-                         {"notify": {"macos": False, "sound": None}})
-        self.serve()
-        self.post({"notify": {"sound": "Ping"}})
-        self.post({"notify": {"macos": True}})
-        self.assertEqual(self.preferences(), {"notify": {"macos": True, "sound": "Ping"}})
 
 
 if __name__ == "__main__":

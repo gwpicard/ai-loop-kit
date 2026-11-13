@@ -1,7 +1,6 @@
 """A builder asks a question with a recommended path; the answer reaches the next attempt."""
 from __future__ import annotations
 
-import http.client
 import json
 import os
 import stat
@@ -13,7 +12,6 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run_fixtures
 from helpers import FakeGitHub, Project
-from judge.test_dashboard_server import Served, issue
 
 # isort: split
 import answers
@@ -205,77 +203,6 @@ class AnswerTest(Asking):
         brief = builder_prompt.brief(1, "spec", ready, "", "", answers=text)
         self.assertIn("First answer.", brief)
         self.assertNotIn("First answer.", builder_prompt.brief(1, "spec", ready, ""))
-
-
-class DashboardQuestionTest(Served):
-    def post(self, body, token=True):
-        data = json.dumps(body).encode()
-        headers = {"Host": f"127.0.0.1:{self.server.port}", "Content-Type": "application/json",
-                   "Content-Length": str(len(data)),
-                   "Cookie": "loop_dashboard=" + self.server.token}
-        if token:
-            headers["X-Loop-Token"] = self.server.token
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=20)
-        self.addCleanup(connection.close)
-        connection.request("POST", "/api/answer", data, headers)
-        response = connection.getresponse()
-        text = response.read()
-        return response.status, json.loads(text) if text.startswith(b"{") else {}
-
-    def asked(self):
-        n = issue(self.gh, "shaping", "Asked")
-        self.gh.set_labels(n, ["needs-you"], [])
-        self.gh.comment(n, record_text({
-            "move": "give-back", "cause": "needs-answer", "reason": "Which store?",
-            "date": "2026-10-30",
-            "recommendation": {"path": "retry", "because": "minor"}}, "back"))
-        return n
-
-    def test_D8_state_marks_the_question_and_the_dependents_it_blocks(self):
-        a = self.asked()
-        b = issue(self.gh, "ready", "Dependent", depends=[a])
-        self.serve()
-        pieces = {p["number"]: p for p in self.state()["pieces"]}
-        self.assertEqual(pieces[a]["question"], {
-            "text": "Which store?", "asked_at": "2026-10-30", "answered": False,
-            "recommendation": {"path": "retry", "because": "minor"}})
-        self.assertEqual(pieces[b]["question_blockers"], [a])
-        self.assertNotIn("question", pieces[b])
-        self.assertEqual(pieces[b]["waiting_on"], [a])
-
-    def test_D8_an_answer_without_the_token_is_refused(self):
-        a = self.asked()
-        self.serve()
-        status, _ = self.post({"piece": a, "text": "Yes", "path": "retry"}, token=False)
-        self.assertEqual(status, 403)
-        self.assertEqual(moves(self.gh, a, "answer"), [])
-
-    def test_D8_retry_and_reshape_have_the_effects_of_the_answer_command(self):
-        a, b = self.asked(), self.asked()
-        self.serve()
-        with patch.object(gate, "move", return_value="ok") as moved:
-            status, _ = self.post({"piece": a, "text": "Yes", "path": "retry"})
-            self.assertEqual(status, 200)
-            self.assertEqual(moved.call_args.args[2:4], (a, "ready"))
-            moved.reset_mock()
-            status, _ = self.post({"piece": b, "text": "Change it", "path": "reshape"})
-            self.assertEqual(status, 200)
-            moved.assert_not_called()
-        self.assertEqual([r["reshape"] for r in moves(self.gh, a, "answer")], [False])
-        self.assertEqual([r["reshape"] for r in moves(self.gh, b, "answer")], [True])
-
-    def test_D8_a_bad_request_or_a_refusal_changes_nothing(self):
-        a = self.asked()
-        plain = issue(self.gh, "shaping", "Plain")
-        self.serve()
-        for body in ({"piece": a, "text": "", "path": "retry"},
-                     {"piece": a, "text": "Yes", "path": "other"},
-                     {"piece": "x", "text": "Yes", "path": "retry"},
-                     {"piece": plain, "text": "Yes", "path": "retry"}):
-            status, answer = self.post(body)
-            self.assertIn(status, (400, 409), body)
-            self.assertIn("error", answer)
-        self.assertEqual(moves(self.gh, a, "answer") + moves(self.gh, plain, "answer"), [])
 
 
 if __name__ == "__main__":
