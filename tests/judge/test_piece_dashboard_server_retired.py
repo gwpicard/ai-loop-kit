@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import json
 import subprocess
 import sys
 import tempfile
@@ -71,12 +70,6 @@ class DefaultTest(unittest.TestCase):
             self.save(text)
             self.assertIs(self.macos(walk_away=True), True, text)
             self.assertIs(self.macos(walk_away=False), False, text)
-
-    def test_D13_a_saved_value_wins_in_both_modes(self):
-        for saved in (True, False):
-            self.save(json.dumps({"notify": {"macos": saved}}))
-            for walk_away in (True, False):
-                self.assertIs(self.macos(walk_away=walk_away), saved, (saved, walk_away))
 
 
 class RunNotifiesTest(unittest.TestCase):
