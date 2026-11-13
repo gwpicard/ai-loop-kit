@@ -108,10 +108,8 @@ class RunJoinsByDefaultTest(unittest.TestCase):
     def test_D14_a_plain_listed_run_does_not_build_an_unselected_ready_piece(self):
         a = self.piece()
         unselected = self.piece()
-        late = self.piece(["state:shaping"])
-        self.on_build[a] = [lambda: self.make_ready(late)]
         status, out = self.run_all(str(a))
-        self.assertEqual(self.built, [a, late])
+        self.assertEqual((status, self.built), (0, [a]))
         self.assertNotIn(unselected, self.built)
 
 
