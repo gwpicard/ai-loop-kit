@@ -203,7 +203,11 @@ class RetryTest(FakeGh):
     def test_D4_an_issue_edit_that_sets_labels_is_retried(self):
         self.script(issue_edit=[fail("HTTP 502: Bad Gateway"), {"rc": 0, "out": "done"}])
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(self.gh._gh("issue", "edit", "5", "--add-label", "state:ready"), "done")
+            try:
+                result = self.gh._gh("issue", "edit", "5", "--add-label", "state:ready")
+            except RuntimeError as error:
+                result = f"raised: {error}"
+        self.assertEqual(result, "done")
         self.assertEqual(self.calls("issue edit"), 2)
         self.assertEqual(self.sleeps, [5])
 
@@ -243,7 +247,10 @@ class RunEndsCleanTest(FakeGh):
         with patch.object(run_cli, "repo_root", return_value=p.root), \
                 patch.object(run_cli.signal, "signal"), \
                 redirect_stdout(out), redirect_stderr(err):
-            code = run.main(["--attended"])
+            try:
+                code = run.main(["--attended"])
+            except Exception as error:
+                code = f"raised {type(error).__name__}: {error}"
         text = err.getvalue()
         self.assertEqual(code, 2)
         self.assertIn("refused: GitHub did not answer", text)
