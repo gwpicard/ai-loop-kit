@@ -34,6 +34,7 @@ def setup(project="."):
         url = gh(["issue", "create", "--title", "Factory", "--body", "The loop writes the board here."])
         gh(["issue", "pin", url.strip().rsplit("/", 1)[-1]])
         changes.append("Factory issue, pinned")
+    os.makedirs(os.path.join(project, ".lite"), exist_ok=True)
     path = os.path.join(project, ".gitignore")
     text = pathlib.Path(path).read_text(encoding="utf-8") if os.path.exists(path) else ""
     if ".lite/" not in text.split():

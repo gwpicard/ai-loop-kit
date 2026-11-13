@@ -4,12 +4,12 @@ description: Start, stop and watch the AI Loop Lite factory that builds ready is
 ---
 
 # Run the loop
-
 The loop builds issues labelled `ready`, reviews them and merges them into
 the loop branch. This skill only starts, stops and reads it. Never build,
 review or merge by hand, and never push to the default branch.
 
-`<plugin>` is the folder of this skill's plugin, two levels up from here.
+`<plugin>` is this skill's plugin folder, two levels up.
+
 ## Set up, once per project
 
 Run `python3 <plugin>/scripts/setup.py` from the project root. If it prints
@@ -18,10 +18,10 @@ the person to commit that line. If the preflight fails, report it and stop.
 
 ## Start and stop
 
-Start: `nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &` from the
-project root. A second start is refused while a loop is alive. Tell the
-person that `tail .lite/loop.out` shows its steps.
-Stop: `<plugin>/bin/loop stop`. The loop ends after its current step.
+Start: `mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
+from the project root. A second start is refused while a loop is alive. `tail .lite/loop.out`
+shows its steps.
+Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
 
 ## Read the board
 

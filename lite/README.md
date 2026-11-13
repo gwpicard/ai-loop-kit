@@ -13,7 +13,13 @@ that `PLAN.md` says only a person can make, and carries on with the rest.
 
 You need `git`, `gh` signed in to GitHub, Claude Code and `python3` (3.9 or
 later). Add this repository as a plugin marketplace in Claude Code, then
-install the `ai-loop-lite` plugin from it.
+install the `ai-loop-lite` plugin from it:
+
+    /plugin marketplace add gwpicard/ai-loop-kit
+    /plugin install ai-loop-lite@ai-loop-kit
+
+Below, `<plugin>` is the installed plugin folder, the one holding `bin/`,
+`scripts/` and `skills/`.
 
 ## Set up a project
 
@@ -26,8 +32,8 @@ Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Builder model` and `Reviewer model` (default `sonnet`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3).
 
-Ask Claude to set up the loop, or run `python3 scripts/setup.py` from the
-project root. It creates the labels, the loop branch, a pinned `Factory`
+Ask Claude to set up the loop, or run `python3 <plugin>/scripts/setup.py` from
+the project root. It creates the labels, the loop branch, a pinned `Factory`
 issue, a `.lite/` line in `.gitignore` (commit it yourself) and runs your
 Test command on a fresh copy of the loop branch. Running it again changes
 nothing that exists.
@@ -41,8 +47,9 @@ prerequisites first. On your single yes it labels the issues `ready`.
 
 ## Run
 
-Use the loop skill, or run `nohup bin/loop run > .lite/loop.out 2>&1 &`.
-Stop it with `bin/loop stop`. It ends by itself after the idle limit.
+Use the loop skill, or run
+`mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
+from the project root. Stop it with `<plugin>/bin/loop stop`. It ends by itself after the idle limit.
 
 ## The board and replying
 
@@ -53,15 +60,19 @@ issue again and gives the reply to the next build.
 
 ## What is guaranteed by code
 
-- Merging happens only in `merge.py`. It merges the exact commit the
-  reviewer approved, after the Test command passes on that commit.
+- Issue branches merge into the loop branch only through `merge.py`. It
+  merges the exact commit the reviewer approved, after the Test command
+  passes on that commit.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test, unless the issue
-  names that path. The tests the test writer added are locked the same way.
-- The guard hook refuses pushes to the default branch, force pushes and
-  recursive deletes for every session in the project, and secrets in writes.
+  names that path in its `## Paths the builder may change` section. The tests the test writer added are locked the same way.
+- The guard hook refuses pushes to the default branch, force pushes,
+  recursive deletes and secrets in writes. It applies to the loop's own
+  sessions (through `--settings`) and to any session where the plugin is
+  enabled.
 - An issue is built only if a collaborator with write access added `ready`.
-- Nothing is merged into the default branch. Only you do that.
+- The loop never merges into the default branch; it only opens a pull
+  request. Branch protection is what stops any other path.
 
 ## What is guaranteed by instruction to the model
 

@@ -27,9 +27,11 @@ code and never merges.
    issue builds that check.
 6. Split the work into issues an agent can finish in about an hour. Each
    follows `<plugin>/templates/issue.md`: a goal, three to six acceptance
-   criteria, how an agent checks it, tests the builder may change (normally
-   none), `Depends on: #a, #b`, and a milestone.
-7. Show every issue in full. Ask for one yes for the whole batch.
+   criteria, how an agent checks it, a `## Paths the builder may change`
+   section (normally `none`), `Depends on: #a, #b`, and a milestone.
+7. Create each issue with `gh issue create --label shaping --milestone
+   <name>`, dependencies first. Then write `Depends on: #n` with the real
+   numbers into the dependants. Show every issue in full. Ask for one yes for the whole batch.
 8. On the yes, label each issue `ready` with `gh issue edit <n>
    --add-label ready`. The loop builds an issue only when the person's own
    login added that label, which holds when this runs in the person's
@@ -41,5 +43,7 @@ code and never merges.
 
 - Label nothing `ready` without the person's yes in this session.
 - Mark an issue `shaping` while it is drafted, so the board shows it.
+- Never write a path in `## Paths the builder may change` unless the
+  builder may change it: it lifts the merge checks for that path.
 - An issue that needs a decision from the person on the stops list in
   `PLAN.md` is not ready: ask for the decision now.

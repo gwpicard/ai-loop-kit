@@ -13,9 +13,10 @@ One or two sentences: what changes for the user, and why.
 The oracle: the command, render or measurement that shows the work is right.
 If nothing can show it, say so; the first issue then builds that check.
 
-## Tests to change
+## Paths the builder may change
 
-Paths of existing tests the builder may change or delete. Normally none.
+One path per line: protected paths, lockfiles, manifests, settings files or
+existing tests the builder may change or delete. Normally `none`.
 
 ## Depends on
 
