@@ -156,7 +156,7 @@ class TestRole(GuardCase):
         for role in ["builder", "test-writer", "reviewer"]:
             for cmd in ["git push origin feature", "git merge main", "gh pr list",
                         "echo a && gh issue view 1", "git -C . merge x",
-                        "git restore src/app.py", "git apply p.diff",
+                        "/opt/homebrew/bin/gh pr list", "./gh pr list", "git restore src/app.py", "git apply p.diff",
                         "git branch -f main x", "{ git push; }"]:
                 with self.subTest(role=role, cmd=cmd):
                     self.refused(self.bash(cmd, role=role))

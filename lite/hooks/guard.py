@@ -33,7 +33,7 @@ DELETE = re.compile(r"\brm\s+(?:-\S+\s+)*(?:-\w*[rR]|--recursive)|\bfind\b.*-del
 PUSH = re.compile(GIT + r"push\b([^;&|\n]*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+\S*)(?=\s|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
-GH = re.compile(r"(?<![\w./-])gh\b")
+GH = re.compile(r"(?<![\w.-])gh\b")
 REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
 TEST_NAMES = ["test_*", "*_test.*", "*.test.*", "*.spec.*"]
 TEST_DIRS = {"tests", "test", "__tests__"}
