@@ -9,6 +9,7 @@ from lite.tests.helpers import copy_repo, make_repo, run_git
 import common
 import flow
 import loop
+import merge
 
 AGENTS = "## Loop\nTest command: true\nLoop branch: loop/main\nIdle hours: 0\n"
 FACTORY = {"number": 1, "title": "Factory", "body": ""}
@@ -47,7 +48,7 @@ class Base(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.work = os.path.join(self._tmp.name, "work")
         self.addCleanup(mock.patch.stopall)
-        self.say = mock.patch.object(loop, "say").start()
+        self.say = mock.patch.object(loop, "say", return_value=None).start()
         mock.patch.object(loop.time, "sleep").start()
         mock.patch.object(common, "_run_gh", self.fake_gh).start()
         self.rules, self.calls, self.inputs, self.built = [], [], [], []
@@ -127,16 +128,23 @@ class LoopTest(Base):
         self.assertEqual(self.calls, [])
 
     def test_stop_file_exits(self):
-        self.world([issue(2)])
+        self.world([])
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write(AGENTS.replace("Idle hours: 0", "Idle hours: 5"))
         old = os.getcwd()
         os.chdir(self.work)
         self.addCleanup(os.chdir, old)
-        self.assertEqual(loop.main(["stop"]), 0)
-        with self.fake_build():
-            self.assertEqual(self.run_loop(), 0)
-        self.assertEqual(self.built, [])
-        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
+        loop.time.sleep.side_effect = lambda s: loop.main(["stop"])
+        self.assertEqual(self.run_loop(), 0)
         self.assertIn("stop requested", self.say.call_args_list[-1][0][0])
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
+
+    def test_stale_stop_file_is_removed_at_start(self):
+        self.world([issue(2)])
+        self.stop_after()
+        with self.fake_build():
+            self.run_loop()
+        self.assertEqual(len(self.built), 1)
 
     def test_picks_lowest_buildable_skipping_the_rest(self):
         self.world([issue(5), issue(3, body="Depends on: #9"), issue(4, ("inbox",)),
@@ -148,6 +156,8 @@ class LoopTest(Base):
             loop.snapshot(st)
             self.assertEqual(loop.pick(st), 3)
             trusted[3] = False
+            self.assertEqual(loop.pick(st), 3)  # trust is cached for the run
+            st["trust"].clear()
             self.assertIsNone(loop.pick(st))
         self.world([issue(6, body="Depends on: #2, #3")], closed=[2])
         st = loop.new_state()
@@ -160,13 +170,13 @@ class LoopTest(Base):
         with self.fake_build():
             self.run_loop()
         edits = self.writes("issue edit 2")
-        self.assertEqual(edits[0], "issue edit 2 --remove-label ready")
-        self.assertEqual(edits[1], "issue edit 2 --add-label building")
+        self.assertEqual(edits[0], "issue edit 2 --add-label building")
+        self.assertEqual(edits[1], "issue edit 2 --remove-label ready")
 
     def test_reply_requeues_a_parked_issue_and_reaches_the_build(self):
         self.world([issue(4, ("needs-user",))], comments=[
             comment("## Needs you\n\nWhich port?\n\nRecommended: 80"),
-            comment("Loop: noise"), comment("Use 8080.")])
+            comment("Crashed, trying again.\n\n" + common.MARKER), comment("Use 8080.")])
         with self.fake_build():
             self.run_loop()
         edits = self.writes("issue edit 4")
@@ -213,6 +223,52 @@ class LoopTest(Base):
         self.assertEqual(len(self.built), 2)
         self.assertEqual(len(self.writes("--add-label needs-user")), 1)
 
+    def test_github_trouble_is_not_a_crash_and_building_is_restored(self):
+        self.world([issue(2)])
+        with self.fake_build({2: common.GitHubError("gh issue view failed: HTTP 502")}):
+            self.run_loop()
+        self.assertEqual(len(self.built), 1)
+        self.assertEqual(self.writes("issue comment"), [])
+        self.assertEqual(self.writes("needs-user"), [])
+        loop.time.sleep.assert_any_call(loop.POLL)
+        self.world([issue(2, ("building",))])  # the next cycle, or a killed run
+        self.calls.clear()
+        with self.fake_build():
+            self.run_loop()
+        self.assertEqual(self.writes("issue edit 2")[:2], ["issue edit 2 --add-label ready",
+                                                           "issue edit 2 --remove-label building"])
+
+    def test_any_exception_in_a_cycle_is_one_line_and_the_loop_goes_on(self):
+        self.rules = [{"match": "issue list", "stdout": "not json"}]
+        loop.time.sleep.side_effect = lambda s: self.stop_after()
+        self.assertEqual(self.run_loop(), 0)
+        problem = [c[0][0] for c in self.say.call_args_list if c[0][0].startswith("problem")]
+        self.assertEqual(len(problem), 1)
+        self.assertNotIn("\n", problem[0])
+
+    def test_untrusted_ready_issue_is_marked_on_the_board(self):
+        self.world([issue(5)])
+        st = loop.new_state()
+        loop.snapshot(st)
+        with mock.patch.object(common, "ready_is_trusted", return_value=False) as check:
+            self.assertIsNone(loop.pick(st))
+            self.assertIsNone(loop.pick(st))
+        self.assertEqual(check.call_count, 1)
+        loop.write_board(self.work, st)
+        self.assertIn("not built: labelled by a non-collaborator", self.board_inputs()[-1])
+
+    def test_every_comment_the_loop_posts_carries_the_marker(self):
+        self.world([issue(2)])
+        with self.fake_build({2: RuntimeError("boom")}):
+            self.run_loop()
+        posted = [i for c, i in self.inputs if c.startswith("issue comment")]
+        self.assertEqual(len(posted), 2)  # the retry note and the park comment
+        self.assertTrue(all(common.MARKER in body for body in posted))
+        self.inputs.clear()
+        flow.post_tests(2, ["tests/test_a.py"])
+        self.assertIn(common.MARKER, self.inputs[0][1])
+        self.assertEqual(merge.locked_paths([{"body": self.inputs[0][1]}]), ["tests/test_a.py"])
+
     def test_idle_exit_says_why(self):
         self.world([])
         self.assertEqual(self.run_loop(), 0)
@@ -239,7 +295,7 @@ class LoopTest(Base):
         body = self.board_inputs()[-1]
         for text in ("#7, reviewing, since 10:00", "- #4 Piece 4: Which port? (reply on the issue)",
                      "- #8 Piece 8: waits on nothing", "- #9 Piece 9: waits on #8",
-                     "- #10 Piece 10: inbox", "- #11 Piece 11: shaping", "https://example/pull/1",
+                     "- #%d Piece %d: inbox" % (10, 10), "- #%d Piece %d: shaping" % (11, 11), "https://example/pull/1",
                      "clash in x.txt"):
             self.assertIn(text, body)
 
@@ -300,6 +356,9 @@ class GitTest(Base):
     def test_default_branch_ahead_is_merged_into_the_loop_branch(self):
         self.commit("main", "y.txt", "y\n", "later")
         self.world([])
+        st = loop.new_state()
+        self.assertTrue(loop.sync_default(self.work, "loop/main", st))  # the loop is then dirty
+        self.assertFalse(loop.sync_default(self.work, "loop/main", st))
         self.run_loop()
         tip = subprocess.run(["git", "ls-tree", "--name-only", "loop/main"], cwd=self.origin,
                              capture_output=True, text=True).stdout
@@ -309,6 +368,7 @@ class GitTest(Base):
         self.land()
         self.commit("main", "x.txt", "other\n", "clash")
         self.world([])
+        self.assertFalse(loop.sync_default(self.work, "loop/main", loop.new_state()))
         self.run_loop()
         self.assertEqual(self.writes("needs-user"), [])
         self.assertIn("## Conflict\n\nMerging main into loop/main", self.board_inputs()[0])
