@@ -107,6 +107,22 @@ class RunRetryTest(unittest.TestCase):
         self.assertEqual(len(self.sleeps), 1)
         self.assertTrue(0 < self.sleeps[0] <= 1800, self.sleeps)
 
+    def test_D6_a_dirty_build_folder_goes_to_shaping_and_is_not_built_again(self):
+        a = self.ready()
+        (run.worktree(self.p.root, a) / "person-work.txt").write_text("keep this work\n")
+        real_build = run.build_piece
+        calls = []
+
+        def build(gh, root, n, *args, **kwargs):
+            calls.append(n)
+            return real_build(gh, root, n, *args, **kwargs)
+
+        self.build = build
+        status, out = self.run_all()
+        self.assertEqual(calls, [a])
+        self.assertIn("state:shaping", self.gh.issue(a)["labels"])
+        self.assertIn("environment: 1", gate.report(self.gh))
+
 
 class PullRequestRetryTest(unittest.TestCase):
     def setUp(self):
