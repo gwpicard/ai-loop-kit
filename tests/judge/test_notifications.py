@@ -117,10 +117,14 @@ class DeliverTest(unittest.TestCase):
         self.assertEqual(command[-1], message)
 
     def test_D7_a_missing_osascript_or_a_failure_is_swallowed(self):
-        self.run_deliver(self.note, self.on, side_effect=FileNotFoundError())
-        self.run_deliver(self.note, self.on, side_effect=subprocess.TimeoutExpired("osascript", 10))
-        self.run_deliver(self.note, self.on,
-                         return_value=subprocess.CompletedProcess([], 1))
+        failures = (
+            {"side_effect": FileNotFoundError()},
+            {"side_effect": subprocess.TimeoutExpired("osascript", 10)},
+            {"return_value": subprocess.CompletedProcess([], 1)},
+        )
+        for failure in failures:
+            run = self.run_deliver(self.note, self.on, **failure)
+            self.assertEqual(run.call_count, 1, failure)
 
     def test_D7_a_failing_osascript_does_not_stop_the_watcher(self):
         quiet = Quiet()
