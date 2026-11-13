@@ -200,3 +200,14 @@ def event(kind, root=".", **fields):
     record = dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind=kind, **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+
+
+# Parking
+
+def park(issue, question, recommendation):
+    """Hand an issue to the person: label needs-user, drop building, comment."""
+    add_label(issue, "needs-user")
+    remove_label(issue, "building")
+    gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
+       input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
+             "the loop picks up your reply.\n" % (question, recommendation))
