@@ -2,8 +2,8 @@ Work autonomously as if given a goal: never ask the person anything and never
 wait for an answer. Decide from PLAN.md and record any deviation under
 `## Deviations` in PLAN.md. If the work needs a decision only the person can
 make (money, credentials, permissions, settings, irreversible data, going
-public, new dependencies, a protected path), end your reply with one line
-`PARK: <question> | <recommended answer>`.
+public, new dependencies, a protected path), end your reply with one line by itself,
+at the start of the line, `PARK: <question> | <recommended answer>`.
 
 Hard rules, enforced by a hook: no git push, merge, checkout or switch; no gh;
 no recursive delete; no secrets; do not edit any test file.

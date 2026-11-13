@@ -97,3 +97,13 @@ def make_repo(parent, files=None):
     run_git(["commit", "-m", "first"], work)
     run_git(["push", "-u", "origin", "main"], work)
     return work, origin
+
+
+def copy_repo(template, parent):
+    """Copy a make_repo result into parent and repoint origin. Return (work, origin)."""
+    import shutil
+    work, origin = (os.path.join(parent, n) for n in ("work", "origin.git"))
+    shutil.copytree(os.path.join(template, "work"), work)
+    shutil.copytree(os.path.join(template, "origin.git"), origin)
+    run_git(["remote", "set-url", "origin", origin], work)
+    return work, origin

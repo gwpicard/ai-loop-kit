@@ -5,7 +5,8 @@ closest approach that keeps its rules, and record the decision under
 `## Deviations` in PLAN.md (part of your commit). If the work needs a decision
 only the person can make (money, credentials, permissions, settings,
 irreversible data, going public, new dependencies, a protected path), do not
-guess: end your reply with one line `PARK: <question> | <recommended answer>`.
+guess: end your reply with one line by itself, at the start of the line,
+`PARK: <question> | <recommended answer>`.
 
 Hard rules, enforced by a hook: no git push, merge, checkout or switch; no gh;
 no recursive delete; no secrets; never edit an existing test file or any path

@@ -4,12 +4,14 @@ import unittest
 from unittest import mock
 
 from lite.tests.fake_claude import FakeClaudeGh
-from lite.tests.helpers import make_repo, run_git
+import tempfile
+
+from lite.tests.helpers import copy_repo, make_repo, run_git
 import common
 import flow
 import merge
 
-AGENTS = "## Loop\nTest command: test ! -f FAIL\nLoop branch: loop/main\nMax rounds: 2\n"
+AGENTS = "## Loop\nTest command: seq 1 100; test ! -f FAIL\nLoop branch: loop/main\nMax rounds: 2\n"
 MERGED = merge.Result(True, False, "merged as abc", "abc")
 APPROVE = {"reply": "All good.\n\nVERDICT: APPROVE\nHEAD: {HEAD}\n\n1. none"}
 CHANGES = {"reply": "VERDICT: CHANGES\nHEAD: {HEAD}\n\n1. Handle the empty case"}
@@ -21,18 +23,31 @@ def roles(calls):
 
 
 class FlowTest(FakeClaudeGh):
+    @classmethod
+    def setUpClass(cls):
+        cls._dir = tempfile.TemporaryDirectory()
+        cls.template = cls._dir.name
+        work, _ = make_repo(cls.template, {"AGENTS.md": AGENTS})
+        run_git(["push", "origin", "main:loop/main"], work)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._dir.cleanup()
+
     def setUp(self):
         super().setUp()
-        self.work, self.origin = make_repo(self.tmp, {"AGENTS.md": AGENTS})
-        run_git(["push", "origin", "main:loop/main"], self.work)
-        self.scenario([
-            {"match": "issue view 7", "responses": [
-                {"stdout": json.dumps({"title": "Add it", "body": "Do the thing."})}]},
-            {"match": "issue comment", "responses": [{}]},
-            {"match": "issue edit", "responses": [{}]}])
+        self.work, self.origin = copy_repo(self.template, self.tmp)
+        self.issue_view()
         patch = mock.patch.object(merge, "merge", return_value=MERGED)
         self.merge = patch.start()
         self.addCleanup(patch.stop)
+
+    def issue_view(self, comments=()):
+        self.scenario([
+            {"match": "issue view 7", "responses": [{"stdout": json.dumps({
+                "title": "Add it", "body": "Do the thing.", "comments": list(comments)})}]},
+            {"match": "issue comment", "responses": [{}]},
+            {"match": "issue edit", "responses": [{}]}])
 
     def build(self, replies=()):
         return flow.build(7, self.work, replies)
@@ -56,6 +71,7 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("PLAN.md", builder["prompt"])
         self.assertIn("Use the env var.", builder["prompt"])
         self.assertIn("Work autonomously", builder["prompt"])
+        self.assertIn("Test command: seq 1 100; test ! -f FAIL", builder["prompt"])
         self.assertIn("The builder's last report", calls[3]["prompt"])
         self.assertIn("git diff origin/loop/main...HEAD", calls[3]["prompt"].replace(
             "<loop branch>", "loop/main"))
@@ -85,7 +101,11 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(roles(calls), ["test-writer", "builder", "simplify", "builder",
                                         "simplify", "reviewer"])
         self.assertIn("--resume", calls[3]["argv"])
-        self.assertIn("Test command failed", calls[3]["prompt"])
+        tail = calls[3]["prompt"]
+        self.assertIn("Test command failed", tail)
+        self.assertIn(": 21\n", tail)
+        self.assertIn("\n100", tail)
+        self.assertNotIn("\n20\n", tail)
 
     def test_round_limit_parks(self):
         self.build_scenario(reviewer=[CHANGES])
@@ -124,12 +144,33 @@ class FlowTest(FakeClaudeGh):
         r = self.build()
         self.assertEqual(r.status, "failed")
         self.assertIn("builder session", r.reason)
+        self.assertIn("refs/heads/issue/7", common.git(["ls-remote", self.origin, "issue/7"]))
         self.assertNotIn(".lite-worktrees", common.git(["worktree", "list"], cwd=self.work))
 
     def test_reuses_an_existing_origin_branch(self):
         run_git(["push", "origin", "main:issue/7"], self.work)
         self.build_scenario()
         self.assertEqual(self.build().status, "merged")
+
+    def test_rerun_skips_the_test_writer(self):
+        run_git(["push", "origin", "main:issue/7"], self.work)
+        self.issue_view([{"body": "TESTS:\ntests/test_new.py\n"}])
+        self.build_scenario()
+        self.assertEqual(self.build().status, "merged")
+        calls = self.claude_calls()
+        self.assertEqual(roles(calls), ["builder", "simplify", "reviewer"])
+        self.assertEqual(calls[0]["env"]["LITE_LOCKED"], "tests/test_new.py")
+
+    def test_a_worktree_left_by_a_crash_does_not_block(self):
+        tree = os.path.join(self.tmp, ".lite-worktrees", "work-7")
+        run_git(["worktree", "add", "-b", "issue/7", tree, "main"], self.work)
+        self.build_scenario()
+        self.assertEqual(self.build().status, "merged")
+
+    def test_stop_line_tolerates_bold_and_backticks(self):
+        self.build_scenario(builder=[{"reply": "Stuck.\n**`PARK: Need a key | Add a secret`**"}])
+        r = self.build()
+        self.assertEqual((r.status, r.reason), ("parked", "Need a key"))
 
     def test_parse_tests(self):
         self.assertEqual(flow.parse_tests("a\nTESTS:\n- t/a.py\n`t/b.py`\n\nbye"),

@@ -104,7 +104,7 @@ def check_diff(project, base, sha, protected, body, locked):
     return None
 
 
-def run_tests(project, sha, command):
+def run_tests(project, sha, command, tail=1):
     """Run the Test command in a fresh detached worktree. Return None or a reason."""
     parent = tempfile.mkdtemp(prefix="lite-merge-")
     tree = os.path.join(parent, "tree")
@@ -120,8 +120,8 @@ def run_tests(project, sha, command):
             p.communicate()
             return "the Test command timed out on " + sha[:10]
         if p.returncode != 0:
-            tail = out.strip().splitlines()[-1:] or [""]
-            return "the Test command failed on %s: %s" % (sha[:10], tail[0])
+            last = "\n".join(out.strip().splitlines()[-tail:])
+            return "the Test command failed on %s: %s" % (sha[:10], last)
         return None
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", tree],

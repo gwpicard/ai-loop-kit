@@ -19,14 +19,8 @@ class Parked(Exception):
 
 def parse_tests(text):
     """Paths in the last `TESTS:` block of a reply."""
-    lines = text.splitlines()
-    starts = [i for i, l in enumerate(lines) if re.match(r"\s*TESTS:\s*$", l)]
-    paths = []
-    for line in lines[starts[-1] + 1:] if starts else []:
-        if not line.strip():
-            break
-        paths.append(line.strip().lstrip("-* ").strip("` "))
-    return paths
+    blocks = re.findall(r"^\s*TESTS:\s*\n((?:[^\S\n]*\S.*\n?)*)", text, re.M)
+    return [l.strip().lstrip("-* ").strip("` ") for l in blocks[-1].splitlines()] if blocks else []
 
 
 def post_tests(issue, paths):
@@ -40,11 +34,12 @@ def post_tests(issue, paths):
             raise
 
 
-def prompt_for(role, number, info, tree, loop, replies, report=None):
+def prompt_for(role, number, info, tree, settings, replies, report=None):
     with open(os.path.join(BRIEFS, role + ".md"), encoding="utf-8") as f:
         text = f.read()
-    text += "\n\n# Issue %s: %s\n\n%s\n\nPLAN.md: %s\nLoop branch: %s\n" % (
-        number, info["title"], info.get("body") or "", os.path.join(tree, "PLAN.md"), loop)
+    text += ("\n\n# Issue %s: %s\n\n%s\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n"
+             % (number, info["title"], info.get("body") or "", os.path.join(tree, "PLAN.md"),
+                settings["Loop branch"], settings["Test command"]))
     if replies:
         text += "\nThe person's replies to an earlier park:\n" + "\n---\n".join(replies) + "\n"
     if report:
@@ -60,14 +55,17 @@ def build(issue, project, replies=()):
     tree = os.path.join(os.path.dirname(project), ".lite-worktrees",
                         "%s-%s" % (os.path.basename(project), issue))
     try:
-        info = json.loads(gh(["issue", "view", str(issue), "--json", "title,body"]))
+        info = json.loads(gh(["issue", "view", str(issue), "--json", "title,body,comments"]))
         git(["fetch", "--no-prune", "origin"], cwd=project)
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
+        git(["worktree", "remove", "--force", tree], cwd=project, check=False)
+        git(["worktree", "prune"], cwd=project, check=False)
         git(["worktree", "add", "-B", branch, tree,
              "origin/" + (branch if remote else loop)], cwd=project)
         return _build(issue, project, settings, info, tree, branch, replies)
     except Parked as p:
-        return _park(issue, *p.args)
+        common.park(issue, *p.args)
+        return Result("parked", p.args[0])
     except common.LoopError as e:
         return Result("failed", str(e))
     finally:
@@ -76,29 +74,27 @@ def build(issue, project, replies=()):
             common.git(["worktree", "prune"], cwd=project, check=False)
 
 
-def _park(issue, question, recommendation):
-    common.park(issue, question, recommendation)
-    return Result("parked", question)
-
-
 def _build(issue, project, settings, info, tree, branch, replies):
-    loop = settings["Loop branch"]
-
     def ask(role, model, report=None, resume=None, extra="", locked=()):
         prompt = (extra.strip() if resume else
-                  prompt_for(role, issue, info, tree, loop, replies, report) + extra)
+                  prompt_for(role, issue, info, tree, settings, replies, report) + extra)
         text, sid = session.run(role, prompt, tree, model, project, issue,
                                 resume=resume, locked=locked)
-        stop = re.search(r"^PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
+        stop = re.search(r"^[\s*`]*PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
         if stop:
-            raise Parked(stop.group(1), stop.group(2) or "Decide, then reply here.")
+            raise Parked(stop.group(1).strip("*` "),
+                         (stop.group(2) or "Decide, then reply here.").strip("*` "))
         return text, sid
 
     common.event("step", project, issue=issue, step="test-writer")
-    text, _ = ask("test-writer", settings["Builder model"])
-    locked = parse_tests(text)
-    if locked:
-        post_tests(issue, locked)
+    locked = merge.locked_paths(info.get("comments", []))
+    rerun = git(["branch", "-r", "--list", "origin/" + branch], cwd=project) and locked
+    if not rerun:
+        text, _ = ask("test-writer", settings["Builder model"])
+        locked = parse_tests(text)
+        git(["push", "origin", branch], cwd=tree)
+        if locked:
+            post_tests(issue, locked)
     common.event("step", project, issue=issue, step="builder")
     report, sid = ask("builder", settings["Builder model"], locked=locked)
     feedback = ""
@@ -110,7 +106,7 @@ def _build(issue, project, settings, info, tree, branch, replies):
                               + feedback, locked=locked)
         ask("simplify", settings["Builder model"], locked=locked)
         head = git(["rev-parse", "HEAD"], cwd=tree)
-        feedback = merge.run_tests(project, head, settings["Test command"])
+        feedback = merge.run_tests(project, head, settings["Test command"], 80)
         if feedback:
             continue
         common.event("step", project, issue=issue, step="review", round=rnd)

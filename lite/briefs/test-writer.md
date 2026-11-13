@@ -4,7 +4,8 @@ closest approach that keeps its rules, and record the decision under
 `## Deviations` in PLAN.md. If the work needs a decision only the person can
 make (money, credentials, permissions, settings, irreversible data, going
 public, new dependencies, a protected path), do not guess: end your reply with
-one line `PARK: <question> | <recommended answer>` and stop.
+one line by itself, at the start of the line,
+`PARK: <question> | <recommended answer>` and stop.
 
 Hard rules, enforced by a hook: no git push, merge, checkout or switch; no gh;
 no recursive delete; no secrets; do not edit an existing test file. You may
@@ -20,3 +21,5 @@ End your reply with this block and nothing after it, one path per line:
 
 TESTS:
 path/to/test_file.py
+
+A PARK line replaces this block.

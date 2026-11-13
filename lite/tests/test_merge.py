@@ -4,7 +4,9 @@ import json
 import os
 import unittest
 
-from lite.tests.helpers import FakeGh, make_repo, run_git
+import tempfile
+
+from lite.tests.helpers import FakeGh, copy_repo, make_repo, run_git
 import common
 import merge
 
@@ -29,12 +31,22 @@ def verdict(sha, word="APPROVE"):
 
 
 class MergeTest(FakeGh):
-    def setUp(self):
-        super().setUp()
-        self.work, self.origin = make_repo(self.tmp, {
+    @classmethod
+    def setUpClass(cls):
+        cls._dir = tempfile.TemporaryDirectory()
+        cls.template = cls._dir.name
+        work, _ = make_repo(cls.template, {
             "AGENTS.md": AGENTS, "app.py": "x = 1\n",
             "tests/test_old.py": "old\n", "tests/test_locked.py": "tests\n"})
-        run_git(["push", "origin", "main:loop/main"], self.work)
+        run_git(["push", "origin", "main:loop/main"], work)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._dir.cleanup()
+
+    def setUp(self):
+        super().setUp()
+        self.work, self.origin = copy_repo(self.template, self.tmp)
 
     def branch(self, files, remove=()):
         run_git(["checkout", "-b", "issue/1", "main"], self.work)
