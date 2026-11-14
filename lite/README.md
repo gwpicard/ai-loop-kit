@@ -84,7 +84,8 @@ itself after the idle limit.
 When the drain finds merges it has not yet examined, and the Test and Check
 commands pass on the loop branch, it runs one pass before it opens or
 refreshes the pull request into the default branch. Each session is fresh,
-reads the loop branch in a temporary worktree and cannot edit tracked files.
+reads the loop branch in a temporary worktree and is told not to edit
+tracked files; the guard hook blocks this on a best-effort basis.
 
 - Smoke: the `Smoke command`, if set.
 - Drift: the batch diff against `PLAN.md`, for decisions, budgets,
@@ -97,13 +98,16 @@ reads the loop branch in a temporary worktree and cannot edit tracked files.
 - Lessons and proposed guardrails.
 
 A confirmed defect becomes an issue with a `## Failing test` section. It is
-labelled `ready` only if `## Standing approvals` in `PLAN.md` says a
-confirmed defect may be queued without your yes; otherwise, and for every
-other finding, it is labelled `inbox`. Lessons reach `PLAN.md` through an
+labelled `ready` only if a paragraph under `## Standing approvals` in
+`PLAN.md` says positively that a confirmed defect may be queued as ready, and
+contains no negation such as not, never, no or unless. Anything unclear fails
+closed to `inbox`, as does every other finding. The default sentence in the
+`PLAN.md` template is accepted. Lessons reach `PLAN.md` through an
 issue, never a direct commit. The report goes into the pull request body.
 A pass that fails is noted in the report and never blocks the pull request.
-The board shows a `Last pass` section; `.lite/pass.json` remembers it, so
-nothing reruns until new merges arrive.
+The board shows a `Last pass` section; `.lite/pass.json` remembers the last pass.
+After a pass that finished without errors, nothing reruns until new merges
+arrive. After a pass with errors, the next drain tries again.
 
 ## The board and replying
 
@@ -139,6 +143,8 @@ with evidence. Code does not enforce these.
 
 ## What is not guaranteed
 
+- Pass sessions are told not to edit tracked files; the guard blocks it
+  only on a best-effort basis.
 - The reviewer and the pass can miss a defect, and a red-team test proves
   only what it exercises.
 - The guard works on the text of commands and is best effort.

@@ -47,7 +47,7 @@ queues the issue again and passes the reply to the next build.
 
 When merges are new and the Test and Check commands pass on the loop
 branch, the loop runs the end-of-loop pass and puts its report in the pull
-request body. Read it with `gh pr view`. Findings are `inbox` issues; a
-confirmed defect is `ready` only if `PLAN.md` says so under `## Standing
-approvals`. Do not queue anything yourself: the shape skill does that, with
+request body. Read it with `gh pr view`. Findings are `inbox` issues, except a
+confirmed defect, which is `ready` only if `PLAN.md` says so positively under
+`## Standing approvals`. Do not queue anything yourself: the shape skill does that, with
 the person's yes. Follow-ups from reviewers also arrive as `inbox` issues.
