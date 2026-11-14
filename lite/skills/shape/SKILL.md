@@ -17,7 +17,11 @@ code and never merges.
 2. Ask ONE batch of questions, all at once, and wait for the answers. Ask
    only what the plan and the code cannot answer.
 3. Add each decision to `PLAN.md`, with the date and the reason. It is a
-   living file: every builder reads all of it.
+   living file: every builder reads all of it. A new `PLAN.md` also carries
+   `## Lessons` (sessions append traps), `## Standing approvals` (what the
+   end-of-loop pass may queue as ready without a yes) and `## Surfaces` (the
+   parts the red team attacks). Ask the person about the last two; on an
+   existing plan, add any that is missing.
 4. List the prerequisites only a person can clear (accounts, keys, money,
    settings, access, a decision on going public). Put them first and get
    them cleared before any label goes on. Name each one as plainly as

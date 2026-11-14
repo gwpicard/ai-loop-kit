@@ -13,6 +13,11 @@ One or two sentences: what changes for the user, and why.
 The oracle: the command, render or measurement that shows the work is right.
 If nothing can show it, say so; the first issue then builds that check.
 
+## Failing test
+
+Optional. A test that fails now, found by the end-of-loop pass. The test
+writer commits it as given. Omit this section otherwise.
+
 ## Paths the builder may change
 
 One path per line: protected paths, lockfiles, manifests, settings files or

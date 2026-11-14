@@ -27,6 +27,21 @@ An agent that needs one of these ends its reply with
 
 Add the rules of this project below.
 
+## Lessons
+
+One line per trap that a later session would hit too. Sessions append here.
+Keep the section under 30 lines: merge lines or drop the oldest when full.
+
+## Standing approvals
+
+A confirmed defect with a failing test, found by the end-of-loop pass, may be queued as ready without the person's yes. Everything else goes to the inbox.
+
+## Surfaces
+
+The parts of the project the end-of-loop red team attacks, one per line (for
+example a command, an input format, a screen). When this is empty, the pass
+proposes some.
+
 ## Deviations
 
 Builders append here when they take the closest approach to a decision the
