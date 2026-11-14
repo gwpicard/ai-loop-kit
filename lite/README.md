@@ -145,6 +145,5 @@ Code does not enforce these.
   only what it exercises.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.
-- Notifications are not built. Watch the board.
-- Branch protection on the default branch is your job. Setup recommends it
-  and never changes repository settings.
+- Notifications are not built; watch the board. Branch protection on the
+  default branch is your job: setup recommends it, never sets it.
