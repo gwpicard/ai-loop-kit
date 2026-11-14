@@ -249,6 +249,13 @@ class TestRole(GuardCase):
         self.allowed(self.bash("python3 -m unittest 2>&1 | tail -3",
                                role="reviewer"))
 
+    def test_pass_writes_only_under_lite_pass(self):
+        self.refused(self.call("Write", {"file_path": "src/new.py", "content": "a"}, role="pass"), "pass")
+        self.refused(self.bash("echo x > docs/notes.md", role="pass"), "pass")
+        self.allowed(self.call("Write", {"file_path": ".lite/pass/test_x.py", "content": "a"}, role="pass"))
+        self.allowed(self.bash("echo x > .lite/pass/test_x.py", role="pass"))
+        self.refused(self.bash("gh issue list", role="pass"))
+
     def test_everyone_rules_still_apply_with_role(self):
         self.refused(self.bash("rm -rf x", role="builder"))
         self.refused(self.call("Write", {

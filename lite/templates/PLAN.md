@@ -38,7 +38,7 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 ## Surfaces
 
-The parts of the project the end-of-loop red team attacks, one per line (for
+The parts of the project the end-of-loop red team attacks, one bullet per line (for
 example a command, an input format, a screen). When this is empty, the pass
 proposes some.
 

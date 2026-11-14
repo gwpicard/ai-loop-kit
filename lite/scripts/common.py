@@ -21,6 +21,7 @@ DEFAULTS = {
     "Idle hours": "12",
     "Max rounds": "3",
     "Check command": "",
+    "Smoke command": "",
 }
 
 

@@ -9,7 +9,7 @@ Everywhere: no push to main, master or the default branch (LITE_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
 content. When LITE_ROLE is set, also: no git push, merge, checkout, switch,
 restore, apply or branch -f, no gh, no write to a path in LITE_LOCKED (newline
-separated) or to a tracked test file, and the reviewer role writes nothing.
+separated) or to a tracked test file, and the reviewer role writes nothing (the pass role writes only under .lite/pass/).
 
 Known limits: this is a regular-expression check on the raw command, so it can
 be routed around (a script, an alias, an unusual spelling). It is an early
@@ -77,13 +77,13 @@ def is_test_path(rel):
 
 
 def check_path(path, role, cwd):
-    if role == "reviewer":
-        raise Refuse("the reviewer edits nothing",
-                     "describe the change in the review instead")
     code, top = git(["rev-parse", "--show-toplevel"], cwd)
     top = os.path.realpath(top if code == 0 and top else cwd)
     full = os.path.realpath(os.path.join(cwd, path))
     rel = os.path.relpath(full, top)
+    if role == "reviewer" or (role == "pass" and not rel.startswith(".lite/pass/")):
+        raise Refuse("the %s edits nothing%s" % (role, " outside .lite/pass/" if role == "pass" else ""),
+                     "describe the change in the review instead")
     for locked in os.environ.get("LITE_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
         if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
