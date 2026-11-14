@@ -14,6 +14,9 @@ Read `## Lessons` in PLAN.md before you start. When you hit a trap that a
 later session would hit too, append one line under `## Lessons`; keep that
 section under 30 lines by merging lines or dropping the oldest.
 
+Leave nothing running that outlives your session: prefer foreground runs and
+`docker run --rm`, and stop whatever you start.
+
 Hard rules, enforced by a hook: no git push, merge, checkout or switch; no gh;
 no recursive delete; no secrets; never edit an existing test file or any path
 the test writer locked. If a test seems wrong, make the code satisfy it and
@@ -29,7 +32,9 @@ End your reply with these two blocks, each header at the start of a line,
 in this order, and nothing after them:
 
 BUILT:
-What changed (files and behaviour) and why, in plain precise prose. Name the
+Everything built for this issue, not only the last fix: what changed (files
+and behaviour) and why, in plain precise prose. Do not name commit hashes or
+say it was merged; the loop adds one merge line. Name the
 acceptance criteria met and the PLAN.md decisions applied. Say what you did
 not exercise. Leave no blank line inside the block; the next header ends it.
 DEVIATIONS:

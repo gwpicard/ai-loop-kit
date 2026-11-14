@@ -2,7 +2,8 @@
 
 A step is {"files": {path: text}, "remove": [paths], "reply": text (with
 {HEAD} replaced by the git head), "session_id", "limit": message, "error":
-text, "crash": true, "sleep": seconds}. The nth call of a role uses step n;
+text, "crash": true, "sleep": seconds, "spawn": true (leave a `sleep` running,
+its pid in <scenario>.pid)}. The nth call of a role uses step n;
 the last step repeats. Files and removals are committed.
 """
 import json
@@ -29,6 +30,8 @@ time.sleep(step.get("sleep", 0))
 if step.get("crash"):
     sys.stderr.write("claude exploded\\n")
     sys.exit(1)
+if step.get("spawn"):  # a child that outlives the session, in its process group
+    open(path + ".pid", "w").write(str(subprocess.Popen(["sleep", "300"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid))
 for name, text in step.get("files", {}).items():
     os.makedirs(os.path.dirname(os.path.abspath(name)), exist_ok=True)
     open(name, "w").write(text)

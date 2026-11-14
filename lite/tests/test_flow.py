@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -333,6 +334,30 @@ class FlowTest(FakeClaudeGh):
         self.issue_view(listed=["Log skipped lines"])
         flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
         self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
+
+    def test_follow_up_titles_match_ignoring_case_and_punctuation(self):
+        self.issue_view(listed=["log skipped lines!"])
+        flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log   skipped, lines.\n", "abc", [], None)
+        self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
+        self.assertEqual(flow.same("Don't  Panic!"), flow.same("dont panic"))
+
+    def test_the_note_has_one_merge_line_and_the_brief_asks_for_the_whole_issue(self):
+        sent = self.spy_gh()
+        self.build_scenario(builder=[self.BUILT])
+        self.build()
+        note = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Built")][0]
+        self.assertEqual(note.count("Merged"), 1)
+        brief = Path(flow.BRIEFS, "builder.md").read_text(encoding="utf-8")
+        for text in ("not only the last fix", "the loop adds one merge line"):
+            self.assertIn(text, brief)
+
+    def test_the_note_lists_what_the_sessions_left_behind(self):
+        flow.session.SWEPT[7] = ["removed container abc", "new image def (kept)"]
+        self.addCleanup(flow.session.SWEPT.clear)
+        sent = self.spy_gh()
+        flow.after_merge(7, "BUILT:\nx\nDEVIATIONS:\nnone", "", "abc", [], None)
+        note = [i for a, i in sent if a[:2] == ["issue", "comment"]][0]
+        self.assertIn("Left behind by sessions:\n- removed container abc\n- new image def (kept)\n", note)
 
     def failed_note(self, error):
         with mock.patch.object(flow, "after_merge", side_effect=error):

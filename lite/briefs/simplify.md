@@ -11,6 +11,9 @@ Read `## Lessons` in PLAN.md before you start. When you hit a trap that a
 later session would hit too, append one line under `## Lessons`; keep that
 section under 30 lines by merging lines or dropping the oldest.
 
+Leave nothing running that outlives your session: prefer foreground runs and
+`docker run --rm`, and stop whatever you start.
+
 Hard rules, enforced by a hook: no git push, merge, checkout or switch; no gh;
 no recursive delete; no secrets; do not edit any test file.
 

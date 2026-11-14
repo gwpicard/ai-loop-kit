@@ -1,7 +1,9 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -137,7 +139,7 @@ class LoopTest(Base):
         self.addCleanup(os.chdir, old)
         loop.time.sleep.side_effect = lambda s: loop.main(["stop"])
         self.assertEqual(self.run_loop(), 0)
-        self.assertIn("stop requested", self.say.call_args_list[-1][0][0])
+        self.assertIn("stop requested", self.say.call_args_list[-2][0][0])
         self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
 
     def test_stale_stop_file_is_removed_at_start(self):
@@ -274,7 +276,9 @@ class LoopTest(Base):
     def test_idle_exit_says_why(self):
         self.world([])
         self.assertEqual(self.run_loop(), 0)
-        self.assertIn("exiting: nothing built for 0 hours", self.say.call_args_list[-1][0][0])
+        said = [c[0][0] for c in self.say.call_args_list]
+        self.assertIn("exiting: nothing built for 0 hours", said)
+        self.assertTrue(said[-1].startswith("left behind: "))
 
     def test_board_body_renders_every_section(self):
         body = loop.board_body([("Building now", ["#7, reviewing, since 10:00"]),
@@ -340,6 +344,29 @@ class GitTest(Base):
         super().setUp()
         self.work, self.origin = copy_repo(TEMPLATE.name, self._tmp.name)
         mock.patch.object(pass_, "run_pass", return_value=({}, "")).start()  # no real sessions
+
+    def test_loop_exit_cleans_up_and_names_what_is_left(self):
+        parent = os.path.dirname(self.work)
+        empty = os.path.join(parent, ".lite-worktrees")
+        os.makedirs(empty)
+        gone = os.path.join(parent, "gone-tree")
+        for args in (["branch", "issue/5"], ["branch", "issue/6"], ["branch", "issue/x"],
+                     ["worktree", "add", "-q", "--detach", gone], ["worktree", "add", "-q", "--detach", parent + "/kept"]):
+            run_git(args, self.work)
+        shutil.rmtree(gone)  # a worktree whose folder was deleted: prune drops it
+        logs = os.path.join(self.work, ".lite", "logs")
+        os.makedirs(logs)
+        for name, days in (("old.log", 15), ("new.log", 13)):
+            path = os.path.join(logs, name)
+            open(path, "w").close()
+            os.utime(path, (time.time() - days * 86400,) * 2)
+        loop.clean_up(self.work, {5})
+        self.assertEqual(os.listdir(logs), ["new.log"])
+        self.assertFalse(os.path.exists(empty))
+        line = self.say.call_args[0][0]
+        self.assertRegex(line, r"^left behind: worktrees: \S*/kept; branches of closed issues: issue/5$")
+        loop.clean_up(self.work, set())
+        self.assertIn("branches of closed issues: none", self.say.call_args[0][0])
 
     def commit(self, branch, name, text, message):
         run_git(["checkout", "-q", branch], self.work)

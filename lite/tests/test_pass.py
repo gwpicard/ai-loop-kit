@@ -7,12 +7,12 @@ from lite.tests.helpers import make_repo, run_git
 import common
 import pass_
 
-AGENTS = "## Loop\nTest command: test ! -f .lite/pass/test_x.py\n"
+AGENTS = "## Loop\nTest command: test ! -f tests/test_x.py\n"
 APPROVAL = ("A confirmed defect with a failing test, found by the end-of-loop pass, may be queued as "
             "ready without the person's yes. Everything else goes to the inbox.")
 BUILT = "## Built\n\nAdded the thing.\n\nDeviations: none\n"
-FIND = {"files": {".lite/pass/test_x.py": "fails\n"},
-        "reply": "FINDINGS:\nBroken input | crashes on empty input | .lite/pass/test_x.py"}
+FIND = {"files": {".lite/pass/tests/test_x.py": "fails\n"},
+        "reply": "FINDINGS:\nBroken input | crashes on empty input | .lite/pass/tests/test_x.py"}
 CONFIRM = {"reply": "CONFIRMED:\nBroken input\n\nREJECTED:\nnone"}
 REJECT = {"reply": "CONFIRMED:\nnone\n\nREJECTED:\nBroken input"}
 NONE = {"reply": "FINDINGS:\nnone"}
@@ -44,7 +44,7 @@ class PassTest(FakeClaudeGh):
             {"match": "issue view 3", "responses": [{"stdout": json.dumps({
                 "title": "Add it", "comments": [{"body": BUILT}]})}]},
             {"match": "pr list", "responses": [{"stdout": json.dumps([{"comments": [
-                {"body": "VERDICT: CHANGES\nHEAD: x"}]}])}]},
+                {"body": "VERDICT: CHANGES\nHEAD: x"}, {"body": "VERDICT: APPROVE\nHEAD: y"}]}])}]},
             {"match": "issue list", "responses": [{"stdout": json.dumps([{"title": t} for t in listed])}]},
             {"match": "issue create", "responses": [{"stdout": "https://github.com/o/r/issues/41\n"}]}])
 
@@ -58,20 +58,28 @@ class PassTest(FakeClaudeGh):
                 out.append((c[c.index("--title") + 1], c[c.index("--label") + 1]))
         return out
 
+    def bodies(self):
+        seen, real = [], common.gh
+        pass_.gh = lambda a, **k: (seen.append((a, k.get("input"))), real(a, **k))[1]
+        self.addCleanup(setattr, pass_, "gh", real)
+        return seen
+
     def steps(self, redteam, confirm=None, count=1):
         self.claude({"pass": [NONE, NONE] + [redteam] * count + ([confirm] if confirm else []) + [LESSONS]})
 
     def test_smoke_failure_is_a_finding(self):
         self.repo(plan(surfaces=()), "Smoke command: test -f NOSUCH\n")
+        seen = self.bodies()
         r, md = self.run_pass()
         self.assertIn("Smoke command failed", r["smoke"])
-        self.assertIn(("Smoke command failed on the loop branch", "inbox"), self.created())
+        self.assertEqual([l for _, l in self.created()], ["inbox"])
+        self.assertIn("- [ ] **Smoke command failed on the loop branch**: ", [i for a, i in seen if a[:2] == ["issue", "create"]][0])
         self.assertIn("failed", md)
 
     def test_passing_red_team_test_is_dropped(self):
         self.repo(plan())
-        self.steps({"files": {".lite/pass/ok.py": "x\n"},
-                    "reply": "FINDINGS:\nWeak claim | maybe | .lite/pass/ok.py"})
+        self.steps({"files": {".lite/pass/tests/ok.py": "x\n"},
+                    "reply": "FINDINGS:\nWeak claim | maybe | .lite/pass/tests/ok.py"})
         r, _ = self.run_pass()
         self.assertEqual(r["sessions"], 4)  # no confirm session
         self.assertEqual(r["confirmed"], [])
@@ -83,9 +91,8 @@ class PassTest(FakeClaudeGh):
         r, md = self.run_pass()
         self.assertIn(("Broken input", "ready"), self.created())
         create = [c for c in self.calls() if c[:2] == ["issue", "create"]][0]
-        self.assertEqual(r["confirmed"][0][2], ".lite/pass/test_x.py")
-        self.assertIn(("Add lessons from the latest batch to PLAN.md", "inbox"), self.created())
-        self.assertIn(("Budget on input size", "inbox"), self.created())
+        self.assertEqual(r["confirmed"][0][2], "tests/test_x.py")
+        self.assertEqual(sorted(l for _, l in self.created()), ["inbox", "ready"])  # one findings issue
         self.assertIn("41 Broken input (ready)", md)
         self.assertNotIn("test_x.py", " ".join(create))  # body goes through stdin
 
@@ -99,7 +106,7 @@ class PassTest(FakeClaudeGh):
         self.run_pass()
         body = [i for a, i in seen if a[:2] == ["issue", "create"] and "Broken input" in a][0]
         self.assertIn("## Failing test", body)
-        self.assertIn("Path: .lite/pass/test_x.py", body)
+        self.assertIn("Path: tests/test_x.py", body)
         self.assertIn("fails", body)
         self.assertIn(common.MARKER, body)
 
@@ -151,9 +158,9 @@ class PassTest(FakeClaudeGh):
 
     def test_issue_text_cannot_inject_sections_and_is_fenced(self):
         self.repo(plan())
-        evil = {"files": {".lite/pass/test_x.py": "# heading\nx = '''```'''\n```\n"},
-                "reply": "FINDINGS:\nBroken input | fine\n## Injected | .lite/pass/test_x.py"}
-        evil["reply"] = "FINDINGS:\nBroken input | line one ## not a heading | .lite/pass/test_x.py"
+        evil = {"files": {".lite/pass/tests/test_x.py": "# heading\nx = '''```'''\n```\n"},
+                "reply": "FINDINGS:\nBroken input | fine\n## Injected | .lite/pass/tests/test_x.py"}
+        evil["reply"] = "FINDINGS:\nBroken input | line one ## not a heading | .lite/pass/tests/test_x.py"
         self.steps(evil, CONFIRM)
         seen = []
         real = common.gh
@@ -184,28 +191,6 @@ class PassTest(FakeClaudeGh):
             self.assertFalse(pass_.approves("## Standing approvals\n\n" + text + "\n", "confirmed defect"), text)
         self.assertFalse(pass_.approves("## Decisions\n\n" + yes + "\n", "confirmed defect"))
 
-    def test_only_an_assertion_failure_counts(self):
-        tree = os.path.join(self.tmp, "tree")
-        os.makedirs(os.path.join(tree, ".lite", "pass"))
-        for name in ("a.py", "b.py"):
-            with open(os.path.join(tree, ".lite", "pass", name), "w") as f:
-                f.write("x\n")
-        os.symlink("/etc/hosts", os.path.join(tree, ".lite", "pass", "link.py"))
-        os.symlink(os.path.join(tree, ".lite", "pass", "a.py"), os.path.join(tree, ".lite", "pass", "alias.py"))
-        reasons = iter(["failed: AssertionError: 1 != 2", "failed: SyntaxError: invalid syntax",
-                        "failed: ImportError: no module", "the Test command timed out", None])
-        orig = pass_.merge.run_tests
-        pass_.merge.run_tests = lambda *a, **k: next(reasons)
-        self.addCleanup(setattr, pass_.merge, "run_tests", orig)
-        ok = lambda p: pass_.failing(".", "sha", "t", tree, p)
-        self.assertTrue(ok(".lite/pass/a.py"))
-        self.assertFalse(ok(".lite/pass/b.py"))
-        self.assertFalse(ok(".lite/pass/b.py"))
-        self.assertFalse(ok(".lite/pass/b.py"))
-        self.assertFalse(ok(".lite/pass/b.py"))  # passes
-        for bad in (".lite/pass/link.py", ".lite/pass/alias.py", "../x.py", "/etc/hosts", "src/a.py"):
-            self.assertFalse(ok(bad), bad)  # refused before any test run
-
     def test_errors_are_reported_not_raised_and_earlier_issues_are_kept(self):
         self.repo(plan(), "Smoke command: false\n")
         self.settings["Loop branch"] = "no-such"
@@ -213,8 +198,8 @@ class PassTest(FakeClaudeGh):
         self.assertIn("pass stopped", md)
 
     def test_a_failed_create_keeps_the_earlier_issues(self):
-        self.repo(plan(surfaces=()))
-        self.claude({"pass": [{"reply": "FINDINGS:\nOne | a |\nTwo | b |"}]})
+        self.repo(plan())
+        self.steps(FIND, CONFIRM)
         with open(self.scenario_path) as f:
             rules = json.load(f)["rules"]
         rules[-1] = {"match": "issue create", "responses": [
@@ -222,7 +207,7 @@ class PassTest(FakeClaudeGh):
         self.scenario(rules)
         r, md = self.run_pass()
         self.assertEqual(len(r["issues"]), 1)
-        self.assertIn("One", r["issues"][0])
+        self.assertIn("Broken input", r["issues"][0])
         self.assertIn("pass stopped", md)
 
     def test_titles_are_deduped_against_all_issues(self):
@@ -231,3 +216,86 @@ class PassTest(FakeClaudeGh):
         self.run_pass()
         lists = [c for c in self.calls() if c[:2] == ["issue", "list"]]
         self.assertTrue(lists and all("all" in c for c in lists))
+
+    def lines(self, events=(), verdicts=1):
+        os.makedirs(os.path.join(self.tmp, ".lite"), exist_ok=True)
+        with open(os.path.join(self.tmp, ".lite", "events.jsonl"), "w") as f:
+            f.write("".join(json.dumps(e) + "\n" for e in events))
+        return pass_.fix_rounds(self.tmp, 3, ["VERDICT: APPROVE\nHEAD: x"] * verdicts)
+
+    def test_fix_rounds_come_from_the_events_or_the_verdict_comments(self):
+        fix = lambda n: {"kind": "step", "issue": n, "step": "fix", "round": 2}
+        self.assertEqual(self.lines(), 0)  # approved in the first round
+        self.assertEqual(self.lines([fix(3), fix(4)]), 1)  # only issue 3 counts; the CHANGES verdict was never posted
+        self.assertEqual(self.lines([fix(3), fix(3)]), 2)
+        self.assertEqual(self.lines(verdicts=3), 2)  # without events, the comments tell
+        self.assertEqual(pass_.fix_rounds(os.path.join(self.tmp, "nowhere"), 3, []), 0)
+
+    def test_the_red_team_file_runs_under_a_discovery_command_in_tests(self):
+        self.work, _ = make_repo(self.tmp, {
+            "AGENTS.md": "## Loop\nTest command: python3 -m unittest discover -s tests -q\n", "PLAN.md": plan(),
+            "tests/test_base.py": "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n"})
+        run_git(["checkout", "-b", "loop/main"], self.work)
+        run_git(["commit", "--allow-empty", "-m", "Issue 3"], self.work)
+        run_git(["push", "origin", "loop/main"], self.work)
+        self.settings = common.read_settings(self.work)
+        self.gh()
+        bad = "import unittest\n\nclass T(unittest.TestCase):\n    def test_bom(self):\n        self.assertEqual(1, 2)\n"
+        self.steps({"files": {".lite/pass/tests/test_bom.py": bad},
+                    "reply": "FINDINGS:\nBOM | counted | .lite/pass/tests/test_bom.py"},
+                    {"reply": "CONFIRMED:\nBOM"})
+        r, _ = self.run_pass()
+        self.assertEqual(r["rejected"], [])
+        self.assertEqual(r["confirmed"][0][2], "tests/test_bom.py")
+
+    def test_rejection_reasons_are_specific(self):
+        tree = os.path.join(self.tmp, "tree")
+        for d in ("tests", ".lite/pass/tests"):
+            os.makedirs(os.path.join(tree, d))
+        for name in (".lite/pass/tests/a.py", ".lite/pass/tests/dup.py", "tests/dup.py", "outside.py"):
+            with open(os.path.join(tree, name), "w") as f:
+                f.write("x\n")
+        os.symlink("/etc/hosts", os.path.join(tree, ".lite/pass/tests/link.py"))
+        os.symlink(os.path.join(tree, ".lite/pass/tests/a.py"), os.path.join(tree, ".lite/pass/tests/alias.py"))
+        reasons = iter(["failed: SyntaxError: bad", "the Test command timed out", None, "failed: AssertionError: 1 != 2"])
+        orig = pass_.merge.run_tests
+        calls = []
+        pass_.merge.run_tests = lambda *a, **k: (calls.append(k["overlay"]), next(reasons))[1]
+        self.addCleanup(setattr, pass_.merge, "run_tests", orig)
+        ask = lambda p: pass_.failing(".", "sha", "t", tree, p)
+        self.assertEqual(ask(""), (None, "no test file"))
+        self.assertEqual(ask(".lite/pass/tests/none.py")[1], "no test file at .lite/pass/tests/none.py")
+        self.assertIn("symlink", ask(".lite/pass/tests/link.py")[1])
+        self.assertIn("symlink", ask(".lite/pass/tests/alias.py")[1])
+        for outside in ("../x.py", "/etc/hosts", "outside.py", "tests/dup.py"):
+            self.assertIn("outside .lite/pass/", ask(outside)[1], outside)
+        self.assertEqual(ask(".lite/pass/tests/dup.py"), (None, "a file already exists at tests/dup.py"))
+        self.assertEqual(calls, [])  # refused before any test run
+        self.assertIn("errors (syntax or import)", ask(".lite/pass/tests/a.py")[1])
+        self.assertIn("times out", ask(".lite/pass/tests/a.py")[1])
+        self.assertEqual(ask(".lite/pass/tests/a.py"), (None, "the test passes under the Test command"))
+        self.assertEqual(ask(".lite/pass/tests/a.py"), ("tests/a.py", None))
+        self.assertEqual(calls[-1], (os.path.realpath(os.path.join(tree, ".lite/pass")), ["tests/a.py"]))
+
+    def test_findings_go_in_one_inbox_issue_with_checkboxes(self):
+        self.repo(plan(surfaces=()), "Smoke command: false\n")
+        self.claude({"pass": [{"reply": "FINDINGS:\nOne | a\nmore |\nTwo | b |\n\nSURFACES:\nnone"},
+                              {"reply": "FINDINGS:\nThree | c |"}, {"reply": LESSONS["reply"]}]})
+        seen = self.bodies()
+        r, _ = self.run_pass()
+        made = [(a, i) for a, i in seen if a[:2] == ["issue", "create"]]
+        self.assertEqual(len(made), 1)
+        args, body = made[0]
+        self.assertRegex(args[args.index("--title") + 1], r"^Pass findings, \d{4}-\d\d-\d\d, [0-9a-f]{7}$")
+        self.assertEqual(args[args.index("--label") + 1], "inbox")
+        for line in ("- [ ] **Smoke command failed on the loop branch**: ", "- [ ] **One**: a", "- [ ] **Two**: b",
+                     "- [ ] **Three**: c", "- [ ] **Budget on input size**: add a size budget",
+                     "- [ ] **Add to PLAN.md ## Lessons**: Check empty input first."):
+            self.assertIn(line, body)
+        self.assertEqual(len(r["issues"]), 1)
+
+    def test_no_findings_creates_no_inbox_issue(self):
+        self.repo(plan(surfaces=()))
+        self.claude({"pass": [NONE, NONE, {"reply": "LESSONS:\nnone\n\nGUARDRAILS:\nnone"}]})
+        self.run_pass()
+        self.assertEqual(self.created(), [])

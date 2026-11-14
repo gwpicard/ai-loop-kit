@@ -108,14 +108,12 @@ def trusted(st, i):
         st["trust"][key] = common.ready_is_trusted(i["number"])
     return st["trust"][key]
 
-
 def pick(st):
     for i in sorted(st["issues"], key=lambda x: x["number"]):
         if ("ready" in i["labels"] and "building" not in i["labels"]
                 and all(d in st["closed"] for d in common.depends_on(i["body"]))
                 and trusted(st, i)):
             return i["number"]
-
 
 def build_once(project, st, number):
     common.add_label(number, "building")
@@ -198,6 +196,23 @@ def drain(project, settings, st):
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
 
+def clean_up(project, closed):
+    """At loop exit: prune worktrees, drop logs older than 14 days, name what is left behind."""
+    git(["worktree", "prune"], cwd=project, check=False)
+    logs = os.path.join(project, ".lite", "logs")
+    for path in [os.path.join(logs, n) for n in os.listdir(logs)] if os.path.isdir(logs) else ():
+        if time.time() - os.path.getmtime(path) > 14 * 86400:
+            os.remove(path)
+    try:
+        os.rmdir(os.path.join(os.path.dirname(project), ".lite-worktrees"))  # only when empty
+    except OSError:
+        pass
+    trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines()
+             if l.startswith("worktree ")][1:]
+    old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project,
+                          check=False).split() if b[6:].isdigit() and int(b[6:]) in closed]
+    say("left behind: worktrees: %s; branches of closed issues: %s" % (", ".join(trees) or "none", ", ".join(old) or "none"))
+
 def run(project):
     project = os.path.abspath(project)
     settings = common.read_settings(project)
@@ -242,6 +257,7 @@ def run(project):
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
+        clean_up(project, st["closed"])
         for name in ("stop", "loop.pid"):
             if os.path.exists(os.path.join(project, ".lite", name)):
                 os.remove(os.path.join(project, ".lite", name))
@@ -263,7 +279,6 @@ def main(argv):
     except common.LoopError as e:
         say("refused: %s\nnext: run setup, then try again" % e)
         return 1
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

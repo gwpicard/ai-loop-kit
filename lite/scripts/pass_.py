@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import common
@@ -16,10 +17,8 @@ TITLES = (("drift", "Drift"), ("confirmed", "Red team: confirmed"), ("rejected",
           ("rubric", "Rubric"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
           ("issues", "Issues created"), ("batch", "Merged in this batch"), ("errors", "Problems"))
 
-
 def section(plan, name):
     return (re.search(r"^## %s\s*\n(.*?)(?=^## |\Z)" % name, plan, re.S | re.M) or [0, ""])[1]
-
 
 def approves(plan, word):
     # fails closed: a paragraph must name `word`, say it may be queued as ready, and hold no negation
@@ -27,27 +26,41 @@ def approves(plan, word):
                and not re.search(r"n't|\b(not|never|no|none|nothing|unless|until|only after)\b", p)
                for p in section(plan, "Standing approvals").lower().split("\n\n"))
 
-
 def esc(text):  # a finding cannot start a section of the issue
     return re.sub(r"(?m)^(\s*#)", r"\\\1", text)
 
-
 def failing(project, sha, test, tree, path):
-    # True if the file, copied to the loop head, fails the Test command by assertion
-    real = os.path.realpath(os.path.join(tree, path))
-    if (os.path.islink(os.path.join(tree, path)) or not os.path.isfile(real)
-            or not real.startswith(os.path.realpath(os.path.join(tree, ".lite", "pass")) + os.sep)):
-        return False
-    why = merge.run_tests(project, sha, test, tail=60, overlay=(tree, [path]))
-    return bool(why) and not re.search(
-        r"SyntaxError|IndentationError|ImportError|ModuleNotFound|NameError|errors? during collection|"
-        r"error collecting|cannot find module|timed out", why, re.I)
-
+    # (where the Test command finds the red-team file, None) if the file under .lite/pass/ fails the
+    # Test command once copied there; else (None, why it was rejected)
+    base, full = os.path.realpath(os.path.join(tree, ".lite", "pass")), os.path.join(tree, path)
+    rel = os.path.relpath(os.path.realpath(full), base)
+    bad = ("no test file" if not path else "the path is a symlink: " + path if os.path.islink(full)
+           else "the path is outside .lite/pass/: " + path if rel.split(os.sep)[0] == ".."
+           else "no test file at " + path if not os.path.isfile(full)
+           else "a file already exists at " + rel if os.path.lexists(os.path.join(tree, rel)) else "")
+    if bad:
+        return None, bad
+    why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]))
+    if not why:
+        return None, "the test passes under the Test command"
+    if re.search(r"SyntaxError|IndentationError|ImportError|ModuleNotFound|NameError|errors? during collection|"
+                 r"error collecting|cannot find module|timed out", why, re.I):
+        return None, "the test errors (syntax or import) or times out"
+    return rel, None
 
 def findings(text, name="FINDINGS"):  # (title, detail, path) per `title | detail | path` line
     rows = [(l.split("|", 2) + ["", ""])[:3] for l in flow.parse_block(text, name) if l.lower() != "none"]
     return [(t.strip(), d.strip(), p.strip()) for t, d, p in rows]
 
+def fix_rounds(project, n, texts):
+    # fix rounds of issue n: the builder's fix steps in the events, or the verdict comments minus the first
+    try:
+        with open(os.path.join(project, ".lite", "events.jsonl"), encoding="utf-8") as f:
+            events = [json.loads(l) for l in f if l.strip()]
+    except (OSError, ValueError):
+        events = []
+    fixes = sum(e.get("issue") == n and e.get("step") == "fix" for e in events)
+    return max(fixes, sum(t.count("VERDICT:") for t in texts) - 1)
 
 def batch_lines(project, since, loop):
     # one line per issue merged since `since`: build note title, fix rounds, parks, deviations
@@ -60,10 +73,9 @@ def batch_lines(project, since, loop):
         built = next((t for t in texts if t.startswith("## Built")), "\nno build note")
         lines.append("#%d %s: %s (fix rounds %d, parks %d, deviations: %s)" % (
             n, info["title"], next((l for l in built.splitlines()[1:] if l.strip()), "no build note")[:100],
-            sum(t.count("VERDICT: CHANGES") for t in texts), sum("## Needs you" in t for t in texts),
+            fix_rounds(project, n, texts), sum("## Needs you" in t for t in texts),
             (re.search(r"^Deviations: (.*)$", built, re.M) or [0, "none"])[1]))
     return lines
-
 
 def create(title, body, label):
     # create an issue unless any one has the title; return its number, or None
@@ -72,7 +84,6 @@ def create(title, body, label):
                                     input=body + "\n\n" + common.MARKER + "\n", retry=False)),
               lambda: title in [i["title"] for i in json.loads(gh(args) or "[]")])
     return (re.findall(r"\d+", out[0]) or ["?"])[-1] if out else None
-
 
 def run_pass(project, settings, since_ref):
     # run the pass on origin/<loop branch>; return (report dict, Markdown report)
@@ -89,7 +100,6 @@ def run_pass(project, settings, since_ref):
         subprocess.run(["git", "worktree", "remove", "--force", tree], cwd=project, capture_output=True)
         subprocess.run(["rmdir", parent], capture_output=True)
     return r, markdown(r)
-
 
 def _pass(project, settings, since, tree, r):
     sha, test = git(["rev-parse", "HEAD"], cwd=tree), settings["Test command"]
@@ -122,12 +132,13 @@ def _pass(project, settings, since, tree, r):
     candidates = []
     for surface in surfaces:
         for title, detail, path in findings(ask("redteam", "\nSurface: %s\n" % surface)):
-            if failing(project, sha, test, tree, path):
-                candidates.append((title, detail, path, Path(tree, path).read_text(encoding="utf-8")))
+            rel, why = failing(project, sha, test, tree, path)
+            if rel:
+                candidates.append((title, detail, rel, Path(tree, path).read_text(encoding="utf-8")))
             else:
-                r["rejected"].append((title, "no failing test file"))
+                r["rejected"].append((title, why))
     said = findings(ask("confirm", "\nFindings to judge:\n" + "\n".join(
-        "%s | %s | %s" % c[:3] for c in candidates)), "CONFIRMED") if candidates else []
+        "%s | %s | .lite/pass/%s" % c[:3] for c in candidates)), "CONFIRMED") if candidates else []
     for c in candidates:
         yes = any(c[0] == s[0] for s in said)
         r["confirmed" if yes else "rejected"].append(c if yes else (c[0], "not confirmed"))
@@ -138,14 +149,12 @@ def _pass(project, settings, since, tree, r):
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])
     jobs = [(t, "%s\n\n## Failing test\n\nPath: %s\n\n%s\n%s\n%s\n" % (esc(d), p, fence(c), c.rstrip("\n"), fence(c)),
              ready) for t, d, p, c in r["confirmed"]]
-    jobs += [(t, esc(d), "inbox") for t, d, _ in r["drift"] + r["rubric"] + r["guardrails"]]
-    jobs += [("Add lessons from the latest batch to PLAN.md", "Append under ## Lessons, merging or dropping "
-              "the oldest lines if full:\n\n- " + "\n- ".join(r["lessons"]),
-              "ready" if approves(plan, "lessons") else "inbox")] * bool(r["lessons"])
+    found = r["drift"] + r["rubric"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]]
+    jobs += [("Pass findings, %s, %s" % (time.strftime("%Y-%m-%d"), sha[:7]), "\n".join(
+        "- [ ] **%s**: %s" % (t, esc(d).replace("\n", "\n  ")) for t, d, _ in found), "inbox")] * bool(found)
     for title, body, label in jobs:
         number = create(title, body, label)
         r["issues"] += ["#%s %s (%s)" % (number, title, label)] if number else []
-
 
 def markdown(r):
     show = lambda v: "\n".join("- " + (": ".join(x[:2]) if isinstance(x, tuple) else x) for x in v) or "none"

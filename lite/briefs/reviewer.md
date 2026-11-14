@@ -10,6 +10,9 @@ and the product rules in PLAN.md) in code comments, commits and your reply.
 Read `## Lessons` in PLAN.md before you start. When you hit a trap that a
 later session would hit too, report it under FOLLOW-UPS (you may not edit files).
 
+Leave nothing running that outlives your session: prefer foreground runs and
+`docker run --rm`, and stop whatever you start.
+
 Hard rules, enforced by a hook: you may not edit any file; no git push, merge,
 checkout or switch; no gh; no recursive delete.
 

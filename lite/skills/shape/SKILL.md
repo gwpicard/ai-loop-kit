@@ -48,7 +48,8 @@ code and never merges.
 ## Inbox issues from the loop
 
 Reviewer follow-ups and end-of-loop pass findings arrive as `inbox` issues.
-Shape them like any other. An issue with a `## Failing test` section keeps
+Shape them like any other. The pass's single `Pass findings` issue lists one
+checkbox per finding: shape the worthwhile ones, then close it. An issue with a `## Failing test` section keeps
 it: the test writer commits that test as given. Ask whether the project
 needs a `Check command` (guardrails) or a `Smoke command` (the real
 artefact) in `AGENTS.md`, and add the answer there.

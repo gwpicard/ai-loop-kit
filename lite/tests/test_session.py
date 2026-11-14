@@ -15,6 +15,7 @@ AGENTS = "## Loop\nTest command: true\nLoop branch: loop/main\n"
 class SessionTest(FakeClaudeGh):
     def setUp(self):
         super().setUp()
+        session.SWEPT.clear()
         self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
 
     def run_session(self, role="builder", **kw):
@@ -99,6 +100,74 @@ class SessionTest(FakeClaudeGh):
                 self.run_session()
         self.assertIn("timed out", str(cm.exception))
         self.assertLess(time.time() - started, 10)
+
+    def test_a_process_left_in_the_group_is_killed_and_logged(self):
+        self.claude({"builder": [{"spawn": True, "reply": "done"}]})
+        self.assertEqual(self.run_session()[0], "done")
+        with open(self.claude_path + ".pid") as f:
+            pid = int(f.read())
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(pid, 9)
+            self.fail("the leftover process is still alive")
+        with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
+            self.assertRegex(f.read(), "--- cleanup: left running, killed: %d .*sleep 300" % pid)
+
+    def fake_docker(self, sessions, **ids):
+        folder = os.path.join(self.tmp, "docker")
+        os.makedirs(folder)
+        for kind, names in ids.items():
+            with open(os.path.join(folder, kind), "w") as f:
+                f.write("\n".join(names))
+        script = os.path.join(self.tmp, "bin", "docker")
+        with open(script, "w") as f:
+            f.write(FAKE_DOCKER)
+        os.chmod(script, 0o755)
+        os.environ["FAKE_DOCKER"] = folder
+        self.claude({"builder": [{"files": {os.path.join(folder, k): "\n".join(v) for k, v in sessions.items()}}]})
+        return folder
+
+    def kept(self, folder, kind):
+        with open(os.path.join(folder, kind)) as f:
+            return f.read().split()
+
+    def test_the_docker_sweep_removes_new_things_and_keeps_images(self):
+        folder = self.fake_docker({"c": ["old", "new1", "new2"], "n": ["bridge", "net1"], "v": ["vol1"],
+                                   "i": ["img0", "img1"]}, c=["old"], n=["bridge"], i=["img0"])
+        self.run_session()
+        self.assertEqual([self.kept(folder, k) for k in "cnvi"], [["old"], ["bridge"], [], ["img0", "img1"]])
+        self.assertEqual(session.SWEPT[7], ["removed container new1", "removed container new2", "removed network net1",
+                                            "removed volume vol1", "new image img1 (kept)"])
+        with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
+            self.assertIn("--- cleanup: removed volume vol1", f.read())
+
+    def test_a_docker_that_does_not_answer_is_ignored(self):
+        self.fake_docker({"c": ["new"]}, c=[])
+        os.environ["FAKE_DOCKER"] = "/nonexistent"  # the fake fails on every call
+        self.assertEqual(self.run_session()[0], "ok")
+        self.assertEqual(session.SWEPT.get(7, []), [])
+
+    def test_without_docker_nothing_is_swept(self):
+        self.run_session()
+        self.assertEqual(session.SWEPT.get(7, []), [])
+
+
+FAKE_DOCKER = '''#!/usr/bin/env python3
+import os, sys
+a, folder = sys.argv[1:], os.environ["FAKE_DOCKER"]
+kind = {"ps": "c", "rm": "c", "images": "i", "network": "n", "volume": "v"}[a[0]]
+path = os.path.join(folder, kind)
+ids = open(path).read().split()
+if "ls" in a or a[0] in ("ps", "images"):
+    print("\\n".join(ids))
+else:
+    open(path, "w").write("\\n".join(i for i in ids if i not in a))
+'''
 
 
 if __name__ == "__main__":
