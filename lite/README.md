@@ -111,8 +111,7 @@ arrive. After a pass with errors, the next drain tries again.
 
 The pinned `Factory` issue shows what is building, what needs you, the
 queue, what waits to be shaped, what has landed, the open pull request and
-the last pass.
-To answer a parked issue, reply on it. The loop reads your reply, queues the
+the last pass. To answer a parked issue, reply on it. The loop reads your reply, queues the
 issue again and gives the reply to the next build.
 
 ## What is guaranteed by code
@@ -126,9 +125,8 @@ issue again and gives the reply to the next build.
   named elsewhere in the issue grants nothing. The tests the test writer
   added are locked the same way.
 - The guard hook refuses pushes to the default branch, force pushes,
-  recursive deletes and secrets in writes. It applies to the loop's own
-  sessions (through `--settings`) and to any session where the plugin is
-  enabled.
+  recursive deletes and secrets in writes, in the loop's own sessions
+  (through `--settings`) and wherever the plugin is enabled.
 - An issue is built only if a collaborator with write access added `ready`.
 - The loop never merges into the default branch; it only opens a pull
   request. Branch protection is what stops any other path.
@@ -136,16 +134,15 @@ issue again and gives the reply to the next build.
 ## What is guaranteed by instruction to the model
 
 The briefs tell sessions never to ask, to record deviations and to park on
-the stops list. The reviewer is told to check every acceptance criterion
-with evidence. Code does not enforce these.
+the stops list, and the reviewer to check every criterion with evidence.
+Code does not enforce these.
 
 ## What is not guaranteed
 
 - Pass sessions are told not to edit tracked files; the guard blocks it
-  only on a best-effort basis.
+  best-effort, on the text of commands, as it does everything else.
 - The reviewer and the pass can miss a defect, and a red-team test proves
   only what it exercises.
-- The guard works on the text of commands and is best effort.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.
 - Notifications are not built. Watch the board.
