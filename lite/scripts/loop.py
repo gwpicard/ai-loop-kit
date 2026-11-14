@@ -16,13 +16,16 @@ from common import GitError, gh, git
 POLL = 120
 say = lambda text: print(text, flush=True)
 
+
 def new_state():
     return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building=None, pr=None,
                 conflict="", last="loop started", next="after the current step")
 
+
 def default_branch(project):
     ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
     return ref.replace("origin/", "", 1) or "main"
+
 
 def take_lock(project):
     path = os.path.join(project, ".lite", "loop.pid")
@@ -36,6 +39,7 @@ def take_lock(project):
         with open(path, "w") as f:
             f.write(str(os.getpid()))
 
+
 def last_pass(project):
     try:
         with open(os.path.join(project, ".lite", "pass.json")) as f:
@@ -43,9 +47,11 @@ def last_pass(project):
     except (OSError, ValueError):
         return {}
 
+
 def board_body(sections, last, next_check):
     parts = ["## %s\n\n%s\n" % (t, "\n".join(rows or ["Nothing."])) for t, rows in sections]
     return "\n".join(parts + ["Last event: " + last, "Next check: " + next_check, ""])
+
 
 def write_board(project, st):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
@@ -75,6 +81,7 @@ def write_board(project, st):
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
         st["factory"]["body"] = body
 
+
 def snapshot(st):
     listing = lambda state, fields: json.loads(gh(
         ["issue", "list", "--state", state, "--limit", "500", "--json", fields]))
@@ -85,6 +92,7 @@ def snapshot(st):
     if not st["factory"]:
         say("refused: no Factory issue to write the board on\nnext: run setup")
     st["closed"] = {i["number"] for i in listing("closed", "number")}
+
 
 def answer(st):
     for i in [i for i in st["issues"] if "needs-user" in i["labels"]]:
@@ -102,11 +110,13 @@ def answer(st):
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
 
+
 def trusted(st, i):
     key = (i["number"], i.get("updatedAt"))
     if key not in st["trust"]:
         st["trust"][key] = common.ready_is_trusted(i["number"])
     return st["trust"][key]
+
 
 def pick(st):
     for i in sorted(st["issues"], key=lambda x: x["number"]):
@@ -114,6 +124,7 @@ def pick(st):
                 and all(d in st["closed"] for d in common.depends_on(i["body"]))
                 and trusted(st, i)):
             return i["number"]
+
 
 def build_once(project, st, number):
     common.add_label(number, "building")
@@ -141,6 +152,7 @@ def build_once(project, st, number):
                 "Read .lite/logs, then reply to try again or close the issue.")
     st["last"] = "#%d parked after two crashes" % number
 
+
 def sync_default(project, loop, st):
     base = default_branch(project)
     git(["fetch", "--no-prune", "origin"], cwd=project)
@@ -163,6 +175,7 @@ def sync_default(project, loop, st):
         finally:
             git(["worktree", "remove", "--force", tree], cwd=project, check=False)
             git(["worktree", "prune"], cwd=project, check=False)
+
 
 def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
@@ -196,6 +209,7 @@ def drain(project, settings, st):
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
 
+
 def clean_up(project, closed):
     """At loop exit: prune worktrees, drop logs older than 14 days, name what is left behind."""
     git(["worktree", "prune"], cwd=project, check=False)
@@ -212,6 +226,7 @@ def clean_up(project, closed):
     old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project,
                           check=False).split() if b[6:].isdigit() and int(b[6:]) in closed]
     say("left behind: worktrees: %s; branches of closed issues: %s" % (", ".join(trees) or "none", ", ".join(old) or "none"))
+
 
 def run(project):
     project = os.path.abspath(project)
@@ -263,6 +278,7 @@ def run(project):
                 os.remove(os.path.join(project, ".lite", name))
     return 0
 
+
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
     if cmd == "stop":
@@ -279,6 +295,7 @@ def main(argv):
     except common.LoopError as e:
         say("refused: %s\nnext: run setup, then try again" % e)
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

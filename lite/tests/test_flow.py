@@ -335,6 +335,17 @@ class FlowTest(FakeClaudeGh):
         flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
         self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
 
+    def test_every_verdict_is_posted_on_the_issue(self):
+        sent = self.spy_gh()
+        self.build_scenario(reviewer=[{"reply": "VERDICT: CHANGES\nHEAD: {HEAD}\n1. fix it"}, APPROVE])
+        self.assertEqual(self.build().status, "merged")
+        posts = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Review, round")]
+        self.assertEqual([p.splitlines()[0] for p in posts], ["## Review, round 1", "## Review, round 2"])
+        self.assertIn("VERDICT: CHANGES", posts[0])
+        self.assertIn("1. fix it", posts[0])
+        self.assertIn("VERDICT: APPROVE", posts[1])
+        self.assertTrue(all(common.MARKER in p for p in posts))
+
     def test_follow_up_titles_match_ignoring_case_and_punctuation(self):
         self.issue_view(listed=["log skipped lines!"])
         flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log   skipped, lines.\n", "abc", [], None)

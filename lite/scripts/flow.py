@@ -12,8 +12,10 @@ from common import gh, git
 Result = collections.namedtuple("Result", "status reason")  # merged, parked, failed
 BRIEFS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "briefs")
 
+
 class Parked(Exception):
     pass
+
 
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
@@ -21,6 +23,7 @@ def parse_block(text, name="TESTS"):
     items = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", l).strip("` ")
              for l in blocks[-1].splitlines()] if blocks else []
     return [i for i in items if i]
+
 
 def once(write, found):
     """Run a write that is not safe to repeat unless found() says it is done.
@@ -33,8 +36,10 @@ def once(write, found):
         if not found():
             raise
 
+
 def same(title):  # titles are the same when they differ only in case and punctuation
     return re.sub(r"\W+", "", title.lower())
+
 
 def post_once(issue, body):
     """Comment on the issue unless it already holds that comment."""
@@ -42,9 +47,11 @@ def post_once(issue, body):
          lambda: any((c.get("body") or "").strip() == body.strip()
                      for c in merge.view("issue", issue, "comments").get("comments", [])))
 
+
 def post_tests(issue, paths):
     """Comment the locked paths where merge.py reads them."""
     post_once(issue, "TESTS:\n" + "\n".join(paths) + "\n\n" + common.MARKER + "\n")
+
 
 def after_merge(issue, report, review, commit, files, pr, post=True):
     """Post the build note, then the pull request body, then the reviewer's
@@ -70,12 +77,14 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
              lambda: any(same(i["title"]) == same(title) for i in json.loads(gh(
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
+
 def note_after_merge(issue, project, report, review, commit, files, pr, post=True):
     """after_merge that never undoes a merge: any error is logged."""
     try:
         after_merge(issue, report, review, commit, files, pr, post)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
+
 
 def resume_merged(issue, project, branch, loop):
     """A crash after the merge: if the pull request is merged and the issue has
@@ -96,6 +105,7 @@ def resume_merged(issue, project, branch, loop):
            retry=False)
     return True
 
+
 def prompt_for(role, number, info, tree, settings, replies, report=None):
     with open(os.path.join(BRIEFS, role + ".md"), encoding="utf-8") as f:
         text = f.read()
@@ -107,6 +117,7 @@ def prompt_for(role, number, info, tree, settings, replies, report=None):
     if report:
         text += "\nThe builder's last report:\n" + report + "\n"
     return text
+
 
 def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
@@ -135,6 +146,7 @@ def build(issue, project, replies=()):
         if os.path.isdir(tree):
             common.git(["worktree", "remove", "--force", tree], cwd=project, check=False)
             common.git(["worktree", "prune"], cwd=project, check=False)
+
 
 def _build(issue, project, settings, info, tree, branch, replies):
     start = git(["rev-parse", "HEAD"], cwd=tree)
@@ -191,6 +203,10 @@ def _build(issue, project, settings, info, tree, branch, replies):
         review, _ = ask("reviewer", settings["Reviewer model"], report=report,
                         locked=locked)
         verdict, _ = merge.parse_verdict(review)
+        try:  # the person can follow the fix rounds; a failure to post never stops the build
+            post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (rnd, review.strip(), common.MARKER))
+        except common.GitHubError as e:
+            common.event("note-failed", project, issue=issue, reason=str(e))
         if verdict == "APPROVE":
             git(["push", "origin", branch], cwd=tree)
             files = git(["diff", "--name-only", "origin/%s...%s" % (settings["Loop branch"], head)],

@@ -103,7 +103,9 @@ class SessionTest(FakeClaudeGh):
 
     def test_a_process_left_in_the_group_is_killed_and_logged(self):
         self.claude({"builder": [{"spawn": True, "reply": "done"}]})
+        started = time.time()  # the child holds the session's stdout; the wait must not
         self.assertEqual(self.run_session()[0], "done")
+        self.assertLess(time.time() - started, 20)
         with open(self.claude_path + ".pid") as f:
             pid = int(f.read())
         for _ in range(50):

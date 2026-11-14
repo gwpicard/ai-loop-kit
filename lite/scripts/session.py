@@ -5,6 +5,7 @@ import re
 import shlex
 import signal
 import subprocess
+import tempfile
 import time
 
 import common
@@ -18,8 +19,10 @@ SWEPT = {}  # issue number -> Docker leftovers removed after its sessions, for t
 DOCKER = (("container", ["ps", "-q"], ["rm", "-f"]), ("network", ["network", "ls", "-q"], ["network", "rm"]),
           ("volume", ["volume", "ls", "-q"], ["volume", "rm"]), ("image", ["images", "-q"], None))
 
+
 class SessionError(common.LoopError):
     pass
+
 
 def docker(args):
     """Output words of a docker command, or None when docker is missing or fails."""
@@ -29,9 +32,11 @@ def docker(args):
         return None
     return p.stdout.split() if p.returncode == 0 else None
 
+
 def docker_state():
     """Containers, networks, volumes and images now, or None without a working docker."""
     return {k: set(docker(a) or ()) for k, a, _ in DOCKER} if docker(["ps", "-q"]) is not None else None
+
 
 def sweep(before):
     """Remove the containers, networks and volumes made since `before`, never images.
@@ -43,6 +48,7 @@ def sweep(before):
         lines += ["%s %s %s%s" % (done, kind, n, "" if remove else " (kept)") for n in new]
     return lines
 
+
 def reap(pgid):
     """Kill what is left in the session's process group; return a line per process."""
     ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True).stdout
@@ -53,25 +59,33 @@ def reap(pgid):
         pass
     return left
 
+
 def _wait_seconds(text):
     """Seconds until the reset named in a usage-limit message, else 30 minutes."""
     m = re.search(r"\|\s*(\d{9,11})\b", text)
     wait = int(m.group(1)) - time.time() if m else 1800
     return int(min(max(wait, 60), 6 * 3600))
 
+
 def _exec(argv, prompt, cwd, env, log, role, issue):
     before = docker_state()
-    p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE)
-    try:
-        out, err = p.communicate(prompt, timeout=TIMEOUT)
-        problem = None
-    except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)
-        out, err = p.communicate()
-        problem = "%s session timed out after %d minutes" % (role, TIMEOUT // 60)
-    left, swept = reap(p.pid), sweep(before)
+    # files, not pipes: a leftover child that holds a pipe open must not block the wait
+    with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
+        fin.write(prompt)
+        fin.seek(0)
+        p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
+                             stdin=fin, stdout=fout, stderr=ferr)
+        try:
+            p.wait(timeout=TIMEOUT)
+            problem = None
+        except subprocess.TimeoutExpired:
+            problem = "%s session timed out after %d minutes" % (role, TIMEOUT // 60)
+        left = reap(p.pid)
+        p.wait()
+        fout.seek(0)
+        ferr.seek(0)
+        out, err = fout.read(), ferr.read()
+    swept = sweep(before)
     SWEPT.setdefault(issue, []).extend(swept)
     with open(log, "a", encoding="utf-8") as f:
         f.write("--- %s\n%s\n--- stderr\n%s\n" % (" ".join(argv[:3]), out, err)
@@ -79,6 +93,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue):
     if problem:
         raise SessionError(problem)
     return out, err, p.returncode
+
 
 def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=""):
     """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""

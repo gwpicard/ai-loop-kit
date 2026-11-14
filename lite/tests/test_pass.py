@@ -44,7 +44,7 @@ class PassTest(FakeClaudeGh):
             {"match": "issue view 3", "responses": [{"stdout": json.dumps({
                 "title": "Add it", "comments": [{"body": BUILT}]})}]},
             {"match": "pr list", "responses": [{"stdout": json.dumps([{"comments": [
-                {"body": "VERDICT: CHANGES\nHEAD: x"}, {"body": "VERDICT: APPROVE\nHEAD: y"}]}])}]},
+                {"body": "## Review, round 1\n\nVERDICT: CHANGES\nHEAD: x"}, {"body": "## Review, round 2\n\nVERDICT: APPROVE\nHEAD: y"}]}])}]},
             {"match": "issue list", "responses": [{"stdout": json.dumps([{"title": t} for t in listed])}]},
             {"match": "issue create", "responses": [{"stdout": "https://github.com/o/r/issues/41\n"}]}])
 
@@ -217,19 +217,12 @@ class PassTest(FakeClaudeGh):
         lists = [c for c in self.calls() if c[:2] == ["issue", "list"]]
         self.assertTrue(lists and all("all" in c for c in lists))
 
-    def lines(self, events=(), verdicts=1):
-        os.makedirs(os.path.join(self.tmp, ".lite"), exist_ok=True)
-        with open(os.path.join(self.tmp, ".lite", "events.jsonl"), "w") as f:
-            f.write("".join(json.dumps(e) + "\n" for e in events))
-        return pass_.fix_rounds(self.tmp, 3, ["VERDICT: APPROVE\nHEAD: x"] * verdicts)
-
-    def test_fix_rounds_come_from_the_events_or_the_verdict_comments(self):
-        fix = lambda n: {"kind": "step", "issue": n, "step": "fix", "round": 2}
-        self.assertEqual(self.lines(), 0)  # approved in the first round
-        self.assertEqual(self.lines([fix(3), fix(4)]), 1)  # only issue 3 counts; the CHANGES verdict was never posted
-        self.assertEqual(self.lines([fix(3), fix(3)]), 2)
-        self.assertEqual(self.lines(verdicts=3), 2)  # without events, the comments tell
-        self.assertEqual(pass_.fix_rounds(os.path.join(self.tmp, "nowhere"), 3, []), 0)
+    def test_fix_rounds_come_from_the_review_comments(self):
+        review = lambda n: "## Review, round %d\n\nVERDICT: CHANGES\nHEAD: x" % n
+        self.assertEqual(pass_.fix_rounds([]), 0)
+        self.assertEqual(pass_.fix_rounds([review(1), "VERDICT: APPROVE\nHEAD: x"]), 0)  # the pull request's copy does not count
+        self.assertEqual(pass_.fix_rounds([review(1), review(2)]), 1)
+        self.assertEqual(pass_.fix_rounds(["Done", review(1), review(2), review(3)]), 2)
 
     def test_the_red_team_file_runs_under_a_discovery_command_in_tests(self):
         self.work, _ = make_repo(self.tmp, {
