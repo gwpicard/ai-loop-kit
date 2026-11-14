@@ -180,8 +180,8 @@ def drain(project, settings, st):
         try:
             report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
         except Exception as e:  # the pass never blocks the drain or the pull request
-            report, text = {}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
-        last = dict(head=head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
+            report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
+        last = dict(head=last.get("head") if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
                     defects=len(report.get("confirmed", [])),
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
         with open(os.path.join(project, ".lite", "pass.json"), "w") as f:

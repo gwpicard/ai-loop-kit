@@ -339,6 +339,7 @@ class GitTest(Base):
     def setUp(self):
         super().setUp()
         self.work, self.origin = copy_repo(TEMPLATE.name, self._tmp.name)
+        mock.patch.object(pass_, "run_pass", return_value=({}, "")).start()  # no real sessions
 
     def commit(self, branch, name, text, message):
         run_git(["checkout", "-q", branch], self.work)
@@ -399,6 +400,7 @@ class GitTest(Base):
         os.makedirs(os.path.join(self.work, ".lite"), exist_ok=True)
         self.land()
         self.world([])
+        self.tests = mock.patch.object(merge, "run_tests", return_value=None).start()
         return mock.patch.object(pass_, "run_pass", return_value=(
             {"confirmed": [1], "issues": ["#5 a (inbox)", "#6 b (ready)"]}, "## End-of-loop pass (1 sessions)\n"))
 
@@ -427,8 +429,7 @@ class GitTest(Base):
 
     def test_no_pass_when_the_tests_fail(self):
         with self.pass_world() as run_pass:
-            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-                f.write(AGENTS.replace("Test command: true", "Test command: false"))
+            self.tests.return_value = "the Test command failed"
             self.run_loop()
             run_pass.assert_not_called()
         self.assertEqual(len(self.writes("pr create")), 1)
@@ -442,3 +443,14 @@ class GitTest(Base):
         loop.write_board(self.work, st)
         self.assertRegex(self.board_inputs()[-1], r"## Last pass\n\n\d{4}-\d\d-\d\d \d\d:\d\d: 1 confirmed defects, "
                          r"1 inbox issues created, report in https://example/pull/9")
+
+    def test_a_pass_with_errors_is_retried_at_the_next_drain(self):
+        with self.pass_world() as run_pass:
+            run_pass.return_value = ({"errors": ["a session failed"]}, "## End-of-loop pass\n\nProblems\n")
+            self.run_loop()
+            self.run_loop()
+            self.assertEqual(run_pass.call_count, 2)
+            run_pass.return_value = ({}, "## End-of-loop pass\n")
+            self.run_loop()
+            self.run_loop()
+            self.assertEqual(run_pass.call_count, 3)
