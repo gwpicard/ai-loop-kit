@@ -162,6 +162,8 @@ def _build(issue, project, settings, info, tree, branch, replies):
                          (stop.group(2) or "Decide, then reply here.").strip("*` "))
         return text, sid
 
+    posted = max([int(n) for c in info.get("comments", []) for n in
+                  re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
     common.event("step", project, issue=issue, step="test-writer")
     locked = merge.locked_paths(info.get("comments", []))
     rerun = git(["branch", "-r", "--list", "origin/" + branch], cwd=project) and locked
@@ -204,7 +206,7 @@ def _build(issue, project, settings, info, tree, branch, replies):
                         locked=locked)
         verdict, _ = merge.parse_verdict(review)
         try:  # the person can follow the fix rounds; a failure to post never stops the build
-            post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (rnd, review.strip(), common.MARKER))
+            post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
         except common.GitHubError as e:
             common.event("note-failed", project, issue=issue, reason=str(e))
         if verdict == "APPROVE":

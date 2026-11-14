@@ -346,6 +346,15 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("VERDICT: APPROVE", posts[1])
         self.assertTrue(all(common.MARKER in p for p in posts))
 
+    def test_review_rounds_continue_after_earlier_ones(self):
+        sent = self.spy_gh()
+        self.issue_view([{"body": "## Review, round 1\n\nVERDICT: CHANGES\nHEAD: x\n\n" + common.MARKER},
+                         {"body": "## Review, round 4\n\nVERDICT: CHANGES\n"}])
+        self.build_scenario(reviewer=[APPROVE])
+        self.assertEqual(self.build().status, "merged")
+        posts = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Review, round")]
+        self.assertEqual([p.splitlines()[0] for p in posts], ["## Review, round 5"])
+
     def test_follow_up_titles_match_ignoring_case_and_punctuation(self):
         self.issue_view(listed=["log skipped lines!"])
         flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log   skipped, lines.\n", "abc", [], None)

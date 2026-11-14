@@ -138,15 +138,36 @@ class SessionTest(FakeClaudeGh):
         with open(os.path.join(folder, kind)) as f:
             return f.read().split()
 
-    def test_the_docker_sweep_removes_new_things_and_keeps_images(self):
-        folder = self.fake_docker({"c": ["old", "new1", "new2"], "n": ["bridge", "net1"], "v": ["vol1"],
-                                   "i": ["img0", "img1"]}, c=["old"], n=["bridge"], i=["img0"])
+    def test_the_docker_sweep_removes_only_this_sessions_containers(self):
+        folder = self.fake_docker({"c": ["old", "mine", "bound", "other", "nolabel"], "n": ["bridge", "net1"],
+                                   "v": ["vol1"], "i": ["img0", "img1"]}, c=["old"], n=["bridge"], i=["img0"])
+        mine = os.path.realpath(self.work)
+        for name, text in (("mine", mine + "\n"), ("bound", "\n/elsewhere\n" + mine + "/data\n"),
+                           ("other", mine + "-other\n/home/me/app\n"), ("nolabel", "")):
+            with open(os.path.join(folder, "inspect-" + name), "w") as f:
+                f.write(text)
         self.run_session()
-        self.assertEqual([self.kept(folder, k) for k in "cnvi"], [["old"], ["bridge"], [], ["img0", "img1"]])
-        self.assertEqual(session.SWEPT[7], ["removed container new1", "removed container new2", "removed network net1",
-                                            "removed volume vol1", "new image img1 (kept)"])
+        self.assertEqual([self.kept(folder, k) for k in "cnvi"],
+                         [["old", "other", "nolabel"], ["bridge", "net1"], ["vol1"], ["img0", "img1"]])
+        kept = " (kept, not removed)"
+        self.assertEqual(session.SWEPT[7], ["removed container bound", "removed container mine",
+                                            "new container nolabel" + kept, "new container other" + kept,
+                                            "new network net1" + kept, "new volume vol1" + kept,
+                                            "new image img1" + kept])
         with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
-            self.assertIn("--- cleanup: removed volume vol1", f.read())
+            self.assertIn("--- cleanup: removed container mine", f.read())
+
+    def test_a_container_that_exited_during_the_session_counts(self):
+        folder = self.fake_docker({"c": ["gone"]}, c=[])
+        with open(os.path.join(folder, "inspect-gone"), "w") as f:
+            f.write(self.work + "\n")
+        self.run_session()
+        self.assertEqual(self.kept(folder, "c"), [])
+        self.assertTrue(any(c[:3] == ["ps", "-a", "-q"] for c in self.docker_calls()))
+
+    def docker_calls(self):
+        with open(os.path.join(self.tmp, "docker", "calls")) as f:
+            return [line.split() for line in f]
 
     def test_a_docker_that_does_not_answer_is_ignored(self):
         self.fake_docker({"c": ["new"]}, c=[])
@@ -162,6 +183,12 @@ class SessionTest(FakeClaudeGh):
 FAKE_DOCKER = '''#!/usr/bin/env python3
 import os, sys
 a, folder = sys.argv[1:], os.environ["FAKE_DOCKER"]
+with open(os.path.join(folder, "calls"), "a") as f:
+    f.write(" ".join(a) + "\\n")
+if a[0] == "inspect":
+    path = os.path.join(folder, "inspect-" + a[-1])
+    sys.stdout.write(open(path).read() if os.path.exists(path) else "")
+    sys.exit(0)
 kind = {"ps": "c", "rm": "c", "images": "i", "network": "n", "volume": "v"}[a[0]]
 path = os.path.join(folder, kind)
 ids = open(path).read().split()

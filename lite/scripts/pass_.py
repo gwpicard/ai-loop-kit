@@ -38,13 +38,20 @@ def failing(project, sha, test, tree, path):
     # Test command once copied there; else (None, why it was rejected)
     base, full = os.path.realpath(os.path.join(tree, ".lite", "pass")), os.path.join(tree, path)
     rel = os.path.relpath(os.path.realpath(full), base)
+    parts = rel.split(os.sep)
+    parent = next((q for q in (os.path.join(tree, *parts[:i]) for i in range(1, len(parts)))
+                   if os.path.islink(q) or os.path.lexists(q) and not os.path.isdir(q)), "")
     bad = ("no test file" if not path else "the path is a symlink: " + path if os.path.islink(full)
            else "the path is outside .lite/pass/: " + path if rel.split(os.sep)[0] == ".."
            else "no test file at " + path if not os.path.isfile(full)
-           else "a file already exists at " + rel if os.path.lexists(os.path.join(tree, rel)) else "")
+           else "a file already exists at " + rel if os.path.lexists(os.path.join(tree, rel))
+           else "a parent of %s is a file or a symlink: %s" % (rel, parent) if parent else "")
     if bad:
         return None, bad
-    why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]))
+    try:
+        why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]))
+    except OSError as e:
+        return None, "the file could not be copied: %s" % e
     if not why:
         return None, "the test passes under the Test command"
     if re.search(r"SyntaxError|IndentationError|ImportError|ModuleNotFound|NameError|errors? during collection|"
@@ -59,8 +66,8 @@ def findings(text, name="FINDINGS"):  # (title, detail, path) per `title | detai
 
 
 def fix_rounds(texts):
-    # the review comments the loop posts, one per round, so the fix rounds are one fewer
-    return max(0, sum(t.startswith("## Review, round") for t in texts) - 1)
+    # the loop posts one `## Review, round N` comment per review; the fix rounds are one fewer
+    return max(0, len({n for t in texts for n in re.findall(r"^## Review, round (\d+)", t, re.M)}) - 1)
 
 
 def batch_lines(project, since, loop):

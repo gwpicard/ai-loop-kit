@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from unittest import mock
 
 from lite.tests.fake_claude import FakeClaudeGh
 from lite.tests.helpers import make_repo, run_git
@@ -217,6 +218,11 @@ class PassTest(FakeClaudeGh):
         lists = [c for c in self.calls() if c[:2] == ["issue", "list"]]
         self.assertTrue(lists and all("all" in c for c in lists))
 
+    def test_fix_rounds_count_distinct_round_numbers(self):
+        review = lambda n: "## Review, round %d\n\nVERDICT: CHANGES" % n
+        self.assertEqual(pass_.fix_rounds([review(1), review(1), review(2)]), 1)  # a repost of round 1 is not a round
+        self.assertEqual(pass_.fix_rounds([review(1), review(1)]), 0)
+
     def test_fix_rounds_come_from_the_review_comments(self):
         review = lambda n: "## Review, round %d\n\nVERDICT: CHANGES\nHEAD: x" % n
         self.assertEqual(pass_.fix_rounds([]), 0)
@@ -250,6 +256,14 @@ class PassTest(FakeClaudeGh):
                 f.write("x\n")
         os.symlink("/etc/hosts", os.path.join(tree, ".lite/pass/tests/link.py"))
         os.symlink(os.path.join(tree, ".lite/pass/tests/a.py"), os.path.join(tree, ".lite/pass/tests/alias.py"))
+        os.makedirs(os.path.join(tree, ".lite/pass/README.md"))
+        os.makedirs(os.path.join(tree, ".lite/pass/.git"))
+        for name in (".lite/pass/README.md/x.py", ".lite/pass/.git/x.py"):
+            with open(os.path.join(tree, name), "w") as f:
+                f.write("x\n")
+        for name in ("README.md", ".git"):
+            with open(os.path.join(tree, name), "w") as f:
+                f.write("a file\n")
         reasons = iter(["failed: SyntaxError: bad", "the Test command timed out", None, "failed: AssertionError: 1 != 2"])
         orig = pass_.merge.run_tests
         calls = []
@@ -263,12 +277,16 @@ class PassTest(FakeClaudeGh):
         for outside in ("../x.py", "/etc/hosts", "outside.py", "tests/dup.py"):
             self.assertIn("outside .lite/pass/", ask(outside)[1], outside)
         self.assertEqual(ask(".lite/pass/tests/dup.py"), (None, "a file already exists at tests/dup.py"))
+        for name in ("README.md", ".git"):
+            self.assertIn("a parent of %s/x.py is a file or a symlink" % name, ask(".lite/pass/%s/x.py" % name)[1])
         self.assertEqual(calls, [])  # refused before any test run
         self.assertIn("errors (syntax or import)", ask(".lite/pass/tests/a.py")[1])
         self.assertIn("times out", ask(".lite/pass/tests/a.py")[1])
         self.assertEqual(ask(".lite/pass/tests/a.py"), (None, "the test passes under the Test command"))
         self.assertEqual(ask(".lite/pass/tests/a.py"), ("tests/a.py", None))
         self.assertEqual(calls[-1], (os.path.realpath(os.path.join(tree, ".lite/pass")), ["tests/a.py"]))
+        pass_.merge.run_tests = mock.Mock(side_effect=OSError("disk full"))
+        self.assertEqual(ask(".lite/pass/tests/a.py"), (None, "the file could not be copied: disk full"))
 
     def test_findings_go_in_one_inbox_issue_with_checkboxes(self):
         self.repo(plan(surfaces=()), "Smoke command: false\n")

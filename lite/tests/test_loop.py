@@ -142,6 +142,13 @@ class LoopTest(Base):
         self.assertIn("stop requested", self.say.call_args_list[-2][0][0])
         self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
 
+    def test_a_failing_clean_up_is_logged_and_leaves_no_lock(self):
+        self.world([])
+        with mock.patch.object(loop, "clean_up", side_effect=OSError("denied")):
+            self.assertEqual(self.run_loop(), 0)
+        self.assertIn("clean-up problem: denied", [c[0][0] for c in self.say.call_args_list])
+        self.assertFalse(os.path.exists(self.pid_file()))
+
     def test_stale_stop_file_is_removed_at_start(self):
         self.world([issue(2)])
         self.stop_after()

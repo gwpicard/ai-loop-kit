@@ -272,10 +272,13 @@ def run(project):
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
-        clean_up(project, st["closed"])
         for name in ("stop", "loop.pid"):
             if os.path.exists(os.path.join(project, ".lite", name)):
                 os.remove(os.path.join(project, ".lite", name))
+        try:
+            clean_up(project, st["closed"])
+        except OSError as e:
+            say("clean-up problem: %s" % e)
     return 0
 
 

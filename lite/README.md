@@ -6,7 +6,7 @@ each approved issue, has a second session review it and merges it into a
 loop branch. You merge that branch into your default branch yourself.
 
 The loop never asks for input. It parks an issue only for a decision that
-`PLAN.md` reserves for a person, and carries on.
+`PLAN.md` reserves for a person.
 
 ## Install
 
@@ -17,7 +17,7 @@ install the `ai-loop-lite` plugin from it:
     /plugin marketplace add gwpicard/ai-loop-kit
     /plugin install ai-loop-lite@ai-loop-kit
 
-Below, `<plugin>` is the installed plugin folder (holding `bin/`).
+`<plugin>` below is the installed plugin folder (holding `bin/`).
 
 ## Set up a project
 
@@ -40,8 +40,7 @@ Setup reports both; neither is required.
 Ask Claude to set up the loop, or run `python3 <plugin>/scripts/setup.py` from
 the project root. It creates the labels, the loop branch, a pinned `Factory`
 issue, a `.lite/` line in `.gitignore` (commit it yourself) and runs your
-Test command on a fresh copy of the loop branch. Running it again changes
-nothing that exists.
+Test command on a fresh copy of the loop branch. Running it again is safe.
 
 ## Shape
 
@@ -52,9 +51,9 @@ prerequisites first. On your single yes it labels the issues `ready`.
 
 ## Run
 
-Use the loop skill, or run
-`mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
-from the project root. `<plugin>/bin/loop stop` stops it; so does the idle limit.
+Use the loop skill, or run from the project root
+`mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`.
+`<plugin>/bin/loop stop` stops it; so does the idle limit.
 
 The pinned `Factory` issue is the board: what is building, what needs you,
 the queue, what has landed, the open pull request and the last pass. To
@@ -71,8 +70,7 @@ reply to the next build.
   without a new test file (two at most).
 - **Build note.** After the merge, the issue and the pull request get a
   `## Built` note: what changed and why, deviations, the merge and files.
-- **Follow-ups.** Worthwhile non-blocking work the reviewer names becomes
-  an `inbox` issue, once, linked to its source.
+- **Follow-ups.** Non-blocking work the reviewer names becomes an `inbox` issue.
 - **Lessons and failing tests.** Sessions append traps to `## Lessons`. A
   `## Failing test` section is committed as given by the test writer.
 
@@ -108,12 +106,13 @@ the next drain tries again.
 
 ## What the loop may leave behind
 
-After each session the loop kills what is left in the session's process
-group and logs it; a process that detaches itself from its parent can
-survive. If Docker answers, the containers, networks and volumes a session
-made are removed and listed in the build note; images stay as cache. At exit
-the loop prunes worktrees, deletes logs older than 14 days and prints the
-worktrees and issue branches left. Outside services are on the stops list.
+After each session the loop kills what is left in its process group and
+logs it; a process that detaches itself can survive. If Docker answers, a new
+container is removed only when its compose working directory or a bind mount
+lies in the session's worktree. Everything else new (containers, networks,
+volumes, images) is listed in the log and the build note, never removed. At
+exit the loop prunes worktrees, deletes logs older than 14 days and prints
+the worktrees and issue branches left. Outside services are on the stops list.
 
 ## What is guaranteed by code
 
@@ -146,4 +145,4 @@ Code does not enforce these.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.
 - Notifications are not built; watch the board. Branch protection is your
-  job: setup recommends it, never sets it.
+  job: setup recommends it only.

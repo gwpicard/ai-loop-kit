@@ -16,36 +16,43 @@ LIMIT = re.compile(r"usage limit|limit reached", re.I)
 HOOKS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks"))
 
 SWEPT = {}  # issue number -> Docker leftovers removed after its sessions, for the build note
-DOCKER = (("container", ["ps", "-q"], ["rm", "-f"]), ("network", ["network", "ls", "-q"], ["network", "rm"]),
-          ("volume", ["volume", "ls", "-q"], ["volume", "rm"]), ("image", ["images", "-q"], None))
-
+DOCKER = (("container", ["ps", "-a", "-q"]), ("network", ["network", "ls", "-q"]),
+          ("volume", ["volume", "ls", "-q"]), ("image", ["images", "-q"]))
+OWNER = '{{index .Config.Labels "com.docker.compose.project.working_dir"}}\n{{range .Mounts}}{{.Source}}\n{{end}}'
 
 class SessionError(common.LoopError):
     pass
 
 
 def docker(args):
-    """Output words of a docker command, or None when docker is missing or fails."""
+    """Output lines of a docker command, or None when docker is missing or fails."""
     try:
         p = subprocess.run(["docker"] + args, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
-    return p.stdout.split() if p.returncode == 0 else None
+    return [l for l in p.stdout.splitlines() if l] if p.returncode == 0 else None
 
 
 def docker_state():
-    """Containers, networks, volumes and images now, or None without a working docker."""
-    return {k: set(docker(a) or ()) for k, a, _ in DOCKER} if docker(["ps", "-q"]) is not None else None
+    """Containers (running or exited), networks, volumes and images now, or None without a working docker."""
+    return {k: set(docker(a) or ()) for k, a in DOCKER} if docker(DOCKER[0][1]) is not None else None
 
 
-def sweep(before):
-    """Remove the containers, networks and volumes made since `before`, never images.
-    Return one line per new thing; a failure is a line, not an exception."""
+def owned(container, cwd):
+    """True when the container's compose working directory or a bind-mount source is under cwd."""
+    roots = {os.path.abspath(cwd), os.path.realpath(cwd)}
+    return any(line == r or line.startswith(r + os.sep)
+               for line in docker(["inspect", "-f", OWNER, container]) or () for r in roots)
+
+
+def sweep(before, cwd):
+    """Remove new containers that belong to the worktree; only list anything else new. Never raises."""
     after, lines = docker_state(), []
-    for kind, _, remove in DOCKER if before and after else ():
-        new = sorted(after[kind] - before[kind])
-        done = "new" if not remove else "could not remove" if new and docker(remove + new) is None else "removed"
-        lines += ["%s %s %s%s" % (done, kind, n, "" if remove else " (kept)") for n in new]
+    for kind, _ in DOCKER if before and after else ():
+        for name in sorted(after[kind] - before[kind]):
+            mine = kind == "container" and owned(name, cwd)
+            done = ("could not remove" if docker(["rm", "-f", name]) is None else "removed") if mine else "new"
+            lines.append("%s %s %s%s" % (done, kind, name, "" if mine else " (kept, not removed)"))
     return lines
 
 
@@ -85,7 +92,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue):
         fout.seek(0)
         ferr.seek(0)
         out, err = fout.read(), ferr.read()
-    swept = sweep(before)
+    swept = sweep(before, cwd)
     SWEPT.setdefault(issue, []).extend(swept)
     with open(log, "a", encoding="utf-8") as f:
         f.write("--- %s\n%s\n--- stderr\n%s\n" % (" ".join(argv[:3]), out, err)
