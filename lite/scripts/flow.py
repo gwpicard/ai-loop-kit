@@ -49,7 +49,7 @@ def post_tests(issue, paths):
     post_once(issue, "TESTS:\n" + "\n".join(paths) + "\n\n" + common.MARKER + "\n")
 
 
-def after_merge(issue, report, review, commit, files, pr):
+def after_merge(issue, report, review, commit, files, pr, post=True):
     """Post the build note, then the pull request body, then the reviewer's
     follow-ups as inbox issues. Each step is safe to run again."""
     m = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.S | re.M)
@@ -57,10 +57,13 @@ def after_merge(issue, report, review, commit, files, pr):
     deviations = "\n".join(parse_block(report, "DEVIATIONS")) or "none"
     note = ("## Built\n\n%s\n\nDeviations: %s\n\nMerged as %s.\n\nChanged files:\n%s\n\n%s\n"
             % (built, deviations, commit, "\n".join("- " + f for f in files), common.MARKER))
-    post_once(issue, note)
-    if pr:
-        gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
+    if post:
+        post_once(issue, note)
+        if pr:
+            gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
     for line in parse_block(review, "FOLLOW-UPS"):
+        if line.lower() == "none":
+            continue
         title = line[:100]
         once(lambda: gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
                         input="Follow-up from #%s.\n\n%s\n\n%s\n" % (issue, line, common.MARKER),
@@ -69,10 +72,10 @@ def after_merge(issue, report, review, commit, files, pr):
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
 
-def note_after_merge(issue, project, report, review, commit, files, pr):
+def note_after_merge(issue, project, report, review, commit, files, pr, post=True):
     """after_merge that never undoes a merge: any error is logged."""
     try:
-        after_merge(issue, report, review, commit, files, pr)
+        after_merge(issue, report, review, commit, files, pr, post)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
 
@@ -88,7 +91,9 @@ def resume_merged(issue, project, branch, loop):
     texts = [c.get("body") or "" for c in merge.view("pr", pr["number"], "comments").get("comments", [])]
     review = ([t for t in texts if "VERDICT:" in t] or [""])[-1]
     note_after_merge(issue, project, "", review, (pr.get("mergeCommit") or {}).get("oid") or "unknown",
-                     [f["path"] for f in pr.get("files", [])], pr["number"])
+                     [f["path"] for f in pr.get("files", [])], pr["number"],
+                     post=not any((c.get("body") or "").startswith("## Built")
+                                  for c in merge.view("issue", issue, "comments").get("comments", [])))
     if merge.view("issue", issue, "state").get("state") != "CLOSED":
         gh(["issue", "close", str(issue), "--comment", "Merged into %s.\n\n%s" % (loop, common.MARKER)],
            retry=False)

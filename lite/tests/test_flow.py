@@ -238,11 +238,26 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(r.status, "merged", r.reason)
 
     def test_a_crash_after_the_merge_still_posts_the_note(self):
+        self.crashed_after_merge([])
+
+    def test_an_existing_build_note_is_left_alone_on_a_rerun(self):
+        sent = self.crashed_after_merge([{"body": "## Built\n\nThe original note.\n"}])
+        names = [a[:2] for a, _ in sent]
+        self.assertNotIn(["issue", "comment"], names)
+        self.assertNotIn(["pr", "edit"], names)
+        self.assertEqual(names.count(["issue", "create"]), 1)
+
+    def test_follow_ups_of_none_create_nothing(self):
+        sent = self.spy_gh()
+        flow.after_merge(7, "", "FOLLOW-UPS:\nnone\n", "abc", [], None)
+        self.assertFalse(any(a[:2] == ["issue", "create"] for a, _ in sent))
+
+    def crashed_after_merge(self, comments):
         sent = self.spy_gh()
         merged = [{"number": 9, "mergeCommit": {"oid": "def456"}, "files": [{"path": "app.py"}]}]
         self.scenario([
             {"match": "issue view 7", "responses": [{"stdout": json.dumps(
-                {"title": "t", "body": "b", "comments": [], "state": "OPEN"})}]},
+                {"title": "t", "body": "b", "comments": comments, "state": "OPEN"})}]},
             {"match": "pr list", "responses": [{"stdout": json.dumps(merged)}]},
             {"match": "pr view 9", "responses": [{"stdout": json.dumps(
                 {"comments": [{"body": "VERDICT: APPROVE\nHEAD: abc1234\n\nFOLLOW-UPS:\n- Do more\n"}]})}]},
@@ -251,11 +266,15 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.claude_calls(), [])
         names = [a[:2] for a, _ in sent]
-        for call in (["issue", "comment"], ["pr", "edit"], ["issue", "create"], ["issue", "close"]):
-            self.assertIn(call, names)
-        note = [i for a, i in sent if a[:2] == ["issue", "comment"]][0]
-        self.assertIn("Merged as def456.", note)
-        self.assertIn("- app.py", note)
+        self.assertEqual(names.count(["issue", "create"]), 1)
+        self.assertEqual(names.count(["issue", "close"]), 1)
+        if not comments:
+            self.assertEqual(names.count(["issue", "comment"]), 1)
+            self.assertEqual(names.count(["pr", "edit"]), 1)
+            note = [i for a, i in sent if a[:2] == ["issue", "comment"]][0]
+            self.assertIn("Merged as def456.", note)
+            self.assertIn("- app.py", note)
+        return sent
 
     def test_check_command_failure_resumes_the_builder(self):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "BAD": "x\n"}},
