@@ -313,10 +313,12 @@ class MergeTest(FakeGh):
         self.assertTrue(merge.is_test_file("TEST_a.PY"))
 
     def test_build_artefacts_are_not_tests_but_test_files_still_are(self):
-        for path in ("tests/__pycache__/x.pyc", "tests/a.PYO", "test/Foo.class", "tests/x.o", "tests/node_modules/t/test_a.js",
-                     "tests/.pytest_cache/v/test_a", "tests/build/test_a.py", "tests/dist/x_test.py", "tests/target/a"):
+        for path in ("tests/__pycache__/x.pyc", "tests/a.PYO", "test/Foo.class", "tests/x.o", "tests/node_modules/t/data.js",
+                     "tests/.pytest_cache/v/data", "tests/build/out.py", "tests/dist/lib.py", "tests/target/a",
+                     "tests/build/test_a.pyc"):
             self.assertFalse(merge.is_test_file(path), path)
-        for path in ("tests/test_x.py", "src/a.test.js", "tests/data.json"):
+        for path in ("tests/test_x.py", "src/a.test.js", "tests/data.json", "tests/build/test_a.py", "tests/dist/x_test.py",
+                     "tests/node_modules/t/test_a.js"):
             self.assertTrue(merge.is_test_file(path), path)
 
     def test_a_changed_tracked_pyc_does_not_trip_the_lock(self):

@@ -87,9 +87,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue):
             problem = "%s session timed out after %d minutes" % (role, TIMEOUT // 60)
         left = reap(p.pid)
         p.wait()
-        fout.seek(0)
-        ferr.seek(0)
-        out, err = fout.read(), ferr.read()
+        out, err = (f.seek(0) or f.read() for f in (fout, ferr))
     swept = sweep(before, cwd)
     SWEPT.setdefault(issue, []).extend(swept)
     with open(log, "a", encoding="utf-8") as f:
