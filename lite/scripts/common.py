@@ -195,8 +195,6 @@ def git(args, cwd=None, check=True):
     return p.stdout.rstrip("\n")
 
 
-# Events
-
 def event(kind, root=".", **fields):
     """Append one JSON line to .lite/events.jsonl."""
     folder = os.path.join(root, ".lite")
@@ -205,8 +203,6 @@ def event(kind, root=".", **fields):
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
-
-# Parking
 
 def park(issue, question, recommendation):
     """Hand an issue to the person: label needs-user, drop building, comment."""

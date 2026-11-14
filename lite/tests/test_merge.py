@@ -80,6 +80,7 @@ class MergeTest(FakeGh):
             rule("pr merge", ok()),
             rule("--json comments", ok('{"comments": []}')),
             rule("issue close", ok()),
+            rule("issue edit", ok()),
         ])
 
     def run_merge(self, sha, text=None):
@@ -90,6 +91,15 @@ class MergeTest(FakeGh):
 
     def good(self):
         return self.branch({"app.py": "x = 2\n", "tests/test_new.py": "new\n"})
+
+    def test_closing_the_issue_removes_the_building_label(self):
+        sha = self.good()
+        self.rules(sha, [None, "OPEN", "MERGED"])
+        self.assertTrue(self.run_merge(sha).ok)
+        names = [" ".join(c) for c in self.calls()]
+        edit = "issue edit 1 --remove-label building"
+        self.assertIn(edit, names)
+        self.assertGreater(names.index(edit), [n.startswith("issue close") for n in names].index(True))
 
     def test_happy_path(self):
         sha = self.good()

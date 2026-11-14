@@ -299,6 +299,16 @@ class LoopTest(Base):
                      "clash in x.txt"):
             self.assertIn(text, body)
 
+    def test_the_building_issue_is_not_in_the_queue(self):
+        self.world([issue(2), issue(3)])
+        st = loop.new_state()
+        loop.snapshot(st)
+        st["building"] = (2, "builder", "10:00")
+        loop.write_board(self.work, st)
+        body = self.board_inputs()[-1]
+        self.assertEqual(body.count("Piece 2"), 0)
+        self.assertIn("Piece 3: waits on nothing", body)
+
     def test_board_is_not_rewritten_when_unchanged(self):
         self.world([])
         st = loop.new_state()
@@ -352,6 +362,15 @@ class GitTest(Base):
         self.run_loop()
         self.assertEqual(len(self.writes("pr create")), 1)
         self.assertEqual(len(self.writes("pr edit 9")), 1)
+
+    def test_landed_section_lists_merges_made_since_the_last_fetch(self):
+        self.land()
+        run_git(["update-ref", "refs/remotes/origin/loop/main", "origin/main"], self.work)  # stale
+        self.world([])
+        st = loop.new_state()
+        loop.snapshot(st)
+        loop.write_board(self.work, st)
+        self.assertIn("- Issue 2", self.board_inputs()[-1])
 
     def test_default_branch_ahead_is_merged_into_the_loop_branch(self):
         self.commit("main", "y.txt", "y\n", "later")

@@ -47,13 +47,15 @@ def write_board(project, st):
         (i["number"], i.get("updatedAt"))) is False else "waits on " + (", ".join(
             "#%d" % d for d in common.depends_on(i["body"]) if d not in st["closed"]) or "nothing")
     base, b = default_branch(project), st["building"]
+    git(["fetch", "--no-prune", "origin"], cwd=project, check=False)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (
         base, common.read_settings(project)["Loop branch"])], cwd=project, check=False)
     body = board_body([
         ("Building now", ["#%s, %s, since %s" % b] if b else []),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
                        for i in of("needs-user")]),
-        ("Queue, in build order", [row(i, waits(i)) for i in of("ready")]),
+        ("Queue, in build order", [row(i, waits(i)) for i in of("ready")
+                                   if i["number"] != (b or [0])[0]]),
         ("To shape", [row(i, l) for l in ("inbox", "shaping") for i in of(l)]),
         ("Landed since the last merge into " + base, landed.splitlines()),
         ("Pull request into " + base, [st["pr"]] if st["pr"] else []),

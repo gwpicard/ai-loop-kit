@@ -206,6 +206,7 @@ def _merge(issue, branch, verdict_text, project):
     except common.GitHubError:
         if view("issue", issue, "state").get("state") != "CLOSED":
             return _refuse("merged as %s but the issue did not close" % commit)
+    common.remove_label(issue, "building")
     common.event("merged", project, issue=issue, branch=branch, commit=commit)
     return Result(True, False, "merged as " + commit, commit)
 
