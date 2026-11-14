@@ -3,7 +3,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 from lite.tests.helpers import HERE, make_repo, run_git
 import common
@@ -58,6 +60,26 @@ class StopHookTest(unittest.TestCase):
         results = [self.stop("builder") for _ in range(4)]
         self.assertEqual([r is not None for r in results], [True, True, True, False])
         self.assertIsNotNone(self.stop("builder", session="s2"))
+
+    def test_counters_are_kept_per_session(self):
+        self.touch("FAIL")
+        seen = [(sid, self.stop("builder", session=sid) is not None)
+                for _ in range(4) for sid in ("s1", "s2")]
+        self.assertEqual([b for _, b in seen if _ == "s1"], [True, True, True, False])
+        self.assertEqual([b for _, b in seen if _ == "s2"], [True, True, True, False])
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.work, ".lite"))),
+                         ["stop-s1", "stop-s2"])
+
+    def test_a_command_that_hangs_is_killed_and_blocks(self):
+        sys.path.insert(0, os.path.dirname(STOP))
+        import stop
+        with mock.patch.object(stop, "TIMEOUT", 1):
+            started = time.time()
+            self.assertEqual(stop.run("sleep 30", self.work), (None, ""))
+            self.assertLess(time.time() - started, 10)
+            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+                f.write("## Loop\nTest command: sleep 30\n")
+            self.assertIn("timed out after 1 seconds", stop.problem("builder", self.work, self.work))
 
     def test_an_error_allows_the_stop(self):
         self.touch("FAIL")

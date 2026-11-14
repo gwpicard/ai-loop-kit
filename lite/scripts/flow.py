@@ -22,22 +22,26 @@ def parse_block(text, name="TESTS"):
     blocks = re.findall(r"^[\s*`]*%s:\s*\n((?:[^\S\n]*\S.*\n?)*)" % name, text, re.M)
     items = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", l).strip("` ")
              for l in blocks[-1].splitlines()] if blocks else []
-    return [i for i in items if i and i.lower() != "none"]
+    return [i for i in items if i]
+
+
+def once(write, found):
+    """Run a write that is not safe to repeat unless found() says it is done.
+    After a failure, read again before deciding."""
+    if found():
+        return
+    try:
+        write()
+    except common.GitHubError:
+        if not found():
+            raise
 
 
 def post_once(issue, body):
-    """Comment on the issue unless it already holds that comment. The write is
-    not safe to repeat, so after a failure read the comments again."""
-    def posted():
-        return any((c.get("body") or "").strip() == body.strip()
-                   for c in merge.view("issue", issue, "comments").get("comments", []))
-    if posted():
-        return
-    try:
-        gh(["issue", "comment", str(issue), "--body-file", "-"], input=body, retry=False)
-    except common.GitHubError:
-        if not posted():
-            raise
+    """Comment on the issue unless it already holds that comment."""
+    once(lambda: gh(["issue", "comment", str(issue), "--body-file", "-"], input=body, retry=False),
+         lambda: any((c.get("body") or "").strip() == body.strip()
+                     for c in merge.view("issue", issue, "comments").get("comments", [])))
 
 
 def post_tests(issue, paths):
@@ -45,29 +49,50 @@ def post_tests(issue, paths):
     post_once(issue, "TESTS:\n" + "\n".join(paths) + "\n\n" + common.MARKER + "\n")
 
 
-def after_merge(issue, project, report, review, commit, files, pr):
-    """Post the build note and open the reviewer's follow-ups as inbox issues."""
+def after_merge(issue, report, review, commit, files, pr):
+    """Post the build note, then the pull request body, then the reviewer's
+    follow-ups as inbox issues. Each step is safe to run again."""
     m = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.S | re.M)
-    built = (m.group(1).strip() if m else "") or "The builder gave no BUILT block."
+    built = (m.group(1).strip() if m else "") or "No BUILT block in the builder's report."
     deviations = "\n".join(parse_block(report, "DEVIATIONS")) or "none"
     note = ("## Built\n\n%s\n\nDeviations: %s\n\nMerged as %s.\n\nChanged files:\n%s\n\n%s\n"
             % (built, deviations, commit, "\n".join("- " + f for f in files), common.MARKER))
+    post_once(issue, note)
     if pr:
         gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
-    post_once(issue, note)
     for line in parse_block(review, "FOLLOW-UPS"):
         title = line[:100]
-        def exists():
-            return any(i["title"] == title for i in json.loads(gh(
-                ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]"))
-        if not exists():
-            try:
-                gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
-                   input="Follow-up from the review of issue %s.\n\n%s\n\n%s\n"
-                         % (issue, line, common.MARKER), retry=False)
-            except common.GitHubError:
-                if not exists():
-                    raise
+        once(lambda: gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
+                        input="Follow-up from #%s.\n\n%s\n\n%s\n" % (issue, line, common.MARKER),
+                        retry=False),
+             lambda: any(i["title"] == title for i in json.loads(gh(
+                 ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
+
+
+def note_after_merge(issue, project, report, review, commit, files, pr):
+    """after_merge that never undoes a merge: any error is logged."""
+    try:
+        after_merge(issue, report, review, commit, files, pr)
+    except Exception as e:
+        common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
+
+
+def resume_merged(issue, project, branch, loop):
+    """A crash after the merge: if the pull request is merged and the issue has
+    no build note, post it now. Return True when the pull request was merged."""
+    prs = json.loads(gh(["pr", "list", "--head", branch, "--base", loop, "--state", "merged",
+                         "--json", "number,mergeCommit,files"]) or "[]")
+    if not prs:
+        return False
+    pr = prs[0]
+    texts = [c.get("body") or "" for c in merge.view("pr", pr["number"], "comments").get("comments", [])]
+    review = ([t for t in texts if "VERDICT:" in t] or [""])[-1]
+    note_after_merge(issue, project, "", review, (pr.get("mergeCommit") or {}).get("oid") or "unknown",
+                     [f["path"] for f in pr.get("files", [])], pr["number"])
+    if merge.view("issue", issue, "state").get("state") != "CLOSED":
+        gh(["issue", "close", str(issue), "--comment", "Merged into %s.\n\n%s" % (loop, common.MARKER)],
+           retry=False)
+    return True
 
 
 def prompt_for(role, number, info, tree, settings, replies, report=None):
@@ -93,6 +118,8 @@ def build(issue, project, replies=()):
     try:
         info = json.loads(gh(["issue", "view", str(issue), "--json", "title,body,comments"]))
         git(["fetch", "--no-prune", "origin"], cwd=project)
+        if resume_merged(issue, project, branch, loop):
+            return Result("merged", "already merged")
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
         git(["worktree", "remove", "--force", tree], cwd=project, check=False)
         git(["worktree", "prune"], cwd=project, check=False)
@@ -130,19 +157,22 @@ def _build(issue, project, settings, info, tree, branch, replies):
     if not rerun:
         text, writer = ask("test-writer", settings["Builder model"])
         locked = parse_block(text)
-        for attempt in (1, 2) if locked else ():
-            if merge.run_tests(project, start, settings["Test command"], overlay=(tree, locked)):
+        for attempt in (1, 2):
+            if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_file(p)
+                                 for p in locked):
+                why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
+            elif merge.run_tests(project, start, settings["Test command"], overlay=(tree, locked)):
                 break
+            else:
+                why = "Your tests pass before any code exists. Make them fail for the right reason."
             if attempt == 2:
-                raise Parked("The tests pass before any code exists, so they do not judge "
-                             "this issue.", "Reply with what the tests should check, or close the issue.")
+                raise Parked("The tests are not usable: " + why[0].lower() + why[1:],
+                             "Reply with what the tests should check, or close the issue.")
             text, _ = ask("test-writer", settings["Builder model"], resume=writer, locked=locked,
-                          extra="Your tests pass before any code exists. Make them fail for "
-                                "the right reason, commit, and end with the TESTS: block again.")
-            locked = parse_block(text) or locked
+                          extra=why + " Commit, and end with the TESTS: block again.")
+            locked = parse_block(text)
         git(["push", "origin", branch], cwd=tree)
-        if locked:
-            post_tests(issue, locked)
+        post_tests(issue, locked)
     common.event("step", project, issue=issue, step="builder")
     report, sid = ask("builder", settings["Builder model"], locked=locked)
     feedback = ""
@@ -170,9 +200,9 @@ def _build(issue, project, settings, info, tree, branch, replies):
             if result.ok:
                 try:
                     pr = (merge.find_pr(branch, settings["Loop branch"], head) or {}).get("number")
-                    after_merge(issue, project, report, review, result.commit, files, pr)
-                except common.LoopError as e:
-                    common.event("note-failed", project, issue=issue, reason=str(e))
+                except common.LoopError:
+                    pr = None
+                note_after_merge(issue, project, report, review, result.commit, files, pr)
                 return Result("merged", result.reason)
             if result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,

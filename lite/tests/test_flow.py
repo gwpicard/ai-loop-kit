@@ -51,7 +51,8 @@ class FlowTest(FakeClaudeGh):
                 "title": "Add it", "body": "Do the thing.", "comments": list(comments)})}]},
             {"match": "issue comment", "responses": [{}]},
             {"match": "issue edit", "responses": [{}]},
-            {"match": "issue create", "responses": [{}]}, {"match": "pr edit", "responses": [{}]},
+            {"match": "issue create", "responses": [{}]}, {"match": "issue close", "responses": [{}]},
+            {"match": "pr list", "responses": [{"stdout": "[]"}]}, {"match": "pr edit", "responses": [{}]},
             {"match": "issue list", "responses": [{"stdout": json.dumps(
                 [{"title": t} for t in listed])}]}])
 
@@ -210,6 +211,52 @@ class FlowTest(FakeClaudeGh):
         self.merge.assert_not_called()
         self.assertNotIn("lite-merge", common.git(["worktree", "list"], cwd=self.work))
 
+    def writer_resumed_then(self, first, second):
+        self.build_scenario(**{"test-writer": [first, second]})
+        r = self.build()
+        calls = self.claude_calls()
+        return r, calls
+
+    def test_no_tests_named_resumes_the_writer_once_then_parks(self):
+        silent = {"files": {"tests/test_new.py": "x\n"}, "reply": "Done."}
+        r, calls = self.writer_resumed_then(silent, silent)
+        self.assertEqual(r.status, "parked", r.reason)
+        self.assertEqual(roles(calls), ["test-writer", "test-writer"])
+        self.assertIn("Name every test file", calls[1]["prompt"])
+        self.assertIn("--resume", calls[1]["argv"])
+        r, calls = self.writer_resumed_then(silent, WRITER)
+        self.assertEqual(r.status, "merged", r.reason)
+        self.assertEqual(roles(calls)[:3], ["test-writer", "test-writer", "builder"])
+
+    def test_tests_that_are_missing_or_not_test_files_are_refused(self):
+        for bad in ("tests/test_missing.py", "app.py"):
+            named = {"files": {"app.py": "1\n"}, "reply": "TESTS:\n" + bad}
+            r, calls = self.writer_resumed_then(named, named)
+            self.assertEqual((r.status, roles(calls)), ("parked", ["test-writer"] * 2), bad)
+        named = {"files": {"app.py": "1\n"}, "reply": "TESTS:\napp.py"}
+        r, calls = self.writer_resumed_then(named, WRITER)
+        self.assertEqual(r.status, "merged", r.reason)
+
+    def test_a_crash_after_the_merge_still_posts_the_note(self):
+        sent = self.spy_gh()
+        merged = [{"number": 9, "mergeCommit": {"oid": "def456"}, "files": [{"path": "app.py"}]}]
+        self.scenario([
+            {"match": "issue view 7", "responses": [{"stdout": json.dumps(
+                {"title": "t", "body": "b", "comments": [], "state": "OPEN"})}]},
+            {"match": "pr list", "responses": [{"stdout": json.dumps(merged)}]},
+            {"match": "pr view 9", "responses": [{"stdout": json.dumps(
+                {"comments": [{"body": "VERDICT: APPROVE\nHEAD: abc1234\n\nFOLLOW-UPS:\n- Do more\n"}]})}]},
+            {"match": "issue list", "responses": [{"stdout": "[]"}]},
+            {"match": "issue", "responses": [{}]}, {"match": "pr edit", "responses": [{}]}])
+        self.assertEqual(self.build().status, "merged")
+        self.assertEqual(self.claude_calls(), [])
+        names = [a[:2] for a, _ in sent]
+        for call in (["issue", "comment"], ["pr", "edit"], ["issue", "create"], ["issue", "close"]):
+            self.assertIn(call, names)
+        note = [i for a, i in sent if a[:2] == ["issue", "comment"]][0]
+        self.assertIn("Merged as def456.", note)
+        self.assertIn("- app.py", note)
+
     def test_check_command_failure_resumes_the_builder(self):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "BAD": "x\n"}},
                                      {"remove": ["BAD"]}])
@@ -234,6 +281,8 @@ class FlowTest(FakeClaudeGh):
             self.assertIn(text, note)
         edits = [(a, i) for a, i in sent if a[:2] == ["pr", "edit"]]
         self.assertEqual([(a[2], i) for a, i in edits], [("9", note)])
+        order = [a[:2] for a, _ in sent]
+        self.assertLess(order.index(["issue", "comment"]), order.index(["pr", "edit"]))
 
     def test_post_once_skips_a_comment_the_issue_already_has(self):
         self.issue_view([{"body": "## Built\n\nx\n"}])
@@ -245,7 +294,7 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario()
         self.build()
         note = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Built")][0]
-        self.assertIn("The builder gave no BUILT block.", note)
+        self.assertIn("No BUILT block in the builder's report.", note)
 
     def test_follow_ups_become_inbox_issues_once(self):
         sent = self.spy_gh()
@@ -258,18 +307,26 @@ class FlowTest(FakeClaudeGh):
         args, body = created[0]
         self.assertEqual(args[args.index("--title") + 1], "Log skipped lines")
         self.assertEqual(args[args.index("--label") + 1], "inbox")
-        self.assertIn("issue 7", body)
+        self.assertIn("Follow-up from #7.", body)
         self.assertIn(common.MARKER, body)
 
     def test_follow_ups_already_open_are_not_created_again(self):
         self.issue_view(listed=["Log skipped lines"])
-        flow.after_merge(7, self.work, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
+        flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
         self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
 
-    def test_a_failed_note_does_not_undo_the_merge(self):
-        with mock.patch.object(flow, "after_merge", side_effect=common.GitHubError("down")):
+    def failed_note(self, error):
+        with mock.patch.object(flow, "after_merge", side_effect=error):
             self.build_scenario()
             self.assertEqual(self.build().status, "merged")
+        with open(os.path.join(self.work, ".lite", "events.jsonl")) as f:
+            self.assertEqual(f.read().count("note-failed"), 1)
+
+    def test_a_failed_note_does_not_undo_the_merge(self):
+        self.failed_note(common.GitHubError("down"))
+
+    def test_any_error_in_the_note_is_logged_not_raised(self):
+        self.failed_note(KeyError("title"))
 
     def test_parse_tests(self):
         self.assertEqual(flow.parse_block("a\nTESTS:\n- t/a.py\n`t/b.py`\n\nbye"),
