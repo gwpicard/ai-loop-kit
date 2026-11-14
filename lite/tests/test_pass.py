@@ -86,7 +86,7 @@ class PassTest(FakeClaudeGh):
         self.assertEqual(r["confirmed"][0][2], ".lite/pass/test_x.py")
         self.assertIn(("Add lessons from the latest batch to PLAN.md", "inbox"), self.created())
         self.assertIn(("Budget on input size", "inbox"), self.created())
-        self.assertIn("#41 Broken input (ready)", md)
+        self.assertIn("41 Broken input (ready)", md)
         self.assertNotIn("test_x.py", " ".join(create))  # body goes through stdin
 
     def test_failing_test_is_in_the_issue_body(self):
@@ -144,7 +144,7 @@ class PassTest(FakeClaudeGh):
         for heading in ("Smoke", "Drift", "Red team", "Rubric", "Lessons", "Issues created",
                         "Merged in this batch"):
             self.assertIn("### " + heading, md)
-        self.assertIn("#3 Add it: Added the thing. (fix rounds 1, parks 0, deviations: none)", md)
+        self.assertIn("3 Add it: Added the thing. (fix rounds 1, parks 0, deviations: none)", md)
         self.assertIn("passed", md)
         out = subprocess.run(["git", "worktree", "list"], cwd=self.work, capture_output=True, text=True).stdout
         self.assertEqual(len(out.strip().splitlines()), 1)
