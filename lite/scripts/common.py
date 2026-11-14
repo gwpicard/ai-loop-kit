@@ -20,6 +20,7 @@ DEFAULTS = {
     "Protected paths": ".github/, .claude/, .githooks/",
     "Idle hours": "12",
     "Max rounds": "3",
+    "Check command": "",
 }
 
 

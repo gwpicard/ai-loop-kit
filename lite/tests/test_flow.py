@@ -11,7 +11,7 @@ import common
 import flow
 import merge
 
-AGENTS = "## Loop\nTest command: seq 1 100; test ! -f FAIL\nLoop branch: loop/main\nMax rounds: 2\n"
+AGENTS = "## Loop\nCheck command: test ! -f BAD\nTest command: seq 1 100; test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }\nLoop branch: loop/main\nMax rounds: 2\n"
 MERGED = merge.Result(True, False, "merged as abc", "abc")
 APPROVE = {"reply": "All good.\n\nVERDICT: APPROVE\nHEAD: {HEAD}\n\n1. none"}
 CHANGES = {"reply": "VERDICT: CHANGES\nHEAD: {HEAD}\n\n1. Handle the empty case"}
@@ -41,13 +41,19 @@ class FlowTest(FakeClaudeGh):
         patch = mock.patch.object(merge, "merge", return_value=MERGED)
         self.merge = patch.start()
         self.addCleanup(patch.stop)
+        pr = mock.patch.object(merge, "find_pr", return_value={"number": 9})
+        pr.start()
+        self.addCleanup(pr.stop)
 
-    def issue_view(self, comments=()):
+    def issue_view(self, comments=(), listed=()):
         self.scenario([
             {"match": "issue view 7", "responses": [{"stdout": json.dumps({
                 "title": "Add it", "body": "Do the thing.", "comments": list(comments)})}]},
             {"match": "issue comment", "responses": [{}]},
-            {"match": "issue edit", "responses": [{}]}])
+            {"match": "issue edit", "responses": [{}]},
+            {"match": "issue create", "responses": [{}]}, {"match": "pr edit", "responses": [{}]},
+            {"match": "issue list", "responses": [{"stdout": json.dumps(
+                [{"title": t} for t in listed])}]}])
 
     def build(self, replies=()):
         return flow.build(7, self.work, replies)
@@ -71,7 +77,7 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("PLAN.md", builder["prompt"])
         self.assertIn("Use the env var.", builder["prompt"])
         self.assertIn("Work autonomously", builder["prompt"])
-        self.assertIn("Test command: seq 1 100; test ! -f FAIL", builder["prompt"])
+        self.assertIn("Test command: seq 1 100; test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }", builder["prompt"])
         self.assertIn("The builder's last report", calls[3]["prompt"])
         self.assertIn("git diff origin/loop/main...HEAD", calls[3]["prompt"].replace(
             "<loop branch>", "loop/main"))
@@ -95,7 +101,7 @@ class FlowTest(FakeClaudeGh):
         self.assertNotIn("--resume", calls[6]["argv"])
 
     def test_failing_test_command_resumes_builder(self):
-        self.build_scenario(builder=[{"files": {"FAIL": "x\n"}}, {"remove": ["FAIL"]}])
+        self.build_scenario(builder=[{"files": {"app.py": "1\n", "FAIL": "x\n"}}, {"remove": ["FAIL"]}])
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
         self.assertEqual(roles(calls), ["test-writer", "builder", "simplify", "builder",
@@ -172,10 +178,103 @@ class FlowTest(FakeClaudeGh):
         r = self.build()
         self.assertEqual((r.status, r.reason), ("parked", "Need a key"))
 
+    def spy_gh(self):
+        sent, real = [], flow.gh
+
+        def spy(args, input=None, retry=True):
+            sent.append((args, input))
+            return real(args, input=input, retry=retry)
+        patch = mock.patch.object(flow, "gh", side_effect=spy)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return sent
+
+    def test_tests_that_pass_on_the_base_resume_the_test_writer_once(self):
+        passing = {"files": {"tests/test_ok.py": "x\n"}, "reply": "TESTS:\ntests/test_ok.py"}
+        self.build_scenario(**{"test-writer": [passing, WRITER]})
+        self.assertEqual(self.build().status, "merged")
+        calls = self.claude_calls()
+        self.assertEqual(roles(calls)[:3], ["test-writer", "test-writer", "builder"])
+        self.assertIn("--resume", calls[1]["argv"])
+        self.assertIn("pass before any code exists", calls[1]["prompt"])
+        self.assertEqual(calls[2]["env"]["LITE_LOCKED"], "tests/test_new.py")
+        self.assertNotIn("lite-merge", common.git(["worktree", "list"], cwd=self.work))
+
+    def test_tests_that_still_pass_on_the_base_park_the_issue(self):
+        passing = {"files": {"tests/test_ok.py": "x\n"}, "reply": "TESTS:\ntests/test_ok.py"}
+        self.build_scenario(**{"test-writer": [passing]})
+        r = self.build()
+        self.assertEqual(r.status, "parked", r.reason)
+        self.assertIn("pass before any code exists", r.reason)
+        self.assertEqual(roles(self.claude_calls()), ["test-writer", "test-writer"])
+        self.merge.assert_not_called()
+        self.assertNotIn("lite-merge", common.git(["worktree", "list"], cwd=self.work))
+
+    def test_check_command_failure_resumes_the_builder(self):
+        self.build_scenario(builder=[{"files": {"app.py": "1\n", "BAD": "x\n"}},
+                                     {"remove": ["BAD"]}])
+        self.assertEqual(self.build().status, "merged")
+        calls = self.claude_calls()
+        self.assertEqual(roles(calls)[3], "builder")
+        self.assertIn("--resume", calls[3]["argv"])
+        self.assertIn("Check command failed", calls[3]["prompt"])
+
+    BUILT = {"files": {"app.py": "1\n"}, "reply": "Done.\n\nBUILT:\nAdded app.py.\n\nIt greets "
+             "the user.\n\nDEVIATIONS:\nUsed a plain file."}
+
+    def test_build_note_is_posted_once_and_goes_in_the_pull_request(self):
+        sent = self.spy_gh()
+        self.build_scenario(builder=[self.BUILT])
+        self.assertEqual(self.build().status, "merged")
+        notes = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Built")]
+        self.assertEqual(len(notes), 1)
+        note = notes[0]
+        for text in ("Added app.py.", "It greets the user.", "Deviations: Used a plain file.",
+                     "Merged as abc.", "- app.py", "- tests/test_new.py", common.MARKER):
+            self.assertIn(text, note)
+        edits = [(a, i) for a, i in sent if a[:2] == ["pr", "edit"]]
+        self.assertEqual([(a[2], i) for a, i in edits], [("9", note)])
+
+    def test_post_once_skips_a_comment_the_issue_already_has(self):
+        self.issue_view([{"body": "## Built\n\nx\n"}])
+        flow.post_once(7, "## Built\n\nx\n")
+        self.assertFalse(any(c[:2] == ["issue", "comment"] for c in self.calls()))
+
+    def test_a_build_without_a_built_block_says_so(self):
+        sent = self.spy_gh()
+        self.build_scenario()
+        self.build()
+        note = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Built")][0]
+        self.assertIn("The builder gave no BUILT block.", note)
+
+    def test_follow_ups_become_inbox_issues_once(self):
+        sent = self.spy_gh()
+        self.issue_view(listed=["Tidy the parser"])
+        review = APPROVE["reply"] + "\n\nFOLLOW-UPS:\n- Tidy the parser\n- Log skipped lines\n"
+        self.build_scenario(reviewer=[{"reply": review}])
+        self.assertEqual(self.build().status, "merged")
+        created = [(a, i) for a, i in sent if a[:2] == ["issue", "create"]]
+        self.assertEqual(len(created), 1)
+        args, body = created[0]
+        self.assertEqual(args[args.index("--title") + 1], "Log skipped lines")
+        self.assertEqual(args[args.index("--label") + 1], "inbox")
+        self.assertIn("issue 7", body)
+        self.assertIn(common.MARKER, body)
+
+    def test_follow_ups_already_open_are_not_created_again(self):
+        self.issue_view(listed=["Log skipped lines"])
+        flow.after_merge(7, self.work, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
+        self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
+
+    def test_a_failed_note_does_not_undo_the_merge(self):
+        with mock.patch.object(flow, "after_merge", side_effect=common.GitHubError("down")):
+            self.build_scenario()
+            self.assertEqual(self.build().status, "merged")
+
     def test_parse_tests(self):
-        self.assertEqual(flow.parse_tests("a\nTESTS:\n- t/a.py\n`t/b.py`\n\nbye"),
+        self.assertEqual(flow.parse_block("a\nTESTS:\n- t/a.py\n`t/b.py`\n\nbye"),
                          ["t/a.py", "t/b.py"])
-        self.assertEqual(flow.parse_tests("no block"), [])
+        self.assertEqual(flow.parse_block("no block"), [])
 
 
 if __name__ == "__main__":

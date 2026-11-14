@@ -22,7 +22,7 @@ class SessionTest(FakeClaudeGh):
 
     def test_flags_and_environment(self):
         self.claude({"builder": [{"reply": "done", "session_id": "abc"}]})
-        text, sid = self.run_session(locked=("a/test_x.py", "b/test_y.py"))
+        text, sid = self.run_session(locked=("a/test_x.py", "b/test_y.py"), start="abc123")
         self.assertEqual((text, sid), ("done", "abc"))
         call = self.claude_calls()[0]
         argv = call["argv"]
@@ -37,9 +37,16 @@ class SessionTest(FakeClaudeGh):
         self.assertTrue(os.path.isabs(command.split()[-1]))
         self.assertTrue(command.endswith("hooks/guard.py"))
         self.assertTrue(os.path.exists(command.split()[-1]))
+        hooks = json.loads(argv[argv.index("--settings") + 1])["hooks"]
+        stop = hooks["Stop"][0]["hooks"][0]
+        self.assertTrue(stop["command"].endswith("hooks/stop.py"))
+        self.assertTrue(os.path.exists(stop["command"].split()[-1]))
+        self.assertEqual(stop["timeout"], 1800)
         env = call["env"]
+        self.assertEqual(env["LITE_PROJECT"], self.work)
         self.assertEqual(env["LITE_ROLE"], "builder")
         self.assertEqual(env["LITE_LOCKED"], "a/test_x.py\nb/test_y.py")
+        self.assertEqual(env["LITE_START"], "abc123")
         self.assertEqual(env["LITE_LOOP_BRANCH"], "loop/main")
         self.assertEqual(env["LITE_DEFAULT_BRANCH"], "main")
         self.assertEqual(call["prompt"], "do it")

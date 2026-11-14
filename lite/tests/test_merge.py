@@ -10,7 +10,7 @@ from lite.tests.helpers import FakeGh, copy_repo, make_repo, run_git
 import common
 import merge
 
-AGENTS = "## Loop\nTest command: test ! -f FAIL\nLoop branch: loop/main\n"
+AGENTS = "## Loop\nTest command: test ! -f FAIL\nCheck command: test ! -f BAD\nLoop branch: loop/main\n"
 ISSUE = {"body": "Add a feature.", "comments": []}
 
 
@@ -145,6 +145,14 @@ class MergeTest(FakeGh):
         self.assertFalse(r.ok)
         self.assertFalse(r.park)
         self.assertIn("Test command failed", r.reason)
+
+    def test_failing_check_command_is_refused_after_the_tests_pass(self):
+        sha = self.branch({"BAD": "x\n"})
+        self.rules()
+        r = self.run_merge(sha)
+        self.assertEqual((r.ok, r.park), (False, False))
+        self.assertIn("Check command failed", r.reason)
+        self.assertNotIn("pr create", self.names())
 
     def assert_parked(self, sha, text, issue=ISSUE):
         self.rules(issue=issue)

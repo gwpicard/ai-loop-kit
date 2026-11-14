@@ -10,8 +10,9 @@ import time
 import common
 
 TIMEOUT = 45 * 60
+TEST_TIMEOUT = 1800
 LIMIT = re.compile(r"usage limit|limit reached", re.I)
-GUARD = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks", "guard.py"))
+HOOKS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks"))
 
 
 class SessionError(common.LoopError):
@@ -43,18 +44,23 @@ def _exec(argv, prompt, cwd, env, log, role):
     return out, err, p.returncode
 
 
-def run(role, prompt, cwd, model, project, issue, resume=None, locked=()):
+def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=""):
     """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
     default = common.git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
                          cwd=project, check=False).replace("origin/", "", 1) or "main"
     env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked),
-               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=default)
-    hook = {"type": "command", "command": "python3 " + shlex.quote(GUARD)}
+               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=default,
+               LITE_PROJECT=project, LITE_START=start)
+
+    def hook(name, **more):
+        return {"type": "command", "command": "python3 " + shlex.quote(
+            os.path.join(HOOKS, name)), **more}
     argv = ["claude", "-p", "--output-format", "json", "--permission-mode", "auto",
             "--model", model, "--setting-sources", "project", "--strict-mcp-config",
-            "--settings", json.dumps({"hooks": {"PreToolUse": [
-                {"matcher": "*", "hooks": [hook]}]}})]
+            "--settings", json.dumps({"hooks": {
+                "PreToolUse": [{"matcher": "*", "hooks": [hook("guard.py")]}],
+                "Stop": [{"hooks": [hook("stop.py", timeout=TEST_TIMEOUT)]}]}})]
     logs = os.path.join(project, ".lite", "logs")
     os.makedirs(logs, exist_ok=True)
     prefix = "%s-%s-" % (issue, role)

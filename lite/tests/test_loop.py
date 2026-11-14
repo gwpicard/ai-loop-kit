@@ -266,8 +266,9 @@ class LoopTest(Base):
         self.assertTrue(all(common.MARKER in body for body in posted))
         self.inputs.clear()
         flow.post_tests(2, ["tests/test_a.py"])
-        self.assertIn(common.MARKER, self.inputs[0][1])
-        self.assertEqual(merge.locked_paths([{"body": self.inputs[0][1]}]), ["tests/test_a.py"])
+        body = [i for c, i in self.inputs if c.startswith("issue comment")][0]
+        self.assertIn(common.MARKER, body)
+        self.assertEqual(merge.locked_paths([{"body": body}]), ["tests/test_a.py"])
 
     def test_idle_exit_says_why(self):
         self.world([])

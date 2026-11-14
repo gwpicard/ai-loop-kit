@@ -4,6 +4,7 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -112,24 +113,33 @@ def check_diff(project, base, sha, protected, allowed, locked):
     return None
 
 
-def run_tests(project, sha, command, tail=1):
-    """Run the Test command in a fresh detached worktree. Return None or a reason."""
+def run_tests(project, sha, command, tail=1, check="", overlay=None):
+    """Run the Test command, then the Check command, in a fresh detached worktree
+    at sha. overlay=(folder, paths) first copies those files in. Return None
+    or a reason."""
     parent = tempfile.mkdtemp(prefix="lite-merge-")
     tree = os.path.join(parent, "tree")
     try:
         git(["worktree", "add", "--detach", tree, sha], cwd=project)
-        p = subprocess.Popen(command, shell=True, cwd=tree, text=True,
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             start_new_session=True)
-        try:
-            out, _ = p.communicate(timeout=TEST_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            os.killpg(p.pid, signal.SIGKILL)
-            p.communicate()
-            return "the Test command timed out on " + sha[:10]
-        if p.returncode != 0:
-            last = "\n".join(out.strip().splitlines()[-tail:])
-            return "the Test command failed on %s: %s" % (sha[:10], last)
+        for path in overlay[1] if overlay else ():
+            if os.path.isfile(os.path.join(overlay[0], path)):
+                os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
+                shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
+        for name, cmd in (("Test", command), ("Check", check)):
+            if not cmd:
+                continue
+            p = subprocess.Popen(cmd, shell=True, cwd=tree, text=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 start_new_session=True)
+            try:
+                out, _ = p.communicate(timeout=TEST_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.communicate()
+                return "the %s command timed out on %s" % (name, sha[:10])
+            if p.returncode != 0:
+                last = "\n".join(out.strip().splitlines()[-tail:])
+                return "the %s command failed on %s: %s" % (name, sha[:10], last)
         return None
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", tree],
@@ -167,7 +177,8 @@ def _merge(issue, branch, verdict_text, project):
     if not head or not sha.startswith(head):
         return _refuse("the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
-    if failure := run_tests(project, sha, settings["Test command"]):
+    if failure := run_tests(project, sha, settings["Test command"],
+                            check=settings["Check command"]):
         return _refuse(failure)
     info = view("issue", issue, "body,comments")
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
