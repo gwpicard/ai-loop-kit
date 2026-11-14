@@ -46,7 +46,8 @@ class PassTest(FakeClaudeGh):
                 "title": "Add it", "comments": [{"body": BUILT}]})}]},
             {"match": "pr list", "responses": [{"stdout": json.dumps([{"comments": [
                 {"body": "## Review, round 1\n\nVERDICT: CHANGES\nHEAD: x"}, {"body": "## Review, round 2\n\nVERDICT: APPROVE\nHEAD: y"}]}])}]},
-            {"match": "issue list", "responses": [{"stdout": json.dumps([{"title": t} for t in listed])}]},
+            {"match": "issue list", "responses": [{"stdout": json.dumps([t if isinstance(t, dict) else {"title": t} for t in listed])}]},
+            {"match": "issue comment", "responses": [{}]},
             {"match": "issue create", "responses": [{"stdout": "https://github.com/o/r/issues/41\n"}]}])
 
     def run_pass(self):
@@ -110,6 +111,51 @@ class PassTest(FakeClaudeGh):
         self.assertIn("Path: tests/test_x.py", body)
         self.assertIn("fails", body)
         self.assertIn(common.MARKER, body)
+
+    DECISION = {"number": 14, "title": "Decide how a byte-order mark is counted", "body": "Choose.\nMore.",
+                "labels": [{"name": "inbox"}], "comments": []}
+    HELD = {"reply": "CONFIRMED:\nBroken input\n\nHELD:\nBroken input | #%d" % 14}
+
+    def test_a_finding_that_touches_an_open_decision_is_held_not_queued(self):
+        self.repo(plan())
+        self.gh(listed=[self.DECISION])
+        self.steps(FIND, self.HELD)
+        seen = self.bodies()
+        r, md = self.run_pass()
+        confirm = self.claude_calls()[3]["prompt"]
+        self.assertIn("#%d Decide how a byte-order mark is counted: Choose." % 14, confirm)
+        self.assertNotIn("More.", confirm)
+        self.assertNotIn(("Broken input", "ready"), self.created())
+        self.assertEqual(r["confirmed"], [])
+        body = [i for a, i in seen if a[:2] == ["issue", "create"]][0]
+        self.assertIn("**Broken input**", body)
+        self.assertIn("Held for an open decision: #%d" % 14, body)
+        self.assertIn("### Held for an open decision\n\n- Broken input", md)
+
+    OPEN = {"number": 29, "title": "Pass findings, 2026-11-14, aaaaaaa", "labels": [{"name": "inbox"}],
+            "body": "- [ ] **Budget on input size**: x", "comments": [{"body": "- [ ] **Check empty input first**: y"}]}
+
+    def test_findings_go_to_the_one_open_pass_findings_issue(self):
+        self.repo(plan())
+        self.gh(listed=[self.OPEN])
+        self.steps(NONE)
+        seen = self.bodies()
+        r, _ = self.run_pass()
+        self.assertEqual(self.created(), [])
+        comments = [(a, i) for a, i in seen if a[:2] == ["issue", "comment"]]
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(comments[0][0][2], "29")
+        self.assertNotIn("Budget on input size", comments[0][1])
+        self.assertIn("Add to PLAN.md ## Lessons", comments[0][1])
+        self.assertIn(common.MARKER, comments[0][1])
+        self.assertIn("#%d 1 finding(s) added" % 29, r["issues"])
+
+    def test_nothing_is_added_when_the_open_findings_issue_lists_it_all(self):
+        self.repo(plan())
+        self.gh(listed=[dict(self.OPEN, body=self.OPEN["body"] + "\n- [ ] **Add to PLAN.md ## Lessons**: z")])
+        self.steps(NONE)
+        self.run_pass()
+        self.assertFalse(any(c[:2] == ["issue", "comment"] for c in self.calls()))
 
     def test_confirmed_finding_is_inbox_without_approval(self):
         self.repo(plan(approval=False))
@@ -216,7 +262,7 @@ class PassTest(FakeClaudeGh):
         self.claude({"pass": [{"reply": "FINDINGS:\nOne | a |"}]})
         self.run_pass()
         lists = [c for c in self.calls() if c[:2] == ["issue", "list"]]
-        self.assertTrue(lists and all("all" in c for c in lists))
+        self.assertTrue(any("all" in c for c in lists))
 
     def test_fix_rounds_count_distinct_round_numbers(self):
         review = lambda n: "## Review, round %d\n\nVERDICT: CHANGES" % n

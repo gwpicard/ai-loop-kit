@@ -173,6 +173,13 @@ class TestRole(GuardCase):
             with self.subTest(cmd=cmd):
                 self.allowed(self.bash(cmd, role="builder"))
 
+    def test_finishing_a_merge_in_progress_is_allowed_for_the_builder(self):
+        for cmd in ["git add .gitignore src/app.py", "git commit --no-edit", "git status --short",
+                    "git diff --name-only --diff-filter=U", "git commit -m \"Merge branch 'origin/loop/main' into issue/7\""]:
+            with self.subTest(cmd=cmd):
+                self.allowed(self.bash(cmd, role="builder"))
+        self.refused(self.bash("git merge --continue", role="builder"))
+
     def test_locked_path_refused_for_edit(self):
         locked = ["new/test_x.py"]
         for tool, inp in [("Write", {"file_path": "new/test_x.py", "content": "a"}),

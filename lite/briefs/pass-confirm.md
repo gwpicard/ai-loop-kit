@@ -17,11 +17,19 @@ is wrong, and the test fails for that reason and not for a mistake in the test.
 Reject a test that asserts something the project never promised, fails by
 accident, or restates a constant.
 
+The prompt also lists the open decisions (issues the person has yet to decide)
+as `#<number> <title>: <first line>`. A finding that touches one is not a
+defect to queue: it has the same behaviour as the decision or asks the same
+question. List it under HELD as `<title> | #<number>`, not under CONFIRMED.
+
 End your reply with these blocks and nothing after them, one title per line,
 copied exactly from the list, `none` when empty:
 
 CONFIRMED:
 <title>
+
+HELD:
+<title> | #<number of the open decision>
 
 REJECTED:
 <title>

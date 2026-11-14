@@ -70,6 +70,8 @@ reply to the next build.
   without a new test file (two at most).
 - **Build note.** After the merge, the issue and the pull request get a
   `## Built` note: what changed and why, deviations, the merge and files.
+- **Merge conflicts.** A reused issue branch that conflicts with the loop
+  branch is left mid-merge; the builder resolves it first, else the issue parks.
 - **Follow-ups.** Non-blocking work the reviewer names becomes an `inbox` issue.
 - **Lessons and failing tests.** Sessions append traps to `## Lessons`. A
   `## Failing test` section is committed as given by the test writer.
@@ -96,8 +98,10 @@ A confirmed defect becomes an issue with a `## Failing test` section. It is
 labelled `ready` only if a paragraph under `## Standing approvals` in
 `PLAN.md` says positively that a confirmed defect may be queued as ready,
 with no negation such as not, never, no or unless; anything unclear fails
-closed to `inbox`. Every other finding, proposed guardrail and lesson goes
-into one `inbox` issue per pass, a checkbox each. Lessons reach `PLAN.md`
+closed to `inbox`. A finding that touches an open `inbox` or `needs-user`
+decision is held, never queued. Every other finding, guardrail and lesson goes
+into one `inbox` issue, a checkbox each; an open `Pass findings` issue gets
+only what it lacks, as a comment. Lessons reach `PLAN.md`
 through an issue, never a direct commit. The report goes into the pull
 request body. A pass that fails is noted there and never blocks it. The board
 shows a `Last pass` section; `.lite/pass.json` remembers it. After a pass

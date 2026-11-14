@@ -57,7 +57,9 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
     """Post the build note, then the pull request body, then the reviewer's
     follow-ups as inbox issues. Each step is safe to run again."""
     m = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.S | re.M)
-    built = (m.group(1).strip() if m else "") or "No BUILT block in the builder's report."
+    built = (m.group(1).strip() if m else "")
+    built = " ".join(x for x in re.split(r"(?<=[.!?])\s+", built)  # the loop writes the one merge line
+                     if not re.search(r"\bmerged\b.*\b[0-9a-f]{7,40}\b", x, re.I)) or "No BUILT block in the builder's report."
     deviations = "\n".join(parse_block(report, "DEVIATIONS")) or "none"
     left = session.SWEPT.get(issue)
     swept = "\nLeft behind by sessions:\n" + "\n".join("- " + l for l in left) + "\n" if left else ""
@@ -134,14 +136,15 @@ def build(issue, project, replies=()):
         git(["worktree", "prune"], cwd=project, check=False)
         git(["worktree", "add", "-B", branch, tree,
              "origin/" + (branch if remote else loop)], cwd=project)
+        conflicts = []
         if remote:  # the reused branch lacks what the loop branch gained since
             try:
                 git(["merge", "--no-edit", "origin/" + loop], cwd=tree)
-            except common.GitError:
-                paths = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).replace("\n", ", ")
-                git(["merge", "--abort"], cwd=tree, check=False)
-                raise Parked("The issue branch conflicts with %s in: %s." % (loop, paths), "Reply with how to resolve it.")
-        return (result := _build(issue, project, settings, info, tree, branch, replies))
+            except common.GitError:  # the merge stays open for the builder to finish
+                conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
+                if not conflicts:
+                    raise
+        return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
         common.park(issue, *p.args)
         return Result("parked", p.args[0])
@@ -155,7 +158,7 @@ def build(issue, project, replies=()):
             common.git(["branch", "-D", branch], cwd=project, check=False)
 
 
-def _build(issue, project, settings, info, tree, branch, replies):
+def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     start = git(["rev-parse", "HEAD"], cwd=tree)
 
     def ask(role, model, report=None, resume=None, extra="", locked=()):
@@ -171,8 +174,18 @@ def _build(issue, project, settings, info, tree, branch, replies):
 
     posted = max([int(n) for c in info.get("comments", []) for n in
                   re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
-    common.event("step", project, issue=issue, step="test-writer")
     locked = merge.locked_paths(info.get("comments", []))
+    if conflicts:
+        common.event("step", project, issue=issue, step="conflicts")
+        ask("builder", settings["Builder model"], locked=locked, extra=(
+            "\n\nFirst task: the branch is in the middle of merging %s and conflicts in: %s. Resolve the "
+            "conflicts keeping both intents, run the Test command, then commit the merge. Do not run git merge."
+            % (settings["Loop branch"], ", ".join(conflicts))))
+        marked = git(["grep", "-lE", "^(<{7}|>{7})( |$)", "HEAD", "--"] + list(conflicts), cwd=tree, check=False)
+        if marked or git(["rev-parse", "-q", "--verify", "MERGE_HEAD"], cwd=tree, check=False):
+            raise Parked("The issue branch conflicts with %s in: %s, and the builder did not finish the merge."
+                         % (settings["Loop branch"], ", ".join(conflicts)), "Reply with how to resolve it.")
+    common.event("step", project, issue=issue, step="test-writer")
     rerun = git(["branch", "-r", "--list", "origin/" + branch], cwd=project) and locked
     if not rerun:
         text, writer = ask("test-writer", settings["Builder model"])

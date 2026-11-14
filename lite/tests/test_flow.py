@@ -184,16 +184,35 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("gained.txt", files)
         self.assertIn("other.py", files)
 
-    def test_a_conflict_with_the_loop_branch_parks_and_names_the_paths(self):
+    def conflicted(self, *steps):
         self.push_commit("mine", "issue/7", "branch\n")
         self.push_commit("theirs", "loop/main", "loop\n")
         self.issue_view([{"body": "TESTS:\ntests/test_new.py\n"}])
-        self.build_scenario()
-        r = self.build()
+        self.build_scenario(builder=list(steps) + [{"files": {"other.py": "1\n"}}])
+        return self.build()
+
+    def test_the_builder_resolves_a_conflict_with_the_loop_branch(self):
+        r = self.conflicted({"files": {"app.py": "both\n"}})
+        self.assertEqual(r.status, "merged")
+        first = self.claude_calls()[0]
+        self.assertEqual(first["role"], "builder")
+        self.assertIn("First task", first["prompt"])
+        self.assertIn("conflicts in: app.py", first["prompt"])
+        files = common.git(["show", "issue/7:app.py"], cwd=self.origin)
+        self.assertEqual(files, "both")
+        self.assertTrue(common.git(["log", "--merges", "--format=%s", "issue/7"], cwd=self.origin))
+
+    def test_an_unfinished_merge_parks_and_names_the_paths(self):
+        r = self.conflicted({"reply": "I could not."})
         self.assertEqual(r.status, "parked")
         self.assertIn("conflicts with loop/main in: app.py", r.reason)
-        self.assertEqual(self.claude_calls(), [])
+        self.assertEqual(roles(self.claude_calls()), ["builder"])
         self.assertNotIn(".lite-worktrees", common.git(["worktree", "list"], cwd=self.work))
+
+    def test_conflict_markers_left_in_a_committed_merge_park(self):
+        r = self.conflicted({"files": {"app.py": "<<<<<<< HEAD\nbranch\n=======\nloop\n>>>>>>> origin/loop/main\n"}})
+        self.assertEqual(r.status, "parked")
+        self.assertEqual(roles(self.claude_calls()), ["builder"])
 
     def test_the_local_issue_branch_goes_after_a_merge_but_stays_when_parked(self):
         self.build_scenario(builder=[{"reply": "Stuck.\nPARK: Need a key | Add a secret"}])
@@ -243,7 +262,7 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("--resume", calls[1]["argv"])
         self.assertIn("pass before any code exists", calls[1]["prompt"])
         self.assertEqual(calls[2]["env"]["LITE_LOCKED"], "tests/test_new.py")
-        self.assertNotIn("lite-merge", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn("lite-tree", common.git(["worktree", "list"], cwd=self.work))
 
     def test_tests_that_still_pass_on_the_base_park_the_issue(self):
         passing = {"files": {"tests/test_ok.py": "x\n"}, "reply": "TESTS:\ntests/test_ok.py"}
@@ -253,7 +272,7 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("pass before any code exists", r.reason)
         self.assertEqual(roles(self.claude_calls()), ["test-writer", "test-writer"])
         self.merge.assert_not_called()
-        self.assertNotIn("lite-merge", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn("lite-tree", common.git(["worktree", "list"], cwd=self.work))
 
     def writer_resumed_then(self, first, second):
         self.build_scenario(**{"test-writer": [first, second]})
@@ -413,6 +432,16 @@ class FlowTest(FakeClaudeGh):
         brief = Path(flow.BRIEFS, "builder.md").read_text(encoding="utf-8")
         for text in ("not only the last fix", "the loop adds one merge line"):
             self.assertIn(text, brief)
+
+    def test_a_merge_claim_in_the_built_block_is_dropped_so_one_merge_line_remains(self):
+        sent = self.spy_gh()
+        built = dict(self.BUILT, reply="BUILT:\nAdded app.py. Merged as 0123abc into loop/main. It greets.\nDEVIATIONS:\nnone")
+        self.build_scenario(builder=[built])
+        self.build()
+        note = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Built")][0]
+        self.assertEqual(note.count("Merged"), 1)
+        self.assertNotIn("0123abc", note)
+        self.assertIn("Added app.py. It greets.", note)
 
     def test_the_note_lists_what_the_sessions_left_behind(self):
         flow.session.SWEPT[7] = ["removed container abc", "new image def (kept)"]

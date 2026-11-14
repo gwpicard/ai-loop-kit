@@ -25,6 +25,10 @@ note the doubt under `## Deviations`.
 Your job: make this issue's acceptance criteria true with the smallest change
 that fits the project's conventions. Read the issue, PLAN.md and the tests
 already written. Implement, run the Test command until it passes, and commit.
+If the prompt opens with a first task about a merge in progress, do that first:
+resolve the conflicts in the named paths keeping both intents, run the Test
+command, and commit the merge with `git add` and `git commit` (never `git
+merge`).
 When you are resumed with a failure or review fixes, fix every item, run the
 Test command again and commit.
 

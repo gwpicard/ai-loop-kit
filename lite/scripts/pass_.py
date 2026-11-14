@@ -2,8 +2,6 @@
 import json
 import os
 import re
-import subprocess
-import tempfile
 import time
 from pathlib import Path
 
@@ -13,8 +11,9 @@ import merge
 import session
 from common import gh, git
 
+FINDINGS = "Pass findings"
 TITLES = (("drift", "Drift"), ("confirmed", "Red team: confirmed"), ("rejected", "Red team: rejected"),
-          ("rubric", "Rubric"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
+          ("rubric", "Rubric"), ("held", "Held for an open decision"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
           ("issues", "Issues created"), ("batch", "Merged in this batch"), ("errors", "Problems"))
 
 
@@ -98,16 +97,11 @@ def run_pass(project, settings, since_ref):
     # run the pass on origin/<loop branch>; return (report dict, Markdown report)
     project = os.path.abspath(project)
     r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0)
-    parent = tempfile.mkdtemp(prefix="lite-pass-")
-    tree = os.path.join(parent, "tree")
     try:
-        git(["worktree", "add", "--detach", tree, "origin/" + settings["Loop branch"]], cwd=project)
-        _pass(project, settings, since_ref, tree, r)
+        with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
+            _pass(project, settings, since_ref, tree, r)
     except Exception as e:  # the pass never raises; it reports
         r["errors"].append("pass stopped: %s" % e)
-    finally:
-        subprocess.run(["git", "worktree", "remove", "--force", tree], cwd=project, capture_output=True)
-        subprocess.run(["rmdir", parent], capture_output=True)
     return r, markdown(r)
 
 
@@ -147,11 +141,20 @@ def _pass(project, settings, since, tree, r):
                 candidates.append((title, detail, rel, Path(tree, path).read_text(encoding="utf-8")))
             else:
                 r["rejected"].append((title, why))
-    said = findings(ask("confirm", "\nFindings to judge:\n" + "\n".join(
-        "%s | %s | .lite/pass/%s" % c[:3] for c in candidates)), "CONFIRMED") if candidates else []
+    issues = json.loads(gh(["issue", "list", "--state", "open", "--limit", "200", "--json",
+                            "number,title,body,labels,comments"]) or "[]")
+    tags = lambda i: {l["name"] for l in i.get("labels", [])}
+    decisions = ["#%s %s: %s" % (i["number"], i["title"], ((i.get("body") or "").strip().split("\n") or [""])[0][:200])
+                 for i in issues if tags(i) & {"inbox", "needs-user"} and not i["title"].startswith(FINDINGS)]
+    reply = ask("confirm", "\nOpen decisions (a finding that touches one is held, not queued):\n"
+                + "\n".join(decisions or ["none"]) + "\n\nFindings to judge:\n"
+                + "\n".join("%s | %s | .lite/pass/%s" % c[:3] for c in candidates)) if candidates else ""
+    said, held = [f[0] for f in findings(reply, "CONFIRMED")], {f[0]: f[1] for f in findings(reply, "HELD")}
     for c in candidates:
-        yes = any(c[0] == s[0] for s in said)
-        r["confirmed" if yes else "rejected"].append(c if yes else (c[0], "not confirmed"))
+        if c[0] in held:
+            r["held"].append((c[0], "%s\n\nHeld for an open decision: %s. Not queued as a defect." % (c[1], held[c[0]]), ""))
+        else:
+            r["confirmed" if c[0] in said else "rejected"].append(c if c[0] in said else (c[0], "not confirmed"))
     reply = ask("lessons", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nFindings so far:\n"
                 + "\n".join(f[0] for f in r["drift"] + r["rubric"] + r["confirmed"]) + "\n")
     r["lessons"], r["guardrails"] = [f[0] for f in findings(reply, "LESSONS")], findings(reply, "GUARDRAILS")
@@ -159,9 +162,19 @@ def _pass(project, settings, since, tree, r):
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])
     jobs = [(t, "%s\n\n## Failing test\n\nPath: %s\n\n%s\n%s\n%s\n" % (esc(d), p, fence(c), c.rstrip("\n"), fence(c)),
              ready) for t, d, p, c in r["confirmed"]]
-    found = r["drift"] + r["rubric"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]]
-    jobs += [("Pass findings, %s, %s" % (time.strftime("%Y-%m-%d"), sha[:7]), "\n".join(
-        "- [ ] **%s**: %s" % (t, esc(d).replace("\n", "\n  ")) for t, d, _ in found), "inbox")] * bool(found)
+    found = r["drift"] + r["rubric"] + r["held"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]]
+    line = lambda t, d: "- [ ] **%s**: %s" % (t, esc(d).replace("\n", "\n  "))
+    open_ = next((i for i in issues if i["title"].startswith(FINDINGS) and "inbox" in tags(i)), None)
+    if open_:  # one open findings issue: add only what it does not list yet
+        listed = (open_.get("body") or "") + "".join(c.get("body") or "" for c in open_.get("comments", []))
+        found = [f for f in found if "**%s**" % f[0] not in listed]
+        if found:
+            gh(["issue", "comment", str(open_["number"]), "--body-file", "-"], retry=False,
+               input="\n".join(line(t, d) for t, d, _ in found) + "\n\n" + common.MARKER + "\n")
+            r["issues"].append("#%s %d finding(s) added" % (open_["number"], len(found)))
+    else:
+        jobs += [("%s, %s, %s" % (FINDINGS, time.strftime("%Y-%m-%d"), sha[:7]),
+                  "\n".join(line(t, d) for t, d, _ in found), "inbox")] * bool(found)
     for title, body, label in jobs:
         number = create(title, body, label)
         r["issues"] += ["#%s %s (%s)" % (number, title, label)] if number else []
