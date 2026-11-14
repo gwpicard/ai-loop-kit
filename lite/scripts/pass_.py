@@ -34,8 +34,7 @@ def esc(text):  # a finding cannot start a section of the issue
 
 
 def failing(project, sha, test, tree, path):
-    # (where the Test command finds the red-team file, None) if the file under .lite/pass/ fails the
-    # Test command once copied there; else (None, why it was rejected)
+    # (path the Test command finds the file at, None) if it fails there once copied; else (None, why not)
     base, full = os.path.realpath(os.path.join(tree, ".lite", "pass")), os.path.join(tree, path)
     rel = os.path.relpath(os.path.realpath(full), base)
     parts = rel.split(os.sep)

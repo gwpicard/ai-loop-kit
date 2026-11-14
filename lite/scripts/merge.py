@@ -21,6 +21,7 @@ LOCKFILES = {
     "pyproject.toml", "go.mod", "cargo.toml"}
 TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*")
 TEST_DIRS = ("tests", "test", "__tests__")
+ARTEFACT = re.compile(r"(^|/)(__pycache__|node_modules|\.pytest_cache|build|dist|target)/|\.(pyc|pyo|class|o)$")  # build output, not tests
 
 
 def _refuse(reason, park=False):
@@ -67,7 +68,7 @@ def allowed_paths(body):
 
 def is_test_file(path):
     parts = path.lower().split("/")
-    return (any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES)
+    return not ARTEFACT.search(path.lower()) and (any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES)
             or any(p in TEST_DIRS for p in parts[:-1]))
 
 

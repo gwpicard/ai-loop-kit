@@ -312,6 +312,36 @@ class MergeTest(FakeGh):
         self.assertTrue(merge.is_test_file("Tests/x.py"))
         self.assertTrue(merge.is_test_file("TEST_a.PY"))
 
+    def test_build_artefacts_are_not_tests_but_test_files_still_are(self):
+        for path in ("tests/__pycache__/x.pyc", "tests/a.PYO", "test/Foo.class", "tests/x.o", "tests/node_modules/t/test_a.js",
+                     "tests/.pytest_cache/v/test_a", "tests/build/test_a.py", "tests/dist/x_test.py", "tests/target/a"):
+            self.assertFalse(merge.is_test_file(path), path)
+        for path in ("tests/test_x.py", "src/a.test.js", "tests/data.json"):
+            self.assertTrue(merge.is_test_file(path), path)
+
+    def test_a_changed_tracked_pyc_does_not_trip_the_lock(self):
+        run_git(["checkout", "-b", "base2", "main"], self.work)
+        for name, text in (("tests/__pycache__/x.pyc", "1\n"), ("tests/test_x.py", "1\n")):
+            os.makedirs(os.path.dirname(os.path.join(self.work, name)), exist_ok=True)
+            open(os.path.join(self.work, name), "w").write(text)
+        run_git(["add", "-A"], self.work)
+        run_git(["commit", "-m", "track"], self.work)
+        base = common.git(["rev-parse", "HEAD"], cwd=self.work)
+        run_git(["checkout", "-b", "change"], self.work)
+        for name in ("tests/__pycache__/x.pyc", "tests/test_x.py"):
+            open(os.path.join(self.work, name), "w").write("2\n")
+        run_git(["add", "-A"], self.work)
+        run_git(["commit", "-m", "both"], self.work)
+        both = common.git(["rev-parse", "HEAD"], cwd=self.work)
+        run_git(["reset", "-q", "--hard", base], self.work)
+        open(os.path.join(self.work, "tests/__pycache__/x.pyc"), "w").write("2\n")
+        run_git(["commit", "-qam", "pyc only"], self.work)
+        pyc = common.git(["rev-parse", "HEAD"], cwd=self.work)
+        check = lambda sha: merge.check_diff(self.work, base, sha, [], set(), [])
+        self.assertIsNone(check(pyc))
+        self.assertIn("existing test file changed: tests/test_x.py", check(both))
+        run_git(["checkout", "main"], self.work)
+
     def test_case_variant_settings_file(self):
         sha = self.branch({"config/Settings.json": "{}\n"})
         self.assert_parked(sha, "settings file")

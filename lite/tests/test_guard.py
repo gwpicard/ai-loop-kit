@@ -24,7 +24,7 @@ class GuardCase(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.work, _ = make_repo(cls._tmp.name, {
             "README.md": "hi\n", "src/app.py": "x = 1\n",
-            "tests/test_app.py": "pass\n", "web/a.spec.js": "1\n",
+            "tests/test_app.py": "pass\n", "tests/__pycache__/x.pyc": "1\n", "web/a.spec.js": "1\n",
             "lib/util_test.go": "1\n", "docs/notes.md": "n\n"})
         run_git(["symbolic-ref", "refs/remotes/origin/HEAD",
                  "refs/remotes/origin/main"], cls.work)
@@ -194,6 +194,10 @@ class TestRole(GuardCase):
                     self.refused(self.call("Edit", {
                         "file_path": path, "old_string": "1",
                         "new_string": "2"}, role=role), "existing test")
+
+    def test_build_artefacts_under_tests_are_not_locked(self):
+        for role in ["builder", "test-writer"]:
+            self.allowed(self.call("Write", {"file_path": "tests/__pycache__/x.pyc", "content": "2\n"}, role=role))
 
     def test_new_test_file_allowed_for_writer_and_builder(self):
         for role in ["builder", "test-writer"]:
