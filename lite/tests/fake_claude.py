@@ -9,9 +9,9 @@ the last step repeats. Files and removals are committed.
 import json
 import os
 
-from lite.tests.helpers import FakeGh
+from lite.tests.helpers import FakeGh, write_exe
 
-FAKE_CLAUDE = '''#!/usr/bin/env python3
+FAKE_CLAUDE = '''#!PYTHON
 import json, os, subprocess, sys, time
 path = os.environ["FAKE_CLAUDE_SCENARIO"]
 role = os.environ.get("LITE_ROLE", "")
@@ -53,9 +53,7 @@ class FakeClaudeGh(FakeGh):
     def setUp(self):
         super().setUp()
         script = os.path.join(self.tmp, "bin", "claude")
-        with open(script, "w") as f:
-            f.write(FAKE_CLAUDE)
-        os.chmod(script, 0o755)
+        write_exe(script, FAKE_CLAUDE)
         self.claude_path = os.path.join(self.tmp, "claude.json")
         os.environ["FAKE_CLAUDE_SCENARIO"] = self.claude_path
         self.claude({})

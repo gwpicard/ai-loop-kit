@@ -84,14 +84,14 @@ class GhTest(FakeGh):
 
     def test_timeout_is_transient(self):
         self.scenario([{"match": "issue", "responses": [
-            {"sleep": 3, "stdout": "slow"}, ok("quick")]}])
-        with mock.patch.object(common, "TIMEOUT", 0.5):
+            {"sleep": 5, "stdout": "slow"}, ok("quick")]}])
+        with mock.patch.object(common, "TIMEOUT", 1.5):  # the quick call must start and finish inside it, even on a loaded machine
             self.assertEqual(common.gh(["issue", "list"]), "quick")
         self.sleep.assert_called_once_with(5)
 
     def test_timeout_gives_up_with_one_line(self):
         self.scenario([{"match": "issue", "responses": [{"sleep": 3}]}])
-        with mock.patch.object(common, "TIMEOUT", 1.0):
+        with mock.patch.object(common, "TIMEOUT", 1.5):
             with self.assertRaises(common.GitHubError) as cm:
                 common.gh(["issue", "list"])
         self.assertIn("timed out", str(cm.exception))

@@ -150,3 +150,7 @@ Code does not enforce these.
   is unchecked unless the issue gives an agent a way to check it.
 - Notifications are not built; watch the board. Branch protection is your
   job: setup recommends it only.
+
+## Tests
+
+Run `python3 lite/tests/run.py` from the repository root: it runs each test module in its own process, in parallel, and exits non-zero on any failure.

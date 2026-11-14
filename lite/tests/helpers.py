@@ -1,6 +1,8 @@
 """Test helpers: a fake gh on PATH driven by a scenario file, temp git repos."""
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -9,7 +11,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
-FAKE_GH = '''#!/usr/bin/env python3
+FAKE_GH = '''#!PYTHON
 import json, os, sys, time
 path = os.environ["FAKE_GH_SCENARIO"]
 args = " ".join(sys.argv[1:])
@@ -33,6 +35,15 @@ sys.exit(1)
 '''
 
 
+def write_exe(path, text):
+    """Write a fake command. Its shebang runs this interpreter with -S (no site
+    import), which starts about twice as fast and is all a stdlib-only fake needs."""
+    shebang = "#!%s -S" % sys.executable if " " not in sys.executable else "#!/usr/bin/env python3"
+    with open(path, "w") as f:
+        f.write(text.replace("#!PYTHON", shebang, 1))
+    os.chmod(path, 0o755)
+
+
 class FakeGh(unittest.TestCase):
     """Base class. Call self.scenario(rules) to set what the fake gh answers.
 
@@ -48,9 +59,13 @@ class FakeGh(unittest.TestCase):
         bindir = os.path.join(self.tmp, "bin")
         os.mkdir(bindir)
         script = os.path.join(bindir, "gh")
-        with open(script, "w") as f:
-            f.write(FAKE_GH)
-        os.chmod(script, 0o755)
+        write_exe(script, FAKE_GH)
+        # No real docker: the host's daemon is not what these tests check, and a
+        # shell stub that fails starts much faster. A test can write its own.
+        docker = os.path.join(bindir, "docker")
+        with open(docker, "w") as f:
+            f.write("#!/bin/sh\nexit 1\n")
+        os.chmod(docker, 0o755)
         self.scenario_path = os.path.join(self.tmp, "scenario.json")
         old = dict(os.environ)
         os.environ["PATH"] = bindir + os.pathsep + old["PATH"]
@@ -78,13 +93,29 @@ def run_git(args, cwd):
                    text=True)
 
 
-def make_repo(parent, files=None):
-    """Create a work repo with a bare origin, one commit pushed to main.
-    Return (work, origin) paths."""
+_TEMPLATES = {}
+_TEMPLATE_DIR = []
+
+
+def _template(files):
+    """Build each distinct repository once per process and keep it for copying."""
+    key = json.dumps(files, sort_keys=True)
+    if key not in _TEMPLATES:
+        if not _TEMPLATE_DIR:
+            _TEMPLATE_DIR.append(tempfile.mkdtemp(prefix="lite-tests-"))
+            atexit.register(shutil.rmtree, _TEMPLATE_DIR[0], True)
+        parent = os.path.join(_TEMPLATE_DIR[0], str(len(_TEMPLATES)))
+        os.mkdir(parent)
+        _TEMPLATES[key] = (parent, _build_repo(parent, files))
+    return _TEMPLATES[key][0]
+
+
+def _build_repo(parent, files):
     origin = os.path.join(parent, "origin.git")
     work = os.path.join(parent, "work")
-    run_git(["init", "--bare", "-b", "main", origin], parent)
-    run_git(["init", "-b", "main", work], parent)
+    # An empty template leaves out the sample hooks: fewer files to copy.
+    run_git(["init", "--template=", "--bare", "-b", "main", origin], parent)
+    run_git(["init", "--template=", "-b", "main", work], parent)
     for k, v in (("user.name", "Test"), ("user.email", "t@example.com")):
         run_git(["config", k, v], work)
     run_git(["remote", "add", "origin", origin], work)
@@ -99,11 +130,22 @@ def make_repo(parent, files=None):
     return work, origin
 
 
+def make_repo(parent, files=None):
+    """Create a work repo with a bare origin, one commit pushed to main.
+    Return (work, origin) paths. The repository is built once per process and copied."""
+    return copy_repo(_template(files), parent)
+
+
 def copy_repo(template, parent):
     """Copy a make_repo result into parent and repoint origin. Return (work, origin)."""
-    import shutil
     work, origin = (os.path.join(parent, n) for n in ("work", "origin.git"))
     shutil.copytree(os.path.join(template, "work"), work)
     shutil.copytree(os.path.join(template, "origin.git"), origin)
-    run_git(["remote", "set-url", "origin", origin], work)
+    # Point origin at the copy by editing the config file: no git process needed.
+    config = os.path.join(work, ".git", "config")
+    with open(config) as f:
+        text = f.read()
+    old = os.path.join(template, "origin.git")
+    with open(config, "w") as f:
+        f.write(text.replace("url = " + old, "url = " + origin))
     return work, origin
