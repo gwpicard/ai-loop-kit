@@ -30,7 +30,16 @@ Put this in the project's `AGENTS.md`:
 
 Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Builder model` and `Reviewer model` (default `sonnet`), `Protected paths`,
-`Idle hours` (default 12) and `Max rounds` (default 3).
+`Idle hours` (default 12) and `Max rounds` (default 3), `Check command` and
+`Smoke command`.
+
+`Check command` is the project's guardrails: a lint baseline, size budgets,
+architecture tests. It runs after the Test command everywhere the Test
+command runs for an issue (the builder's Stop hook, the merge, the drain),
+and a failure counts like a test failure. `Smoke command` uses the real
+built artefact, such as launching the app on a temporary file or running
+the CLI on real input. Only the end-of-loop pass runs it. Setup reports
+both; neither is required.
 
 Ask Claude to set up the loop, or run `python3 <plugin>/scripts/setup.py` from
 the project root. It creates the labels, the loop branch, a pinned `Factory`
@@ -52,10 +61,55 @@ Use the loop skill, or run
 from the project root. Stop it with `<plugin>/bin/loop stop`. It ends by
 itself after the idle limit.
 
+## What each issue gets
+
+- **Tests first.** A test writer commits tests from the acceptance criteria
+  before any code. The loop runs them at the base commit in a temporary
+  worktree; they must fail there. If they pass, the writer is asked once to
+  fix them, and the issue is parked if they still pass.
+- **Stop hooks.** The builder cannot end its session while the Test or Check
+  command fails (three blocks at most). The test writer cannot end it
+  without committing a new test file (two blocks at most).
+- **Build note.** After the merge, the issue and the pull request get a
+  `## Built` comment: what changed and why, deviations, what was not
+  exercised, the merged commit and changed files.
+- **Follow-ups.** Worthwhile non-blocking work the reviewer names becomes
+  an `inbox` issue, once, linked to its source.
+- **Lessons.** Sessions append traps to `## Lessons` in `PLAN.md`.
+- **Failing test.** An issue may carry a `## Failing test` section; the test
+  writer commits it as given, then adds its own.
+
+## The end-of-loop pass
+
+When the drain finds merges it has not yet examined, and the Test and Check
+commands pass on the loop branch, it runs one pass before it opens or
+refreshes the pull request into the default branch. Each session is fresh,
+reads the loop branch in a temporary worktree and cannot edit tracked files.
+
+- Smoke: the `Smoke command`, if set.
+- Drift: the batch diff against `PLAN.md`, for decisions, budgets,
+  duplication and accuracy of docs.
+- Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
+  most). A finding counts only with a test file under `.lite/pass/` that
+  fails the Test command; a second session must confirm it.
+- Rubric: readability, error handling, tests that restate constants, fixed
+  sleeps, dead code.
+- Lessons and proposed guardrails.
+
+A confirmed defect becomes an issue with a `## Failing test` section. It is
+labelled `ready` only if `## Standing approvals` in `PLAN.md` says a
+confirmed defect may be queued without your yes; otherwise, and for every
+other finding, it is labelled `inbox`. Lessons reach `PLAN.md` through an
+issue, never a direct commit. The report goes into the pull request body.
+A pass that fails is noted in the report and never blocks the pull request.
+The board shows a `Last pass` section; `.lite/pass.json` remembers it, so
+nothing reruns until new merges arrive.
+
 ## The board and replying
 
 The pinned `Factory` issue shows what is building, what needs you, the
-queue, what waits to be shaped, what has landed and the open pull request.
+queue, what waits to be shaped, what has landed, the open pull request and
+the last pass.
 To answer a parked issue, reply on it. The loop reads your reply, queues the
 issue again and gives the reply to the next build.
 
@@ -85,7 +139,8 @@ with evidence. Code does not enforce these.
 
 ## What is not guaranteed
 
-- The reviewer can miss a defect.
+- The reviewer and the pass can miss a defect, and a red-team test proves
+  only what it exercises.
 - The guard works on the text of commands and is best effort.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.

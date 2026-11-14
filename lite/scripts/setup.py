@@ -44,6 +44,7 @@ def setup(project="."):
     say("%s: %s" % ("changed" if changes else "ok", "; ".join(changes) or "nothing to add"))
     failure = merge.run_tests(project, git(["rev-parse", "origin/" + branch], cwd=project), command)
     say("preflight: " + (failure or "the Test command passes on a fresh checkout of " + branch))
+    say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set"))
     say("advice: protect %s on GitHub (Settings, Branches) so only a pull request changes it" % base)
     say("summary: %d change(s), preflight %s" % (len(changes), "failed" if failure else "passed"))
     return 1 if failure else 0

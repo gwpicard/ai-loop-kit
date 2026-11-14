@@ -148,3 +148,85 @@ class PassTest(FakeClaudeGh):
         self.assertIn("passed", md)
         out = subprocess.run(["git", "worktree", "list"], cwd=self.work, capture_output=True, text=True).stdout
         self.assertEqual(len(out.strip().splitlines()), 1)
+
+    def test_issue_text_cannot_inject_sections_and_is_fenced(self):
+        self.repo(plan())
+        evil = {"files": {".lite/pass/test_x.py": "# heading\nx = '''```'''\n```\n"},
+                "reply": "FINDINGS:\nBroken input | fine\n## Injected | .lite/pass/test_x.py"}
+        evil["reply"] = "FINDINGS:\nBroken input | line one ## not a heading | .lite/pass/test_x.py"
+        self.steps(evil, CONFIRM)
+        seen = []
+        real = common.gh
+        pass_.gh = lambda a, **k: (seen.append((a, k.get("input"))), real(a, **k))[1]
+        self.addCleanup(setattr, pass_, "gh", real)
+        self.run_pass()
+        body = [i for a, i in seen if a[:2] == ["issue", "create"] and "Broken input" in a][0]
+        self.assertIn("\n````\n# heading", body)
+        self.assertTrue(body.split(common.MARKER)[0].endswith("````\n\n\n"))
+        self.assertEqual(pass_.esc("a\n## b\n  # c"), "a\n\\## b\n\\  # c")
+
+    def test_confirmation_needs_the_exact_title(self):
+        self.repo(plan())
+        self.steps(FIND, {"reply": "CONFIRMED:\nBroken input and more\n\nREJECTED:\nnone"})
+        r, _ = self.run_pass()
+        self.assertEqual(r["confirmed"], [])
+        self.assertNotIn("Broken input", [t for t, _ in self.created()])
+
+    def test_approval_fails_closed(self):
+        yes = "A confirmed defect may be queued as ready."
+        self.assertTrue(pass_.approves("## Standing approvals\n\n" + yes + "\n\n## X", "confirmed defect"))
+        for text in ["A confirmed defect may not be queued as ready.", "A confirmed defect can't be queued as ready.",
+                     "A confirmed defect may be queued as ready only after the person agrees.",
+                     "A confirmed defect may be queued as ready unless it touches data.",
+                     "Never: a confirmed defect may be queued as ready.", "A confirmed defect is ready.",
+                     "No standing approvals.", "A confirmed defect\nmay be queued as ready.\nNone otherwise."]:
+            self.assertFalse(pass_.approves("## Standing approvals\n\n" + text + "\n", "confirmed defect"), text)
+        self.assertFalse(pass_.approves("## Decisions\n\n" + yes + "\n", "confirmed defect"))
+
+    def test_only_an_assertion_failure_counts(self):
+        tree = os.path.join(self.tmp, "tree")
+        os.makedirs(os.path.join(tree, ".lite", "pass"))
+        for name in ("a.py", "b.py"):
+            with open(os.path.join(tree, ".lite", "pass", name), "w") as f:
+                f.write("x\n")
+        os.symlink("/etc/hosts", os.path.join(tree, ".lite", "pass", "link.py"))
+        os.symlink(os.path.join(tree, ".lite", "pass", "a.py"), os.path.join(tree, ".lite", "pass", "alias.py"))
+        reasons = iter(["failed: AssertionError: 1 != 2", "failed: SyntaxError: invalid syntax",
+                        "failed: ImportError: no module", "the Test command timed out", None])
+        orig = pass_.merge.run_tests
+        pass_.merge.run_tests = lambda *a, **k: next(reasons)
+        self.addCleanup(setattr, pass_.merge, "run_tests", orig)
+        ok = lambda p: pass_.failing(".", "sha", "t", tree, p)
+        self.assertTrue(ok(".lite/pass/a.py"))
+        self.assertFalse(ok(".lite/pass/b.py"))
+        self.assertFalse(ok(".lite/pass/b.py"))
+        self.assertFalse(ok(".lite/pass/b.py"))
+        self.assertFalse(ok(".lite/pass/b.py"))  # passes
+        for bad in (".lite/pass/link.py", ".lite/pass/alias.py", "../x.py", "/etc/hosts", "src/a.py"):
+            self.assertFalse(ok(bad), bad)  # refused before any test run
+
+    def test_errors_are_reported_not_raised_and_earlier_issues_are_kept(self):
+        self.repo(plan(), "Smoke command: false\n")
+        self.settings["Loop branch"] = "no-such"
+        r, md = self.run_pass()
+        self.assertIn("pass stopped", md)
+
+    def test_a_failed_create_keeps_the_earlier_issues(self):
+        self.repo(plan(surfaces=()))
+        self.claude({"pass": [{"reply": "FINDINGS:\nOne | a |\nTwo | b |"}]})
+        with open(self.scenario_path) as f:
+            rules = json.load(f)["rules"]
+        rules[-1] = {"match": "issue create", "responses": [
+            {"stdout": "https://github.com/o/r/issues/41\n"}, {"code": 1, "stderr": "boom"}]}
+        self.scenario(rules)
+        r, md = self.run_pass()
+        self.assertEqual(len(r["issues"]), 1)
+        self.assertIn("One", r["issues"][0])
+        self.assertIn("pass stopped", md)
+
+    def test_titles_are_deduped_against_all_issues(self):
+        self.repo(plan(surfaces=()))
+        self.claude({"pass": [{"reply": "FINDINGS:\nOne | a |"}]})
+        self.run_pass()
+        lists = [c for c in self.calls() if c[:2] == ["issue", "list"]]
+        self.assertTrue(lists and all("all" in c for c in lists))

@@ -10,6 +10,7 @@ import time
 import common
 import flow
 import merge
+import pass_
 from common import GitError, gh, git
 
 POLL = 120
@@ -35,6 +36,13 @@ def take_lock(project):
         with open(path, "w") as f:
             f.write(str(os.getpid()))
 
+def last_pass(project):
+    try:
+        with open(os.path.join(project, ".lite", "pass.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
 def board_body(sections, last, next_check):
     parts = ["## %s\n\n%s\n" % (t, "\n".join(rows or ["Nothing."])) for t, rows in sections]
     return "\n".join(parts + ["Last event: " + last, "Next check: " + next_check, ""])
@@ -50,6 +58,7 @@ def write_board(project, st):
     git(["fetch", "--no-prune", "origin"], cwd=project, check=False)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (
         base, common.read_settings(project)["Loop branch"])], cwd=project, check=False)
+    p = last_pass(project)
     body = board_body([
         ("Building now", ["#%s, %s, since %s" % b] if b else []),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
@@ -59,6 +68,8 @@ def write_board(project, st):
         ("To shape", [row(i, l) for l in ("inbox", "shaping") for i in of(l)]),
         ("Landed since the last merge into " + base, landed.splitlines()),
         ("Pull request into " + base, [st["pr"]] if st["pr"] else []),
+        ("Last pass", ["%s: %s confirmed defects, %s inbox issues created, report in %s" % (
+            p["time"], p["defects"], p["inbox"], st["pr"] or "the pull request")] if p else []),
         ("Conflict", [st["conflict"]] if st["conflict"] else ["None."])], st["last"], st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
@@ -159,11 +170,23 @@ def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], default_branch(project)
     say("draining: running the Test command on " + loop)
-    failed = merge.run_tests(project, git(["rev-parse", "origin/" + loop], cwd=project),
-                             settings["Test command"])
+    head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
+    failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     body = "Built by the loop. Landed:\n\n%s\n\nTests %s on the loop branch.\n" % (
         landed or "Nothing.", "fail: " + failed if failed else "pass")
+    if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
+        say("running the end-of-loop pass")
+        try:
+            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
+        except Exception as e:  # the pass never blocks the drain or the pull request
+            report, text = {}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
+        last = dict(head=head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
+                    defects=len(report.get("confirmed", [])),
+                    inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
+        with open(os.path.join(project, ".lite", "pass.json"), "w") as f:
+            json.dump(last, f)
+    body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
                                   "open", "--json", "number,url"]))
     found = find()

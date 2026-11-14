@@ -2,6 +2,26 @@
 
 Draft, 13 November 2026. For the maintainer's review before anything is built.
 
+## What changed in the second build (14 November 2026)
+
+The first build merged issues; this one makes each merge more reliable and
+reviews the whole batch before you see it.
+
+- Tests are proven to fail at the base commit before the builder starts.
+- Stop hooks keep a builder from ending while the Test or Check command
+  fails, and a test writer from ending without a test.
+- Optional `Check command` (guardrails, run after the Test command) and
+  `Smoke command` (the real artefact, run by the pass only).
+- After each merge: a `## Built` note on the issue and the pull request, and
+  the reviewer's follow-ups as `inbox` issues.
+- `PLAN.md` gains `## Lessons`, `## Standing approvals` and `## Surfaces`;
+  issues may carry a `## Failing test`.
+- The drain runs the end-of-loop pass (smoke, drift, red team with failing
+  tests, rubric, lessons) after new merges, puts its report in the pull
+  request body, and the board shows the last pass. Details are in the
+  README. The text below is the first design, kept for its reasoning;
+  where it names shell scripts, the code is Python.
+
 ## The goal
 
 A continuous factory. The loop keeps building whatever is approved. You

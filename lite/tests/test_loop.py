@@ -10,6 +10,7 @@ import common
 import flow
 import loop
 import merge
+import pass_
 
 AGENTS = "## Loop\nTest command: true\nLoop branch: loop/main\nIdle hours: 0\n"
 FACTORY = {"number": 1, "title": "Factory", "body": ""}
@@ -392,3 +393,52 @@ class GitTest(Base):
         self.run_loop()
         self.assertEqual(self.writes("needs-user"), [])
         self.assertIn("## Conflict\n\nMerging main into loop/main", self.board_inputs()[0])
+
+
+    def pass_world(self):
+        os.makedirs(os.path.join(self.work, ".lite"), exist_ok=True)
+        self.land()
+        self.world([])
+        return mock.patch.object(pass_, "run_pass", return_value=(
+            {"confirmed": [1], "issues": ["#5 a (inbox)", "#6 b (ready)"]}, "## End-of-loop pass (1 sessions)\n"))
+
+    def test_drain_runs_the_pass_only_after_new_merges_and_reports_in_the_body(self):
+        with self.pass_world() as run_pass:
+            self.run_loop()
+            self.world([], prs=[{"number": 9, "url": "https://example/pull/9"}])
+            self.run_loop()
+            self.assertEqual(run_pass.call_count, 1)
+            self.assertIn("## End-of-loop pass", [i for c, i in self.inputs if c.startswith("pr edit 9")][0])
+            self.assertEqual(run_pass.call_args[0][2], "origin/main")
+            create = [i for c, i in self.inputs if c.startswith("pr create")]
+            self.assertIn("## End-of-loop pass", create[0])
+            self.commit("loop/main", "z.txt", "z\n", "Issue 3")
+            self.run_loop()
+            self.assertEqual(run_pass.call_count, 2)
+            self.assertRegex(run_pass.call_args[0][2], "^[0-9a-f]{40}$")
+
+    def test_a_pass_that_raises_does_not_block_the_pull_request(self):
+        with self.pass_world() as run_pass:
+            run_pass.side_effect = RuntimeError("boom")
+            self.run_loop()
+        create = [i for c, i in self.inputs if c.startswith("pr create")]
+        self.assertEqual(len(create), 1)
+        self.assertIn("The pass did not run: RuntimeError: boom", create[0])
+
+    def test_no_pass_when_the_tests_fail(self):
+        with self.pass_world() as run_pass:
+            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+                f.write(AGENTS.replace("Test command: true", "Test command: false"))
+            self.run_loop()
+            run_pass.assert_not_called()
+        self.assertEqual(len(self.writes("pr create")), 1)
+
+    def test_board_shows_the_last_pass(self):
+        with self.pass_world():
+            self.run_loop()
+        st = loop.new_state()
+        st["pr"] = "https://example/pull/9"
+        loop.snapshot(st)
+        loop.write_board(self.work, st)
+        self.assertRegex(self.board_inputs()[-1], r"## Last pass\n\n\d{4}-\d\d-\d\d \d\d:\d\d: 1 confirmed defects, "
+                         r"1 inbox issues created, report in https://example/pull/9")

@@ -61,6 +61,18 @@ class SetupTest(FakeGh):
         self.assertIn("summary: 0 change(s)", text)
         self.assertEqual(pathlib.Path(self.work, ".gitignore").read_text(), before)
 
+    def test_optional_commands_are_reported_not_required(self):
+        self.repo("## Loop\nTest command: true\nCheck command: true\nSmoke command: echo ok\n")
+        self.fresh()
+        code, text = run(self.work)
+        self.assertEqual(code, 0, text)
+        self.assertIn("optional: Check command: true; Smoke command: echo ok", text)
+
+    def test_no_optional_commands_is_said_plainly(self):
+        self.repo()
+        self.fresh()
+        self.assertIn("no Check or Smoke command set", run(self.work)[1])
+
     def test_missing_section_is_refused(self):
         self.repo(agents="# Project\n")
         self.fresh()

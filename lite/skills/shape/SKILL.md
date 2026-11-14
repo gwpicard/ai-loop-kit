@@ -45,6 +45,14 @@ code and never merges.
 9. Close a raw `inbox` issue with a comment linking to the issues that
    replace it.
 
+## Inbox issues from the loop
+
+Reviewer follow-ups and end-of-loop pass findings arrive as `inbox` issues.
+Shape them like any other. An issue with a `## Failing test` section keeps
+it: the test writer commits that test as given. Ask whether the project
+needs a `Check command` (guardrails) or a `Smoke command` (the real
+artefact) in `AGENTS.md`, and add the answer there.
+
 ## Rules
 
 - Label nothing `ready` without the person's yes in this session.
