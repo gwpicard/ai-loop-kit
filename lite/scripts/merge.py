@@ -1,5 +1,6 @@
 """Merge one reviewed issue branch into the loop branch, or refuse with a reason."""
 import collections
+import contextlib
 import fnmatch
 import json
 import os
@@ -189,12 +190,9 @@ def _merge(issue, branch, verdict_text, project):
         return _refuse(stop, park=True)
     pr = find_pr(branch, loop, sha)
     if pr is None:
-        try:
+        with contextlib.suppress(common.GitHubError):
             gh(["pr", "create", "--base", loop, "--head", branch,
-                "--title", "Issue %s" % issue, "--body", "Built by the loop."],
-               retry=False)
-        except common.GitHubError:
-            pass
+                "--title", "Issue %s" % issue, "--body", "Built by the loop."], retry=False)
         pr = find_pr(branch, loop, sha)
         if pr is None:
             return _refuse("the pull request could not be created")

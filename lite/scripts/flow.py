@@ -67,9 +67,7 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
         post_once(issue, note)
         if pr:
             gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
-    for line in parse_block(review, "FOLLOW-UPS"):
-        if line.lower() == "none":
-            continue
+    for line in [l for l in parse_block(review, "FOLLOW-UPS") if l.lower() != "none"]:
         title = line[:100]
         once(lambda: gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
                         input="Follow-up from #%s.\n\n%s\n\n%s\n" % (issue, line, common.MARKER),
@@ -121,7 +119,7 @@ def prompt_for(role, number, info, tree, settings, replies, report=None):
 
 def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
-    project = os.path.abspath(project)
+    project, result = os.path.abspath(project), None
     settings = common.read_settings(project)
     loop, branch = settings["Loop branch"], "issue/%s" % issue
     tree = os.path.join(os.path.dirname(project), ".lite-worktrees",
@@ -130,13 +128,20 @@ def build(issue, project, replies=()):
         info = json.loads(gh(["issue", "view", str(issue), "--json", "title,body,comments"]))
         git(["fetch", "--no-prune", "origin"], cwd=project)
         if resume_merged(issue, project, branch, loop):
-            return Result("merged", "already merged")
+            return (result := Result("merged", "already merged"))
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
         git(["worktree", "remove", "--force", tree], cwd=project, check=False)
         git(["worktree", "prune"], cwd=project, check=False)
         git(["worktree", "add", "-B", branch, tree,
              "origin/" + (branch if remote else loop)], cwd=project)
-        return _build(issue, project, settings, info, tree, branch, replies)
+        if remote:  # the reused branch lacks what the loop branch gained since
+            try:
+                git(["merge", "--no-edit", "origin/" + loop], cwd=tree)
+            except common.GitError:
+                paths = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).replace("\n", ", ")
+                git(["merge", "--abort"], cwd=tree, check=False)
+                raise Parked("The issue branch conflicts with %s in: %s." % (loop, paths), "Reply with how to resolve it.")
+        return (result := _build(issue, project, settings, info, tree, branch, replies))
     except Parked as p:
         common.park(issue, *p.args)
         return Result("parked", p.args[0])
@@ -146,6 +151,8 @@ def build(issue, project, replies=()):
         if os.path.isdir(tree):
             common.git(["worktree", "remove", "--force", tree], cwd=project, check=False)
             common.git(["worktree", "prune"], cwd=project, check=False)
+        if result and result.status == "merged":  # a squash merge makes -d refuse
+            common.git(["branch", "-D", branch], cwd=project, check=False)
 
 
 def _build(issue, project, settings, info, tree, branch, replies):

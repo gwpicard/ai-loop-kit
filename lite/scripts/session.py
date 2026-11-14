@@ -1,4 +1,5 @@
 """Run one role session with claude -p and return its reply."""
+import contextlib
 import json
 import os
 import re
@@ -34,15 +35,14 @@ def docker(args):
 
 
 def docker_state():
-    """Containers (running or exited), networks, volumes and images now, or None without a working docker."""
+    """Containers (also exited), networks, volumes, images now; None without a working docker."""
     return {k: set(docker(a) or ()) for k, a in DOCKER} if docker(DOCKER[0][1]) is not None else None
 
 
 def owned(container, cwd):
     """True when the container's compose working directory or a bind-mount source is under cwd."""
-    roots = {os.path.abspath(cwd), os.path.realpath(cwd)}
-    return any(line == r or line.startswith(r + os.sep)
-               for line in docker(["inspect", "-f", OWNER, container]) or () for r in roots)
+    return any(line == r or line.startswith(r + os.sep) for line in docker(["inspect", "-f", OWNER, container]) or ()
+               for r in {os.path.abspath(cwd), os.path.realpath(cwd)})
 
 
 def sweep(before, cwd):
@@ -60,10 +60,8 @@ def reap(pgid):
     """Kill what is left in the session's process group; return a line per process."""
     ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True).stdout
     left = ["left running, killed: " + l.split(None, 1)[1].strip() for l in ps.splitlines() if l.split()[:1] == [str(pgid)]]
-    try:
+    with contextlib.suppress(OSError):
         os.killpg(pgid, signal.SIGKILL)
-    except OSError:
-        pass
     return left
 
 

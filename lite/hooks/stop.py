@@ -3,6 +3,7 @@
 command fails, or a test writer that stops without a new test file, is told
 to continue. Blocks are limited and counted in .lite/stop-<session>. Any
 error allows the stop."""
+import contextlib
 import json
 import os
 import signal
@@ -69,15 +70,13 @@ def problem(role, cwd, project):
 
 
 def main():
-    try:
+    with contextlib.suppress(Exception):
         role, project = os.environ.get("LITE_ROLE"), os.environ["LITE_PROJECT"]
         session_id = json.load(sys.stdin)["session_id"]
         if role in LIMITS:
             why = problem(role, os.getcwd(), project)
             if why and count_block(project, session_id, LIMITS[role]):
                 print(json.dumps({"decision": "block", "reason": why}))
-    except Exception:
-        pass
     return 0
 
 

@@ -160,6 +160,49 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario()
         self.assertEqual(self.build().status, "merged")
 
+    def push_commit(self, name, remote_branch, text):
+        run_git(["checkout", "-q", "-b", name, "main"], self.work)
+        with open(os.path.join(self.work, "app.py"), "w") as f:
+            f.write(text)
+        run_git(["add", "-A"], self.work)
+        run_git(["commit", "-qm", name], self.work)
+        run_git(["push", "origin", "%s:%s" % (name, remote_branch)], self.work)
+        run_git(["checkout", "-q", "main"], self.work)
+
+    def test_a_reused_branch_gains_what_the_loop_branch_gained(self):
+        run_git(["push", "origin", "main:issue/7"], self.work)
+        with open(os.path.join(self.work, "gained.txt"), "w") as f:
+            f.write("x\n")
+        run_git(["checkout", "-q", "-b", "later", "main"], self.work)
+        run_git(["add", "-A"], self.work)
+        run_git(["commit", "-qm", "gained on the loop branch"], self.work)
+        run_git(["push", "origin", "later:loop/main"], self.work)
+        self.issue_view([{"body": "TESTS:\ntests/test_new.py\n"}])
+        self.build_scenario(builder=[{"files": {"other.py": "1\n"}}])
+        self.assertEqual(self.build().status, "merged")
+        files = common.git(["ls-tree", "-r", "--name-only", "issue/7"], cwd=self.origin).split()
+        self.assertIn("gained.txt", files)
+        self.assertIn("other.py", files)
+
+    def test_a_conflict_with_the_loop_branch_parks_and_names_the_paths(self):
+        self.push_commit("mine", "issue/7", "branch\n")
+        self.push_commit("theirs", "loop/main", "loop\n")
+        self.issue_view([{"body": "TESTS:\ntests/test_new.py\n"}])
+        self.build_scenario()
+        r = self.build()
+        self.assertEqual(r.status, "parked")
+        self.assertIn("conflicts with loop/main in: app.py", r.reason)
+        self.assertEqual(self.claude_calls(), [])
+        self.assertNotIn(".lite-worktrees", common.git(["worktree", "list"], cwd=self.work))
+
+    def test_the_local_issue_branch_goes_after_a_merge_but_stays_when_parked(self):
+        self.build_scenario(builder=[{"reply": "Stuck.\nPARK: Need a key | Add a secret"}])
+        self.assertEqual(self.build().status, "parked")
+        self.assertIn("issue/7", common.git(["branch", "--list", "issue/7"], cwd=self.work))
+        self.build_scenario()
+        self.assertEqual(self.build().status, "merged")
+        self.assertEqual(common.git(["branch", "--list", "issue/7"], cwd=self.work), "")
+
     def test_rerun_skips_the_test_writer(self):
         run_git(["push", "origin", "main:issue/7"], self.work)
         self.issue_view([{"body": "TESTS:\ntests/test_new.py\n"}])

@@ -1,4 +1,5 @@
 """The supervisor: pick, build, answer, drain, keep the board, stop when idle."""
+import contextlib
 import json
 import os
 import shutil
@@ -217,14 +218,11 @@ def clean_up(project, closed):
     for path in [os.path.join(logs, n) for n in os.listdir(logs)] if os.path.isdir(logs) else ():
         if time.time() - os.path.getmtime(path) > 14 * 86400:
             os.remove(path)
-    try:
+    with contextlib.suppress(OSError):
         os.rmdir(os.path.join(os.path.dirname(project), ".lite-worktrees"))  # only when empty
-    except OSError:
-        pass
-    trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines()
-             if l.startswith("worktree ")][1:]
-    old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project,
-                          check=False).split() if b[6:].isdigit() and int(b[6:]) in closed]
+    trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines() if l.startswith("worktree ")][1:]
+    old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project, check=False).split()
+           if b[6:].isdigit() and int(b[6:]) in closed]
     say("left behind: worktrees: %s; branches of closed issues: %s" % (", ".join(trees) or "none", ", ".join(old) or "none"))
 
 
