@@ -17,12 +17,14 @@ warning, not the line. The real lines are the diff check in merge.py and
 branch protection on the default branch. A bare `git push` from main is not
 caught, because the guard does not ask git which branch is checked out.
 """
-import fnmatch
 import json
 import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+import merge  # the one definition of a test file
 
 SECRETS = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----|\bghp_[A-Za-z0-9]{20,}"
@@ -35,10 +37,6 @@ FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w.-])gh\b")
 REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
-TEST_NAMES = ["test_*", "*_test.*", "*.test.*", "*.spec.*"]
-TEST_DIRS = {"tests", "test", "__tests__"}
-ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
-BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
 
 
 class Refuse(Exception):
@@ -72,12 +70,6 @@ def check_everyone(command):
                          "push a feature branch and open a pull request")
 
 
-def is_test_path(rel):
-    parts = rel.split("/")
-    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES)
-    return not ARTEFACT.search(rel.lower()) and (named or any(p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(rel.lower()))
-
-
 def check_path(path, role, cwd):
     code, top = git(["rev-parse", "--show-toplevel"], cwd)
     top = os.path.realpath(top if code == 0 and top else cwd)
@@ -91,7 +83,7 @@ def check_path(path, role, cwd):
         if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
             raise Refuse("%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
-    if is_test_path(rel) and git(["ls-files", "--error-unmatch", "--", full], cwd)[0] == 0:
+    if merge.is_test_file(rel) and git(["ls-files", "--error-unmatch", "--", full], cwd)[0] == 0:
         raise Refuse("%s is an existing test file" % rel,
                      "leave existing tests alone; add a new test file if needed")
 

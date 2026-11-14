@@ -23,8 +23,7 @@ def setup(project="."):
         gh(["label", "create", name, "--color", LABELS[name]])
         changes.append("label " + name)
     git(["fetch", "origin"], cwd=project)
-    base = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project,
-               check=False).replace("origin/", "", 1) or "main"
+    base = common.default_branch(project)
     if not git(["ls-remote", "--heads", "origin", branch], cwd=project):
         git(["push", "origin", "origin/%s:refs/heads/%s" % (base, branch)], cwd=project)
         changes.append("loop branch %s from %s" % (branch, base))

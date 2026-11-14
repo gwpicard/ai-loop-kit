@@ -6,10 +6,7 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
-import sys
-import tempfile
 
 import common
 from common import gh, git
@@ -122,10 +119,7 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None):
     """Run the Test command, then the Check command, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None
     or a reason."""
-    parent = tempfile.mkdtemp(prefix="lite-merge-")
-    tree = os.path.join(parent, "tree")
-    try:
-        git(["worktree", "add", "--detach", tree, sha], cwd=project)
+    with common.scratch_tree(project, sha) as tree:
         for path in overlay[1] if overlay else ():
             if os.path.isfile(os.path.join(overlay[0], path)):
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
@@ -133,23 +127,13 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None):
         for name, cmd in (("Test", command), ("Check", check)):
             if not cmd:
                 continue
-            p = subprocess.Popen(cmd, shell=True, cwd=tree, text=True,
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 start_new_session=True)
-            try:
-                out, _ = p.communicate(timeout=TEST_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.communicate()
+            code, out = common.run_shell(cmd, tree, TEST_TIMEOUT)
+            if code is None:
                 return "the %s command timed out on %s" % (name, sha[:10])
-            if p.returncode != 0:
+            if code != 0:
                 last = "\n".join(out.strip().splitlines()[-tail:])
                 return "the %s command failed on %s: %s" % (name, sha[:10], last)
         return None
-    finally:
-        subprocess.run(["git", "worktree", "remove", "--force", tree],
-                       cwd=project, capture_output=True)
-        subprocess.run(["rmdir", parent], capture_output=True)
 
 
 def find_pr(branch, base, sha):
@@ -223,17 +207,3 @@ def _merge(issue, branch, verdict_text, project):
     common.event("merged", project, issue=issue, branch=branch, commit=commit)
     return Result(True, False, "merged as " + commit, commit)
 
-
-def main(argv):
-    try:
-        text = sys.stdin.read() if argv[2] == "-" else open(argv[2]).read()
-        r = merge(int(argv[0]), argv[1], text, os.getcwd())
-    except Exception as e:
-        r = _refuse("usage: merge.py <issue> <branch> <verdict-file or -> (%s)" % e)
-    print(r.reason if r.ok else "refused: %s\nnext: %s" % (r.reason, (
-        "answer the parked issue" if r.park else "review or fix it again")))
-    return 0 if r.ok else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

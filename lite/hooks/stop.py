@@ -6,8 +6,6 @@ error allows the stop."""
 import contextlib
 import json
 import os
-import signal
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
@@ -22,15 +20,7 @@ TIMEOUT = 600  # per command, well under the hook's own 1800 seconds
 
 def run(command, cwd):
     """Run a shell command. Return (exit code, output); the code is None on timeout."""
-    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, start_new_session=True,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    try:
-        out, _ = p.communicate(timeout=TIMEOUT)
-        return p.returncode, out
-    except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)
-        p.communicate()
-        return None, ""
+    return common.run_shell(command, cwd, TIMEOUT)
 
 
 def count_block(project, session_id, limit):

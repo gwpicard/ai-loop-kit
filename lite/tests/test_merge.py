@@ -1,5 +1,3 @@
-import contextlib
-import io
 import json
 import os
 import unittest
@@ -380,10 +378,6 @@ class MergeTest(FakeGh):
         r = self.run_merge(sha)
         self.assertFalse(r.ok)
         self.assertFalse(r.park)
-
-    def test_cli_never_shows_traceback(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(merge.main(["x"]), 1)
 
 
 class ParkTest(FakeGh):

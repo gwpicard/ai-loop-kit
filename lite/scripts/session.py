@@ -101,10 +101,8 @@ def _exec(argv, prompt, cwd, env, log, role, issue):
 def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=""):
     """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
-    default = common.git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-                         cwd=project, check=False).replace("origin/", "", 1) or "main"
     env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked),
-               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=default,
+               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=common.default_branch(project),
                LITE_PROJECT=project, LITE_START=start)
 
     def hook(name, **more):

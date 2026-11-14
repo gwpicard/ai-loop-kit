@@ -1,8 +1,11 @@
 """Shared helpers: settings, GitHub and git calls, events, labels, trust."""
+import contextlib
 import json
 import os
 import re
+import signal
 import subprocess
+import tempfile
 import time
 
 RETRY_WAITS = (5, 20, 60)
@@ -195,6 +198,37 @@ def git(args, cwd=None, check=True):
         raise GitError("git %s failed: %s" % (
             " ".join(args[:2]), lines[0] if lines else "exit %d" % p.returncode))
     return p.stdout.rstrip("\n")
+
+
+def run_shell(command, cwd, timeout):
+    """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout."""
+    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, start_new_session=True,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return p.returncode, out
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.communicate()
+        return None, ""
+
+
+def default_branch(project):
+    ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
+    return ref.replace("origin/", "", 1) or "main"
+
+
+@contextlib.contextmanager
+def scratch_tree(project, ref):
+    """A detached worktree of `ref` in a temporary folder, removed afterwards."""
+    parent = tempfile.mkdtemp(prefix="lite-tree-")
+    tree = os.path.join(parent, "tree")
+    try:
+        git(["worktree", "add", "--detach", tree, ref], cwd=project)
+        yield tree
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", tree], cwd=project, capture_output=True)
+        subprocess.run(["rmdir", parent], capture_output=True)
 
 
 def event(kind, root=".", **fields):

@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 
 import common
@@ -21,11 +20,6 @@ say = lambda text: print(text, flush=True)
 def new_state():
     return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building=None, pr=None,
                 conflict="", last="loop started", next="after the current step")
-
-
-def default_branch(project):
-    ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
-    return ref.replace("origin/", "", 1) or "main"
 
 
 def take_lock(project):
@@ -61,7 +55,7 @@ def write_board(project, st):
     waits = lambda i: "not built: labelled by a non-collaborator" if st["trust"].get(
         (i["number"], i.get("updatedAt"))) is False else "waits on " + (", ".join(
             "#%d" % d for d in common.depends_on(i["body"]) if d not in st["closed"]) or "nothing")
-    base, b = default_branch(project), st["building"]
+    base, b = common.default_branch(project), st["building"]
     git(["fetch", "--no-prune", "origin"], cwd=project, check=False)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (
         base, common.read_settings(project)["Loop branch"])], cwd=project, check=False)
@@ -155,7 +149,7 @@ def build_once(project, st, number):
 
 
 def sync_default(project, loop, st):
-    base = default_branch(project)
+    base = common.default_branch(project)
     git(["fetch", "--no-prune", "origin"], cwd=project)
     st["conflict"] = ""
     try:
@@ -163,24 +157,19 @@ def sync_default(project, loop, st):
         return False
     except GitError:
         say("merging origin/%s into %s" % (base, loop))
-    with tempfile.TemporaryDirectory(prefix="lite-sync-") as parent:
-        tree = parent + "/tree"
-        try:
-            git(["worktree", "add", "--detach", tree, "origin/" + loop], cwd=project)
+    try:
+        with common.scratch_tree(project, "origin/" + loop) as tree:
             git(["merge", "--no-edit", "origin/" + base], cwd=tree)
             git(["push", "origin", "HEAD:" + loop], cwd=tree)
-            return True
-        except GitError as e:
-            st["conflict"] = "Merging %s into %s did not go through: %s" % (base, loop, e)
-            return False
-        finally:
-            git(["worktree", "remove", "--force", tree], cwd=project, check=False)
-            git(["worktree", "prune"], cwd=project, check=False)
+        return True
+    except GitError as e:
+        st["conflict"] = "Merging %s into %s did not go through: %s" % (base, loop, e)
+        return False
 
 
 def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
-    loop, base = settings["Loop branch"], default_branch(project)
+    loop, base = settings["Loop branch"], common.default_branch(project)
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"])
