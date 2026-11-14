@@ -244,6 +244,10 @@ class MergeTest(FakeGh):
                                              "`x/y`\n* z\n## Next\nq\n"), {"x/y", "z"})
         self.assertEqual(merge.allowed_paths("## Paths the builder may change\nNone"), set())
         self.assertEqual(merge.allowed_paths("x.py in the text"), set())
+        for fence in ("```", "````", "~~~"):
+            body = "## Paths the builder may change\nok.py\n\n%s\n## Paths the builder may change\nevil.py\n%s\n" % (fence, fence)
+            self.assertEqual(merge.allowed_paths(body), {"ok.py"})
+            self.assertEqual(merge.allowed_paths("x\n%s\n## Paths the builder may change\nevil.py\n" % fence), set())
 
     def test_pr_exists_no_second_create(self):
         sha = self.good()

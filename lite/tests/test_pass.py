@@ -162,6 +162,7 @@ class PassTest(FakeClaudeGh):
         self.run_pass()
         body = [i for a, i in seen if a[:2] == ["issue", "create"] and "Broken input" in a][0]
         self.assertIn("\n````\n# heading", body)
+        self.assertEqual(pass_.merge.allowed_paths(body), set())
         self.assertTrue(body.split(common.MARKER)[0].endswith("````\n\n\n"))
         self.assertEqual(pass_.esc("a\n## b\n  # c"), "a\n\\## b\n\\  # c")
 
