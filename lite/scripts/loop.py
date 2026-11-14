@@ -11,6 +11,7 @@ import common
 import flow
 import merge
 import pass_
+import setup
 from common import GitError, gh, git
 
 POLL = 120
@@ -281,6 +282,10 @@ def main(argv):
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):
             subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+        problem = setup.missing(project, common.read_settings(project))
+        if problem:  # before the lock is taken
+            say("refused: %s\nnext: run %s" % (problem, os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup.py")))
+            return 1
         return run(project)
     except common.LoopError as e:
         say("refused: %s\nnext: run setup, then try again" % e)

@@ -488,3 +488,54 @@ class GitTest(Base):
             self.run_loop()
             self.run_loop()
             self.assertEqual(run_pass.call_count, 3)
+
+
+class StartCheckTest(Base):
+    """`loop run` refuses at start when the project is not set up, and takes no lock."""
+
+    LABELS = ["inbox", "shaping", "ready", "building", "needs-user"]
+
+    def start(self, labels=None, issues=None, remote=True):
+        if remote:
+            self.work, _ = copy_repo(TEMPLATE.name, self._tmp.name)
+        else:
+            os.makedirs(self.work)
+            run_git(["init", "-q", "-b", "main"], self.work)
+            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+                f.write(AGENTS)
+        self.rules = [{"match": "label list", **out([{"name": n} for n in (labels or self.LABELS)])},
+                      {"match": "issue list", **out([FACTORY] if issues is None else issues)}]
+        with mock.patch.object(loop.os, "getcwd", return_value=self.work), \
+                mock.patch.object(loop, "run", return_value=0) as run:
+            return loop.main(["run"]), run
+
+    def refused(self, code, run, reason):
+        self.assertEqual((code, run.called), (1, False))
+        text = self.say.call_args[0][0]
+        self.assertIn("refused: " + reason, text)
+        self.assertIn("next: run ", text)
+        self.assertIn("setup.py", text)
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "loop.pid")))
+
+    def test_no_remote_refuses_at_start(self):
+        code, run = self.start(remote=False)
+        self.refused(code, run, "this folder has no origin remote")
+
+    def test_a_missing_label_refuses_at_start(self):
+        code, run = self.start(labels=["inbox", "ready"])
+        self.refused(code, run, "the loop labels are missing")
+
+    def test_a_missing_factory_issue_refuses_at_start(self):
+        code, run = self.start(issues=[])
+        self.refused(code, run, "there is no Factory issue")
+
+    def test_a_missing_loop_branch_refuses_at_start(self):
+        self.work, _ = copy_repo(TEMPLATE.name, self._tmp.name)
+        run_git(["push", "origin", "--delete", "loop/main"], self.work)
+        with mock.patch.object(loop.os, "getcwd", return_value=self.work), mock.patch.object(loop, "run") as run:
+            code = loop.main(["run"])
+        self.refused(code, run, "the loop branch loop/main is not on origin")
+
+    def test_a_set_up_project_starts(self):
+        code, run = self.start()
+        self.assertEqual((code, run.called), (0, True))

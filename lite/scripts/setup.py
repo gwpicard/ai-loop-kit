@@ -8,6 +8,28 @@ LABELS = {"inbox": "ededed", "shaping": "fbca04", "ready": "0e8a16",
 SECTION = "## Loop\nTest command: <the command that runs your tests>\n"
 
 
+def labels_present():
+    return {l["name"] for l in json.loads(gh(["label", "list", "--limit", "200", "--json", "name"]))}
+
+
+def factory_exists():
+    found = json.loads(gh(["issue", "list", "--state", "open", "--search", "Factory in:title",
+                           "--json", "number,title"]))
+    return any(i["title"] == "Factory" for i in found)
+
+
+def missing(project, settings):
+    """Why the project is not set up for the loop, or None. Changes nothing."""
+    branch = settings["Loop branch"]
+    if not git(["remote", "get-url", "origin"], cwd=project, check=False):
+        return "this folder has no origin remote"
+    if not git(["ls-remote", "--heads", "origin", branch], cwd=project):
+        return "the loop branch %s is not on origin" % branch
+    if set(LABELS) - labels_present():  # also fails, with gh's reason, when gh cannot read the repository
+        return "the loop labels are missing on GitHub"
+    return None if factory_exists() else "there is no Factory issue"
+
+
 def setup(project="."):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
@@ -18,8 +40,7 @@ def setup(project="."):
             % (e, SECTION))
         return 1
     branch, command = settings["Loop branch"], settings["Test command"]
-    have = {l["name"] for l in json.loads(gh(["label", "list", "--limit", "200", "--json", "name"]))}
-    for name in sorted(set(LABELS) - have):
+    for name in sorted(set(LABELS) - labels_present()):
         gh(["label", "create", name, "--color", LABELS[name]])
         changes.append("label " + name)
     git(["fetch", "origin"], cwd=project)
@@ -27,9 +48,7 @@ def setup(project="."):
     if not git(["ls-remote", "--heads", "origin", branch], cwd=project):
         git(["push", "origin", "origin/%s:refs/heads/%s" % (base, branch)], cwd=project)
         changes.append("loop branch %s from %s" % (branch, base))
-    found = json.loads(gh(["issue", "list", "--state", "open", "--search", "Factory in:title",
-                           "--json", "number,title"]))
-    if not [i for i in found if i["title"] == "Factory"]:
+    if not factory_exists():
         url = gh(["issue", "create", "--title", "Factory", "--body", "The loop writes the board here."])
         gh(["issue", "pin", url.strip().rsplit("/", 1)[-1]])
         changes.append("Factory issue, pinned")
