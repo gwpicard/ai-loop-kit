@@ -1,13 +1,12 @@
 # AI Loop Kit lite
 
 A continuous factory for building software with Claude Code while you are
-away. You shape and approve work in a session with Claude. A loop on your
-own computer then builds each approved issue, has it reviewed by a second
-session and merges it into a loop branch. You merge that branch into your
-default branch yourself, in one pull request.
+away. You shape and approve work with Claude. A loop on your computer builds
+each approved issue, has a second session review it and merges it into a
+loop branch. You merge that branch into your default branch yourself.
 
-The loop never asks you for input. It stops on an issue only for a decision
-that `PLAN.md` says only a person can make, and carries on with the rest.
+The loop never asks you for input. It parks an issue only for a decision
+that `PLAN.md` reserves for a person, and carries on.
 
 ## Install
 
@@ -18,8 +17,7 @@ install the `ai-loop-lite` plugin from it:
     /plugin marketplace add gwpicard/ai-loop-kit
     /plugin install ai-loop-lite@ai-loop-kit
 
-Below, `<plugin>` is the installed plugin folder, the one holding `bin/`,
-`scripts/` and `skills/`.
+Below, `<plugin>` is the installed plugin folder (holding `bin/`).
 
 ## Set up a project
 
@@ -58,8 +56,8 @@ prerequisites first. On your single yes it labels the issues `ready`.
 
 Use the loop skill, or run
 `mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
-from the project root. Stop it with `<plugin>/bin/loop stop`. It ends by
-itself after the idle limit.
+from the project root. Stop it with `<plugin>/bin/loop stop`; it also ends
+after the idle limit.
 
 ## What each issue gets
 
@@ -101,8 +99,8 @@ A confirmed defect becomes an issue with a `## Failing test` section. It is
 labelled `ready` only if a paragraph under `## Standing approvals` in
 `PLAN.md` says positively that a confirmed defect may be queued as ready, and
 contains no negation such as not, never, no or unless. Anything unclear fails
-closed to `inbox`, as does every other finding. The default sentence in the
-`PLAN.md` template is accepted. Lessons reach `PLAN.md` through an
+closed to `inbox`, as does every other finding. The template's default
+sentence is accepted. Lessons reach `PLAN.md` through an
 issue, never a direct commit. The report goes into the pull request body.
 A pass that fails is noted in the report and never blocks the pull request.
 The board shows a `Last pass` section; `.lite/pass.json` remembers the last pass.
@@ -150,6 +148,6 @@ with evidence. Code does not enforce these.
 - The guard works on the text of commands and is best effort.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.
-- Notifications are not built yet. Watch the board.
+- Notifications are not built. Watch the board.
 - Branch protection on the default branch is your job. Setup recommends it
   and never changes repository settings.
