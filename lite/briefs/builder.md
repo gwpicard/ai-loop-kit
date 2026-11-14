@@ -28,7 +28,8 @@ already written. Implement, run the Test command until it passes, and commit.
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts in the named paths keeping both intents, run the Test
 command, and commit the merge with `git add` and `git commit` (never `git
-merge`).
+merge`). A conflict inside an existing test file cannot be resolved
+by you (the test lock): leave it unresolved and say so; the loop then parks.
 When you are resumed with a failure or review fixes, fix every item, run the
 Test command again and commit.
 
@@ -37,7 +38,7 @@ in this order, and nothing after them:
 
 BUILT:
 Everything built for this issue, not only the last fix: what changed (files
-and behaviour) and why, in plain precise prose. Do not name commit hashes or
+and behaviour) and why, in plain precise prose. Do not name or quote commit hashes, and do not
 say it was merged; the loop adds one merge line. Name the
 acceptance criteria met and the PLAN.md decisions applied. Say what you did
 not exercise. Leave no blank line inside the block; the next header ends it.

@@ -48,18 +48,11 @@ def post_once(issue, body):
                      for c in merge.view("issue", issue, "comments").get("comments", [])))
 
 
-def post_tests(issue, paths):
-    """Comment the locked paths where merge.py reads them."""
-    post_once(issue, "TESTS:\n" + "\n".join(paths) + "\n\n" + common.MARKER + "\n")
-
-
 def after_merge(issue, report, review, commit, files, pr, post=True):
     """Post the build note, then the pull request body, then the reviewer's
     follow-ups as inbox issues. Each step is safe to run again."""
     m = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.S | re.M)
-    built = (m.group(1).strip() if m else "")
-    built = " ".join(x for x in re.split(r"(?<=[.!?])\s+", built)  # the loop writes the one merge line
-                     if not re.search(r"\bmerged\b.*\b[0-9a-f]{7,40}\b", x, re.I)) or "No BUILT block in the builder's report."
+    built = (m.group(1).strip() if m else "") or "No BUILT block in the builder's report."
     deviations = "\n".join(parse_block(report, "DEVIATIONS")) or "none"
     left = session.SWEPT.get(issue)
     swept = "\nLeft behind by sessions:\n" + "\n".join("- " + l for l in left) + "\n" if left else ""
@@ -205,7 +198,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                           extra=why + " Commit, and end with the TESTS: block again.")
             locked = parse_block(text)
         git(["push", "origin", branch], cwd=tree)
-        post_tests(issue, locked)
+        post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     common.event("step", project, issue=issue, step="builder")
     report, sid = ask("builder", settings["Builder model"], locked=locked)
     feedback = ""

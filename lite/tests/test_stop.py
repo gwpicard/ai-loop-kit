@@ -32,11 +32,12 @@ class StopHookTest(unittest.TestCase):
             run_git(["commit", "-m", name], self.work)
 
     def stop(self, role, session="s1", **env):
+        broken = "LITE_PROJECT" in env
         env = dict(dict(os.environ, LITE_ROLE=role, LITE_PROJECT=self.work,
                         LITE_START=self.start), **env)
         p = subprocess.run([sys.executable, STOP], cwd=self.work, env=env, text=True,
                            input=json.dumps({"session_id": session}), capture_output=True)
-        self.assertEqual((p.returncode, p.stderr), (0, ""))
+        self.assertEqual((p.returncode, "internal error" in p.stderr), (0, broken))
         return json.loads(p.stdout) if p.stdout.strip() else None
 
     def test_builder_with_failing_tests_is_blocked_with_the_last_60_lines(self):

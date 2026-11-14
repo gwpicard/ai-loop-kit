@@ -433,15 +433,21 @@ class FlowTest(FakeClaudeGh):
         for text in ("not only the last fix", "the loop adds one merge line"):
             self.assertIn(text, brief)
 
-    def test_a_merge_claim_in_the_built_block_is_dropped_so_one_merge_line_remains(self):
+    def test_the_built_text_is_kept_whole_and_the_loop_adds_one_merge_line(self):
         sent = self.spy_gh()
-        built = dict(self.BUILT, reply="BUILT:\nAdded app.py. Merged as 0123abc into loop/main. It greets.\nDEVIATIONS:\nnone")
+        built = dict(self.BUILT, reply="BUILT:\nAdded app.py. Merged the loop branch into the issue branch.\nDEVIATIONS:\nnone")
         self.build_scenario(builder=[built])
         self.build()
         note = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("## Built")][0]
-        self.assertEqual(note.count("Merged"), 1)
-        self.assertNotIn("0123abc", note)
-        self.assertIn("Added app.py. It greets.", note)
+        self.assertEqual(note.count("Merged as"), 1)
+        self.assertIn("Added app.py. Merged the loop branch into the issue branch.", note)
+        brief = Path(flow.BRIEFS, "builder.md").read_text(encoding="utf-8")
+        self.assertIn("quote commit hashes", brief)
+
+    def test_the_builder_brief_leaves_a_locked_test_conflict_to_the_loop(self):
+        brief = Path(flow.BRIEFS, "builder.md").read_text(encoding="utf-8")
+        self.assertIn("conflict inside an existing test file cannot be resolved", brief)
+        self.assertIn("the loop then parks", brief)
 
     def test_the_note_lists_what_the_sessions_left_behind(self):
         flow.session.SWEPT[7] = ["removed container abc", "new image def (kept)"]

@@ -275,7 +275,7 @@ class LoopTest(Base):
         self.assertEqual(len(posted), 2)  # the retry note and the park comment
         self.assertTrue(all(common.MARKER in body for body in posted))
         self.inputs.clear()
-        flow.post_tests(2, ["tests/test_a.py"])
+        flow.post_once(2, "TESTS:\ntests/test_a.py\n\n" + common.MARKER + "\n")
         body = [i for c, i in self.inputs if c.startswith("issue comment")][0]
         self.assertIn(common.MARKER, body)
         self.assertEqual(merge.locked_paths([{"body": body}]), ["tests/test_a.py"])

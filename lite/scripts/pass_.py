@@ -12,6 +12,8 @@ import session
 from common import gh, git
 
 FINDINGS = "Pass findings"
+LIMIT = 200  # open issues read; a full page may be truncated
+HELD = r"^[ \t*`]*HELD:[ \t*`]*(.*)$"
 TITLES = (("drift", "Drift"), ("confirmed", "Red team: confirmed"), ("rejected", "Red team: rejected"),
           ("rubric", "Rubric"), ("held", "Held for an open decision"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
           ("issues", "Issues created"), ("batch", "Merged in this batch"), ("errors", "Problems"))
@@ -141,7 +143,7 @@ def _pass(project, settings, since, tree, r):
                 candidates.append((title, detail, rel, Path(tree, path).read_text(encoding="utf-8")))
             else:
                 r["rejected"].append((title, why))
-    issues = json.loads(gh(["issue", "list", "--state", "open", "--limit", "200", "--json",
+    issues = json.loads(gh(["issue", "list", "--state", "open", "--limit", str(LIMIT), "--json",
                             "number,title,body,labels,comments"]) or "[]")
     tags = lambda i: {l["name"] for l in i.get("labels", [])}
     decisions = ["#%s %s: %s" % (i["number"], i["title"], ((i.get("body") or "").strip().split("\n") or [""])[0][:200])
@@ -149,6 +151,10 @@ def _pass(project, settings, since, tree, r):
     reply = ask("confirm", "\nOpen decisions (a finding that touches one is held, not queued):\n"
                 + "\n".join(decisions or ["none"]) + "\n\nFindings to judge:\n"
                 + "\n".join("%s | %s | .lite/pass/%s" % c[:3] for c in candidates)) if candidates else ""
+    blocked = "the open-issue list may be truncated" if len(issues) >= LIMIT else ""
+    if candidates and not re.search(HELD, reply, re.M):
+        blocked = "confirm reply unreadable"
+    reply = re.sub(HELD, lambda m: "HELD:\n" + m.group(1) if m.group(1) else "HELD:", reply, flags=re.M)
     said, held = [f[0] for f in findings(reply, "CONFIRMED")], {f[0]: f[1] for f in findings(reply, "HELD")}
     for c in candidates:
         if c[0] in held:
@@ -158,6 +164,9 @@ def _pass(project, settings, since, tree, r):
     reply = ask("lessons", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nFindings so far:\n"
                 + "\n".join(f[0] for f in r["drift"] + r["rubric"] + r["confirmed"]) + "\n")
     r["lessons"], r["guardrails"] = [f[0] for f in findings(reply, "LESSONS")], findings(reply, "GUARDRAILS")
+    if blocked:  # open decisions cannot be checked: queue nothing
+        r["errors"].append("nothing queued: " + blocked)
+        return
     ready = "ready" if approves(plan, "confirmed defect") else "inbox"
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])
     jobs = [(t, "%s\n\n## Failing test\n\nPath: %s\n\n%s\n%s\n%s\n" % (esc(d), p, fence(c), c.rstrip("\n"), fence(c)),

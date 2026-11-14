@@ -3,14 +3,17 @@
 command fails, or a test writer that stops without a new test file, is told
 to continue. Blocks are limited and counted in .lite/stop-<session>. Any
 error allows the stop."""
-import contextlib
 import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
-import common
-import merge
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+    import common
+    import merge
+except Exception as e:
+    sys.stderr.write("stop: cannot load, allowing the stop: %s\n" % e)
+    sys.exit(0)
 
 # Blocks are counted per session id: a builder resumed for fix rounds keeps its
 # id, so the limit of 3 is shared across all its rounds, not reset each round.
@@ -60,13 +63,15 @@ def problem(role, cwd, project):
 
 
 def main():
-    with contextlib.suppress(Exception):
+    try:
         role, project = os.environ.get("LITE_ROLE"), os.environ["LITE_PROJECT"]
         session_id = json.load(sys.stdin)["session_id"]
         if role in LIMITS:
             why = problem(role, os.getcwd(), project)
             if why and count_block(project, session_id, LIMITS[role]):
                 print(json.dumps({"decision": "block", "reason": why}))
+    except Exception as e:
+        sys.stderr.write("stop: internal error, allowing the stop: %s\n" % e)
     return 0
 
 

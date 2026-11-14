@@ -20,11 +20,15 @@ caught, because the guard does not ask git which branch is checked out.
 import json
 import os
 import re
-import subprocess
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
-import merge  # the one definition of a test file
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+    import common
+    import merge  # the one definition of a test file
+except Exception as e:
+    sys.stderr.write("guard: cannot load, allowing the call: %s\n" % e)
+    sys.exit(0)
 
 SECRETS = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----|\bghp_[A-Za-z0-9]{20,}"
@@ -45,15 +49,6 @@ class Refuse(Exception):
         self.reason, self.step = reason, step
 
 
-def git(args, cwd):
-    try:
-        r = subprocess.run(["git"] + args, cwd=cwd, capture_output=True,
-                           text=True, timeout=10)
-        return r.returncode, r.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return 1, ""
-
-
 def check_everyone(command):
     if DELETE.search(command):
         raise Refuse("a recursive delete is not allowed",
@@ -71,8 +66,7 @@ def check_everyone(command):
 
 
 def check_path(path, role, cwd):
-    code, top = git(["rev-parse", "--show-toplevel"], cwd)
-    top = os.path.realpath(top if code == 0 and top else cwd)
+    top = os.path.realpath(common.git(["rev-parse", "--show-toplevel"], cwd, check=False) or cwd)
     full = os.path.realpath(os.path.join(cwd, path))
     rel = os.path.relpath(full, top)
     if role == "reviewer" or (role == "pass" and not rel.startswith(".lite/pass/")):
@@ -83,7 +77,7 @@ def check_path(path, role, cwd):
         if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
             raise Refuse("%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
-    if merge.is_test_file(rel) and git(["ls-files", "--error-unmatch", "--", full], cwd)[0] == 0:
+    if merge.is_test_file(rel) and common.git(["ls-files", "--", full], cwd, check=False):
         raise Refuse("%s is an existing test file" % rel,
                      "leave existing tests alone; add a new test file if needed")
 
@@ -126,7 +120,8 @@ def main():
     except Refuse as r:
         sys.stderr.write("refused: %s\nnext: %s\n" % (r.reason, r.step))
         return 2
-    except Exception:
+    except Exception as e:
+        sys.stderr.write("guard: internal error, allowing the call: %s\n" % e)
         return 0
     return 0
 

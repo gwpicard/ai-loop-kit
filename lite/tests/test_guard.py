@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -272,6 +273,19 @@ class TestRole(GuardCase):
         self.refused(self.call("Write", {
             "file_path": "src/k.py", "content": GH_TOKEN}, role="builder"),
             "secret")
+
+
+class HooksNeverCrashTest(unittest.TestCase):
+    def test_a_hook_that_cannot_load_allows_and_says_so(self):
+        for name, word in (("guard.py", "guard"), ("stop.py", "stop")):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                os.mkdir(os.path.join(tmp, "hooks"))
+                shutil.copy(os.path.join(os.path.dirname(GUARD), name), os.path.join(tmp, "hooks", name))
+                p = subprocess.run([sys.executable, os.path.join(tmp, "hooks", name)], input="{}",
+                                   capture_output=True, text=True)
+                self.assertEqual(p.returncode, 0)
+                self.assertEqual(p.stdout, "")
+                self.assertIn(word + ": cannot load", p.stderr)
 
 
 if __name__ == "__main__":

@@ -14,8 +14,8 @@ APPROVAL = ("A confirmed defect with a failing test, found by the end-of-loop pa
 BUILT = "## Built\n\nAdded the thing.\n\nDeviations: none\n"
 FIND = {"files": {".lite/pass/tests/test_x.py": "fails\n"},
         "reply": "FINDINGS:\nBroken input | crashes on empty input | .lite/pass/tests/test_x.py"}
-CONFIRM = {"reply": "CONFIRMED:\nBroken input\n\nREJECTED:\nnone"}
-REJECT = {"reply": "CONFIRMED:\nnone\n\nREJECTED:\nBroken input"}
+CONFIRM = {"reply": "CONFIRMED:\nBroken input\n\nHELD:\nnone\n\nREJECTED:\nnone"}
+REJECT = {"reply": "CONFIRMED:\nnone\n\nHELD:\nnone\n\nREJECTED:\nBroken input"}
 NONE = {"reply": "FINDINGS:\nnone"}
 LESSONS = {"reply": "LESSONS:\nCheck empty input first.\n\nGUARDRAILS:\nBudget on input size | add a size budget |"}
 
@@ -131,6 +131,38 @@ class PassTest(FakeClaudeGh):
         self.assertIn("**Broken input**", body)
         self.assertIn("Held for an open decision: #%d" % 14, body)
         self.assertIn("### Held for an open decision\n\n- Broken input", md)
+
+    def held_run(self, reply, listed=None):
+        self.repo(plan())
+        self.gh(listed=listed if listed is not None else [self.DECISION])
+        self.steps(FIND, {"reply": reply})
+        r, md = self.run_pass()
+        return r
+
+    def test_a_confirm_reply_without_a_held_block_queues_nothing(self):
+        r = self.held_run("CONFIRMED:\nBroken input\n")
+        self.assertEqual(self.created(), [])
+        self.assertIn("nothing queued: confirm reply unreadable", r["errors"])
+
+    def readable(self, held):
+        r = self.held_run("CONFIRMED:\nBroken input\n\n" + held)
+        self.assertEqual(r["errors"], [])
+        self.assertIn(("Broken input", "ready"), self.created())
+
+    def test_held_none_on_the_same_line_is_readable(self):
+        self.readable("HELD: none")
+
+    def test_held_in_bold_is_readable(self):
+        self.readable("**HELD:**\nnone")
+
+    def test_held_in_backticks_is_readable(self):
+        self.readable("`HELD:`\nnone")
+
+    def test_a_full_open_issue_listing_may_be_truncated_so_nothing_is_queued(self):
+        full = [{"number": n, "title": "Other %d" % n, "labels": [], "body": ""} for n in range(pass_.LIMIT)]
+        r = self.held_run("CONFIRMED:\nBroken input\n\nHELD:\nnone", listed=full)
+        self.assertEqual(self.created(), [])
+        self.assertIn("nothing queued: the open-issue list may be truncated", r["errors"])
 
     OPEN = {"number": 29, "title": "Pass findings, 2026-11-14, aaaaaaa", "labels": [{"name": "inbox"}],
             "body": "- [ ] **Budget on input size**: x", "comments": [{"body": "- [ ] **Check empty input first**: y"}]}
