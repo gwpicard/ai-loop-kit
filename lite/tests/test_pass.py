@@ -253,6 +253,15 @@ class PassTest(FakeClaudeGh):
         self.assertTrue(r["capped"])
         self.assertIn("Defect rounds limit (2) reached", md)
 
+    def test_an_unreadable_round_count_queues_nothing_as_ready_and_says_so(self):
+        self.repo(plan())
+        self.steps(FIND, CONFIRM)
+        r, md = pass_.run_pass(self.work, self.settings, "origin/main", rounds=None)
+        self.assertIn(("Broken input", "inbox"), self.created())
+        self.assertNotIn(("Broken input", "ready"), self.created())
+        self.assertIn("could not be read", md)
+        self.assertEqual(r["rounds"], 2)
+
     def test_a_merged_issue_the_person_labelled_resets_the_count(self):
         self.repo(plan(), "Defect rounds: 2\n")
         self.gh(built_body="Added by hand.")  # no loop marker: the person queued it

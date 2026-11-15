@@ -87,6 +87,10 @@ reviews the whole batch before you see it.
 - A red-team test must also pass the Check command with the file in place, and
   the test writer may format a given failing test (layout only) so the locked
   file never fails the Check command.
+- A `## Failing test` the test writer formatted is guarded by the existing
+  fails-first run after its commit: it must still fail by assertion, or the
+  writer is resumed once and the issue then parks.
+- An unreadable `.lite/pass.json` counts as the limit reached; a missing one as zero.
 - One open `Simplify and reconcile` issue; later passes comment on it.
 - A collaborator's clear "yes" to a park naming one test path adds that path to
   the issue's `## Paths the builder may change`; nothing else grants a path.

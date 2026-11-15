@@ -134,7 +134,7 @@ def _pass(project, settings, since, tree, r):
     notes, people = [], []
     try:
         r["batch"] = batch_lines(project, since, settings["Loop branch"], notes, people)
-        r["rounds"] = 0 if people else r["rounds"]  # an issue the person queued merged: a new batch
+        r["rounds"] = r["rounds"] if r["rounds"] is None else 0 if people else r["rounds"]  # an issue the person queued merged: a new batch
     except Exception as e:
         r["errors"].append("batch notes: %s" % e)
     drift = ask("drift")
@@ -180,8 +180,10 @@ def _pass(project, settings, since, tree, r):
         return
     ready = "ready" if approves(plan, "confirmed defect") else "inbox"
     if ready == "ready" and r["confirmed"]:
-        if r["rounds"] >= settings["Defect rounds"]:
-            ready, r["capped"] = "inbox", "Defect rounds limit (%d) reached: confirmed defects are filed as inbox, with their failing tests" % settings["Defect rounds"]
+        if r["rounds"] is None or r["rounds"] >= settings["Defect rounds"]:  # an unreadable count fails closed
+            ready, r["capped"] = "inbox", "Defect rounds limit (%d) reached%s: confirmed defects are filed as inbox, with their failing tests" % (
+                settings["Defect rounds"], " (the saved count could not be read)" * (r["rounds"] is None))
+            r["rounds"] = settings["Defect rounds"]
         else:
             r["rounds"] += 1
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])

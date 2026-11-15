@@ -185,7 +185,7 @@ class LoopTest(Base):
 
     def test_reply_requeues_a_parked_issue_and_reaches_the_build(self):
         self.world([issue(4, ("needs-user",))], comments=[
-            comment("## Needs you\n\nWhich port?\n\nRecommended: 80"),
+            comment("## Needs you\n\nWhich port?\n\nRecommended: 80\n\n" + common.MARKER),
             comment("Crashed, trying again.\n\n" + common.MARKER), comment("Use 8080.")])
         with self.fake_build():
             self.run_loop()
@@ -194,7 +194,7 @@ class LoopTest(Base):
                                      "issue edit 4 --add-label ready"])
         self.assertEqual(self.built, [(4, ["Use 8080."])])
 
-    PARK = "## Needs you\n\ntests/test_x.py fails the lint check. May I change tests/test_x.py?\n\nRecommended: yes, reformat it"
+    PARK = "## Needs you\n\ntests/test_x.py fails the lint check. May I change tests/test_x.py?\n\nRecommended: yes, reformat it\n\n" + common.MARKER
 
     def agree(self, reply, park=PARK, body="Do it.\n", user="me", extra=()):
         self.world([issue(4, ("needs-user",), body=body)], comments=[comment(park)] + list(extra) + [comment(reply, user)])
@@ -227,16 +227,29 @@ class LoopTest(Base):
         self.run_loop()
         self.assertEqual([i for c, i in self.inputs if c.startswith("issue edit 4 --body-file")], [])
 
+    def test_a_path_the_stops_list_covers_is_never_granted(self):
+        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py", "tests/package.json",
+                     "tests/requirements.txt", "tests/settings.json"):
+            with self.subTest(path=path):
+                park = "## Needs you\n\nMay I change %s?\n\nRecommended: yes\n\n%s" % (path, common.MARKER)
+                self.assertEqual(self.agree("yes", park=park), [])
+
+    def test_a_needs_you_comment_without_the_loop_marker_is_no_park(self):
+        park = self.PARK.replace("\n\n" + common.MARKER, "")
+        self.assertNotIn(common.MARKER, park)
+        self.assertEqual(self.agree("yes", park=park), [])
+        self.assertEqual(self.writes("issue edit 4"), [])  # not even requeued
+
     def test_only_a_park_naming_exactly_one_test_path_and_asking_to_change_it_counts(self):
         for park in ("## Needs you\n\nWhich port?\n\nRecommended: 80",
-                     "## Needs you\n\nMay I change tests/test_x.py and tests/test_y.py?\n\nRecommended: yes",
-                     "## Needs you\n\nMay I change src/app.py?\n\nRecommended: yes",
-                     "## Needs you\n\ntests/test_x.py is slow.\n\nRecommended: wait"):
+                     "## Needs you\n\nMay I change tests/test_x.py and tests/test_y.py?\n\nRecommended: yes\n\n" + common.MARKER,
+                     "## Needs you\n\nMay I change src/app.py?\n\nRecommended: yes\n\n" + common.MARKER,
+                     "## Needs you\n\ntests/test_x.py is slow.\n\nRecommended: wait\n\n" + common.MARKER):
             with self.subTest(park=park):
                 self.assertEqual(self.agree("yes", park=park), [])
 
     def test_no_reply_or_a_stranger_leaves_it_parked(self):
-        park = comment("## Needs you\n\nWhich port?\n\nRecommended: 80")
+        park = comment("## Needs you\n\nWhich port?\n\nRecommended: 80\n\n" + common.MARKER)
         for extra, permission in (([], "write"), ([comment("do it", "stranger")], "read")):
             self.world([issue(4, ("needs-user",))], comments=[park] + extra,
                        permission=permission)
@@ -339,7 +352,7 @@ class LoopTest(Base):
     def test_board_sections_come_from_the_issue_list(self):
         self.world([issue(8), issue(9, body="Depends on: #8"), issue(4, ("needs-user",)),
                     issue(10, ("inbox",)), issue(11, ("shaping",))], comments=[
-            comment("## Needs you\n\nWhich port?\n\nRecommended: 80")])
+            comment("## Needs you\n\nWhich port?\n\nRecommended: 80\n\n" + common.MARKER)])
         st = loop.new_state()
         loop.snapshot(st)
         loop.answer(st)
@@ -505,6 +518,19 @@ class GitTest(Base):
             self.commit("loop/main", "z.txt", "z\n", "Issue 3")
             self.run_loop()
             self.assertEqual(run_pass.call_args[1]["rounds"], 1)
+
+    def test_a_corrupt_pass_file_counts_as_capped_and_a_missing_one_as_zero(self):
+        with self.pass_world() as run_pass:
+            run_pass.return_value = ({"rounds": 1, "issues": []}, "## End-of-loop pass\n")
+            self.run_loop()
+            self.assertEqual(run_pass.call_args[1]["rounds"], 0)  # no file yet
+            for text in ("{not json", "[]", '{"rounds": "two"}'):
+                with open(os.path.join(self.work, ".lite", "pass.json"), "w") as f:
+                    f.write(text)
+                self.commit("loop/main", "z%d.txt" % len(text), "z\n", "Issue 3")
+                self.run_loop()
+                self.assertIsNone(run_pass.call_args[1]["rounds"], text)
+                self.assertIsInstance(json.load(open(os.path.join(self.work, ".lite", "pass.json")))["rounds"], int)
 
     def test_board_says_when_the_defect_rounds_limit_was_reached(self):
         with self.pass_world() as run_pass:

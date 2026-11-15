@@ -273,6 +273,14 @@ class FlowTest(FakeClaudeGh):
         self.merge.assert_not_called()
         self.assertNotIn("lite-tree", common.git(["worktree", "list"], cwd=self.work))
 
+    def test_a_given_failing_test_that_formatting_made_pass_is_caught_by_fails_first(self):
+        # the guard for a formatted `## Failing test`: the fails-first run after the commit
+        formatted = {"files": {"tests/test_given.py": "def test_a():\n    pass\n"}, "reply": "TESTS:\ntests/test_given.py"}
+        self.build_scenario(**{"test-writer": [formatted]})
+        r = self.build()
+        self.assertEqual(r.status, "parked", r.reason)
+        self.assertIn("pass before any code exists", r.reason)
+
     def writer_resumed_then(self, first, second):
         self.build_scenario(**{"test-writer": [first, second]})
         r = self.build()

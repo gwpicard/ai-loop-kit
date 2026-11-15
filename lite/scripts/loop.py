@@ -42,11 +42,18 @@ def take_lock(project):
 
 
 def last_pass(project):
-    try:
-        with open(os.path.join(project, ".lite", "pass.json")) as f:
-            return json.load(f)
-    except (OSError, ValueError):
+    """The last pass report; {} when there is none, {"unreadable": True} when the file is there but cannot be read."""
+    path = os.path.join(project, ".lite", "pass.json")
+    if not os.path.exists(path):
         return {}
+    try:
+        with open(path) as f:
+            last = json.load(f)
+        if isinstance(last, dict) and isinstance(last.get("rounds", 0), int) and not isinstance(last.get("rounds"), bool):
+            return last
+    except (OSError, ValueError):
+        pass
+    return {"unreadable": True}
 
 
 def board_body(sections, last, next_check):
@@ -74,6 +81,7 @@ def write_board(project, st):
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (
         base, common.read_settings(project)["Loop branch"])], cwd=project, check=False)
     p = last_pass(project)
+    p = {} if p.get("unreadable") else p
     body = board_body([
         ("Building now", ["#%d, %s, since %s" % (n, step_of(project, n), since) for n, (since, _) in sorted(b.items())]),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
@@ -104,11 +112,11 @@ def snapshot(st):
     st["closed"] = {i["number"] for i in listing("closed", "number")}
 
 
-def answer(st):
+def answer(st, protected=None):
     for i in [i for i in st["issues"] if "needs-user" in i["labels"]]:
         n = i["number"]
         comments = json.loads(gh(["issue", "view", str(n), "--json", "comments"]))["comments"]
-        parks = [k for k, c in enumerate(comments) if c["body"].startswith("## Needs you")]
+        parks = [k for k, c in enumerate(comments) if c["body"].startswith("## Needs you") and common.MARKER in c["body"]]
         if not parks:
             continue
         st["questions"][n] = (comments[parks[-1]]["body"].splitlines() + ["", ""])[2]
@@ -119,7 +127,7 @@ def answer(st):
             path = parked_test_path(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
             if path and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
-                grant_path(i, path)
+                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"].split(", "))
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -137,9 +145,11 @@ def parked_test_path(park):
     return paths.pop() if len(paths) == 1 and asks else None
 
 
-def grant_path(i, path):
+def grant_path(i, path, protected):
     """Add `path` to the issue's `## Paths the builder may change`."""
     body = i.get("body") or ""
+    if merge.stop_reason(path, protected) or ".." in path.split("/") or path.startswith("/"):
+        return  # a protected path is never granted by a reply
     if path in merge.allowed_paths(body):
         return
     m = re.search(r"^(## Paths the builder may change[^\n]*\n)(.*?)(?=^## |\Z)", body, re.S | re.M | re.I)
@@ -345,11 +355,13 @@ def drain(project, settings, st):
     if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
         say("running the end-of-loop pass")
         try:
-            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base, rounds=last.get("rounds", 0))
+            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base,
+                                          rounds=None if last.get("unreadable") else last.get("rounds", 0))
         except Exception as e:  # the pass never blocks the drain or the pull request
             report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
         last = dict(head=last.get("head") if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
-                    defects=len(report.get("confirmed", [])), rounds=report.get("rounds", last.get("rounds", 0)),
+                    defects=len(report.get("confirmed", [])), rounds=settings["Defect rounds"] if report.get("rounds", 0) is None else report.get(
+                        "rounds", settings["Defect rounds"] if last.get("unreadable") else last.get("rounds", 0)),
                     capped=bool(report.get("capped")),
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
         with open(os.path.join(project, ".lite", "pass.json"), "w") as f:
@@ -411,7 +423,7 @@ def run(project):
                     common.add_label(i["number"], "ready")
                     common.remove_label(i["number"], "building")
                     i["labels"] = (i["labels"] - {"building"}) | {"ready"}
-                answer(st)
+                answer(st, settings["Protected paths"])
                 if settings["Parallel"] == 1:  # one build at a time, in this process
                     number = pick(st)
                     if number:
