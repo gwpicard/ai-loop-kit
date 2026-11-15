@@ -137,7 +137,15 @@ class LoopTest(Base):
         old = os.getcwd()
         os.chdir(self.work)
         self.addCleanup(os.chdir, old)
-        loop.time.sleep.side_effect = lambda s: loop.main(["stop"])
+        asked = []
+
+        def ask_once(seconds):
+            # time.sleep is patched for the whole process: on Linux subprocess.run polls with it
+            # while clean_up runs git, so only the loop's first sleep may ask for the stop
+            if not asked:
+                asked.append(seconds)
+                loop.main(["stop"])
+        loop.time.sleep.side_effect = ask_once
         self.assertEqual(self.run_loop(), 0)
         self.assertIn("stop requested", self.say.call_args_list[-2][0][0])
         self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
