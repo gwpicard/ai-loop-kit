@@ -21,7 +21,7 @@ From the repository root:
 
     tests/run-all.sh
 
-This runs the kit's tests in parallel (`python3 kit/tests/run.py`, about 80
+This runs the kit's tests in parallel (`python3 kit/tests/run.py`, about 100
 seconds) and then the house rules (`sh tests/house-rules.sh`). Both must pass.
 The tests use a fake `gh` and a fake `claude`, so they need no network and no
 account.
@@ -41,6 +41,12 @@ account.
   in line with the guides in `.agents/maintainer-skills/`.
 
 `tests/house-rules.sh` checks the mechanical ones over every tracked file.
+
+## The CI workflow name
+
+The workflow file `.github/workflows/v1-checks.yml` keeps its old name on
+purpose. Renaming it changes the name of the required status check on GitHub,
+so the maintainer decides when to do it.
 
 ## Reporting a vulnerability
 

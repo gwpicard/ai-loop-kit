@@ -14,8 +14,8 @@ The full settings reference is in [kit/README.md](kit/README.md).
 
 ## Install
 
-You need `git`, `gh` signed in to GitHub, Claude Code and `python3` (3.9 or
-later). In Claude Code:
+You need `git`, `gh` signed in to GitHub, Claude Code and `python3`
+(the kit's tests run on 3.13 in CI). In Claude Code:
 
     /plugin marketplace add gwpicard/ai-loop-kit
     /plugin install ai-loop-kit@ai-loop-kit
@@ -68,17 +68,24 @@ the next build.
 
 ## What is guaranteed
 
-By code:
+By code, in `merge.py`, the authoritative line:
 
-- Issues merge into the loop branch only through `merge.py`, after a full
-  test run on the exact commit being merged.
+- Issues merge into the loop branch only through `merge.py`: the reviewed
+  commit, or a conflict-free merge of it, after a full test run on that exact
+  commit.
 - A diff that touches a protected path, a workflow, a lockfile, a settings
   file or an existing test is refused, unless the issue names that path.
-- The builder cannot weaken the tests the test writer committed.
-- The guard hook refuses pushes to the default branch, force pushes,
-  recursive deletes and secrets in writes.
-- Only issues that a collaborator with write access labelled `ready` are built.
 - The loop never merges into the default branch. It opens a pull request.
+- Only issues that a collaborator with write access labelled `ready` are built.
+
+By the guard hook, an early warning that matches the text of a command and can
+be routed around:
+
+- Everywhere: pushes to the default branch, force pushes and recursive
+  deletes are refused.
+- In the loop's sessions: `gh`, `git push`, `git merge`, branch switches and
+  writes to the test writer's tests are also refused.
+- Secrets are checked in content a session writes, not in diffs.
 
 ## What is not guaranteed
 

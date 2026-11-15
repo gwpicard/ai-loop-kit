@@ -21,10 +21,17 @@ The plugin is now named `ai-loop-kit`, with `ai-loop-kit` as the only entry in
 the marketplace. The runtime state folder is `.lite/`, as in the trial; it is
 git-ignored by setup.
 
+Behaviour added while the design was tried on a real project: a fast path
+(`Test files command`, `Prepare command`, two full test runs per issue),
+parallel builds (`Parallel`), a `Session minutes` limit, a cap on defect
+rounds (`Defect rounds`) and a `Simplify and reconcile` job in the
+end-of-loop pass.
+
 Moving from 1.x:
 
-1. Install 2.0.0: `/plugin marketplace add gwpicard/ai-loop-kit`, then
-   `/plugin install ai-loop-kit@ai-loop-kit`, and remove the old plugin.
+1. Remove `ai-loop-kit-extras`, and update `ai-loop-kit` to 2.0.0 (or
+   install it with `/plugin marketplace add gwpicard/ai-loop-kit` and
+   `/plugin install ai-loop-kit@ai-loop-kit`).
 2. Put `## Loop` with a `Test command:` line in the project's `AGENTS.md`
    (version 1 settings such as `Base branch` and `Keep limit` are ignored)
    and run setup.

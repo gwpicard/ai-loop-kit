@@ -48,7 +48,7 @@ it. Keep the kit small enough to read in one sitting.
 
 - `tests/run-all.sh`: run every check (the kit's tests in parallel, then the
   house rules).
-- `python3 kit/tests/run.py`: run only the kit's tests, about 80 seconds.
+- `python3 kit/tests/run.py`: run only the kit's tests, about 100 seconds.
 - `sh tests/house-rules.sh`: check the house rules over every tracked file.
 
 In a fresh clone, the person runs `git config core.hooksPath .githooks` once.

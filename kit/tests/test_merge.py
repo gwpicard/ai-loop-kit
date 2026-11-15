@@ -207,7 +207,7 @@ class MergeTest(FakeGh):
         self.assert_parked(sha, "locked test modified", issue)
 
     def rewritten_tests(self, after):
-        """The issue 34 sequence: tests committed, rewritten by the writer, then (maybe) changed by the builder."""
+        """The sequence: tests committed, rewritten by the writer, then (maybe) changed by the builder."""
         run_git(["checkout", "-b", "issue/1", "main"], self.work)
         shas = []
         for text in ("first\n", "rewritten\n") + ((after,) if after else ()):

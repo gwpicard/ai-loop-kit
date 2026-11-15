@@ -13,9 +13,9 @@ The loop never asks for input. It parks an issue only for a decision that
 
 ## Install
 
-You need `git`, `gh` signed in to GitHub, Claude Code and `python3` (3.9 or
-later). Add this repository as a plugin marketplace in Claude Code, then
-install the `ai-loop-kit` plugin from it:
+You need `git`, `gh` signed in to GitHub, Claude Code and `python3`
+(the kit's tests run on 3.13 in CI). Add this repository as a plugin
+marketplace in Claude Code, then install the `ai-loop-kit` plugin from it:
 
     /plugin marketplace add gwpicard/ai-loop-kit
     /plugin install ai-loop-kit@ai-loop-kit
@@ -42,24 +42,29 @@ Test command run is slow), `Test files command`, `Prepare command`,
 the Test command stands in. `Prepare command` installs what a fresh checkout
 needs (for example `npm ci`); the loop runs it once in each worktree and in
 every fresh checkout, before any test run, so the Test command need not
-embed it. `Check command` is the project's guardrails (lint baseline, size
-budgets, architecture tests). It runs after every Test command run, and a
-failure counts like a test failure. `Smoke command` uses the real built
-artefact, such as the CLI on real input; only the end-of-loop pass runs it.
-Setup reports those that are set; none is required.
+embed it.
+
+`Check command` is the project's guardrails (lint baseline, size budgets,
+architecture tests). It runs after every Test command run, and a failure
+counts like a test failure. `Smoke command` uses the real built artefact,
+such as the CLI on real input; only the end-of-loop pass runs it. Setup
+reports those that are set; none is required.
 
 `Parallel: N` lets the loop run up to N builds at once. The default, 1,
-builds one issue at a time inside the loop process, as before. With more,
-each build is a separate process in its own worktree, so a crash or a hang in
-one cannot stop the loop or the others. The loop starts a build only for a
-`ready`, trusted issue whose dependencies are closed, labels it `building`
-first, and starts another only while the machine has headroom: load average
-below the CPU count and, on macOS, more than about 1.5 GB of free plus inactive
-memory. It says why when it waits. Merges into the loop branch queue behind one
-lock (`.lite/merge.lock`): an issue catches up with the loop branch, then
-merges, and a branch that conflicts goes back to its builder. The board lists
-every running build with its step. A stop request starts no new build and lets
-running builds finish their issue. Each build process writes its log to
+builds one issue at a time inside the loop process. With more, each build is a
+separate process in its own worktree, so a crash or a hang in one cannot stop
+the loop or the others.
+
+The loop starts a build only for a `ready`, trusted issue whose dependencies
+are closed, labels it `building` first, and starts another only while the
+machine has headroom: load average below the CPU count and, on macOS, more
+than about 1.5 GB of free plus inactive memory. It says why when it waits.
+
+Merges into the loop branch queue behind one lock (`.lite/merge.lock`): an
+issue catches up with the loop branch, then merges, and a branch that
+conflicts goes back to its builder. The board lists every running build with
+its step. A stop request starts no new build and lets running builds finish
+their issue. Each build process writes its log to
 `.lite/logs/build-<issue>.log`.
 
 A park that names exactly one test path and asks whether to change it needs
@@ -70,16 +75,20 @@ write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
 
-A slow Test command no longer runs six or eight times per issue. Per issue it
-runs in full twice: once in the Stop hook when the builder finishes, and once
-in `merge.py`'s fresh checkout of the reviewed commit. Everything between is
-targeted. The tests are proven to fail with the Test files command, by
-assertion, on the locked files only. The builder runs the Test files command
-while it works. After the builder or a fix pass, the loop reuses the Stop
-hook's pass if it was for the very commit now at the head, and runs the full
-commands only when it was not. The reviewer is given that result and runs only
-targeted checks. There is no per-issue simplify step: the end-of-loop pass
-simplifies the whole batch once.
+Per issue, the Test command runs in full twice: once in the Stop hook when
+the builder finishes, and once in `merge.py`'s fresh checkout of the reviewed
+commit. Everything between is targeted.
+
+The tests are proven to fail with the Test files command, by assertion, on
+the locked files only. The builder runs the Test files command while it works.
+After the builder or a fix pass, the loop reuses the Stop hook's pass if it
+was for the very commit now at the head, and runs the full commands only when
+it was not.
+
+The reviewer is given that result and runs only targeted checks. There is no
+per-issue simplify step: the end-of-loop pass simplifies the whole batch once.
+
+## Set up with the script
 
 Ask Claude to set up the loop, or run `python3 <plugin>/scripts/setup.py` from
 the project root. It creates the labels, the loop branch, a pinned `Factory`
@@ -150,19 +159,23 @@ A confirmed defect becomes an issue with a `## Failing test` section. It is
 labelled `ready` only if a paragraph under `## Standing approvals` in
 `PLAN.md` says positively that a confirmed defect may be queued as ready,
 with no negation such as not, never, no or unless; anything unclear fails
-closed to `inbox`. `Defect rounds` caps how often this happens: a round is one
-pass that queued at least one confirmed defect as `ready`, counted since the
-last merge of an issue the person queued (the loop's own issues carry its
-marker in the body). At the limit, confirmed defects are filed as `inbox`, still
-with their failing tests, and the report and the board say so. A finding that touches an open `inbox` or `needs-user`
-decision is held, never queued. Every other finding, guardrail and lesson goes
-into one `inbox` issue, a checkbox each; an open `Pass findings` issue gets
-only what it lacks, as a comment. Lessons reach `PLAN.md`
-through an issue, never a direct commit. The report goes into the pull
-request body. A pass that fails is noted there and never blocks it. The board
-shows a `Last pass` section; `.lite/pass.json` remembers it. After a pass
-without errors nothing reruns until new merges arrive; after one with errors
-the next drain tries again.
+closed to `inbox`.
+
+`Defect rounds` caps how often this happens: a round is one pass that queued
+at least one confirmed defect as `ready`, counted since the last merge of an
+issue the person queued (the loop's own issues carry its marker in the body).
+At the limit, confirmed defects are filed as `inbox`, still with their
+failing tests, and the report and the board say so.
+
+A finding that touches an open `inbox` or `needs-user` decision is held,
+never queued. Every other finding, guardrail and lesson goes into one `inbox`
+issue, a checkbox each; an open `Pass findings` issue gets only what it lacks,
+as a comment. Lessons reach `PLAN.md` through an issue, never a direct commit.
+
+The report goes into the pull request body. A pass that fails is noted there
+and never blocks it. The board shows a `Last pass` section, and
+`.lite/pass.json` remembers it. After a pass without errors nothing reruns
+until new merges arrive; after one with errors the next drain tries again.
 
 ## What the loop may leave behind
 
@@ -176,6 +189,8 @@ the worktrees and issue branches left. Outside services are on the stops list.
 
 ## What is guaranteed by code
 
+`merge.py` is the authoritative line.
+
 - Issue branches merge into the loop branch only through `merge.py`. It
   merges the reviewed commit, or a conflict-free merge of it with the current
   loop branch, tested in full on that exact commit (Prepare, Test, Check on a
@@ -184,12 +199,21 @@ the worktrees and issue branches left. Outside services are on the stops list.
   package manifest, a settings file, or an existing test, unless the issue
   lists it in its `## Paths the builder may change` section; a path named
   elsewhere grants nothing. The test writer's tests are locked the same way.
-- The guard hook refuses pushes to the default branch, force pushes,
-  recursive deletes and secrets in writes, in the loop's own sessions
-  (through `--settings`) and wherever the plugin is enabled.
 - An issue is built only if a collaborator with write access added `ready`.
 - The loop never merges into the default branch; it only opens a pull
   request. Branch protection is what stops any other path.
+
+The guard hook is an early warning that matches the text of a command, so it
+can be routed around. It is registered for the loop's own sessions (through
+`--settings`) and wherever the plugin is enabled.
+
+- Everywhere: it refuses pushes to the default branch, force pushes and
+  recursive deletes.
+- In the loop's sessions only: it also refuses `gh`, `git push`, `git merge`,
+  branch switches and checkouts, and writes to the test writer's locked
+  tests or to tracked test files.
+- Secrets are checked in content a session writes with its file tools, not in
+  diffs or shell commands.
 
 ## What is guaranteed by instruction to the model
 
