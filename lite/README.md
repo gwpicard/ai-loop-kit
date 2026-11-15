@@ -31,7 +31,7 @@ Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
-`Check command` and `Smoke command`.
+`Check command`, `Smoke command` and `Parallel` (default 1).
 
 `Test files command` is the fast path: it runs only some test files, with
 `{files}` replaced by their paths (for example `pytest {files}`). Without it,
@@ -43,6 +43,20 @@ budgets, architecture tests). It runs after every Test command run, and a
 failure counts like a test failure. `Smoke command` uses the real built
 artefact, such as the CLI on real input; only the end-of-loop pass runs it.
 Setup reports those that are set; none is required.
+
+`Parallel: N` lets the loop run up to N builds at once. The default, 1,
+builds one issue at a time inside the loop process, as before. With more,
+each build is a separate process in its own worktree, so a crash or a hang in
+one cannot stop the loop or the others. The loop starts a build only for a
+`ready`, trusted issue whose dependencies are closed, labels it `building`
+first, and starts another only while the machine has headroom: load average
+below the CPU count and, on macOS, more than about 1.5 GB of free plus inactive
+memory. It says why when it waits. Merges into the loop branch queue behind one
+lock (`.lite/merge.lock`): an issue catches up with the loop branch, then
+merges, and a branch that conflicts goes back to its builder. The board lists
+every running build with its step. A stop request starts no new build and lets
+running builds finish their issue. Each build process writes its log to
+`.lite/logs/build-<issue>.log`.
 
 ## The fast path
 

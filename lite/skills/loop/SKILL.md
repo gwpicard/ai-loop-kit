@@ -17,9 +17,13 @@ Run `python3 <plugin>/scripts/setup.py` from the project root. If it prints
 `refused:`, do the `next:` step. If it adds `.lite/` to `.gitignore`, tell
 the person to commit that line. If the preflight fails, report it and stop.
 Setup also reports the optional `Test files command`, `Prepare command`,
-`Check command` and `Smoke command` that are set. If the Test command is slow
+`Check command` and `Smoke command` that are set, and `Parallel` (builds at once, default 1). If the Test command is slow
 (minutes), suggest a `Test files command` (targeted runs) and a `Prepare
-command` (install steps), which keep it to two full runs per issue. If no
+command` (install steps), which keep it to two full runs per issue. If the
+project has many independent issues and a machine with spare CPU and memory,
+suggest `Parallel: 3`; the loop then runs builds as separate processes, queues
+their merges, and says on the board and in `.lite/loop.out` when it waits for
+headroom. If no
 `Smoke command` is set, mention that the end-of-loop pass can run a smoke
 check only when one is in `AGENTS.md`.
 

@@ -25,6 +25,31 @@ Stop hook, after simplify, reviewer, merge). Now it runs twice.
   A Stop hook command lives in its own process group, listed in
   `LITE_GROUPS`, so the loop kills it with the session.
 
+## What changed in the third build: parallel builds
+
+Setting `Parallel: N` (default 1).
+
+- With 1, the loop builds in its own process, exactly as before. With more,
+  each build is `scripts/worker.py`, a separate process that runs the same
+  crash-retry-park function for one issue and leaves its result in
+  `.lite/builds/<issue>.result`. The supervisor (one loop, one lock) polls the
+  processes. A process that ends with no result died: the issue is queued once
+  more, then parked, like a crash today.
+- Claim: the `building` label goes on before the process starts. A new build
+  starts while fewer than N run, an eligible issue exists and the machine has
+  headroom (load average below the CPU count; on macOS, free plus inactive
+  memory above 1.5 GB). The first build always starts. Each deferral is logged
+  once per reason.
+- Merge queue: `.lite/merge.lock` (an advisory file lock, freed when its
+  holder dies) is held across "merge the loop branch into the issue branch,
+  then `merge.merge`". A clean catch-up is pushed and the verdict's HEAD
+  follows it; conflicts leave the merge open and return the issue to its
+  builder for a fix round. If the merge is refused and the loop branch moved,
+  the lock is released, the catch-up runs once more, and the merge is retried.
+- The board reads each running build's step from `.lite/builds/<issue>.step`.
+- Stop: no new build starts and running builds finish their issue. Worktree,
+  process group and Docker cleanup stay with each build.
+
 ## What changed in the second build (14 November 2026)
 
 The first build merged issues; this one makes each merge more reliable and
