@@ -115,24 +115,29 @@ def check_diff(project, base, sha, protected, allowed, locked):
     return None
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None):
-    """Run the Test command, then the Check command, in a fresh detached worktree
-    at sha. overlay=(folder, paths) first copies those files in. Return None
-    or a reason."""
+def run_in(name, command, tree, label, tail=1, tails=None):
+    """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`."""
+    code, out = common.run_shell(command, tree, TEST_TIMEOUT)
+    if code is None:
+        return "the %s command timed out on %s" % (name, label)
+    if code != 0:
+        return "the %s command failed on %s: %s" % (name, label, "\n".join(out.strip().splitlines()[-tail:]))
+    if tails is not None:
+        tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
+
+
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None):
+    """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
+    at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
+    `tails` collects the last line of each passing Test and Check command."""
     with common.scratch_tree(project, sha) as tree:
         for path in overlay[1] if overlay else ():
             if os.path.isfile(os.path.join(overlay[0], path)):
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
-        for name, cmd in (("Test", command), ("Check", check)):
-            if not cmd:
-                continue
-            code, out = common.run_shell(cmd, tree, TEST_TIMEOUT)
-            if code is None:
-                return "the %s command timed out on %s" % (name, sha[:10])
-            if code != 0:
-                last = "\n".join(out.strip().splitlines()[-tail:])
-                return "the %s command failed on %s: %s" % (name, sha[:10], last)
+        for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
+            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None)):
+                return failure
         return None
 
 
@@ -167,7 +172,7 @@ def _merge(issue, branch, verdict_text, project):
         return _refuse("the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
     if failure := run_tests(project, sha, settings["Test command"],
-                            check=settings["Check command"]):
+                            check=settings["Check command"], prepare=settings["Prepare command"]):
         return _refuse(failure)
     info = view("issue", issue, "body,comments")
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],

@@ -1,8 +1,9 @@
-"""Build one issue end to end: tests, code, simplify, review, merge."""
+"""Build one issue end to end: tests, code, review, merge."""
 import collections
 import json
 import os
 import re
+import time
 
 import common
 import merge
@@ -105,6 +106,8 @@ def prompt_for(role, number, info, tree, settings, replies, report=None):
     text += ("\n\n# Issue %s: %s\n\n%s\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n"
              % (number, info["title"], info.get("body") or "", os.path.join(tree, "PLAN.md"),
                 settings["Loop branch"], settings["Test command"]))
+    if settings["Test files command"]:
+        text += "Test files command: %s\n" % settings["Test files command"]
     if replies:
         text += "\nThe person's replies to an earlier park:\n" + "\n---\n".join(replies) + "\n"
     if report:
@@ -127,8 +130,12 @@ def build(issue, project, replies=()):
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
         git(["worktree", "remove", "--force", tree], cwd=project, check=False)
         git(["worktree", "prune"], cwd=project, check=False)
+        if os.path.lexists(tree):  # not a worktree of this repository: keep it, out of the way
+            os.rename(tree, "%s.stale-%s" % (tree, time.strftime("%Y%m%d-%H%M%S")))
         git(["worktree", "add", "-B", branch, tree,
              "origin/" + (branch if remote else loop)], cwd=project)
+        if settings["Prepare command"] and (why := merge.run_in("Prepare", settings["Prepare command"], tree, "the worktree", 20)):
+            raise common.LoopError(why)
         conflicts = []
         if remote:  # the reused branch lacks what the loop branch gained since
             try:
@@ -187,10 +194,13 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_file(p)
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
-            elif merge.run_tests(project, start, settings["Test command"], overlay=(tree, locked)):
-                break
-            else:
+            elif not (failed := merge.run_tests(project, start, common.files_command(settings, locked), 60,
+                                                overlay=(tree, locked), prepare=settings["Prepare command"])):
                 why = "Your tests pass before any code exists. Make them fail for the right reason."
+            elif re.search(r"SyntaxError|IndentationError", failed):
+                why = "Your tests fail with a syntax error, not by assertion. Make them fail by assertion."
+            else:
+                break
             if attempt == 2:
                 raise Parked("The tests are not usable: " + why[0].lower() + why[1:],
                              "Reply with what the tests should check, or close the issue.")
@@ -206,17 +216,20 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         if feedback:
             common.event("step", project, issue=issue, step="fix", round=rnd)
             report, sid = ask("builder", settings["Builder model"], resume=sid,
-                              extra="\n\nFix these, run the Test command, commit:\n"
-                              + feedback, locked=locked)
-        ask("simplify", settings["Builder model"], locked=locked)
-        head = git(["rev-parse", "HEAD"], cwd=tree)
-        feedback = merge.run_tests(project, head, settings["Test command"], 80,
-                                   check=settings["Check command"])
-        if feedback:
-            continue
+                              extra="\n\nFix these, test the files you touch, commit. The Stop hook runs the "
+                              "full commands when you finish:\n" + feedback, locked=locked)
+        head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
+        passed = common.read_passed(project, sid)  # the Stop hook's pass for this very commit stands
+        if passed[0] == head:
+            tails = passed[1]
+        else:
+            feedback = merge.run_tests(project, head, settings["Test command"], 80, check=settings["Check command"],
+                                       prepare=settings["Prepare command"], tails=tails)
+            if feedback:
+                continue
         common.event("step", project, issue=issue, step="review", round=rnd)
-        review, _ = ask("reviewer", settings["Reviewer model"], report=report,
-                        locked=locked)
+        review, _ = ask("reviewer", settings["Reviewer model"], report=report, locked=locked,
+                        extra="\nLatest test result: passed on this commit.\n" + "\n".join(tails) + "\n")
         verdict, _ = merge.parse_verdict(review)
         try:  # the person can follow the fix rounds; a failure to post never stops the build
             post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))

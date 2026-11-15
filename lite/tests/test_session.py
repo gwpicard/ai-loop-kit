@@ -129,6 +129,23 @@ class SessionTest(FakeClaudeGh):
         with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
             self.assertRegex(f.read(), "--- cleanup: left running, killed: %d .*sleep 300" % pid)
 
+    def test_a_hook_command_in_its_own_group_is_killed_with_the_session(self):
+        self.claude({"builder": [{"hooked": True, "reply": "done"}]})
+        self.assertEqual(self.run_session()[0], "done")
+        with open(self.claude_path + ".pid") as f:
+            pid = int(f.read())
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(pid, 9)
+            self.fail("the hook's command is still alive")
+        with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
+            self.assertRegex(f.read(), "--- cleanup: left running, killed: %d .*sleep 300" % pid)
+
     def fake_docker(self, sessions, **ids):
         folder = os.path.join(self.tmp, "docker")
         os.makedirs(folder)

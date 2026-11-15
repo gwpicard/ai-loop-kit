@@ -71,7 +71,7 @@ class FlowTest(FakeClaudeGh):
         r = self.build(["Use the env var."])
         self.assertEqual(r, flow.Result("merged", "merged as abc"))
         calls = self.claude_calls()
-        self.assertEqual(roles(calls), ["test-writer", "builder", "simplify", "reviewer"])
+        self.assertEqual(roles(calls), ["test-writer", "builder", "reviewer"])
         builder = calls[1]
         self.assertEqual(builder["env"]["LITE_LOCKED"], "tests/test_new.py")
         self.assertIn("Add it", builder["prompt"])
@@ -80,8 +80,8 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("Use the env var.", builder["prompt"])
         self.assertIn("Work autonomously", builder["prompt"])
         self.assertIn("Test command: seq 1 100; test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }", builder["prompt"])
-        self.assertIn("The builder's last report", calls[3]["prompt"])
-        self.assertIn("git diff origin/loop/main...HEAD", calls[3]["prompt"].replace(
+        self.assertIn("The builder's last report", calls[2]["prompt"])
+        self.assertIn("git diff origin/loop/main...HEAD", calls[2]["prompt"].replace(
             "<loop branch>", "loop/main"))
         self.assertTrue(any(c[:2] == ["issue", "comment"] for c in self.calls()))
         self.merge.assert_called_once()
@@ -95,21 +95,20 @@ class FlowTest(FakeClaudeGh):
             {"files": {"app.py": "1\n"}}, {"files": {"app.py": "2\n"}}])
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
-        self.assertEqual(roles(calls), ["test-writer", "builder", "simplify", "reviewer",
-                                        "builder", "simplify", "reviewer"])
-        fix = calls[4]
+        self.assertEqual(roles(calls), ["test-writer", "builder", "reviewer",
+                                        "builder", "reviewer"])
+        fix = calls[3]
         self.assertIn("--resume", fix["argv"])
         self.assertIn("Handle the empty case", fix["prompt"])
-        self.assertNotIn("--resume", calls[6]["argv"])
+        self.assertNotIn("--resume", calls[4]["argv"])
 
     def test_failing_test_command_resumes_builder(self):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "FAIL": "x\n"}}, {"remove": ["FAIL"]}])
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
-        self.assertEqual(roles(calls), ["test-writer", "builder", "simplify", "builder",
-                                        "simplify", "reviewer"])
-        self.assertIn("--resume", calls[3]["argv"])
-        tail = calls[3]["prompt"]
+        self.assertEqual(roles(calls), ["test-writer", "builder", "builder", "reviewer"])
+        self.assertIn("--resume", calls[2]["argv"])
+        tail = calls[2]["prompt"]
         self.assertIn("Test command failed", tail)
         self.assertIn(": 21\n", tail)
         self.assertIn("\n100", tail)
@@ -138,7 +137,7 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario()
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
-        self.assertIn("head moved", calls[4]["prompt"])
+        self.assertIn("head moved", calls[3]["prompt"])
         self.assertEqual(roles(calls).count("reviewer"), 2)
 
     def test_stop_line_from_a_session_parks(self):
@@ -228,7 +227,7 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario()
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
-        self.assertEqual(roles(calls), ["builder", "simplify", "reviewer"])
+        self.assertEqual(roles(calls), ["builder", "reviewer"])
         self.assertEqual(calls[0]["env"]["LITE_LOCKED"], "tests/test_new.py")
 
     def test_a_worktree_left_by_a_crash_does_not_block(self):
@@ -344,9 +343,9 @@ class FlowTest(FakeClaudeGh):
                                      {"remove": ["BAD"]}])
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
-        self.assertEqual(roles(calls)[3], "builder")
-        self.assertIn("--resume", calls[3]["argv"])
-        self.assertIn("Check command failed", calls[3]["prompt"])
+        self.assertEqual(roles(calls)[2], "builder")
+        self.assertIn("--resume", calls[2]["argv"])
+        self.assertIn("Check command failed", calls[2]["prompt"])
 
     BUILT = {"files": {"app.py": "1\n"}, "reply": "Done.\n\nBUILT:\nAdded app.py.\n\nIt greets "
              "the user.\n\nDEVIATIONS:\nUsed a plain file."}
@@ -469,6 +468,129 @@ class FlowTest(FakeClaudeGh):
 
     def test_any_error_in_the_note_is_logged_not_raised(self):
         self.failed_note(KeyError("title"))
+
+    def fast(self, **lines):
+        """Rewrite the settings of the project the build reads; markers go to files in tmp."""
+        text = "## Loop\nLoop branch: loop/main\nMax rounds: 3\n" + "".join(
+            "%s: %s\n" % (k.replace("_", " "), v.replace("TMP", self.tmp)) for k, v in lines.items())
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write(text)
+
+    def runs(self, name):
+        try:
+            with open(os.path.join(self.tmp, name + ".log")) as f:
+                return f.read().split("\n")[:-1]
+        except OSError:
+            return []
+
+    FULL = "echo full >> TMP/full.log; test -f app.py"
+    FILES = "echo {files} >> TMP/files.log; test -f app.py"
+    PASSED = {"files": {"app.py": "1\n"}, "passed": True}
+
+    def test_fails_first_runs_only_the_locked_files_with_the_test_files_command(self):
+        self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
+        self.build_scenario(builder=[self.PASSED])
+        self.assertEqual(self.build().status, "merged")
+        self.assertEqual(self.runs("files"), ["tests/test_new.py"])
+        self.assertEqual(self.runs("full"), [])
+
+    def test_fails_first_falls_back_to_the_test_command(self):
+        self.fast(Test_command=self.FULL)
+        self.build_scenario(builder=[self.PASSED])
+        self.assertEqual(self.build().status, "merged")
+        self.assertEqual(self.runs("full"), ["full"])
+
+    def test_tests_that_fail_by_a_syntax_error_are_not_failing_by_assertion(self):
+        self.fast(Test_command="true", Test_files_command="echo 'SyntaxError: invalid syntax'; exit 1")
+        self.build_scenario()
+        r = self.build()
+        self.assertEqual(r.status, "parked", r.reason)
+        self.assertIn("by assertion", r.reason)
+        self.assertEqual(roles(self.claude_calls()), ["test-writer", "test-writer"])
+
+    def test_the_full_command_runs_after_the_builder_only_when_the_stop_hook_did_not_pass_the_head(self):
+        self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
+        self.build_scenario(builder=[{"files": {"app.py": "1\n"}}])
+        self.assertEqual(self.build().status, "merged")
+        self.assertEqual(self.runs("full"), ["full"])
+        self.assertEqual(roles(self.claude_calls()), ["test-writer", "builder", "reviewer"])
+
+    def fix_pass(self, extra):
+        self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
+        self.build_scenario(reviewer=[CHANGES, APPROVE],
+                            builder=[self.PASSED, dict({"files": {"app.py": "2\n"}}, **extra)])
+        self.assertEqual(self.build().status, "merged")
+        return self.runs("full")
+
+    def test_a_fix_pass_the_hook_passed_is_not_run_again(self):
+        self.assertEqual(self.fix_pass({"passed": True}), [])
+
+    def test_a_fix_pass_the_hook_did_not_pass_runs_the_full_command(self):
+        self.assertEqual(self.fix_pass({}), ["full"])
+
+    def test_a_failure_found_by_the_flow_goes_back_to_the_builder_with_its_tail(self):
+        self.fast(Test_command=self.FULL + " && test ! -f FAIL")
+        self.build_scenario(builder=[{"files": {"app.py": "1\n", "FAIL": "x\n"}}, {"remove": ["FAIL"]}])
+        self.assertEqual(self.build().status, "merged")
+        self.assertIn("Test command failed", self.claude_calls()[2]["prompt"])
+
+    def test_the_reviewer_gets_the_latest_result_and_the_test_files_command(self):
+        self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
+        self.build_scenario(builder=[self.PASSED])
+        self.build()
+        prompt = self.claude_calls()[-1]["prompt"]
+        self.assertIn("Latest test result: passed on this commit.", prompt)
+        self.assertIn("all passed", prompt)
+        self.assertIn("Test files command: echo {files}", prompt)
+        brief = Path(flow.BRIEFS, "reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("do not run the full Test command", brief)
+        self.assertNotIn("Run the Test command and your own checks", brief)
+
+    def test_the_reviewer_sees_the_tail_when_the_flow_ran_the_tests(self):
+        self.fast(Test_command="echo full >> TMP/full.log; test -f app.py && echo ran-fine", Test_files_command=self.FILES)
+        self.build_scenario(builder=[{"files": {"app.py": "1\n"}}])
+        self.build()
+        self.assertIn("Test command passed: ran-fine", self.claude_calls()[-1]["prompt"])
+
+    def test_the_builder_is_told_to_test_the_files_it_touches_and_leave_the_full_run_to_the_hook(self):
+        self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
+        self.build_scenario(builder=[self.PASSED])
+        self.build()
+        prompt = self.claude_calls()[1]["prompt"]
+        self.assertIn("Test files command: echo {files}", prompt)
+        brief = Path(flow.BRIEFS, "builder.md").read_text(encoding="utf-8")
+        for text in ("Test files command", "Stop hook runs the full"):
+            self.assertIn(text, brief)
+
+    def test_simplify_is_not_a_brief_any_more(self):
+        self.assertFalse(Path(flow.BRIEFS, "simplify.md").exists())
+
+    def test_prepare_runs_in_the_new_worktree(self):
+        self.fast(Test_command=self.FULL, Prepare_command='echo "$PWD" >> TMP/prep.log')
+        self.build_scenario(builder=[self.PASSED])
+        self.assertEqual(self.build().status, "merged")
+        prepared = self.runs("prep")
+        self.assertTrue(prepared[0].endswith(".lite-worktrees/work-7"), prepared)
+
+    def test_a_failing_prepare_command_fails_the_build(self):
+        self.fast(Test_command="true", Prepare_command="echo no deps; exit 4")
+        self.build_scenario()
+        r = self.build()
+        self.assertEqual(r.status, "failed")
+        self.assertIn("Prepare command failed", r.reason)
+        self.assertEqual(self.claude_calls(), [])
+
+    def test_a_folder_that_is_not_a_worktree_is_renamed_aside_never_deleted(self):
+        tree = os.path.join(self.tmp, ".lite-worktrees", "work-7")
+        os.makedirs(tree)
+        with open(os.path.join(tree, "keep.txt"), "w") as f:
+            f.write("mine\n")
+        self.build_scenario()
+        self.assertEqual(self.build().status, "merged")
+        aside = [n for n in os.listdir(os.path.dirname(tree)) if n.startswith("work-7.stale-")]
+        self.assertEqual(len(aside), 1)
+        with open(os.path.join(os.path.dirname(tree), aside[0], "keep.txt")) as f:
+            self.assertEqual(f.read(), "mine\n")
 
     def test_parse_tests(self):
         self.assertEqual(flow.parse_block("a\nTESTS:\n- t/a.py\n`t/b.py`\n\nbye"),

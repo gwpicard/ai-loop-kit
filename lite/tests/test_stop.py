@@ -110,6 +110,25 @@ class StopHookTest(unittest.TestCase):
         self.assertIsNone(self.stop("builder"))
         self.assertEqual(runs(), 4)
 
+    def test_a_pass_records_the_head_and_the_tail_of_the_output(self):
+        self.assertIsNone(self.stop("builder"))
+        with open(os.path.join(self.work, ".lite", "passed-s1")) as f:
+            head, *tail = f.read().splitlines()
+        self.assertEqual(head, self.start)
+        self.assertIn("Test command passed: 100", tail)
+
+    def test_a_command_is_recorded_while_it_runs_so_the_session_can_kill_it(self):
+        sys.path.insert(0, os.path.dirname(STOP))
+        import stop
+        record = os.path.join(self.work, "groups")
+        with mock.patch.dict(os.environ, {"LITE_GROUPS": record}):
+            code, _ = stop.run("sleep 0.3; cat %s > %s; echo done" % (record, os.path.join(self.work, "during")), self.work)
+        self.assertEqual(code, 0)
+        with open(os.path.join(self.work, "during")) as f:
+            self.assertTrue(f.read().strip().isdigit())
+        with open(record) as f:
+            self.assertEqual(f.read().strip(), "")
+
     def test_an_error_allows_the_stop(self):
         self.touch("FAIL")
         self.assertIsNone(self.stop("builder", LITE_PROJECT=os.path.join(self.work, "nowhere")))

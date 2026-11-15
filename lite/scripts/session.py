@@ -64,6 +64,16 @@ def reap(pgid):
     return left
 
 
+def reap_groups(path):
+    """Kill the process groups a Stop hook listed in `path` and still left running; return a line per process."""
+    try:
+        with open(path) as f:
+            groups = [int(g) for g in f.read().split()]
+    except (OSError, ValueError):
+        return []
+    return [line for g in groups if g > 1 and g != os.getpgrp() for line in reap(g)]
+
+
 def _wait_seconds(text):
     """Seconds until the reset named in a usage-limit message, else 30 minutes."""
     m = re.search(r"\|\s*(\d{9,11})\b", text)
@@ -73,6 +83,9 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before = docker_state()
+    handle, groups = tempfile.mkstemp(prefix="lite-groups-")
+    os.close(handle)
+    env = dict(env, LITE_GROUPS=groups)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
         fin.write(prompt)
@@ -84,7 +97,9 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
             problem = None
         except subprocess.TimeoutExpired:
             problem = "%s session timed out after %g minutes" % (role, limit / 60)
-        left = reap(p.pid)
+        left = reap(p.pid) + reap_groups(groups)
+        with contextlib.suppress(OSError):
+            os.remove(groups)
         p.wait()
         out, err = (f.seek(0) or f.read() for f in (fout, ferr))
     swept = sweep(before, cwd)

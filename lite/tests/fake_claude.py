@@ -3,7 +3,10 @@
 A step is {"files": {path: text}, "remove": [paths], "reply": text (with
 {HEAD} replaced by the git head), "session_id", "limit": message, "error":
 text, "crash": true, "sleep": seconds, "spawn": true (leave a `sleep` running
-holding the session's stdout, its pid in <scenario>.pid)}. The nth call of a role uses step n;
+holding the session's stdout, its pid in <scenario>.pid), "passed": true (record
+the head as the Stop hook would, with the tail "all passed"), "hooked": true
+(leave a `sleep` in a group of its own, listed in LITE_GROUPS as a Stop hook's
+command is)}. The nth call of a role uses step n;
 the last step repeats. Files and removals are committed.
 """
 import json
@@ -32,6 +35,10 @@ if step.get("crash"):
     sys.exit(1)
 if step.get("spawn"):  # a child that outlives the session, in its process group
     open(path + ".pid", "w").write(str(subprocess.Popen(["sleep", "300"]).pid))
+if step.get("hooked"):
+    child = subprocess.Popen(["sleep", "300"], start_new_session=True)
+    open(path + ".pid", "w").write(str(child.pid))
+    open(os.environ["LITE_GROUPS"], "a").write(str(child.pid) + "\\n")
 for name, text in step.get("files", {}).items():
     os.makedirs(os.path.dirname(os.path.abspath(name)), exist_ok=True)
     open(name, "w").write(text)
@@ -41,10 +48,15 @@ if step.get("files") or step.get("remove"):
     subprocess.run(["git", "add", "-A"], check=True)
     subprocess.run(["git", "commit", "-qm", role], capture_output=True)
 head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+sid = step.get("session_id", "sess-" + role)
+if step.get("passed"):
+    folder = os.path.join(os.environ["LITE_PROJECT"], ".lite")
+    os.makedirs(folder, exist_ok=True)
+    open(os.path.join(folder, "passed-" + sid), "w").write(head + "\\nall passed\\n")
 reply = step.get("limit") or step.get("error") or step.get("reply", "ok")
 print(json.dumps({"type": "result", "is_error": bool(step.get("limit") or step.get("error")),
                   "result": reply.replace("{HEAD}", head),
-                  "session_id": step.get("session_id", "sess-" + role)}))
+                  "session_id": sid}))
 sys.exit(1 if step.get("limit") else 0)
 '''
 

@@ -372,6 +372,35 @@ class MergeTest(FakeGh):
         self.assertFalse(r.ok)
         self.assertIn("timed out", r.reason)
 
+    def test_prepare_runs_once_before_one_full_run_on_the_exact_commit(self):
+        sha = self.good()
+        log = os.path.join(self.tmp, "runs.log")
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write("## Loop\nPrepare command: echo prepare >> %s\nTest command: echo test >> %s\n"
+                    "Check command: echo check >> %s\nTest files command: echo files >> %s\n"
+                    "Loop branch: loop/main\n" % ((log,) * 4))
+        self.rules(sha, [None, "OPEN", "MERGED"])
+        self.assertTrue(self.run_merge(sha).ok)
+        with open(log) as f:
+            self.assertEqual(f.read().split(), ["prepare", "test", "check"])
+
+    def test_a_failing_prepare_command_refuses_the_merge(self):
+        sha = self.good()
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write("## Loop\nPrepare command: exit 3\nTest command: true\nLoop branch: loop/main\n")
+        self.rules(sha)
+        r = self.run_merge(sha)
+        self.assertEqual((r.ok, r.park), (False, False))
+        self.assertIn("Prepare command failed", r.reason)
+
+    def test_run_tests_prepares_the_checkout_and_reports_the_tail_of_a_pass(self):
+        sha = self.good()
+        self.assertIn("Test command failed", merge.run_tests(self.work, sha, "test -f prepared"))
+        tails = []
+        self.assertIsNone(merge.run_tests(self.work, sha, "echo a; echo b; test -f prepared",
+                                          prepare="touch prepared", tails=tails))
+        self.assertEqual(tails, ["Test command passed: b"])
+
     def test_unexpected_error_is_a_refusal(self):
         sha = self.good()
         self.scenario([rule("issue view", ok("not json"))])

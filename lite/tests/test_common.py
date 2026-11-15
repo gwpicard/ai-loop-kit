@@ -36,6 +36,15 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s["Idle hours"], 12)
         self.assertEqual(s["Max rounds"], 3)
 
+    def test_the_fast_path_settings_are_optional_and_the_files_command_falls_back(self):
+        s = common.read_settings(self.write("## Loop\nTest command: make test\n"))
+        self.assertEqual((s["Test files command"], s["Prepare command"]), ("", ""))
+        self.assertEqual(common.files_command(s, ["tests/a.py"]), "make test")
+        s = common.read_settings(self.write(
+            "## Loop\nTest command: make test\nTest files command: `pytest {files} -x`\nPrepare command: make deps\n"))
+        self.assertEqual(s["Prepare command"], "make deps")
+        self.assertEqual(common.files_command(s, ["tests/a.py", "t/b c.py"]), "pytest tests/a.py 't/b c.py' -x")
+
     def test_values_and_backquotes(self):
         s = common.read_settings(self.write(
             "# Title\nTest command: other\n\n## Loop\n"

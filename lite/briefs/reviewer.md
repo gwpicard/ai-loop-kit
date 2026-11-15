@@ -21,7 +21,10 @@ and the oracle the issue names. Before you read the builder's tests, write
 your own checks from the acceptance criteria and the oracle. Then read the
 diff with
 `git diff origin/<loop branch>...HEAD` (the loop branch is named in the
-prompt). Run the Test command and your own checks. Verify against the real thing:
+prompt). The prompt gives the latest result of the full Test and Check commands
+on this commit; do not run the full Test command again. Run the Test files
+command (named in the prompt) on the tests you need, and run your own checks.
+Verify against the real thing:
 real inputs, the oracle, and renders where the project has them. Check each
 acceptance criterion and give the evidence (a test, a command output, a line
 of code). Report only real

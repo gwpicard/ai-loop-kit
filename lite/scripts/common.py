@@ -3,6 +3,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import tempfile
@@ -26,6 +27,8 @@ DEFAULTS = {
     "Session minutes": "45",
     "Check command": "",
     "Smoke command": "",
+    "Test files command": "",  # {files} stands for the paths; empty means the Test command
+    "Prepare command": "",  # run once in each worktree, before any test run
 }
 
 
@@ -202,10 +205,24 @@ def git(args, cwd=None, check=True):
     return p.stdout.rstrip("\n")
 
 
-def run_shell(command, cwd, timeout):
-    """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout."""
+def _record(path, pid, add):
+    """Add a process group id to the list in `path`, or take it off."""
+    try:
+        pids = open(path).read().split() if os.path.exists(path) else []
+        with open(path, "w") as f:
+            f.write("".join(p + "\n" for p in [p for p in pids if p != str(pid)] + [str(pid)] * add))
+    except OSError:
+        pass
+
+
+def run_shell(command, cwd, timeout, record=None):
+    """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
+    With `record`, the group id is listed in that file while the command runs, so whoever
+    ends the caller can also end the command."""
     p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if record:
+        _record(record, p.pid, True)
     try:
         out, _ = p.communicate(timeout=timeout)
         return p.returncode, out
@@ -213,6 +230,26 @@ def run_shell(command, cwd, timeout):
         os.killpg(p.pid, signal.SIGKILL)
         p.communicate()
         return None, ""
+    finally:
+        if record:
+            _record(record, p.pid, False)
+
+
+def files_command(settings, files):
+    """The Test files command for these paths, or the Test command when none is set."""
+    if not settings["Test files command"]:
+        return settings["Test command"]
+    return settings["Test files command"].replace("{files}", " ".join(shlex.quote(f) for f in files))
+
+
+def read_passed(project, session_id):
+    """(commit, output tails) the Stop hook recorded when the full commands last passed for the session."""
+    try:
+        with open(os.path.join(project, ".lite", "passed-" + str(session_id))) as f:
+            head, *tails = f.read().splitlines()
+        return head.strip(), tails
+    except (OSError, ValueError):
+        return None, []
 
 
 def default_branch(project):

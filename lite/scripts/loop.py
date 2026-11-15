@@ -173,7 +173,8 @@ def drain(project, settings, st):
     loop, base = settings["Loop branch"], common.default_branch(project)
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
-    failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"])
+    failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
+                            prepare=settings["Prepare command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     body = "Built by the loop. Landed:\n\n%s\n\nTests %s on the loop branch.\n" % (
         landed or "Nothing.", "fail: " + failed if failed else "pass")

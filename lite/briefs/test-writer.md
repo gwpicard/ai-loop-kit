@@ -25,8 +25,10 @@ Read the issue, PLAN.md and the oracle the issue names. If the issue body has
 a `## Failing test` section, it holds a test found by the end-of-loop pass:
 commit that test as given, in its own file, before you add any other. For each acceptance
 criterion that does not already hold, write one test that fails now and passes
-when the criterion is met. Run the Test command to confirm each new test fails
-for the right reason. Write no production code. Commit the tests in one commit.
+when the criterion is met. Run the Test files command (named in the prompt, `{files}` replaced by the
+paths of your tests; the Test command when none is named) on them to confirm each
+new test fails by assertion, for the right reason, not by a syntax or import
+error in the test itself. Write no production code. Commit the tests in one commit.
 
 End your reply with this block and nothing after it, one path per line:
 
