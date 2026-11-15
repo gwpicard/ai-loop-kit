@@ -15,7 +15,7 @@ FINDINGS = "Pass findings"
 LIMIT = 200  # open issues read; a full page may be truncated
 HELD = r"^[ \t*`]*HELD:[ \t*`]*(.*)$"
 TITLES = (("drift", "Drift"), ("confirmed", "Red team: confirmed"), ("rejected", "Red team: rejected"),
-          ("rubric", "Rubric"), ("held", "Held for an open decision"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
+          ("rubric", "Rubric"), ("simplify", "Simplify and reconcile"), ("held", "Held for an open decision"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
           ("issues", "Issues created"), ("batch", "Merged in this batch"), ("errors", "Problems"))
 
 
@@ -34,7 +34,7 @@ def esc(text):  # a finding cannot start a section of the issue
     return re.sub(r"(?m)^(\s*#)", r"\\\1", text)
 
 
-def failing(project, sha, test, tree, path):
+def failing(project, sha, test, tree, path, prepare=""):
     # (path the Test command finds the file at, None) if it fails there once copied; else (None, why not)
     base, full = os.path.realpath(os.path.join(tree, ".lite", "pass")), os.path.join(tree, path)
     rel = os.path.relpath(os.path.realpath(full), base)
@@ -49,7 +49,7 @@ def failing(project, sha, test, tree, path):
     if bad:
         return None, bad
     try:
-        why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]))
+        why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]), prepare=prepare)
     except OSError as e:
         return None, "the file could not be copied: %s" % e
     if not why:
@@ -70,8 +70,9 @@ def fix_rounds(texts):
     return max(0, len({n for t in texts for n in re.findall(r"^## Review, round (\d+)", t, re.M)}) - 1)
 
 
-def batch_lines(project, since, loop):
-    # one line per issue merged since `since`: build note title, fix rounds, parks, deviations
+def batch_lines(project, since, loop, notes=None):
+    # one line per issue merged since `since`: build note title, fix rounds, parks, deviations;
+    # `notes` collects each build note whole
     log = git(["log", "--format=%s", "%s..origin/%s" % (since, loop)], cwd=project, check=False)
     lines = []
     for n in sorted({int(m) for m in re.findall(r"^Issue (\d+)", log, re.M)}):
@@ -79,6 +80,8 @@ def batch_lines(project, since, loop):
         prs = json.loads(gh(["pr", "list", "--head", "issue/%d" % n, "--state", "all", "--json", "comments"]))
         texts = [c.get("body") or "" for c in info["comments"] + [c for p in prs for c in p["comments"]]]
         built = next((t for t in texts if t.startswith("## Built")), "\nno build note")
+        if notes is not None:
+            notes.append("#%d %s\n%s" % (n, info["title"], built.strip()[:2000]))
         lines.append("#%d %s: %s (fix rounds %d, parks %d, deviations: %s)" % (
             n, info["title"], next((l for l in built.splitlines()[1:] if l.strip()), "no build note")[:100],
             fix_rounds(texts), sum("## Needs you" in t for t in texts),
@@ -112,7 +115,7 @@ def _pass(project, settings, since, tree, r):
     plan = git(["show", "HEAD:PLAN.md"], cwd=tree, check=False)
     context = "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff %s...HEAD\n" % (
         os.path.join(tree, "PLAN.md"), settings["Loop branch"], test, since)
-    def ask(name, extra=""):  # at most 8 calls: drift, rubric, four red teams, confirm, lessons
+    def ask(name, extra=""):  # at most 9 calls: drift, rubric, four red teams, confirm, lessons, simplify
         r["sessions"] += 1
         try:
             return session.run("pass", Path(flow.BRIEFS, "pass-%s.md" % name).read_text(encoding="utf-8") + context + extra,
@@ -121,11 +124,12 @@ def _pass(project, settings, since, tree, r):
             r["errors"].append("%s session: %s" % (name, e))
             return ""
     if settings.get("Smoke command"):
-        bad = merge.run_tests(project, sha, settings["Smoke command"], tail=5)
+        bad = merge.run_tests(project, sha, settings["Smoke command"], tail=5, prepare=settings["Prepare command"])
         r["smoke"] = bad.replace("the Test command", "the Smoke command") if bad else "passed"
         r["drift"] += [("Smoke command failed on the loop branch", r["smoke"], "")] if bad else []
+    notes = []
     try:
-        r["batch"] = batch_lines(project, since, settings["Loop branch"])
+        r["batch"] = batch_lines(project, since, settings["Loop branch"], notes)
     except Exception as e:
         r["errors"].append("batch notes: %s" % e)
     drift = ask("drift")
@@ -138,7 +142,7 @@ def _pass(project, settings, since, tree, r):
     candidates = []
     for surface in surfaces:
         for title, detail, path in findings(ask("redteam", "\nSurface: %s\n" % surface)):
-            rel, why = failing(project, sha, test, tree, path)
+            rel, why = failing(project, sha, test, tree, path, settings["Prepare command"])
             if rel:
                 candidates.append((title, detail, rel, Path(tree, path).read_text(encoding="utf-8")))
             else:
@@ -164,6 +168,8 @@ def _pass(project, settings, since, tree, r):
     reply = ask("lessons", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nFindings so far:\n"
                 + "\n".join(f[0] for f in r["drift"] + r["rubric"] + r["confirmed"]) + "\n")
     r["lessons"], r["guardrails"] = [f[0] for f in findings(reply, "LESSONS")], findings(reply, "GUARDRAILS")
+    r["simplify"] = findings(ask("simplify", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nBuild notes:\n"
+                                 + "\n\n".join(notes) + "\n"), "SIMPLIFY")
     if blocked:  # open decisions cannot be checked: queue nothing
         r["errors"].append("nothing queued: " + blocked)
         return
@@ -184,6 +190,8 @@ def _pass(project, settings, since, tree, r):
     else:
         jobs += [("%s, %s, %s" % (FINDINGS, time.strftime("%Y-%m-%d"), sha[:7]),
                   "\n".join(line(t, d) for t, d, _ in found), "inbox")] * bool(found)
+    jobs += [("Simplify and reconcile, %s, %s" % (time.strftime("%Y-%m-%d"), sha[:7]),
+              "\n".join(line(t, d) for t, d, _ in r["simplify"]), "inbox")] * bool(r["simplify"])
     for title, body, label in jobs:
         number = create(title, body, label)
         r["issues"] += ["#%s %s (%s)" % (number, title, label)] if number else []

@@ -1,6 +1,8 @@
 import json
 import os
 import subprocess
+import time
+from pathlib import Path
 from unittest import mock
 
 from lite.tests.fake_claude import FakeClaudeGh
@@ -83,7 +85,7 @@ class PassTest(FakeClaudeGh):
         self.steps({"files": {".lite/pass/tests/ok.py": "x\n"},
                     "reply": "FINDINGS:\nWeak claim | maybe | .lite/pass/tests/ok.py"})
         r, _ = self.run_pass()
-        self.assertEqual(r["sessions"], 4)  # no confirm session
+        self.assertEqual(r["sessions"], 5)  # no confirm session
         self.assertEqual(r["confirmed"], [])
         self.assertNotIn("Weak claim", [t for t, _ in self.created()])
 
@@ -203,12 +205,37 @@ class PassTest(FakeClaudeGh):
         self.assertEqual(r["rejected"], [("Broken input", "not confirmed")])
         self.assertIn("Red team: rejected\n\n- Broken input", md)
 
-    def test_at_most_eight_sessions_and_four_surfaces(self):
+    SIMPLIFY = {"reply": "SIMPLIFY:\nShare one verdict parser | flow.py and merge.py each read the verdict; keep merge.parse_verdict | flow.py\n"
+                         "Close the workaround | the builder worked around the cache in app.py; remove it once the cache is fixed |"}
+
+    def test_one_session_files_one_simplify_and_reconcile_issue(self):
+        self.repo(plan(surfaces=()))
+        self.claude({"pass": [NONE, NONE, LESSONS, self.SIMPLIFY]})
+        seen = self.bodies()
+        r, md = self.run_pass()
+        title = "Simplify and reconcile, %s, %s" % (time.strftime("%Y-%m-%d"), common.git(
+            ["rev-parse", "--short=7", "origin/loop/main"], cwd=self.work))
+        self.assertEqual([t for t, _ in self.created()].count(title), 1)  # one issue, not one per finding
+        self.assertEqual(sum(t.startswith("Simplify") for t, _ in self.created()), 1)
+        body = [i for a, i in seen if a[:2] == ["issue", "create"] and title in a][0]
+        self.assertIn("- [ ] **Share one verdict parser**: flow.py and merge.py each read the verdict", body)
+        self.assertIn("- [ ] **Close the workaround**", body)
+        self.assertEqual(r["sessions"], 4)
+        self.assertIn("### Simplify and reconcile\n\n- Share one verdict parser", md)
+        prompt = self.claude_calls()[3]["prompt"]
+        self.assertIn("Added the thing.", prompt)  # the batch's build note, with its deviations
+        self.assertIn("Merged in this batch", prompt)
+        self.assertIn("git diff origin/main...HEAD", prompt)
+        brief = Path(pass_.flow.BRIEFS, "pass-simplify.md").read_text(encoding="utf-8")
+        for text in ("behaviour-preserving", "not exercised", "workarounds", "Edit nothing"):
+            self.assertIn(text, brief)
+
+    def test_at_most_nine_sessions_and_four_surfaces(self):
         self.repo(plan(surfaces=["s%d" % i for i in range(6)]))
         self.steps(NONE, count=6)
         r, _ = self.run_pass()
-        self.assertEqual(r["sessions"], 7)  # drift, rubric, four surfaces, lessons
-        self.assertEqual(len(self.claude_calls()), 7)
+        self.assertEqual(r["sessions"], 8)  # drift, rubric, four surfaces, lessons, simplify
+        self.assertEqual(len(self.claude_calls()), 8)
         self.assertEqual(sum("Surface:" in c["prompt"] for c in self.claude_calls()), 4)
         self.assertTrue(all(c["role"] == "pass" for c in self.claude_calls()))
 
