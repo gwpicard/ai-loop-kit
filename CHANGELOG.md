@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.0.0 (15 November 2026)
+
+The kit is replaced by the continuous factory that was tried as "lite". It is
+a new design, not an upgrade of 1.x. See `docs/DESIGN.md`.
+
+What it is: you shape work into GitHub issues with the shape skill and approve
+it once. A loop on your computer writes failing tests first, builds each
+issue, has a second session review it and merges it into a loop branch through
+`merge.py`. When the queue drains, an end-of-loop pass reads the whole batch
+and the loop opens one pull request into your default branch. A pinned
+`Factory` issue is the board. `Parallel: N` builds several issues at once.
+
+What was removed: the gate and its state machine, judges written and frozen at
+shaping, the dashboard server, the run page, the preview tools (measure,
+critics, mutation, researcher), the `kit-python` runner and the `extras`
+plugin. The version 1 code stays in git history under the tag `v1.7.0`.
+
+The plugin is now named `ai-loop-kit`, with `ai-loop-kit` as the only entry in
+the marketplace. The runtime state folder is `.lite/`, as in the trial; it is
+git-ignored by setup.
+
+Behaviour added while the design was tried on a real project: a fast path
+(`Test files command`, `Prepare command`, two full test runs per issue),
+parallel builds (`Parallel`), a `Session minutes` limit, a cap on defect
+rounds (`Defect rounds`) and a `Simplify and reconcile` job in the
+end-of-loop pass.
+
+Moving from 1.x:
+
+1. Remove `ai-loop-kit-extras`, and update `ai-loop-kit` to 2.0.0 (or
+   install it with `/plugin marketplace add gwpicard/ai-loop-kit` and
+   `/plugin install ai-loop-kit@ai-loop-kit`).
+2. Put `## Loop` with a `Test command:` line in the project's `AGENTS.md`
+   (version 1 settings such as `Base branch` and `Keep limit` are ignored)
+   and run setup.
+3. Shape open work into issues with the shape skill. Version 1 `state:`
+   labels and piece files are not read.
+
 ## 1.7.0 (30 October 2026)
 
 Walk-away becomes the default run. A local dashboard starts and follows runs.

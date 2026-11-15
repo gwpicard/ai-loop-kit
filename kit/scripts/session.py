@@ -1,350 +1,173 @@
-"""Shared agent session execution and activity clocks."""
-from __future__ import annotations
-if __name__ == "__main__":
-    import kit_python
-    kit_python.require()
-
+"""Run one role session with claude -p and return its reply."""
+import contextlib
 import json
 import os
 import re
-import selectors
+import shlex
 import signal
 import subprocess
+import tempfile
 import time
-from contextlib import nullcontext, suppress
-from pathlib import Path
-from typing import Callable, Optional
 
-import agents
-import sandbox
-from errors import JudgeRefused
-from loopkit import Refused, bar_hash_in, sh, untracked_paths
-from procs import _untrack_process, track_process
+import common
 
-_JUDGE_CACHE = re.compile(
-    r"(^|/)(__pycache__|pytest-of-[^/]+|"
-    r"\.(pytest_cache|benchmarks|hypothesis|mypy_cache|ruff_cache))/")
-# Ignored installed packages: Node test tools such as Vitest keep caches in node_modules,
-# and `uv run` reinstalls the project into .venv when its cache is fresh.
-_JUDGE_PACKAGES = re.compile(r"(^|/)(node_modules|\.venv)/")
+TEST_TIMEOUT = 1800
+LIMIT = re.compile(r"usage limit|limit reached", re.I)
+HOOKS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks"))
+
+SWEPT = {}  # issue number -> Docker leftovers removed after its sessions, for the build note
+DOCKER = (("container", ["ps", "-a", "-q"]), ("network", ["network", "ls", "-q"]),
+          ("volume", ["volume", "ls", "-q"]), ("image", ["images", "-q"]))
+OWNER = '{{index .Config.Labels "com.docker.compose.project.working_dir"}}\n{{range .Mounts}}{{.Source}}\n{{end}}'
+
+class SessionError(common.LoopError):
+    pass
 
 
-def _judge_untracked(folder: Path, files: list[str]) -> dict:
-    """Record unapproved untracked files without following symbolic links."""
-    ignored = sh(["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
-                 folder).stdout.split("\0")
-    skip = {name for name in ignored if _JUDGE_PACKAGES.search(name)}
-    return {name: ((path := folder / name).lstat().st_mode,
-                   os.readlink(path) if path.is_symlink() else bar_hash_in(folder, [name]))
-            for name in untracked_paths(folder) - set(files) - skip
-            if not _JUDGE_CACHE.search(name)}
-
-
-def _judge_dirty(folder: Path) -> bool:
-    """Ignore uncommitted tool cache folders when checking work."""
-    status = sh(["git", "status", "--porcelain", "--no-renames", "-z",
-                 "--untracked-files=all"], folder).stdout
-    return any(not entry[3:].startswith(".loop/") and not _JUDGE_CACHE.search(entry[3:])
-               for entry in status.split("\0") if entry)
-
-
-def _judge_start(folder: Path, data: dict) -> tuple:
-    """Check the approved write paths and preserve a clean piece baseline."""
-    files = data["Files"].splitlines()
-    root = folder.resolve()
-    if not files or len(files) != len(set(files)) or any(
-            not name.strip() or Path(name).is_absolute() or ".." in Path(name).parts
-            or not (root / name).resolve().is_relative_to(root) for name in files):
-        raise ValueError("judge-writer Files must name exact paths inside the project")
-    branch = sh(["git", "branch", "--show-current"], folder).stdout.strip()
-    if not re.fullmatch(r"piece/[1-9]\d*", branch):
-        raise ValueError("judge-writer requires the piece/<n> branch")
-    if _judge_dirty(folder):
-        raise ValueError("judge-writer requires a clean working tree; keep existing work")
-    return (files, branch, sh(["git", "rev-parse", "HEAD"], folder).stdout.strip(),
-            _judge_untracked(folder, files))
-
-
-def _judge_finish(folder: Path, baseline: tuple, verdict: dict) -> None:
-    """Accept only declared judge changes, then commit them on the piece branch."""
-    files, branch, base, before = baseline
-    if sh(["git", "branch", "--show-current"], folder).stdout.strip() != branch:
-        raise ValueError("judge-writer changed the piece branch")
-    changed = sh(["git", "diff", "--name-only", "--no-renames", "-z", base], folder).stdout
-    committed = sh(["git", "log", "--format=", "--name-only", "--no-renames", "-z",
-                    f"{base}..HEAD"], folder).stdout
-    untracked = _judge_untracked(folder, files)
-    altered = {name for name in before.keys() | untracked.keys()
-               if before.get(name) != untracked.get(name)}
-    unexpected = {name for name in changed.split("\0") if name and not _JUDGE_CACHE.search(name)}
-    unexpected = (unexpected | altered | set(committed.split("\0"))) - {"", *files}
-    reported = verdict["judge_files"]
-    unexpected |= set(reported) - set(files)
-    if unexpected:
-        path = sorted(unexpected)[0]
-        raise Refused("judge-writer wrote or reported paths outside the approved Exit Files: "
-                      + path,
-                      f"inspect {path} against the approved Exit Files; keep the work in shaping")
-    if not reported:
-        raise ValueError("judge-writer reported no approved Exit Files")
-    if any(not (folder / name).is_file() or
-           not (folder / name).resolve().is_relative_to(folder.resolve()) for name in files):
-        raise ValueError("judge-writer must produce the approved Exit Files inside the project")
-    sh(["git", "add", "--", *files], folder)
-    if sh(["git", "diff", "--cached", "--quiet", "--", *files], folder, check=False).returncode:
-        sh(["git", "commit", "--only", "-m", "Write the approved judge", "--", *files], folder)
-    if _judge_dirty(folder) or _judge_untracked(folder, files) != before:
-        raise ValueError("judge-writer left uncommitted work; keep it for shaping")
-
-
-def _pump_session(proc: subprocess.Popen, out, idle_seconds: int,
-                  hard_seconds: int = 40 * 60,
-                  activity_path: Optional[Path] = None,
-                  result_event: Optional[dict] = None,
-                  backend: str = "claude",
-                  clock: Optional[Callable[[], float]] = None,
-                  event_log=None) -> str:
-    """Copy output to a log and stop a silent or overlong process group."""
-    now_seconds = clock if clock is not None else time.monotonic
-    assert proc.stdout is not None
-    stream = proc.stdout
-    os.set_blocking(stream.fileno(), False)
-    selector = selectors.DefaultSelector()
-    selector.register(stream, selectors.EVENT_READ)
-    started = last_output = now_seconds()
-    last_stamp = _folder_activity_stamp(activity_path) if activity_path else 0.0
-    next_activity_check = started + 2
-    pending = ""
-    eof = False
-    reason = ""
-    parent_exit_deadline: Optional[float] = None
-    orphaned_child = False
-    while not eof or proc.poll() is None:
-        now = now_seconds()
-        if proc.poll() is not None and not eof:
-            if parent_exit_deadline is None:
-                parent_exit_deadline = now + 3
-            elif now >= parent_exit_deadline:
-                with suppress(ProcessLookupError):
-                    os.killpg(proc.pid, signal.SIGKILL)
-                orphaned_child = True
-                break
-        if activity_path and now >= next_activity_check:
-            stamp = _folder_activity_stamp(activity_path)
-            next_activity_check = now + 2
-            if stamp > last_stamp:
-                last_stamp = stamp
-                last_output = now
-        if proc.poll() is None and not reason:
-            if now - started >= hard_seconds:
-                reason = "hard"
-            elif now - last_output >= idle_seconds:
-                reason = "idle"
-            if reason:
-                with suppress(ProcessLookupError):
-                    os.killpg(proc.pid, signal.SIGKILL)
-        timeout = 0.1
-        if proc.poll() is None and not reason:
-            timeout = min(timeout, max(0.0, min(hard_seconds - (now - started),
-                                                idle_seconds - (now - last_output))))
-        elif parent_exit_deadline is not None and not eof:
-            timeout = min(timeout, max(0.0, parent_exit_deadline - now))
-        events = selector.select(timeout)
-        for key, _ in events:
-            try:
-                chunk = os.read(key.fd, 4096)
-            except BlockingIOError:
-                continue
-            if not chunk:
-                eof = True
-                selector.unregister(stream)
-                continue
-            if event_log is not None:
-                event_log.write(chunk)
-                event_log.flush()
-            pending += chunk.decode(errors="replace")
-            lines = pending.split("\n")
-            pending = lines.pop()
-            for line in lines:
-                out.write(agents.log_line(line, backend, result_event))
-            out.flush()
-            last_output = now_seconds()
-    if pending:
-        out.write(agents.log_line(pending, backend, result_event))
-    returncode = proc.wait()
-    _untrack_process(proc)
-    selector.close()
-    stream.close()
-    if reason:
-        out.write("\nAttempt stopped after idle limit with no output.\n" if reason == "idle"
-                  else f"\nThe attempt ran past {hard_seconds // 60} minutes and was stopped.\n")
-    if orphaned_child:
-        out.write("\nStopped a child process that kept the session pipe open after its parent exited.\n")
-    return reason or (f"exit {returncode}" if returncode else "")
-
-
-def _folder_activity_stamp(folder: Optional[Path]) -> float:
-    """Newest useful modification time under the build folder."""
-    if folder is None:
-        return 0.0
-    newest = folder.stat().st_mtime if folder.exists() else 0.0
-    for current, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if d not in {
-            ".git", ".venv", "node_modules", "dist", "build", "__pycache__"}
-                   and not (d == "cache" and Path(current).name == ".loop")]
-        for name in (*dirs, *files):
-            with suppress(OSError):
-                newest = max(newest, (Path(current) / name).stat().st_mtime)
-    return newest
-
-
-def run_session(folder: Path, prompt: str, logfile: Path, idle_seconds: int, *,
-                role: str, backend: str = "claude", append_log: bool = False,
-                result_event: dict | None = None, raw_events: Path | None = None,
-                process_record: Path | None = None,
-                on_wait: Callable[[int], None] | None = None, **launch_options) -> str:
-    """Run a session with explicit evidence and an optional single usage retry."""
-    for retry in range(2 if on_wait else 1):
-        mode = "a" if append_log or retry else "w"
-        events = raw_events.open(mode + "b") if raw_events else nullcontext()
-        with logfile.open(mode) as out, events as event_log:
-            proc = agents.start_session(backend, prompt, folder, role=role, **launch_options)
-            track_process(proc)
-            if process_record is not None:
-                with process_record.open("a") as evidence:
-                    evidence.write(f"{proc.pid}\n")
-            status = _pump_session(proc, out, idle_seconds, activity_path=folder,
-                                   result_event=result_event, backend=backend, event_log=event_log)
-        if not launch_options.get("walk_away") or not sandbox.usage_limit_event(result_event):
-            return status
-        if retry or on_wait is None:
-            return "usage-limit"
-        seconds = sandbox.reset_wait_seconds(result_event)
-        on_wait(seconds)
-        time.sleep(seconds)
-        result_event = {}
-
-
-def _writer_notes(text: str) -> str:
-    """The notes of the last verdict block, even when the verdict is invalid; else empty."""
-    blocks = re.findall(r"<verdict>\s*(.*?)\s*</verdict>", text, flags=re.I | re.S)
+def docker(args):
+    """Output lines of a docker command, or None when docker is missing or fails."""
     try:
-        notes = json.loads(blocks[-1]).get("notes") if blocks else ""
-    except (ValueError, AttributeError):
-        return ""
-    return notes if isinstance(notes, str) else ""
+        p = subprocess.run(["docker"] + args, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [l for l in p.stdout.splitlines() if l] if p.returncode == 0 else None
 
 
-def _judge_round(folder: Path, data: dict, prompt: str, log: Path, backend: str) -> dict:
-    """One judge-writer session: run it, check its verdict and commit its judge files."""
-    from review import _last_verdict
+def docker_state():
+    """Containers (also exited), networks, volumes, images now; None without a working docker."""
+    return {k: set(docker(a) or ()) for k, a in DOCKER} if docker(DOCKER[0][1]) is not None else None
 
-    baseline = _judge_start(folder, data)
-    events = log.with_suffix(".jsonl")
-    result: dict = {}
-    status = run_session(folder, prompt, log, 300, role="judge-writer", backend=backend,
-                         result_event=result, raw_events=events)
-    text = agents.event_text(events.read_text(), backend)
-    if status or result.get("is_error") or result.get("type") == "turn.failed":
-        raise ValueError(f"judge-writer requires {agents.CAPABILITIES['judge-writer'][1]}: "
-                         f"{status or result}; see {log}")
+
+def owned(container, cwd):
+    """True when the container's compose working directory or a bind-mount source is under cwd."""
+    return any(line == r or line.startswith(r + os.sep) for line in docker(["inspect", "-f", OWNER, container]) or ()
+               for r in {os.path.abspath(cwd), os.path.realpath(cwd)})
+
+
+def sweep(before, cwd):
+    """Remove new containers that belong to the worktree; only list anything else new. Never raises."""
+    after, lines = docker_state(), []
+    for kind, _ in DOCKER if before and after else ():
+        for name in sorted(after[kind] - before[kind]):
+            mine = kind == "container" and owned(name, cwd)
+            done = ("could not remove" if docker(["rm", "-f", name]) is None else "removed") if mine else "new"
+            lines.append("%s %s %s%s" % (done, kind, name, "" if mine else " (kept, not removed)"))
+    return lines
+
+
+def reap(pgid):
+    """Kill what is left in the session's process group; return a line per process."""
+    ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True).stdout
+    left = ["left running, killed: " + l.split(None, 1)[1].strip() for l in ps.splitlines() if l.split()[:1] == [str(pgid)]]
+    with contextlib.suppress(OSError):
+        os.killpg(pgid, signal.SIGKILL)
+    return left
+
+
+def age(pid):
+    """(process group, seconds since start) of a live process, else None."""
+    out = subprocess.run(["ps", "-p", str(pid), "-o", "pgid=,etime="], capture_output=True, text=True).stdout.split()
     try:
-        verdict = _last_verdict(text, "judge-writer")
-    except ValueError as error:
-        notes = _writer_notes(text)
-        raise ValueError(f"{error}" + (f"\nthe writer's notes: {notes}" if notes else "")) from None
-    _judge_finish(folder, baseline, verdict)
-    return {"text": text, "notes": verdict["notes"]}
+        days, _, clock = out[1].rpartition("-")
+        secs = [int(x) for x in clock.split(":")]
+        return int(out[0]), sum(v * m for v, m in zip(reversed(secs), (1, 60, 3600))) + 86400 * int(days or 0)
+    except (IndexError, ValueError):
+        return None
 
 
-def _write_judge(args, data: dict, prompt: str, backend: str) -> str:
-    """Write the judge; with --prove, prove it on the base and allow one repair."""
-    from judge_proof import prove, retry_prompt
+def reap_groups(path, since):
+    """Kill the process groups a Stop hook listed in `path` and still left running; return a line per process.
+    A group is skipped unless its leader is alive, leads the group and started after `since`."""
+    try:
+        with open(path) as f:
+            groups = [int(g) for g in f.read().split()]
+    except (OSError, ValueError):
+        return []
+    seen = {g: age(g) for g in groups if g > 1 and g != os.getpgrp()}
+    mine = [g for g, a in seen.items() if a and a[0] == g and a[1] <= time.time() - since + 2]
+    return [line for g in mine for line in reap(g)]
 
-    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-    os.environ["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
-    log = args.output.with_suffix(".log")
-    done = _judge_round(args.folder, data, prompt, log, backend)
-    if not args.prove:
-        return done["text"]
-    for attempt in range(2):
+
+def _wait_seconds(text):
+    """Seconds until the reset named in a usage-limit message, else 30 minutes."""
+    m = re.search(r"\|\s*(\d{9,11})\b", text)
+    wait = int(m.group(1)) - time.time() if m else 1800
+    return int(min(max(wait, 60), 6 * 3600))
+
+
+def _exec(argv, prompt, cwd, env, log, role, issue, limit):
+    before, began = docker_state(), time.time()
+    handle, groups = tempfile.mkstemp(prefix="lite-groups-")
+    os.close(handle)
+    env = dict(env, LITE_GROUPS=groups)
+    # files, not pipes: a leftover child that holds a pipe open must not block the wait
+    with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
+        fin.write(prompt)
+        fin.seek(0)
+        p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
+                             stdin=fin, stdout=fout, stderr=ferr)
         try:
-            print(prove(args.folder, data))
-            return done["text"]
-        except JudgeRefused as refusal:
-            if attempt:
-                raise Refused(f"{refusal.reason}\nthe writer's notes: {done['notes']}",
-                              refusal.next_step) from None
-            done = _judge_round(args.folder, data, retry_prompt(prompt, refusal),
-                                log.with_name(log.stem + "-retry.log"), backend)
-        except Refused as refusal:
-            raise Refused(f"{refusal.reason}\nthe writer's notes: {done['notes']}",
-                          refusal.next_step) from None
-    raise AssertionError("unreachable")
+            p.wait(timeout=limit)
+            problem = None
+        except subprocess.TimeoutExpired:
+            problem = "%s session timed out after %g minutes" % (role, limit / 60)
+        left = reap(p.pid) + reap_groups(groups, began)
+        with contextlib.suppress(OSError):
+            os.remove(groups)
+        p.wait()
+        out, err = (f.seek(0) or f.read() for f in (fout, ferr))
+    swept = sweep(before, cwd)
+    SWEPT.setdefault(issue, []).extend(swept)
+    with open(log, "a", encoding="utf-8") as f:
+        f.write("--- %s\n%s\n--- stderr\n%s\n" % (" ".join(argv[:3]), out, err)
+                + "".join("--- cleanup: %s\n" % l for l in left + swept))
+    if problem:
+        raise SessionError(problem)
+    return out, err, p.returncode
 
 
-def main() -> int:
-    """Run one shaping capability with approved JSON input and checked output."""
-    import argparse
+def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=()):
+    """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
+    settings = common.read_settings(project)
+    env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked), LITE_ALLOWED="\n".join(allowed),
+               LITE_PROTECTED=",".join(settings["Protected paths"]),
+               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=common.default_branch(project),
+               LITE_PROJECT=project, LITE_START=start)
 
-    from research import parse_research
-    from review import _last_verdict
-
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("--role", choices=tuple(agents.CAPABILITIES), required=True)
-    parser.add_argument("--agent", choices=("claude", "codex"))
-    parser.add_argument("--prove", action="store_true",
-                        help="judge-writer only: prove the judge on the base, with one repair")
-    for name in ("input", "output", "folder"):
-        parser.add_argument(f"--{name}", type=Path, required=True)
-    args = parser.parse_args()
-    try:
-        data = json.loads(args.input.read_text())
-        fields, tools, output, optional = agents.CAPABILITIES[args.role]
-        if isinstance(data, dict) and "Contract" in data and not isinstance(data["Contract"], str):
-            raise Refused("Contract must be a string",
-                          "encode Contract as one JSON string, using \\n between items")
-        if isinstance(data, dict):
-            for key in optional:
-                if key in data and not isinstance(data[key], str):
-                    raise Refused(f"{key} must be a string",
-                                  f"encode {key} as one JSON string, or leave it out")
-        allowed = {*fields, *optional}
-        if not isinstance(data, dict) or not set(fields) <= set(data) <= allowed or any(
-                not isinstance(data[key], str) or (key != "Approach" and not data[key].strip())
-                for key in fields):
-            raise ValueError(f"{args.role} input requires only: {', '.join(fields)}")
-        prompt = (agents.KIT / "briefs" / f"{args.role}.md").read_text()
-        prompt += "\n\n" + json.dumps(data) + f"\nReturn {output}."
-        if args.prove and args.role != "judge-writer":
-            raise ValueError("--prove applies to the judge-writer role only")
-        backend = agents.selected(args.folder, args.agent)
-        if args.role == "judge-writer":
-            text = _write_judge(args, data, prompt, backend)
-        else:
-            log = args.output.with_suffix(".log")
-            events = log.with_suffix(".jsonl")
-            result = {}
-            status = run_session(args.folder, prompt, log, 300, role=args.role,
-                                 backend=backend, result_event=result, raw_events=events)
-            status = status or agents.environment_evidence(log)
-            text = agents.event_text(events.read_text(), backend)
-            if status or result.get("is_error") or result.get("type") == "turn.failed":
-                raise ValueError(f"{args.role} requires {tools}: {status or result}; see {log}")
-            rows = text.splitlines()
-            kept = ["" if re.match(r"\s*[-*]\s*Unconfirmed:\s*\S", x) else x for x in rows]
-            findings, gaps = parse_research(kept)
-            if gaps or not (findings or kept != rows):
-                bad = [x for x, y in zip(rows, kept) if y and parse_research([y])[1]]
-                raise ValueError("researcher lines must be findings or '- Unconfirmed: <fact>': "
-                                 + "; ".join(bad or gaps or ["none found"]))
-        args.output.write_text(text)
-        return 0
-    except (OSError, ValueError, RuntimeError, Refused) as error:
-        next_step = (error.next_step if isinstance(error, Refused) else
-                     "restore the capability; leave the piece in shaping")
-        parser.exit(2, f"refused: {error}\nnext: {next_step}\n")
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    def hook(name, **more):
+        return {"type": "command", "command": "python3 " + shlex.quote(
+            os.path.join(HOOKS, name)), **more}
+    argv = ["claude", "-p", "--output-format", "json", "--permission-mode", "auto",
+            "--model", model, "--setting-sources", "project", "--strict-mcp-config",
+            "--settings", json.dumps({"hooks": {
+                "PreToolUse": [{"matcher": "*", "hooks": [hook("guard.py")]}],
+                "Stop": [{"hooks": [hook("stop.py", timeout=TEST_TIMEOUT)]}]}})]
+    logs = os.path.join(project, ".lite", "logs")
+    os.makedirs(logs, exist_ok=True)
+    prefix = "%s-%s-" % (issue, role)
+    n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
+    log = os.path.join(logs, "%s%d.log" % (prefix, n))
+    while True:
+        out, err, code = _exec(argv + (["--resume", resume] if resume else []),
+                               prompt, cwd, env, log, role, issue, settings["Session minutes"] * 60)
+        try:
+            data = json.loads(out)
+        except ValueError:
+            data = None
+        data = data if isinstance(data, dict) else None
+        text = str(data.get("result") or "") if data else out + err
+        if LIMIT.search(text) and (not data or data.get("is_error") or code):
+            wait = _wait_seconds(text)
+            print("%s session hit the Claude usage limit; waiting %d minutes, "
+                  "then resuming" % (role, wait // 60), flush=True)
+            common.sleep(wait)
+            resume = (data or {}).get("session_id") or resume
+            continue
+        if not data:
+            lines = err.strip().splitlines()
+            raise SessionError("%s session gave no JSON result (exit %d): %s" % (
+                role, code, lines[-1] if lines else "no output"))
+        if data.get("is_error") or code:
+            raise SessionError("%s session failed: %s" % (
+                role, (text.strip().splitlines() or ["exit %d" % code])[0]))
+        return text, data.get("session_id")
