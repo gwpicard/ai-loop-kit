@@ -84,7 +84,8 @@ def write_board(project, st):
         ("Landed since the last merge into " + base, landed.splitlines()),
         ("Pull request into " + base, [st["pr"]] if st["pr"] else []),
         ("Last pass", ["%s: %s confirmed defects, %s inbox issues created, report in %s" % (
-            p["time"], p["defects"], p["inbox"], st["pr"] or "the pull request")] if p else []),
+            p["time"], p["defects"], p["inbox"], st["pr"] or "the pull request") + (
+            "; defect rounds limit reached, defects filed as inbox" if p.get("capped") else "")] if p else []),
         ("Conflict", [st["conflict"]] if st["conflict"] else ["None."])], st["last"], st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
@@ -115,9 +116,40 @@ def answer(st):
                             if common.MARKER not in c["body"]
                             and common.has_write((c.get("author") or {}).get("login", ""))]
         if st["replies"][n]:
+            path = parked_test_path(comments[parks[-1]]["body"])
+            last = st["replies"][n][-1].strip()
+            if path and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
+                grant_path(i, path)
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
+
+
+AGREES = re.compile(r"^\W*(yes|yep|yeah|agreed|approved|go ahead|ok|okay|sure|please do)\b", re.I)
+DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|wait|also)\b", re.I)
+
+
+def parked_test_path(park):
+    """The one test path a park asks whether to change, or None."""
+    text = park.split("Reply on this issue")[0]
+    paths = {t for t in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(t)}
+    asks = "?" in text and re.search(r"\b(change|edit|modify|update|reformat|adjust|relax)\b", text, re.I)
+    return paths.pop() if len(paths) == 1 and asks else None
+
+
+def grant_path(i, path):
+    """Add `path` to the issue's `## Paths the builder may change`."""
+    body = i.get("body") or ""
+    if path in merge.allowed_paths(body):
+        return
+    m = re.search(r"^(## Paths the builder may change[^\n]*\n)(.*?)(?=^## |\Z)", body, re.S | re.M | re.I)
+    if m:
+        keep = [l for l in m.group(2).splitlines() if l.strip().strip("-* `").lower() not in ("", "none")]
+        body = body[:m.start()] + m.group(1) + "\n" + "\n".join(keep + [path]) + "\n\n" + body[m.end():]
+    else:
+        body = body.rstrip("\n") + "\n\n## Paths the builder may change\n\n" + path + "\n"
+    gh(["issue", "edit", str(i["number"]), "--body-file", "-"], input=body)
+    i["body"] = body
 
 
 def trusted(st, i):
@@ -313,11 +345,12 @@ def drain(project, settings, st):
     if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
         say("running the end-of-loop pass")
         try:
-            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
+            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base, rounds=last.get("rounds", 0))
         except Exception as e:  # the pass never blocks the drain or the pull request
             report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
         last = dict(head=last.get("head") if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
-                    defects=len(report.get("confirmed", [])),
+                    defects=len(report.get("confirmed", [])), rounds=report.get("rounds", last.get("rounds", 0)),
+                    capped=bool(report.get("capped")),
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
         with open(os.path.join(project, ".lite", "pass.json"), "w") as f:
             json.dump(last, f)

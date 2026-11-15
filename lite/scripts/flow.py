@@ -162,6 +162,8 @@ def prompt_for(role, number, info, tree, settings, replies, report=None):
                 settings["Loop branch"], settings["Test command"]))
     if settings["Test files command"]:
         text += "Test files command: %s\n" % settings["Test files command"]
+    if settings["Check command"]:
+        text += "Check command: %s\n" % settings["Check command"]
     if replies:
         text += "\nThe person's replies to an earlier park:\n" + "\n---\n".join(replies) + "\n"
     if report:

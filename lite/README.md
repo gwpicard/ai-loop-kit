@@ -31,7 +31,8 @@ Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
-`Check command`, `Smoke command` and `Parallel` (default 1).
+`Check command`, `Smoke command`, `Parallel` (default 1) and `Defect rounds`
+(default 2).
 
 `Test files command` is the fast path: it runs only some test files, with
 `{files}` replaced by their paths (for example `pytest {files}`). Without it,
@@ -57,6 +58,12 @@ merges, and a branch that conflicts goes back to its builder. The board lists
 every running build with its step. A stop request starts no new build and lets
 running builds finish their issue. Each build process writes its log to
 `.lite/logs/build-<issue>.log`.
+
+A park that names exactly one test path and asks whether to change it needs
+only a reply of "yes" from a collaborator: the loop adds that path to the
+issue's `## Paths the builder may change` and requeues it. A reply that does
+not clearly agree, or the loop's own comment, grants nothing. The reviewer may
+write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
 
@@ -124,20 +131,27 @@ blocks this best-effort.
 - Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
   most). A finding counts only with a test file under `.lite/pass/` at the
   path where it belongs (such as `.lite/pass/tests/test_x.py`). The pass
-  copies it there and it must fail the Test command (Prepare first); a second session
+  copies it there and it must fail the Test command (Prepare first) and pass
+  the `Check command` (lint, format) with the file in place; a second session
   must confirm it.
 - Rubric: readability, error handling, weak tests, fixed sleeps, dead code.
 - Lessons and proposed guardrails.
 - Simplify and reconcile: one session reads the batch's changed code and its
   build notes (deviations, workarounds, follow-ups, "not exercised") and
   files one `inbox` issue, `Simplify and reconcile, <date>, <sha>`, with
-  concrete, behaviour-preserving changes. Nothing is edited by the pass.
+  concrete, behaviour-preserving changes. Nothing is edited by the pass. While
+  one such issue is open, later passes add to it as a comment, as for
+  `Pass findings`.
 
 A confirmed defect becomes an issue with a `## Failing test` section. It is
 labelled `ready` only if a paragraph under `## Standing approvals` in
 `PLAN.md` says positively that a confirmed defect may be queued as ready,
 with no negation such as not, never, no or unless; anything unclear fails
-closed to `inbox`. A finding that touches an open `inbox` or `needs-user`
+closed to `inbox`. `Defect rounds` caps how often this happens: a round is one
+pass that queued at least one confirmed defect as `ready`, counted since the
+last merge of an issue the person queued (the loop's own issues carry its
+marker in the body). At the limit, confirmed defects are filed as `inbox`, still
+with their failing tests, and the report and the board say so. A finding that touches an open `inbox` or `needs-user`
 decision is held, never queued. Every other finding, guardrail and lesson goes
 into one `inbox` issue, a checkbox each; an open `Pass findings` issue gets
 only what it lacks, as a comment. Lessons reach `PLAN.md`

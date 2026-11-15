@@ -79,6 +79,19 @@ reviews the whole batch before you see it.
   README. The text below is the first design, kept for its reasoning;
   where it names shell scripts, the code is Python.
 
+## What changed in the fourth build: limits from the docla trial
+
+- `Defect rounds` (default 2) caps the passes that queue confirmed defects as
+  `ready` between merges of issues the person queued; past it, defects go to
+  `inbox` with their failing tests. The count is in `.lite/pass.json`.
+- A red-team test must also pass the Check command with the file in place, and
+  the test writer may format a given failing test (layout only) so the locked
+  file never fails the Check command.
+- One open `Simplify and reconcile` issue; later passes comment on it.
+- A collaborator's clear "yes" to a park naming one test path adds that path to
+  the issue's `## Paths the builder may change`; nothing else grants a path.
+- The reviewer may write scratch files in the system temp folder only.
+
 ## The goal
 
 A continuous factory. The loop keeps building whatever is approved. You

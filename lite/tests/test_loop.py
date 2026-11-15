@@ -194,6 +194,47 @@ class LoopTest(Base):
                                      "issue edit 4 --add-label ready"])
         self.assertEqual(self.built, [(4, ["Use 8080."])])
 
+    PARK = "## Needs you\n\ntests/test_x.py fails the lint check. May I change tests/test_x.py?\n\nRecommended: yes, reformat it"
+
+    def agree(self, reply, park=PARK, body="Do it.\n", user="me", extra=()):
+        self.world([issue(4, ("needs-user",), body=body)], comments=[comment(park)] + list(extra) + [comment(reply, user)])
+        with self.fake_build():
+            self.run_loop()
+        return [i for c, i in self.inputs if c.startswith("issue edit 4 --body-file")]
+
+    def test_a_yes_to_a_park_about_one_test_path_adds_that_path_to_the_issue(self):
+        edits = self.agree("Yes, go ahead.")
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(merge.allowed_paths(edits[0]), {"tests/test_x.py"})
+        self.assertIn("Do it.", edits[0])
+        self.assertEqual(self.built, [(4, ["Yes, go ahead."])])
+
+    def test_the_path_joins_an_existing_paths_section(self):
+        edits = self.agree("yes", body="Do it.\n\n## Paths the builder may change\n\nsrc/a.py\n\n## Notes\n\nx\n")
+        self.assertEqual(merge.allowed_paths(edits[0]), {"src/a.py", "tests/test_x.py"})
+        self.assertIn("## Notes", edits[0])
+        edits = self.agree("yes", body="## Paths the builder may change\n\nnone\n")
+        self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py"})
+
+    def test_a_reply_that_does_not_clearly_agree_adds_nothing(self):
+        for reply in ("No, leave it.", "Yes, but not that file.", "Which one do you mean?", "Maybe", "yes and also no"):
+            with self.subTest(reply=reply):
+                self.assertEqual(self.agree(reply), [])
+
+    def test_the_loops_own_comment_or_a_stranger_never_grants_a_path(self):
+        self.assertEqual(self.agree("Yes.\n\n" + common.MARKER, user="me"), [])
+        self.world([issue(4, ("needs-user",))], comments=[comment(self.PARK), comment("yes", "stranger")], permission="read")
+        self.run_loop()
+        self.assertEqual([i for c, i in self.inputs if c.startswith("issue edit 4 --body-file")], [])
+
+    def test_only_a_park_naming_exactly_one_test_path_and_asking_to_change_it_counts(self):
+        for park in ("## Needs you\n\nWhich port?\n\nRecommended: 80",
+                     "## Needs you\n\nMay I change tests/test_x.py and tests/test_y.py?\n\nRecommended: yes",
+                     "## Needs you\n\nMay I change src/app.py?\n\nRecommended: yes",
+                     "## Needs you\n\ntests/test_x.py is slow.\n\nRecommended: wait"):
+            with self.subTest(park=park):
+                self.assertEqual(self.agree("yes", park=park), [])
+
     def test_no_reply_or_a_stranger_leaves_it_parked(self):
         park = comment("## Needs you\n\nWhich port?\n\nRecommended: 80")
         for extra, permission in (([], "write"), ([comment("do it", "stranger")], "read")):
@@ -455,6 +496,25 @@ class GitTest(Base):
             self.run_loop()
             self.assertEqual(run_pass.call_count, 2)
             self.assertRegex(run_pass.call_args[0][2], "^[0-9a-f]{40}$")
+
+    def test_the_defect_round_count_survives_between_passes_and_reaches_the_pass(self):
+        with self.pass_world() as run_pass:
+            run_pass.return_value = ({"rounds": 1, "issues": []}, "## End-of-loop pass\n")
+            self.run_loop()
+            self.assertEqual(run_pass.call_args[1]["rounds"], 0)
+            self.commit("loop/main", "z.txt", "z\n", "Issue 3")
+            self.run_loop()
+            self.assertEqual(run_pass.call_args[1]["rounds"], 1)
+
+    def test_board_says_when_the_defect_rounds_limit_was_reached(self):
+        with self.pass_world() as run_pass:
+            run_pass.return_value = ({"rounds": 2, "capped": True, "confirmed": [1], "issues": []}, "## End-of-loop pass\n")
+            self.run_loop()
+        st = loop.new_state()
+        st["pr"] = "https://example/pull/9"
+        loop.snapshot(st)
+        loop.write_board(self.work, st)
+        self.assertIn("defect rounds limit reached, defects filed as inbox", self.board_inputs()[-1])
 
     def test_a_pass_that_raises_does_not_block_the_pull_request(self):
         with self.pass_world() as run_pass:

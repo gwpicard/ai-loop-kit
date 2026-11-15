@@ -35,6 +35,8 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s["Protected paths"], [".github/", ".claude/", ".githooks/"])
         self.assertEqual(s["Idle hours"], 12)
         self.assertEqual(s["Max rounds"], 3)
+        self.assertEqual(s["Defect rounds"], 2)
+        self.assertEqual(common.read_settings(self.write("## Loop\nTest command: t\nDefect rounds: 0\n"))["Defect rounds"], 0)
 
     def test_the_fast_path_settings_are_optional_and_the_files_command_falls_back(self):
         s = common.read_settings(self.write("## Loop\nTest command: make test\n"))

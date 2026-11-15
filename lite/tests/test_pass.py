@@ -42,10 +42,10 @@ class PassTest(FakeClaudeGh):
         self.settings = common.read_settings(self.work)
         self.gh()
 
-    def gh(self, listed=()):
+    def gh(self, listed=(), built_body="Built by the loop.\n\n" + common.MARKER):
         self.scenario([
             {"match": "issue view 3", "responses": [{"stdout": json.dumps({
-                "title": "Add it", "comments": [{"body": BUILT}]})}]},
+                "title": "Add it", "body": built_body, "comments": [{"body": BUILT}]})}]},
             {"match": "pr list", "responses": [{"stdout": json.dumps([{"comments": [
                 {"body": "## Review, round 1\n\nVERDICT: CHANGES\nHEAD: x"}, {"body": "## Review, round 2\n\nVERDICT: APPROVE\nHEAD: y"}]}])}]},
             {"match": "issue list", "responses": [{"stdout": json.dumps([t if isinstance(t, dict) else {"title": t} for t in listed])}]},
@@ -229,6 +229,67 @@ class PassTest(FakeClaudeGh):
         brief = Path(pass_.flow.BRIEFS, "pass-simplify.md").read_text(encoding="utf-8")
         for text in ("behaviour-preserving", "not exercised", "workarounds", "Edit nothing"):
             self.assertIn(text, brief)
+
+    def test_a_defect_round_is_one_pass_that_queued_a_ready_defect(self):
+        self.repo(plan())
+        self.steps(FIND, CONFIRM)
+        r, _ = pass_.run_pass(self.work, self.settings, "origin/main", rounds=0)
+        self.assertEqual(r["rounds"], 1)
+        self.assertIn(("Broken input", "ready"), self.created())
+        self.steps(NONE)
+        r, _ = pass_.run_pass(self.work, self.settings, "origin/main", rounds=1)
+        self.assertEqual(r["rounds"], 1)  # nothing queued: not a round
+
+    def test_defects_are_filed_as_inbox_once_the_rounds_limit_is_reached(self):
+        self.repo(plan(), "Defect rounds: 2\n")
+        self.steps(FIND, CONFIRM)
+        seen = self.bodies()
+        r, md = pass_.run_pass(self.work, self.settings, "origin/main", rounds=2)
+        self.assertIn(("Broken input", "inbox"), self.created())
+        self.assertNotIn(("Broken input", "ready"), self.created())
+        body = [i for a, i in seen if a[:2] == ["issue", "create"] and "Broken input" in a][0]
+        self.assertIn("## Failing test", body)
+        self.assertEqual(r["rounds"], 2)
+        self.assertTrue(r["capped"])
+        self.assertIn("Defect rounds limit (2) reached", md)
+
+    def test_a_merged_issue_the_person_labelled_resets_the_count(self):
+        self.repo(plan(), "Defect rounds: 2\n")
+        self.gh(built_body="Added by hand.")  # no loop marker: the person queued it
+        self.steps(FIND, CONFIRM)
+        r, _ = pass_.run_pass(self.work, self.settings, "origin/main", rounds=2)
+        self.assertIn(("Broken input", "ready"), self.created())
+        self.assertEqual(r["rounds"], 1)
+        self.assertFalse(r.get("capped"))
+
+    def test_a_red_team_test_that_fails_the_check_command_is_rejected(self):
+        self.repo(plan(), "Check command: ! grep -rq badlint tests\n")
+        self.steps({"files": {".lite/pass/tests/test_x.py": "badlint\n"},
+                    "reply": FIND["reply"]})
+        r, _ = self.run_pass()
+        self.assertEqual(r["sessions"], 5)  # no confirm session
+        self.assertEqual(r["confirmed"], [])
+        self.assertIn("Check command", r["rejected"][0][1])
+
+    def test_a_red_team_test_that_passes_the_check_command_is_kept(self):
+        self.repo(plan(), "Check command: ! grep -rq badlint tests\n")
+        self.steps(FIND, CONFIRM)
+        r, _ = self.run_pass()
+        self.assertEqual(len(r["confirmed"]), 1)
+
+    def test_a_later_pass_adds_to_the_one_open_simplify_issue(self):
+        self.repo(plan(surfaces=()))
+        self.gh(listed=[{"number": 31, "title": "Simplify and reconcile, 2026-11-14, aaaaaaa", "labels": [{"name": "inbox"}],
+                         "body": "- [ ] **Share one verdict parser**: x", "comments": []}])
+        self.claude({"pass": [NONE, NONE, LESSONS, self.SIMPLIFY]})
+        seen = self.bodies()
+        r, _ = self.run_pass()
+        self.assertFalse(any(t.startswith("Simplify") for t, _ in self.created()))
+        comments = [(a, i) for a, i in seen if a[:3] == ["issue", "comment", "31"]]
+        self.assertEqual(len(comments), 1)
+        self.assertIn("**Close the workaround**", comments[0][1])
+        self.assertNotIn("Share one verdict parser", comments[0][1])
+        self.assertIn(common.MARKER, comments[0][1])
 
     def test_at_most_nine_sessions_and_four_surfaces(self):
         self.repo(plan(surfaces=["s%d" % i for i in range(6)]))

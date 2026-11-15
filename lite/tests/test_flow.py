@@ -338,6 +338,14 @@ class FlowTest(FakeClaudeGh):
             self.assertIn("- app.py", note)
         return sent
 
+    def test_the_test_writer_is_told_the_check_command_and_may_format_a_given_test(self):
+        self.build_scenario()
+        self.build()
+        self.assertIn("Check command: test ! -f BAD", self.claude_calls()[0]["prompt"])
+        brief = open(os.path.join(flow.BRIEFS, "test-writer.md"), encoding="utf-8").read()
+        for text in ("Check command", "formatter", "behaviour"):
+            self.assertIn(text, brief)
+
     def test_check_command_failure_resumes_the_builder(self):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "BAD": "x\n"}},
                                      {"remove": ["BAD"]}])

@@ -31,6 +31,7 @@ DEFAULTS = {
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
     "Prepare command": "",  # run once in each worktree, before any test run
     "Parallel": "1",  # builds running at once
+    "Defect rounds": "2",  # end-of-loop passes that may queue defects as ready, between merges of issues the person queued
 }
 
 
@@ -86,6 +87,7 @@ def read_settings(root="."):
     settings["Max rounds"] = int(settings["Max rounds"])
     settings["Session minutes"] = float(settings["Session minutes"])
     settings["Parallel"] = max(1, int(settings["Parallel"]))
+    settings["Defect rounds"] = max(0, int(settings["Defect rounds"]))
     return settings
 
 
