@@ -126,10 +126,11 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     return out, err, p.returncode
 
 
-def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=""):
+def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=()):
     """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
-    env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked),
+    env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked), LITE_ALLOWED="\n".join(allowed),
+               LITE_PROTECTED=",".join(settings["Protected paths"]),
                LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=common.default_branch(project),
                LITE_PROJECT=project, LITE_START=start)
 

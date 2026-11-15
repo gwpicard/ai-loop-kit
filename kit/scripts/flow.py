@@ -217,11 +217,17 @@ def build(issue, project, replies=()):
 def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     start = git(["rev-parse", "HEAD"], cwd=tree)
 
+    # paths the issue lets the builder change, except those the stops list covers
+    allowed = [p for p in sorted(merge.allowed_paths(info.get("body") or "")) if not merge.stop_reason(p, settings["Protected paths"])]
+
     def ask(role, model, report=None, resume=None, extra="", locked=()):
+        if role == "builder":
+            locked = [p for p in locked if p not in allowed]
         prompt = (extra.strip() if resume else
                   prompt_for(role, issue, info, tree, settings, replies, report) + extra)
         text, sid = session.run(role, prompt, tree, model, project, issue,
-                                resume=resume, locked=locked, start=start)
+                                resume=resume, locked=locked, start=start,
+                                allowed=allowed if role == "builder" else ())
         stop = re.search(r"^[\s*`]*PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
         if stop:
             raise Parked(stop.group(1).strip("*` "),

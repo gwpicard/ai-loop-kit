@@ -46,10 +46,10 @@ class FlowTest(FakeClaudeGh):
         pr.start()
         self.addCleanup(pr.stop)
 
-    def issue_view(self, comments=(), listed=()):
+    def issue_view(self, comments=(), listed=(), body="Do the thing."):
         self.scenario([
             {"match": "issue view 7", "responses": [{"stdout": json.dumps({
-                "title": "Add it", "body": "Do the thing.", "comments": list(comments)})}]},
+                "title": "Add it", "body": body, "comments": list(comments)})}]},
             {"match": "issue comment", "responses": [{}]},
             {"match": "issue edit", "responses": [{}]},
             {"match": "issue create", "responses": [{}]}, {"match": "issue close", "responses": [{}]},
@@ -353,6 +353,16 @@ class FlowTest(FakeClaudeGh):
         brief = open(os.path.join(flow.BRIEFS, "test-writer.md"), encoding="utf-8").read()
         for text in ("Check command", "formatter", "behaviour"):
             self.assertIn(text, brief)
+
+    def test_the_builder_may_change_the_test_paths_the_issue_names_but_never_protected_ones(self):
+        self.issue_view(body="Do it.\n\n## Paths the builder may change\n\ntests/test_new.py\n.claude/tests/test_z.py\n")
+        self.build_scenario()
+        self.build()
+        env = self.claude_calls()[1]["env"]
+        self.assertEqual(env["LITE_ALLOWED"], "tests/test_new.py")
+        self.assertEqual(env["LITE_LOCKED"], "")
+        self.assertEqual(self.claude_calls()[0]["env"]["LITE_ALLOWED"], "")  # the test writer gets none
+        self.assertEqual(self.claude_calls()[2]["env"]["LITE_ALLOWED"], "")  # nor the reviewer
 
     def test_check_command_failure_resumes_the_builder(self):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "BAD": "x\n"}},

@@ -35,13 +35,15 @@ class GuardCase(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
-    def call(self, tool, inp, role=None, locked=None, cwd=None, default=None):
+    def call(self, tool, inp, role=None, locked=None, cwd=None, default=None, allowed=None):
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("LITE_")}
         if role:
             env["LITE_ROLE"] = role
         if default:
             env["LITE_DEFAULT_BRANCH"] = default
+        if allowed:
+            env["LITE_ALLOWED"] = "\n".join(allowed)
         if locked:
             env["LITE_LOCKED"] = "\n".join(locked)
         data = {"tool_name": tool, "tool_input": inp, "cwd": cwd or self.work}
@@ -190,6 +192,28 @@ class TestRole(GuardCase):
                 with self.subTest(tool=tool, role=role):
                     self.refused(self.call(tool, inp, role=role, locked=locked),
                                  "locked")
+
+    def test_an_allowed_locked_test_can_be_edited_by_the_builder_only(self):
+        edit = {"file_path": "tests/test_app.py", "old_string": "pass", "new_string": "x"}
+        kw = dict(locked=["tests/test_app.py"], allowed=["tests/test_app.py"])
+        self.allowed(self.call("Edit", edit, role="builder", **kw))
+        self.allowed(self.call("Edit", dict(edit, file_path=os.path.join(self.work, "tests/test_app.py")), role="builder", **kw))
+        self.refused(self.call("Edit", edit, role="test-writer", **kw), "locked")
+        self.refused(self.call("Edit", edit, role="reviewer", **kw), "reviewer")
+
+    def test_only_the_exact_allowed_path_is_freed(self):
+        self.refused(self.call("Write", {"file_path": "tests/test_other.py", "content": "a"}, role="builder",
+                               locked=["tests/test_other.py"], allowed=["tests/test_app.py"]), "locked")
+        self.refused(self.call("Edit", {"file_path": "tests/test_app.py", "old_string": "pass", "new_string": "x"},
+                               role="builder", allowed=["tests"]), "existing test")
+        self.refused(self.call("Edit", {"file_path": "tests/test_app.py", "old_string": "pass", "new_string": "x"},
+                               role="builder", allowed=["tests/test_*.py"]), "existing test")
+
+    def test_an_allowed_protected_path_is_still_refused(self):
+        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py", "tests/package.json"):
+            with self.subTest(path=path):
+                self.refused(self.call("Write", {"file_path": path, "content": "a"}, role="builder",
+                                       locked=[path], allowed=[path]))
 
     def test_locked_folder_refused(self):
         self.refused(self.call("Write", {"file_path": "spec/a.py", "content": "a"},
