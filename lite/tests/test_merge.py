@@ -206,6 +206,35 @@ class MergeTest(FakeGh):
             {"body": "Tests written.\n\nTESTS:\ntests/test_fresh.py\n"}]}
         self.assert_parked(sha, "locked test modified", issue)
 
+    def rewritten_tests(self, after):
+        """The issue 34 sequence: tests committed, rewritten by the writer, then (maybe) changed by the builder."""
+        run_git(["checkout", "-b", "issue/1", "main"], self.work)
+        shas = []
+        for text in ("first\n", "rewritten\n") + ((after,) if after else ()):
+            with open(os.path.join(self.work, "tests/test_fresh.py"), "w") as f:
+                f.write(text)
+            run_git(["add", "-A"], self.work)
+            run_git(["commit", "-m", "tests"], self.work)
+            shas.append(common.git(["rev-parse", "HEAD"], cwd=self.work))
+        run_git(["push", "origin", "issue/1"], self.work)
+        run_git(["checkout", "main"], self.work)
+        return shas
+
+    def test_the_lock_baseline_is_the_writers_final_commit(self):
+        shas = self.rewritten_tests(None)
+        comments = [{"body": "TESTS:\ntests/test_fresh.py\n\nCommit: %s\n" % shas[0]},
+                    {"body": "TESTS:\ntests/test_fresh.py\n\nCommit: %s\n" % shas[1]}]
+        self.assertEqual(merge.locked_baseline(comments), shas[1])
+        self.assertIsNone(merge.locked_baseline([{"body": "TESTS:\ntests/test_fresh.py\n"}]))
+        self.rules(shas[1], [None, "OPEN", "MERGED"], issue={"body": "x", "comments": comments})
+        r = self.run_merge(shas[1])
+        self.assertTrue(r.ok, r.reason)
+
+    def test_a_builder_change_after_the_writers_final_commit_is_still_refused(self):
+        shas = self.rewritten_tests("weakened\n")
+        comments = [{"body": "TESTS:\ntests/test_fresh.py\n\nCommit: %s\n" % shas[1]}]
+        self.assert_parked(shas[2], "locked test modified", {"body": "x", "comments": comments})
+
     def test_locked_test_removed_at_head(self):
         run_git(["checkout", "-b", "issue/1", "main"], self.work)
         with open(os.path.join(self.work, "tests/test_fresh.py"), "w") as f:

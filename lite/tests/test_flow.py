@@ -556,6 +556,25 @@ class FlowTest(FakeClaudeGh):
         r, _ = self.first_fails("echo \"ModuleNotFoundError: No module named 'other'\"; false", body="Add the widgets module.")
         self.assertEqual(r.status, "parked")
 
+    def test_the_tests_comment_names_the_writers_final_commit_after_a_resume(self):
+        sent = self.spy_gh()
+        self.fast(Test_command="true", Test_files_command="if grep -q y {files}; then echo AssertionError; "
+                  "else echo ValueError; fi; false")
+        rewrite = {"files": {"tests/test_new.py": "y\n"}, "reply": "TESTS:\ntests/test_new.py"}
+        self.build_scenario(**{"test-writer": [WRITER, rewrite]})
+        self.assertEqual(self.build().status, "merged")
+        comments = [i for a, i in sent if a[:2] == ["issue", "comment"] and i.startswith("TESTS:")]
+        self.assertEqual(len(comments), 1)
+        final = common.git(["log", "-1", "--format=%H", "--grep=test-writer", "issue/7"], cwd=self.origin)
+        self.assertEqual(merge.locked_baseline([{"body": comments[0]}]), final)
+
+    def test_an_attribute_error_naming_a_symbol_of_the_issue_counts_as_failing(self):
+        out = "echo \"AttributeError: module 'textstats' has no attribute 'average_word_length'\"; false"
+        r, called = self.first_fails(out, body="Add average_word_length to textstats.")
+        self.assertEqual((r.status, called), ("merged", ["test-writer", "builder", "reviewer"]))
+        r, called = self.first_fails(out, body="Add something else.")
+        self.assertEqual((r.status, called), ("parked", ["test-writer"] * 2))
+
     def test_the_full_command_runs_after_the_builder_only_when_the_stop_hook_did_not_pass_the_head(self):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
         self.build_scenario(builder=[{"files": {"app.py": "1\n"}}])

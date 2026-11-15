@@ -55,6 +55,16 @@ def locked_paths(comments):
     return paths
 
 
+def locked_baseline(comments):
+    """The commit named by the last `Commit:` line of the last `TESTS:` comment: the test writer's final
+    commit. None for a comment without one."""
+    for c in reversed(comments):
+        body = c.get("body") or ""
+        if re.search(r"^[ \t]*TESTS:", body, re.M):
+            found = re.findall(r"^[ \t]*Commit:[ \t]*([0-9a-f]{7,40})[ \t]*$", body, re.M)
+            return found[-1] if found else None
+
+
 def allowed_paths(body):
     """Paths listed under the issue's `## Paths the builder may change`."""
     body = re.sub(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", "", body,
@@ -87,8 +97,9 @@ def stop_reason(path, protected):
     return None
 
 
-def check_diff(project, base, sha, protected, allowed, locked):
-    """Return a park reason for the first stop or test-lock breach, or None."""
+def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
+    """Return a park reason for the first stop or test-lock breach, or None. A locked file must equal
+    its content at `baseline` (the writer's final commit), else at the commit that first added it."""
     out = git(["diff", "-z", "--no-renames", "--name-status", base + "..." + sha],
               cwd=project).split("\0")
     for status, path in zip(out[0::2], out[1::2]):
@@ -102,10 +113,12 @@ def check_diff(project, base, sha, protected, allowed, locked):
     for path in locked:
         if path in allowed:
             continue
-        first = git(["log", "--diff-filter=A", "--reverse", "--format=%H",
-                     base + ".." + sha, "--", path], cwd=project).split("\n")[0]
+        first = baseline or git(["log", "--diff-filter=A", "--reverse", "--format=%H",
+                                 base + ".." + sha, "--", path], cwd=project).split("\n")[0]
         if not first:
             continue
+        if baseline and subprocess.run(["git", "cat-file", "-e", first + ":" + path], cwd=project).returncode:
+            continue  # the writer's final commit does not hold it
         a, b = [subprocess.run(["git", "show", ref + ":" + path], cwd=project,
                                capture_output=True) for ref in (first, sha)]
         if b.returncode != 0:
@@ -179,7 +192,8 @@ def _merge(issue, branch, verdict_text, project):
         return _refuse(failure)
     info = view("issue", issue, "body,comments")
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
-                      allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", []))):
+                      allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", [])),
+                      locked_baseline(info.get("comments", []))):
         return _refuse(stop, park=True)
     pr = find_pr(branch, loop, sha)
     if pr is None:

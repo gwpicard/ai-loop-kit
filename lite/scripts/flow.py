@@ -102,7 +102,7 @@ def resume_merged(issue, project, branch, loop):
 
 ASSERTION = re.compile(r"AssertionError|\bassert\b|--- FAIL|\u2715|Expected|Received|(?:^|\s)FAIL[: ]|\b[1-9]\d* failed|failures=[1-9]"
                        r"|expected .* got", re.M)
-MISSING = re.compile(r"(?:No module named|cannot import name|name|Cannot find module|cannot find module|undefined:?)[^\n]*", re.I)
+MISSING = re.compile(r"(?:No module named|has no attribute|cannot import name|name|Cannot find module|cannot find module|undefined:?)[^\n]*", re.I)
 
 
 def fails_properly(kinds, failed, body):
@@ -263,7 +263,8 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                           extra=why + " Commit, and end with the TESTS: block again.")
             locked = parse_block(text)
         git(["push", "origin", branch], cwd=tree)
-        post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
+        post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
+                  + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     common.event("step", project, issue=issue, step="builder")
     report, sid = ask("builder", settings["Builder model"], locked=locked)
     feedback = ""
