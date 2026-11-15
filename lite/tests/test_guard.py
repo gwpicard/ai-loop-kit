@@ -261,6 +261,21 @@ class TestRole(GuardCase):
         self.allowed(self.bash("python3 -m unittest 2>&1 | tail -3",
                                role="reviewer"))
 
+    def test_reviewer_may_write_scratch_files_in_the_system_temp_folder(self):
+        scratch = os.path.join(tempfile.gettempdir(), "scratch-review.py")
+        self.allowed(self.call("Write", {"file_path": scratch, "content": "a"}, role="reviewer"))
+        self.allowed(self.call("Write", {"file_path": "/tmp/scratch-review.py", "content": "a"}, role="reviewer"))
+        self.allowed(self.bash("echo x > /tmp/scratch-review.py", role="reviewer"))
+        self.refused(self.call("Write", {"file_path": "/tmp/../etc/x", "content": "a"}, role="reviewer"), "reviewer")
+        self.refused(self.call("Write", {"file_path": "/Users/x/other.py", "content": "a"}, role="reviewer"), "reviewer")
+
+    def test_reviewer_still_writes_nothing_inside_the_project_even_in_a_temp_folder(self):
+        # the test repository itself lives under the system temp folder
+        for name in ("src/new.py", "docs/notes.md"):
+            self.refused(self.call("Write", {"file_path": os.path.join(self.work, name), "content": "a"},
+                                   role="reviewer"), "reviewer")
+        self.refused(self.bash("echo x > %s/new.py" % self.work, role="reviewer"), "reviewer")
+
     def test_pass_writes_only_under_lite_pass(self):
         self.refused(self.call("Write", {"file_path": "src/new.py", "content": "a"}, role="pass"), "pass")
         self.refused(self.bash("echo x > docs/notes.md", role="pass"), "pass")

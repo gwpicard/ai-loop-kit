@@ -9,7 +9,8 @@ Everywhere: no push to main, master or the default branch (LITE_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
 content. When LITE_ROLE is set, also: no git push, merge, checkout, switch,
 restore, apply or branch -f, no gh, no write to a path in LITE_LOCKED (newline
-separated) or to a tracked test file, and the reviewer role writes nothing (the pass role writes only under .lite/pass/).
+separated) or to a tracked test file, and the reviewer role writes nothing in the project (scratch files in the system
+temp folder are fine; the pass role writes only under .lite/pass/).
 
 Known limits: this is a regular-expression check on the raw command, so it can
 be routed around (a script, an alias, an unusual spelling). It is an early
@@ -21,6 +22,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
@@ -69,6 +71,9 @@ def check_path(path, role, cwd):
     top = os.path.realpath(common.git(["rev-parse", "--show-toplevel"], cwd, check=False) or cwd)
     full = os.path.realpath(os.path.join(cwd, path))
     rel = os.path.relpath(full, top)
+    if role == "reviewer" and (rel == ".." or rel.startswith(".." + os.sep)):  # scratch files, never inside the project
+        if any(full == t or full.startswith(t + os.sep) for t in {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}):
+            return
     if role == "reviewer" or (role == "pass" and not rel.startswith(".lite/pass/")):
         raise Refuse("the %s edits nothing%s" % (role, " outside .lite/pass/" if role == "pass" else ""),
                      "describe the change in the review instead")
