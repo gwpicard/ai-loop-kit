@@ -2,6 +2,29 @@
 
 Draft, 13 November 2026. For the maintainer's review before anything is built.
 
+## What changed in the third build: the fast path (15 November 2026)
+
+Evidence: in the docla trial each issue took about 50 minutes because a
+7-minute Test command ran six to eight times per issue (fails first, builder,
+Stop hook, after simplify, reviewer, merge). Now it runs twice.
+
+- New settings: `Test files command` (targeted runs, `{files}` replaced; the
+  Test command when absent) and `Prepare command` (once per worktree and per
+  fresh checkout, before any test run).
+- Fails first runs only the locked files with the Test files command and
+  requires a failure by assertion, not by a syntax error in the test.
+- The builder tests fast; the Stop hook runs the full Test and Check commands
+  once when it finishes. The hook records the commit and the output tails in
+  `.lite/passed-<session>`; the flow reuses that pass when it is for the head
+  and otherwise runs the full commands in a fresh checkout.
+- The per-issue simplify step is gone. The reviewer gets the latest test
+  result in its prompt and runs only targeted checks.
+- `merge.py` keeps exactly one full run on the exact reviewed commit.
+- The end-of-loop pass gains "simplify and reconcile" (one inbox issue).
+- A folder that is not a registered worktree is renamed aside, never deleted.
+  A Stop hook command lives in its own process group, listed in
+  `LITE_GROUPS`, so the loop kills it with the session.
+
 ## What changed in the second build (14 November 2026)
 
 The first build merged issues; this one makes each merge more reliable and
@@ -191,7 +214,6 @@ restart loses nothing.
 | `loop.sh` | The supervisor | About 150 lines |
 | `merge.sh` | Test on the exact commit, check the posted review, merge into the loop branch | About 60 lines |
 | `hooks/guard.py` | Reused from the current kit, trimmed to the rules above plus the test lock | About 250 lines |
-| `briefs/simplify.md` | The code-simplification reviewer | 1 page |
 
 Target: under 500 lines of code and a test suite under one minute.
 
@@ -202,10 +224,10 @@ and `Reviewer model` (default Sonnet). Nothing else.
 
 ## Simplification as a step
 
-- **Per pull request.** After the review approves, a simplify pass reviews
-  only the changed code, using the code-simplification skill: behaviour
-  unchanged, tests unchanged, its own commit, and the Test command passes
-  again before `merge.sh`.
+- **Per batch.** Since the third build there is no per-issue simplify pass.
+  The end-of-loop pass runs one "simplify and reconcile" session over the
+  batch's changed code and build notes and files one inbox issue; nothing is
+  edited by the pass.
 - **Per release.** One pass whose only job is deletion: list what no run used
   since the last release, and remove it unless the maintainer says why it
   stays.
@@ -300,8 +322,8 @@ Recommended on the evidence. Each layer catches failures the others miss.
 2. **The test lock.** The builder cannot edit those tests or any existing
    test, except a path the issue names.
 3. **A reviewer after the build, in a fresh session.** It reads the issue,
-   the diff and `PLAN.md`; runs the Test command and the oracle (renders,
-   measurements); checks each criterion with evidence; may add a test that
+   the diff and `PLAN.md`; is given the latest full test result and runs only
+   targeted tests and the oracle (renders, measurements); checks each criterion with evidence; may add a test that
    reproduces a finding; and gives a verdict naming the head commit. Why:
    the contract review caught real defects that frozen tests missed
    (graphwright, docla, the 10 November batch), and marcdown's reviewers

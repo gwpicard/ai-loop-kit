@@ -30,13 +30,32 @@ Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Builder model` and `Reviewer model` (default `sonnet`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
-Test command run is slow), `Check command` and `Smoke command`.
+Test command run is slow), `Test files command`, `Prepare command`,
+`Check command` and `Smoke command`.
 
-`Check command` is the project's guardrails (lint baseline, size budgets,
-architecture tests). It runs after every Test command run for an issue, and
-a failure counts like a test failure. `Smoke command` uses the real built
+`Test files command` is the fast path: it runs only some test files, with
+`{files}` replaced by their paths (for example `pytest {files}`). Without it,
+the Test command stands in. `Prepare command` installs what a fresh checkout
+needs (for example `npm ci`); the loop runs it once in each worktree and in
+every fresh checkout, before any test run, so the Test command need not
+embed it. `Check command` is the project's guardrails (lint baseline, size
+budgets, architecture tests). It runs after every Test command run, and a
+failure counts like a test failure. `Smoke command` uses the real built
 artefact, such as the CLI on real input; only the end-of-loop pass runs it.
-Setup reports both; neither is required.
+Setup reports those that are set; none is required.
+
+## The fast path
+
+A slow Test command no longer runs six or eight times per issue. Per issue it
+runs in full twice: once in the Stop hook when the builder finishes, and once
+in `merge.py`'s fresh checkout of the reviewed commit. Everything between is
+targeted. The tests are proven to fail with the Test files command, by
+assertion, on the locked files only. The builder runs the Test files command
+while it works. After the builder or a fix pass, the loop reuses the Stop
+hook's pass if it was for the very commit now at the head, and runs the full
+commands only when it was not. The reviewer is given that result and runs only
+targeted checks. There is no per-issue simplify step: the end-of-loop pass
+simplifies the whole batch once.
 
 Ask Claude to set up the loop, or run `python3 <plugin>/scripts/setup.py` from
 the project root. It creates the labels, the loop branch, a pinned `Factory`
@@ -64,8 +83,9 @@ reply to the next build.
 ## What each issue gets
 
 - **Tests first.** A test writer commits tests from the acceptance criteria
-  before any code. They must fail at the base commit; if they pass, the
-  writer is asked once to fix them, then the issue is parked.
+  before any code. They must fail by assertion at the base commit, run with the
+  Test files command on the locked files only; if they pass or fail on a
+  syntax error, the writer is asked once to fix them, then the issue is parked.
 - **Stop hooks.** The builder cannot end a session while the Test or Check
   command fails (three blocks at most); the test writer cannot end one
   without a new test file (two at most).
@@ -90,10 +110,14 @@ blocks this best-effort.
 - Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
   most). A finding counts only with a test file under `.lite/pass/` at the
   path where it belongs (such as `.lite/pass/tests/test_x.py`). The pass
-  copies it there and it must fail the Test command; a second session
+  copies it there and it must fail the Test command (Prepare first); a second session
   must confirm it.
 - Rubric: readability, error handling, weak tests, fixed sleeps, dead code.
 - Lessons and proposed guardrails.
+- Simplify and reconcile: one session reads the batch's changed code and its
+  build notes (deviations, workarounds, follow-ups, "not exercised") and
+  files one `inbox` issue, `Simplify and reconcile, <date>, <sha>`, with
+  concrete, behaviour-preserving changes. Nothing is edited by the pass.
 
 A confirmed defect becomes an issue with a `## Failing test` section. It is
 labelled `ready` only if a paragraph under `## Standing approvals` in
@@ -122,8 +146,8 @@ the worktrees and issue branches left. Outside services are on the stops list.
 ## What is guaranteed by code
 
 - Issue branches merge into the loop branch only through `merge.py`. It
-  merges the exact commit the reviewer approved, after the Test command
-  passes on that commit.
+  merges the exact commit the reviewer approved, after one full run (Prepare,
+  Test, Check) passes on a fresh checkout of that commit.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test, unless the issue
   lists it in its `## Paths the builder may change` section; a path named

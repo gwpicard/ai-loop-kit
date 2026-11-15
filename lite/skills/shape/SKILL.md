@@ -52,7 +52,9 @@ Shape them like any other. The pass's single `Pass findings` issue lists one
 checkbox per finding: shape the worthwhile ones, then close it. An issue with a `## Failing test` section keeps
 it: the test writer commits that test as given. Ask whether the project
 needs a `Check command` (guardrails) or a `Smoke command` (the real
-artefact) in `AGENTS.md`, and add the answer there.
+artefact) in `AGENTS.md`, and add the answer there. If the Test command takes
+minutes, also ask for a `Test files command` (runs given files, `{files}`
+stands for the paths) and a `Prepare command` (installs a fresh checkout).
 
 ## Rules
 

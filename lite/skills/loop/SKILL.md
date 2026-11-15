@@ -16,9 +16,12 @@ review or merge by hand, and never push to the default branch.
 Run `python3 <plugin>/scripts/setup.py` from the project root. If it prints
 `refused:`, do the `next:` step. If it adds `.lite/` to `.gitignore`, tell
 the person to commit that line. If the preflight fails, report it and stop.
-Setup also reports the optional `Check command` and `Smoke command`; if
-neither is set, mention that the end-of-loop pass can run a smoke check only
-when `Smoke command` is in `AGENTS.md`.
+Setup also reports the optional `Test files command`, `Prepare command`,
+`Check command` and `Smoke command` that are set. If the Test command is slow
+(minutes), suggest a `Test files command` (targeted runs) and a `Prepare
+command` (install steps), which keep it to two full runs per issue. If no
+`Smoke command` is set, mention that the end-of-loop pass can run a smoke
+check only when one is in `AGENTS.md`.
 
 ## Start and stop
 
@@ -47,7 +50,8 @@ queues the issue again and passes the reply to the next build.
 
 When merges are new and the Test and Check commands pass on the loop
 branch, the loop runs the end-of-loop pass and puts its report in the pull
-request body. Read it with `gh pr view`. Findings are `inbox` issues, except a
+request body. Read it with `gh pr view`. Its simplify and reconcile session
+files one `inbox` issue of behaviour-preserving changes. Findings are `inbox` issues, except a
 confirmed defect, which is `ready` only if `PLAN.md` says so positively under
 `## Standing approvals`. Do not queue anything yourself: the shape skill does that, with
 the person's yes. Follow-ups from reviewers also arrive as `inbox` issues.
