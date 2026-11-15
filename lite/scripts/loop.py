@@ -2,6 +2,7 @@
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,11 +16,14 @@ import setup
 from common import GitError, gh, git
 
 POLL = 120
+BUSY_POLL = 15  # seconds between checks while builds run
+MIN_FREE = 1.5e9  # bytes of free plus inactive memory below which no new build starts (macOS)
+HERE = os.path.dirname(os.path.abspath(__file__))
 say = lambda text: print(text, flush=True)
 
 
 def new_state():
-    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building=None, pr=None,
+    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, pr=None,
                 conflict="", last="loop started", next="after the current step")
 
 
@@ -49,6 +53,14 @@ def board_body(sections, last, next_check):
     return "\n".join(parts + ["Last event: " + last, "Next check: " + next_check, ""])
 
 
+def step_of(project, number):
+    try:
+        with open(common.build_file(project, number, "step")) as f:
+            return f.read().strip() or "starting"
+    except OSError:
+        return "starting"
+
+
 def write_board(project, st):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
@@ -62,11 +74,11 @@ def write_board(project, st):
         base, common.read_settings(project)["Loop branch"])], cwd=project, check=False)
     p = last_pass(project)
     body = board_body([
-        ("Building now", ["#%s, %s, since %s" % b] if b else []),
+        ("Building now", ["#%d, %s, since %s" % (n, step_of(project, n), since) for n, (since, _) in sorted(b.items())]),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
                        for i in of("needs-user")]),
         ("Queue, in build order", [row(i, waits(i)) for i in of("ready")
-                                   if i["number"] != (b or [0])[0]]),
+                                   if i["number"] not in b]),
         ("To shape", [row(i, l) for l in ("inbox", "shaping") for i in of(l)]),
         ("Landed since the last merge into " + base, landed.splitlines()),
         ("Pull request into " + base, [st["pr"]] if st["pr"] else []),
@@ -122,22 +134,29 @@ def pick(st):
             return i["number"]
 
 
-def build_once(project, st, number):
+def claim(st, number):
+    """Label the issue `building` before any work starts."""
     common.add_label(number, "building")
     common.remove_label(number, "ready")
-    st["building"] = (number, "starting", time.strftime("%H:%M"))
-    write_board(project, st)
+    for i in st["issues"]:
+        if i["number"] == number:
+            i["labels"] = (i["labels"] - {"ready"}) | {"building"}
+
+
+def build_attempts(project, number, replies):
+    """Build one issue, a second time after a crash, and park it after two. Return a line for the board.
+    This runs in the loop when `Parallel` is 1 and in a worker process otherwise."""
     for attempt in (1, 2):
         say("building #%d, attempt %d" % (number, attempt))
         try:
-            r = flow.build(number, project, st["replies"].get(number, []))
+            r = flow.build(number, project, replies)
             if r.status != "failed":
-                st["last"] = "#%d %s: %s" % (number, r.status, r.reason)
-                return
+                return "#%d %s: %s" % (number, r.status, r.reason)
             reason = r.reason
         except common.GitHubError as e:  # GitHub trouble is not a crash: no attempt used
             say("GitHub problem on #%d, will try again: %s" % (number, e))
-            return time.sleep(POLL)
+            time.sleep(POLL)
+            return "#%d: GitHub problem, will try again" % number
         except Exception as e:  # a crash must not stop the loop
             reason = "%s: %s" % (type(e).__name__, e)
         say("crash on #%d: %s" % (number, reason))
@@ -146,7 +165,84 @@ def build_once(project, st, number):
                input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
     common.park(number, "The build crashed twice: " + reason,
                 "Read .lite/logs, then reply to try again or close the issue.")
-    st["last"] = "#%d parked after two crashes" % number
+    return "#%d parked after two crashes" % number
+
+
+def build_once(project, st, number):
+    claim(st, number)
+    st["building"][number] = (time.strftime("%H:%M"), None)
+    write_board(project, st)
+    st["last"] = build_attempts(project, number, st["replies"].get(number, []))
+    with contextlib.suppress(OSError):
+        os.remove(common.build_file(project, number, "step"))
+
+
+def headroom():
+    """None when the machine can take another build, else why not: load average at or above the CPU
+    count, or (on macOS) free plus inactive memory below MIN_FREE."""
+    try:
+        load, cpus = os.getloadavg()[0], os.cpu_count() or 1
+        if load >= cpus:
+            return "load average %.1f is not below the %d CPUs" % (load, cpus)
+        if sys.platform == "darwin":
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10).stdout
+            free = sum(int(re.search(name + r":\s+(\d+)", out).group(1)) for name in ("Pages free", "Pages inactive"))
+            free *= int(re.search(r"page size of (\d+)", out).group(1))
+            if free < MIN_FREE:
+                return "free plus inactive memory is %.1f GB, below %.1f GB" % (free / 1e9, MIN_FREE / 1e9)
+    except (OSError, AttributeError, ValueError, subprocess.SubprocessError):
+        pass  # no way to tell: do not hold builds back
+    return None
+
+
+def worker_command(project, number, replies):
+    return [sys.executable, os.path.join(HERE, "worker.py"), project, str(number), json.dumps(replies)]
+
+
+def start_builds(project, settings, st):
+    """Claim and start eligible issues, each in its own process, up to `Parallel` and while the machine has
+    headroom. The first build always starts: only a second one waits on load."""
+    while len(st["building"]) < settings["Parallel"] and (number := pick(st)):
+        why = headroom() if st["building"] else None
+        if why:
+            if st["deferred"] != why:
+                say("deferring #%d: %s" % (number, why))
+            st["deferred"] = why
+            return
+        st["deferred"] = None
+        claim(st, number)
+        os.makedirs(os.path.join(project, ".lite", "logs"), exist_ok=True)
+        with open(os.path.join(project, ".lite", "logs", "build-%d.log" % number), "a") as log:
+            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, [])),
+                                    cwd=project, stdout=log, stderr=subprocess.STDOUT)
+        st["building"][number] = (time.strftime("%H:%M"), proc)
+        say("started a build process for #%d (pid %d); %d running" % (number, proc.pid, len(st["building"])))
+
+
+def reap(project, st):
+    """Collect the builds whose process has ended. One that left no result died: its issue is queued
+    again once (the stale building label does it), and parked the second time."""
+    for number, (_, proc) in list(st["building"].items()):
+        if proc is None or proc.poll() is None:
+            continue
+        del st["building"][number]
+        try:
+            with open(common.build_file(project, number, "result")) as f:
+                st["last"] = json.load(f)["last"]
+        except (OSError, ValueError, KeyError):
+            st["deaths"][number] = st["deaths"].get(number, 0) + 1
+            reason = "the build process ended with exit code %s and no result" % proc.returncode
+            say("crash on #%d: %s" % (number, reason))
+            if st["deaths"][number] == 1:
+                gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
+                   input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
+            else:
+                common.park(number, "The build crashed twice: " + reason,
+                            "Read .lite/logs, then reply to try again or close the issue.")
+                st["last"] = "#%d parked after two crashes" % number
+        for kind in ("step", "result"):
+            with contextlib.suppress(OSError):
+                os.remove(common.build_file(project, number, kind))
 
 
 def sync_default(project, loop, st):
@@ -224,25 +320,37 @@ def run(project):
     if busy:
         return say(busy) or 1
     st, dirty, built = new_state(), True, time.time()
+    builds = os.path.join(project, ".lite", "builds")
+    for name in os.listdir(builds) if os.path.isdir(builds) else ():  # left by a loop that was killed
+        os.remove(os.path.join(builds, name))
     stop = os.path.join(project, ".lite", "stop")
     if os.path.exists(stop):
         os.remove(stop)
     try:
         while not os.path.exists(stop):
             try:
+                reap(project, st)
                 snapshot(st)
-                for i in [i for i in st["issues"] if "building" in i["labels"]]:
-                    # only this loop builds, so a building label between builds is stale
+                for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
+                    # only this loop builds, so a building label without a running build is stale
                     say("#%d was left building, queued again" % i["number"])
                     common.add_label(i["number"], "ready")
                     common.remove_label(i["number"], "building")
                     i["labels"] = (i["labels"] - {"building"}) | {"ready"}
                 answer(st)
-                number = pick(st)
-                if number:
-                    build_once(project, st, number)
-                    st["building"], dirty, built = None, True, time.time()
-                    continue
+                if settings["Parallel"] == 1:  # one build at a time, in this process
+                    number = pick(st)
+                    if number:
+                        build_once(project, st, number)
+                        st["building"], dirty, built = {}, True, time.time()
+                        continue
+                else:  # each build is a process of its own; see worker.py
+                    start_builds(project, settings, st)
+                    if st["building"]:
+                        write_board(project, st)
+                        dirty, built = True, time.time()
+                        time.sleep(BUSY_POLL)
+                        continue
                 dirty = sync_default(project, settings["Loop branch"], st) or dirty
                 if dirty:
                     drain(project, settings, st)
@@ -258,9 +366,16 @@ def run(project):
                 os.path.exists(stop) or time.sleep(5)
         else:
             say("exiting: stop requested")
+        while st["building"]:  # running builds finish their current issue
+            say("waiting for %d running builds" % len(st["building"]))
+            time.sleep(BUSY_POLL)
+            reap(project, st)
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
+        for _, proc in st["building"].values():  # only reached with builds left after an error or an interrupt
+            if proc and proc.poll() is None:
+                proc.terminate()
         for name in ("stop", "loop.pid"):
             if os.path.exists(os.path.join(project, ".lite", name)):
                 os.remove(os.path.join(project, ".lite", name))

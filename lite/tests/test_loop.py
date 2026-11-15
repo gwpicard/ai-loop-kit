@@ -302,7 +302,10 @@ class LoopTest(Base):
         st = loop.new_state()
         loop.snapshot(st)
         loop.answer(st)
-        st.update(building=(7, "reviewing", "10:00"), pr="https://example/pull/1",
+        os.makedirs(os.path.join(self.work, ".lite", "builds"))
+        with open(os.path.join(self.work, ".lite", "builds", "7.step"), "w") as f:
+            f.write("reviewing")
+        st.update(building={7: ("10:00", None)}, pr="https://example/pull/1",
                   conflict="clash in x.txt")
         loop.write_board(self.work, st)
         body = self.board_inputs()[-1]
@@ -316,7 +319,7 @@ class LoopTest(Base):
         self.world([issue(2), issue(3)])
         st = loop.new_state()
         loop.snapshot(st)
-        st["building"] = (2, "builder", "10:00")
+        st["building"] = {2: ("10:00", None)}
         loop.write_board(self.work, st)
         body = self.board_inputs()[-1]
         self.assertEqual(body.count("Piece 2"), 0)

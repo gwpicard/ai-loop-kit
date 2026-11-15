@@ -1,5 +1,6 @@
 """Shared helpers: settings, GitHub and git calls, events, labels, trust."""
 import contextlib
+import fcntl
 import json
 import os
 import re
@@ -29,6 +30,7 @@ DEFAULTS = {
     "Smoke command": "",
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
     "Prepare command": "",  # run once in each worktree, before any test run
+    "Parallel": "1",  # builds running at once
 }
 
 
@@ -83,6 +85,7 @@ def read_settings(root="."):
     settings["Idle hours"] = float(settings["Idle hours"])
     settings["Max rounds"] = int(settings["Max rounds"])
     settings["Session minutes"] = float(settings["Session minutes"])
+    settings["Parallel"] = max(1, int(settings["Parallel"]))
     return settings
 
 
@@ -270,10 +273,29 @@ def scratch_tree(project, ref):
         subprocess.run(["rmdir", parent], capture_output=True)
 
 
+def build_file(root, issue, kind):
+    """Where a running build keeps its `step` or its `result`: .lite/builds/<issue>.<kind>."""
+    return os.path.join(root, ".lite", "builds", "%s.%s" % (issue, kind))
+
+
+@contextlib.contextmanager
+def merge_lock(root):
+    """One merge into the loop branch at a time, across processes. The lock is released when the
+    holder ends, even if it dies."""
+    os.makedirs(os.path.join(root, ".lite"), exist_ok=True)
+    with open(os.path.join(root, ".lite", "merge.lock"), "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
 def event(kind, root=".", **fields):
-    """Append one JSON line to .lite/events.jsonl."""
+    """Append one JSON line to .lite/events.jsonl. A step of a build also becomes its step file, for the board."""
     folder = os.path.join(root, ".lite")
     os.makedirs(folder, exist_ok=True)
+    if kind == "step" and "issue" in fields:
+        os.makedirs(os.path.join(folder, "builds"), exist_ok=True)
+        with open(build_file(root, fields["issue"], "step"), "w") as f:
+            f.write(fields["step"] + (" round %s" % fields["round"] if "round" in fields else ""))
     record = dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind=kind, **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")

@@ -121,6 +121,39 @@ def fails_properly(kinds, failed, body):
     return "Your tests do not fail by assertion. Make them fail by assertion for the right reason."
 
 
+Landed = collections.namedtuple("Landed", "result conflicts head review files")
+
+
+def land(issue, branch, review, project, tree, settings):
+    """Merge into the loop branch, one merge at a time. Under the merge lock: catch the issue branch up
+    with the loop branch, then merge.merge. A clean catch-up is pushed and the verdict's HEAD follows it;
+    conflicts are left open in the tree. A refusal while the loop branch has moved is tried once more."""
+    loop = settings["Loop branch"]
+    for attempt in (1, 2):
+        with common.merge_lock(project):
+            git(["fetch", "--no-prune", "origin"], cwd=project)
+            based, old = git(["rev-parse", "origin/" + loop], cwd=project), git(["rev-parse", "HEAD"], cwd=tree)
+            try:
+                git(["merge", "--no-edit", "origin/" + loop], cwd=tree)
+            except common.GitError:
+                conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
+                if not conflicts:
+                    raise
+                return Landed(None, conflicts, old, review, [])
+            head = git(["rev-parse", "HEAD"], cwd=tree)
+            if head != old:
+                git(["push", "origin", branch], cwd=tree)
+                review = re.sub(r"(?m)^(\s*HEAD:\s*)[0-9a-fA-F]{7,40}", lambda m: m.group(1) + head, review)
+            files = git(["diff", "--name-only", "origin/%s...%s" % (loop, head)], cwd=tree).splitlines()
+            result = merge.merge(issue, branch, review, project)
+            if result.ok or result.park:
+                break
+            git(["fetch", "--no-prune", "origin"], cwd=project)
+            if git(["rev-parse", "origin/" + loop], cwd=project) == based:
+                break
+    return Landed(result, [], head, review, files)
+
+
 def prompt_for(role, number, info, tree, settings, replies, report=None):
     with open(os.path.join(BRIEFS, role + ".md"), encoding="utf-8") as f:
         text = f.read()
@@ -259,21 +292,25 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             common.event("note-failed", project, issue=issue, reason=str(e))
         if verdict == "APPROVE":
             git(["push", "origin", branch], cwd=tree)
-            files = git(["diff", "--name-only", "origin/%s...%s" % (settings["Loop branch"], head)],
-                        cwd=tree).splitlines()
-            result = merge.merge(issue, branch, review, project)
-            if result.ok:
+            landed = land(issue, branch, review, project, tree, settings)
+            result, head, review = landed.result, landed.head, landed.review
+            if landed.conflicts:  # the merge stays open in the tree for the builder's next pass
+                feedback = ("The loop branch moved and the branch now conflicts with it in: %s. The merge is "
+                            "in progress: resolve the conflicts keeping both intents, run the tests, commit "
+                            "the merge. Do not run git merge." % ", ".join(landed.conflicts))
+            elif result.ok:
                 try:
                     pr = (merge.find_pr(branch, settings["Loop branch"], head) or {}).get("number")
                 except common.LoopError:
                     pr = None
-                note_after_merge(issue, project, report, review, result.commit, files, pr)
+                note_after_merge(issue, project, report, review, result.commit, landed.files, pr)
                 return Result("merged", result.reason)
-            if result.park:
+            elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,
                              "Name the path in the issue body if the change is "
                              "intended, otherwise tell the loop what to change.")
-            feedback = "The merge was refused: " + result.reason
+            else:
+                feedback = "The merge was refused: " + result.reason
         else:
             feedback = review if verdict else "The review had no VERDICT block."
     raise Parked("The build did not pass review in %d rounds. Last problem: %s"
