@@ -64,14 +64,28 @@ def reap(pgid):
     return left
 
 
-def reap_groups(path):
-    """Kill the process groups a Stop hook listed in `path` and still left running; return a line per process."""
+def age(pid):
+    """(process group, seconds since start) of a live process, else None."""
+    out = subprocess.run(["ps", "-p", str(pid), "-o", "pgid=,etime="], capture_output=True, text=True).stdout.split()
+    try:
+        days, _, clock = out[1].rpartition("-")
+        secs = [int(x) for x in clock.split(":")]
+        return int(out[0]), sum(v * m for v, m in zip(reversed(secs), (1, 60, 3600))) + 86400 * int(days or 0)
+    except (IndexError, ValueError):
+        return None
+
+
+def reap_groups(path, since):
+    """Kill the process groups a Stop hook listed in `path` and still left running; return a line per process.
+    A group is skipped unless its leader is alive, leads the group and started after `since`."""
     try:
         with open(path) as f:
             groups = [int(g) for g in f.read().split()]
     except (OSError, ValueError):
         return []
-    return [line for g in groups if g > 1 and g != os.getpgrp() for line in reap(g)]
+    seen = {g: age(g) for g in groups if g > 1 and g != os.getpgrp()}
+    mine = [g for g, a in seen.items() if a and a[0] == g and a[1] <= time.time() - since + 2]
+    return [line for g in mine for line in reap(g)]
 
 
 def _wait_seconds(text):
@@ -82,7 +96,7 @@ def _wait_seconds(text):
 
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
-    before = docker_state()
+    before, began = docker_state(), time.time()
     handle, groups = tempfile.mkstemp(prefix="lite-groups-")
     os.close(handle)
     env = dict(env, LITE_GROUPS=groups)
@@ -97,7 +111,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
             problem = None
         except subprocess.TimeoutExpired:
             problem = "%s session timed out after %g minutes" % (role, limit / 60)
-        left = reap(p.pid) + reap_groups(groups)
+        left = reap(p.pid) + reap_groups(groups, began)
         with contextlib.suppress(OSError):
             os.remove(groups)
         p.wait()

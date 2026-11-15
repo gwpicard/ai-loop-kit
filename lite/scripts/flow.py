@@ -100,6 +100,27 @@ def resume_merged(issue, project, branch, loop):
     return True
 
 
+ASSERTION = re.compile(r"AssertionError|\bassert\b|--- FAIL|\u2715|Expected|Received|(?:^|\s)FAIL[: ]|\b[1-9]\d* failed|failures=[1-9]"
+                       r"|expected .* got", re.M)
+MISSING = re.compile(r"(?:No module named|cannot import name|name|Cannot find module|cannot find module|undefined:?)[^\n]*", re.I)
+
+
+def fails_properly(kinds, failed, body):
+    """None when a fails-first run proves a real failure, else why it does not. Only a test run that
+    failed counts, by an assertion or by naming a module or symbol the issue introduces."""
+    if not kinds or kinds[-1][1] != "failed" or kinds[-1][0] != "Test":
+        what = kinds[-1] if kinds else ("Test", "failed")
+        return "They fail because the %s command %s, which proves nothing: %s" % (
+            what[0], {"timeout": "timed out", "unrunnable": "could not run"}.get(what[1], "failed"), failed)
+    if ASSERTION.search(failed):
+        return None
+    names = [t for line in MISSING.findall(failed) for q in re.findall(r"['\"`]([^'\"`]+)['\"`]", line)
+             for t in [q] + q.replace("/", ".").split(".")]
+    if any(len(t) > 2 and t in body for t in names):
+        return None
+    return "Your tests do not fail by assertion. Make them fail by assertion for the right reason."
+
+
 def prompt_for(role, number, info, tree, settings, replies, report=None):
     with open(os.path.join(BRIEFS, role + ".md"), encoding="utf-8") as f:
         text = f.read()
@@ -195,10 +216,11 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
             elif not (failed := merge.run_tests(project, start, common.files_command(settings, locked), 60,
-                                                overlay=(tree, locked), prepare=settings["Prepare command"])):
+                                                overlay=(tree, locked), prepare=settings["Prepare command"],
+                                                kinds=(kinds := []))):
                 why = "Your tests pass before any code exists. Make them fail for the right reason."
-            elif re.search(r"SyntaxError|IndentationError", failed):
-                why = "Your tests fail with a syntax error, not by assertion. Make them fail by assertion."
+            elif why := fails_properly(kinds, failed, info.get("body") or ""):
+                pass
             else:
                 break
             if attempt == 2:

@@ -146,6 +146,24 @@ class SessionTest(FakeClaudeGh):
         with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
             self.assertRegex(f.read(), "--- cleanup: left running, killed: %d .*sleep 300" % pid)
 
+    def test_a_recorded_group_is_killed_only_if_its_leader_lives_and_started_after_the_session(self):
+        import subprocess
+        path = os.path.join(self.tmp, "groups")
+        old = subprocess.Popen(["sleep", "300"], start_new_session=True)
+        self.addCleanup(old.kill)
+        time.sleep(3.2)
+        since = time.time()
+        new = subprocess.Popen(["sleep", "300"], start_new_session=True)
+        self.addCleanup(new.kill)
+        gone = subprocess.Popen(["true"], start_new_session=True)
+        gone.wait()
+        with open(path, "w") as f:
+            f.write("%d\n%d\n%d\n" % (old.pid, new.pid, gone.pid))
+        lines = session.reap_groups(path, since)
+        self.assertEqual(len(lines), 1)
+        self.assertIsNone(new.wait(timeout=5) and None)
+        self.assertIsNone(old.poll())
+
     def fake_docker(self, sessions, **ids):
         folder = os.path.join(self.tmp, "docker")
         os.makedirs(folder)

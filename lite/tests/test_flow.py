@@ -12,7 +12,7 @@ import common
 import flow
 import merge
 
-AGENTS = "## Loop\nCheck command: test ! -f BAD\nTest command: seq 1 100; test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }\nLoop branch: loop/main\nMax rounds: 2\n"
+AGENTS = "## Loop\nCheck command: test ! -f BAD\nTest command: seq 1 99; { test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }; } || { echo AssertionError; false; }\nLoop branch: loop/main\nMax rounds: 2\n"
 MERGED = merge.Result(True, False, "merged as abc", "abc")
 APPROVE = {"reply": "All good.\n\nVERDICT: APPROVE\nHEAD: {HEAD}\n\n1. none"}
 CHANGES = {"reply": "VERDICT: CHANGES\nHEAD: {HEAD}\n\n1. Handle the empty case"}
@@ -79,7 +79,7 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("PLAN.md", builder["prompt"])
         self.assertIn("Use the env var.", builder["prompt"])
         self.assertIn("Work autonomously", builder["prompt"])
-        self.assertIn("Test command: seq 1 100; test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }", builder["prompt"])
+        self.assertIn("Test command: seq 1 99; { test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }; } || { echo AssertionError; false; }", builder["prompt"])
         self.assertIn("The builder's last report", calls[2]["prompt"])
         self.assertIn("git diff origin/loop/main...HEAD", calls[2]["prompt"].replace(
             "<loop branch>", "loop/main"))
@@ -111,7 +111,7 @@ class FlowTest(FakeClaudeGh):
         tail = calls[2]["prompt"]
         self.assertIn("Test command failed", tail)
         self.assertIn(": 21\n", tail)
-        self.assertIn("\n100", tail)
+        self.assertIn("\nAssertionError", tail)
         self.assertNotIn("\n20\n", tail)
 
     def test_round_limit_parks(self):
@@ -483,8 +483,8 @@ class FlowTest(FakeClaudeGh):
         except OSError:
             return []
 
-    FULL = "echo full >> TMP/full.log; test -f app.py"
-    FILES = "echo {files} >> TMP/files.log; test -f app.py"
+    FULL = "echo full >> TMP/full.log; test -f app.py || { echo AssertionError; false; }"
+    FILES = "echo {files} >> TMP/files.log; test -f app.py || { echo AssertionError; false; }"
     PASSED = {"files": {"app.py": "1\n"}, "passed": True}
 
     def test_fails_first_runs_only_the_locked_files_with_the_test_files_command(self):
@@ -508,6 +508,54 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("by assertion", r.reason)
         self.assertEqual(roles(self.claude_calls()), ["test-writer", "test-writer"])
 
+    def first_fails(self, command, body="Do the thing.", **more):
+        self.fast(Test_command="true", Test_files_command=command, **more)
+        common.git(["push", "origin", "--delete", "issue/7"], cwd=self.work, check=False)
+        common.git(["branch", "-D", "issue/7"], cwd=self.work, check=False)
+        self.claude({})
+        self.scenario_body(body)
+        self.build_scenario()
+        r = self.build()
+        return r, roles(self.claude_calls())
+
+    def scenario_body(self, body):
+        self.scenario([{"match": "issue view 7", "responses": [{"stdout": json.dumps(
+            {"title": "Add it", "body": body, "comments": []})}]}, {"match": "issue", "responses": [{}]},
+            {"match": "pr list", "responses": [{"stdout": "[]"}]}])
+
+    def test_a_command_that_cannot_run_or_times_out_is_not_a_failing_test(self):
+        for command in ("exit 127", "nosuchcommand_xyz {files}"):
+            r, called = self.first_fails(command)
+            self.assertEqual((r.status, called), ("parked", ["test-writer"] * 2), command)
+            self.assertIn("could not run", r.reason)
+        merge.TEST_TIMEOUT, old = 1, merge.TEST_TIMEOUT
+        self.addCleanup(setattr, merge, "TEST_TIMEOUT", old)
+        r, _ = self.first_fails("sleep 30")
+        self.assertIn("timed out", r.reason)
+
+    def test_a_prepare_failure_in_the_fails_first_checkout_is_not_proof(self):
+        self.fast(Test_command="true", Test_files_command="echo AssertionError; false",
+                  Prepare_command="test -f app.py || { echo no deps; exit 4; }")
+        self.build_scenario()
+        r = self.build()  # the worktree itself prepares first, so Prepare must already fail there
+        self.assertEqual(r.status, "failed")
+        self.assertIn("Prepare command failed", r.reason)
+
+    def test_fails_first_needs_an_assertion_or_a_name_the_issue_introduces(self):
+        r, called = self.first_fails("echo 'Traceback'; echo 'ValueError: boom'; false")
+        self.assertEqual((r.status, called), ("parked", ["test-writer"] * 2))
+        self.assertIn("do not fail by assertion", r.reason)
+        for output in ("AssertionError: 1 != 2", "--- FAIL: TestX", "Expected: 1\nReceived: 2", "3 failed, 1 passed",
+                       "FAIL: test_x (t.T)", "expected 1 got 2"):
+            r, _ = self.first_fails("printf '%s\\n' '" + output.replace("\n", "' '") + "'; false")
+            self.assertEqual(r.status, "merged", output)
+        r, _ = self.first_fails("echo 'FAILED (errors=1)'; echo 'ERROR: test_x'; false")
+        self.assertEqual(r.status, "parked")
+        r, _ = self.first_fails("echo \"ModuleNotFoundError: No module named 'widgets'\"; false", body="Add the widgets module.")
+        self.assertEqual(r.status, "merged")
+        r, _ = self.first_fails("echo \"ModuleNotFoundError: No module named 'other'\"; false", body="Add the widgets module.")
+        self.assertEqual(r.status, "parked")
+
     def test_the_full_command_runs_after_the_builder_only_when_the_stop_hook_did_not_pass_the_head(self):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
         self.build_scenario(builder=[{"files": {"app.py": "1\n"}}])
@@ -529,7 +577,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.fix_pass({}), ["full"])
 
     def test_a_failure_found_by_the_flow_goes_back_to_the_builder_with_its_tail(self):
-        self.fast(Test_command=self.FULL + " && test ! -f FAIL")
+        self.fast(Test_command="echo full >> TMP/full.log; test -f app.py && test ! -f FAIL || { echo AssertionError; false; }")
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "FAIL": "x\n"}}, {"remove": ["FAIL"]}])
         self.assertEqual(self.build().status, "merged")
         self.assertIn("Test command failed", self.claude_calls()[2]["prompt"])

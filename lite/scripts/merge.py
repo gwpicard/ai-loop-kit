@@ -115,9 +115,12 @@ def check_diff(project, base, sha, protected, allowed, locked):
     return None
 
 
-def run_in(name, command, tree, label, tail=1, tails=None):
-    """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`."""
+def run_in(name, command, tree, label, tail=1, tails=None, kinds=None):
+    """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`.
+    `kinds` collects (name, "timeout", "unrunnable" for exit 126 or 127, or "failed")."""
     code, out = common.run_shell(command, tree, TEST_TIMEOUT)
+    if kinds is not None and code != 0:
+        kinds.append((name, "timeout" if code is None else "unrunnable" if code in (126, 127) else "failed"))
     if code is None:
         return "the %s command timed out on %s" % (name, label)
     if code != 0:
@@ -126,7 +129,7 @@ def run_in(name, command, tree, label, tail=1, tails=None):
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
     `tails` collects the last line of each passing Test and Check command."""
@@ -136,7 +139,7 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
         for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
-            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None)):
+            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds)):
                 return failure
         return None
 
