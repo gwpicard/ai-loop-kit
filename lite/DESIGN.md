@@ -19,7 +19,9 @@ Stop hook, after simplify, reviewer, merge). Now it runs twice.
   and otherwise runs the full commands in a fresh checkout.
 - The per-issue simplify step is gone. The reviewer gets the latest test
   result in its prompt and runs only targeted checks.
-- `merge.py` keeps exactly one full run on the exact reviewed commit.
+- `merge.py` keeps exactly one full run, on the exact commit it merges: the
+  reviewed commit, or a conflict-free merge of it with the current loop
+  branch. Conflicts go back to the builder and a fresh review.
 - The end-of-loop pass gains "simplify and reconcile" (one inbox issue).
 - A folder that is not a registered worktree is renamed aside, never deleted.
   A Stop hook command lives in its own process group, listed in
@@ -47,6 +49,13 @@ Setting `Parallel: N` (default 1).
   builder for a fix round. If the merge is refused and the loop branch moved,
   the lock is released, the catch-up runs once more, and the merge is retried.
 - The board reads each running build's step from `.lite/builds/<issue>.step`.
+- Supervision: workers run in their own session; the pid goes to
+  `.lite/builds/<issue>.pid`. A worker running longer than 3 times
+  `Session minutes` plus 30 minutes is killed (its group) and counts as a
+  death. If a recorded pid is still alive at start, the loop refuses rather
+  than claim those issues again. When the loop exits with builds left,
+  it ends them; that skips their worktree cleanup, which the next start's
+  worktree pruning covers.
 - Stop: no new build starts and running builds finish their issue. Worktree,
   process group and Docker cleanup stay with each build.
 

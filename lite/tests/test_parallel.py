@@ -182,6 +182,53 @@ class ParallelTest(Base):
         self.assertFalse(os.path.exists(common.build_file(self.work, 2, "result")))
 
 
+    def test_a_running_issue_is_not_picked_from_a_stale_snapshot(self):
+        self.world_of(issue(2))
+        st = loop.new_state()
+        loop.snapshot(st)
+        st["building"][2] = ("10:00", None)
+        with mock.patch.object(common, "ready_is_trusted", return_value=True):
+            self.assertIsNone(loop.pick(st))
+
+    def test_deferral_is_logged_when_the_kind_of_reason_changes(self):
+        reasons = iter(["load average 9.0 is not below the 8 CPUs", "load average 9.5 is not below the 8 CPUs",
+                        "free plus inactive memory is 1.0 GB, below 1.5 GB"])
+        self.headroom.side_effect = lambda: next(reasons, "free plus inactive memory is 1.0 GB, below 1.5 GB")
+        self.configure(sleep=0.6)
+        self.world_of(issue(2), issue(3))
+        self.run_it()
+        said = [c[0][0] for c in self.say.call_args_list if c[0][0].startswith("deferring")]
+        self.assertEqual([("load" in s) for s in said], [True, False])
+
+    def test_a_worker_over_the_cap_is_killed_and_counts_as_a_death(self):
+        self.configure(sleep=30)
+        self.world_of(issue(2))
+        st = loop.new_state()
+        proc = loop.subprocess.Popen([sys.executable, self.script, self.work, "2"], start_new_session=True)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        st["building"][2], st["started"][2] = ("10:00", proc), time.time() - 100
+        loop.reap(self.work, st, cap=50)
+        self.assertEqual((st["building"], st["deaths"]), ({}, {2: 1}))
+        self.assertIsNotNone(proc.poll())
+
+    def test_the_pid_is_recorded_and_a_live_stray_worker_refuses_the_start(self):
+        self.configure(sleep=0.3)
+        self.world_of(issue(2))
+        self.run_it()
+        self.assertFalse(os.path.exists(common.build_file(self.work, 2, "pid")))  # cleared when reaped
+        stray = loop.subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        self.addCleanup(stray.kill)
+        os.makedirs(os.path.join(self.work, ".lite", "builds"), exist_ok=True)
+        with open(common.build_file(self.work, 9, "pid"), "w") as f:
+            f.write(str(stray.pid))
+        self.calls.clear()
+        self.assertEqual(self.run_loop(), 1)
+        self.assertIn("refused: build processes of an earlier loop", " ".join(c[0][0] for c in self.say.call_args_list))
+        self.assertTrue(os.path.exists(common.build_file(self.work, 9, "pid")))
+        self.assertEqual(self.writes("--add-label building"), [])
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "loop.pid")))
+
+
 class HeadroomTest(unittest.TestCase):
     def test_load_at_the_cpu_count_is_busy(self):
         with mock.patch.object(loop.os, "getloadavg", return_value=(4.0, 1, 1)), \

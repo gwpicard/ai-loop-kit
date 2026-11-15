@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -16,14 +17,14 @@ import setup
 from common import GitError, gh, git
 
 POLL = 120
-BUSY_POLL = 15  # seconds between checks while builds run
+BUSY_POLL = 45  # seconds between checks while builds run
 MIN_FREE = 1.5e9  # bytes of free plus inactive memory below which no new build starts (macOS)
 HERE = os.path.dirname(os.path.abspath(__file__))
 say = lambda text: print(text, flush=True)
 
 
 def new_state():
-    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, pr=None,
+    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, started={}, pr=None,
                 conflict="", last="loop started", next="after the current step")
 
 
@@ -128,7 +129,7 @@ def trusted(st, i):
 
 def pick(st):
     for i in sorted(st["issues"], key=lambda x: x["number"]):
-        if ("ready" in i["labels"] and "building" not in i["labels"]
+        if ("ready" in i["labels"] and "building" not in i["labels"] and i["number"] not in st["building"]
                 and all(d in st["closed"] for d in common.depends_on(i["body"]))
                 and trusted(st, i)):
             return i["number"]
@@ -205,25 +206,60 @@ def start_builds(project, settings, st):
     while len(st["building"]) < settings["Parallel"] and (number := pick(st)):
         why = headroom() if st["building"] else None
         if why:
-            if st["deferred"] != why:
+            if st["deferred"] != why.split()[0]:  # said when the kind of reason changes: load, or free memory
                 say("deferring #%d: %s" % (number, why))
-            st["deferred"] = why
+            st["deferred"] = why.split()[0]
             return
         st["deferred"] = None
         claim(st, number)
         os.makedirs(os.path.join(project, ".lite", "logs"), exist_ok=True)
         with open(os.path.join(project, ".lite", "logs", "build-%d.log" % number), "a") as log:
-            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, [])),
-                                    cwd=project, stdout=log, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, [])), cwd=project,
+                                    stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
+        with open(common.build_file(project, number, "pid"), "w") as f:
+            f.write(str(proc.pid))
+        st["started"][number] = time.time()
         st["building"][number] = (time.strftime("%H:%M"), proc)
         say("started a build process for #%d (pid %d); %d running" % (number, proc.pid, len(st["building"])))
 
 
-def reap(project, st):
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+
+
+def stray_workers(project):
+    """Pids recorded in .lite/builds/*.pid that are still running."""
+    folder, pids = os.path.join(project, ".lite", "builds"), []
+    for name in os.listdir(folder) if os.path.isdir(folder) else ():
+        try:
+            with open(os.path.join(folder, name)) as f:
+                pid = int(f.read())
+        except (OSError, ValueError):
+            continue
+        if name.endswith(".pid") and alive(pid):
+            pids.append(pid)
+    return pids
+
+
+def reap(project, st, cap=None):
     """Collect the builds whose process has ended. One that left no result died: its issue is queued
     again once (the stale building label does it), and parked the second time."""
     for number, (_, proc) in list(st["building"].items()):
-        if proc is None or proc.poll() is None:
+        if proc is None:
+            continue
+        if proc.poll() is None and cap and time.time() - st["started"].get(number, time.time()) > cap:
+            say("#%d: the build process ran over %d minutes, killing it" % (number, cap // 60))
+            with contextlib.suppress(OSError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+        if proc.poll() is None:
             continue
         del st["building"][number]
         try:
@@ -240,7 +276,7 @@ def reap(project, st):
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .lite/logs, then reply to try again or close the issue.")
                 st["last"] = "#%d parked after two crashes" % number
-        for kind in ("step", "result"):
+        for kind in ("step", "result", "pid"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
 
@@ -320,7 +356,12 @@ def run(project):
     if busy:
         return say(busy) or 1
     st, dirty, built = new_state(), True, time.time()
+    cap = (3 * settings["Session minutes"] + 30) * 60  # seconds a build process may run
     builds = os.path.join(project, ".lite", "builds")
+    if stray_workers(project):  # a loop that was killed left builds running: do not claim their issues again
+        os.remove(os.path.join(project, ".lite", "loop.pid"))
+        return say("refused: build processes of an earlier loop are still running (pids %s)\nnext: wait for them, "
+                   "or end them, then start again" % ", ".join(map(str, stray_workers(project)))) or 1
     for name in os.listdir(builds) if os.path.isdir(builds) else ():  # left by a loop that was killed
         os.remove(os.path.join(builds, name))
     stop = os.path.join(project, ".lite", "stop")
@@ -329,7 +370,7 @@ def run(project):
     try:
         while not os.path.exists(stop):
             try:
-                reap(project, st)
+                reap(project, st, cap)
                 snapshot(st)
                 for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
                     # only this loop builds, so a building label without a running build is stale
@@ -369,13 +410,14 @@ def run(project):
         while st["building"]:  # running builds finish their current issue
             say("waiting for %d running builds" % len(st["building"]))
             time.sleep(BUSY_POLL)
-            reap(project, st)
+            reap(project, st, cap)
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
         for _, proc in st["building"].values():  # only reached with builds left after an error or an interrupt
             if proc and proc.poll() is None:
-                proc.terminate()
+                with contextlib.suppress(OSError):
+                    os.killpg(proc.pid, signal.SIGTERM)
         for name in ("stop", "loop.pid"):
             if os.path.exists(os.path.join(project, ".lite", name)):
                 os.remove(os.path.join(project, ".lite", name))

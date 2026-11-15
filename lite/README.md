@@ -160,8 +160,9 @@ the worktrees and issue branches left. Outside services are on the stops list.
 ## What is guaranteed by code
 
 - Issue branches merge into the loop branch only through `merge.py`. It
-  merges the exact commit the reviewer approved, after one full run (Prepare,
-  Test, Check) passes on a fresh checkout of that commit.
+  merges the reviewed commit, or a conflict-free merge of it with the current
+  loop branch, tested in full on that exact commit (Prepare, Test, Check on a
+  fresh checkout). Conflicts go back to the builder and a fresh review.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test, unless the issue
   lists it in its `## Paths the builder may change` section; a path named
