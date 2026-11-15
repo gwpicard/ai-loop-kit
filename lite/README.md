@@ -28,8 +28,9 @@ Put this in the project's `AGENTS.md`:
 
 Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Builder model` and `Reviewer model` (default `sonnet`), `Protected paths`,
-`Idle hours` (default 12) and `Max rounds` (default 3), `Check command` and
-`Smoke command`.
+`Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
+(default 45, the wall-clock limit of one Claude session; raise it when one
+Test command run is slow), `Check command` and `Smoke command`.
 
 `Check command` is the project's guardrails (lint baseline, size budgets,
 architecture tests). It runs after every Test command run for an issue, and

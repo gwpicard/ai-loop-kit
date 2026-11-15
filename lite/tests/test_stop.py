@@ -79,8 +79,36 @@ class StopHookTest(unittest.TestCase):
             self.assertEqual(stop.run("sleep 30", self.work), (None, ""))
             self.assertLess(time.time() - started, 10)
             with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-                f.write("## Loop\nTest command: sleep 30\n")
+                f.write("## Loop\nTest command: sleep 30\nSession minutes: 0.05\n")
             self.assertIn("timed out after 1 seconds", stop.problem("builder", self.work, self.work))
+
+    def test_the_command_timeout_is_a_third_of_the_session_limit_and_at_least_ten_minutes(self):
+        sys.path.insert(0, os.path.dirname(STOP))
+        import stop
+        for minutes, expected in (("45", 900), ("20", 600), ("90", 1800)):
+            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+                f.write("## Loop\nTest command: true\nSession minutes: %s\n" % minutes)
+            with mock.patch.object(stop, "run", return_value=(None, "")) as r:
+                stop.problem("builder", self.work, self.work)
+            self.assertEqual(r.call_args[0][2], expected)
+
+    def test_a_pass_on_an_unchanged_commit_is_not_repeated_and_a_change_reruns(self):
+        marker = os.path.join(self.work, "..", "runs")
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write("## Loop\nTest command: echo x >> %s\n" % marker)
+        run_git(["commit", "-am", "agents"], self.work)
+        runs = lambda: open(marker).read().count("x")
+        self.assertIsNone(self.stop("builder"))
+        self.assertIsNone(self.stop("builder"))
+        self.assertEqual(runs(), 1)
+        self.assertIsNone(self.stop("builder", session="s2"))
+        self.assertEqual(runs(), 2)
+        self.touch("new.py", commit=True)
+        self.assertIsNone(self.stop("builder"))
+        self.assertEqual(runs(), 3)
+        self.touch("dirty.py")
+        self.assertIsNone(self.stop("builder"))
+        self.assertEqual(runs(), 4)
 
     def test_an_error_allows_the_stop(self):
         self.touch("FAIL")

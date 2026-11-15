@@ -11,7 +11,6 @@ import time
 
 import common
 
-TIMEOUT = 45 * 60
 TEST_TIMEOUT = 1800
 LIMIT = re.compile(r"usage limit|limit reached", re.I)
 HOOKS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks"))
@@ -72,7 +71,7 @@ def _wait_seconds(text):
     return int(min(max(wait, 60), 6 * 3600))
 
 
-def _exec(argv, prompt, cwd, env, log, role, issue):
+def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before = docker_state()
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
@@ -81,10 +80,10 @@ def _exec(argv, prompt, cwd, env, log, role, issue):
         p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:
-            p.wait(timeout=TIMEOUT)
+            p.wait(timeout=limit)
             problem = None
         except subprocess.TimeoutExpired:
-            problem = "%s session timed out after %d minutes" % (role, TIMEOUT // 60)
+            problem = "%s session timed out after %g minutes" % (role, limit / 60)
         left = reap(p.pid)
         p.wait()
         out, err = (f.seek(0) or f.read() for f in (fout, ferr))
@@ -120,7 +119,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
     log = os.path.join(logs, "%s%d.log" % (prefix, n))
     while True:
         out, err, code = _exec(argv + (["--resume", resume] if resume else []),
-                               prompt, cwd, env, log, role, issue)
+                               prompt, cwd, env, log, role, issue, settings["Session minutes"] * 60)
         try:
             data = json.loads(out)
         except ValueError:

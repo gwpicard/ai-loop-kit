@@ -66,7 +66,7 @@ class SetupTest(FakeGh):
         self.fresh()
         code, text = run(self.work)
         self.assertEqual(code, 0, text)
-        self.assertIn("optional: Check command: true; Smoke command: echo ok", text)
+        self.assertIn("optional: Check command: true; Smoke command: echo ok; Session minutes: 45", text)
 
     def test_no_optional_commands_is_said_plainly(self):
         self.repo()

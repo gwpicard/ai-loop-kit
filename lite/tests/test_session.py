@@ -95,11 +95,20 @@ class SessionTest(FakeClaudeGh):
     def test_timeout_kills_the_session(self):
         self.claude({"builder": [{"sleep": 30}]})
         started = time.time()
-        with mock.patch.object(session, "TIMEOUT", 1):
-            with self.assertRaises(session.SessionError) as cm:
-                self.run_session()
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write(AGENTS + "Session minutes: 0.02\n")
+        with self.assertRaises(session.SessionError) as cm:
+            self.run_session()
         self.assertIn("timed out", str(cm.exception))
         self.assertLess(time.time() - started, 10)
+
+    def test_session_minutes_sets_the_limit(self):
+        self.claude({"builder": [{"sleep": 30}]})
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write(AGENTS + "Session minutes: 0.02\n")
+        with self.assertRaises(session.SessionError) as cm:
+            self.run_session()
+        self.assertIn("timed out after 0.02 minutes", str(cm.exception))
 
     def test_a_process_left_in_the_group_is_killed_and_logged(self):
         self.claude({"builder": [{"spawn": True, "reply": "done"}]})

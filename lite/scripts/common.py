@@ -23,6 +23,7 @@ DEFAULTS = {
     "Protected paths": ".github/, .claude/, .githooks/",
     "Idle hours": "12",
     "Max rounds": "3",
+    "Session minutes": "45",
     "Check command": "",
     "Smoke command": "",
 }
@@ -78,6 +79,7 @@ def read_settings(root="."):
         p.strip() for p in settings["Protected paths"].split(",") if p.strip()]
     settings["Idle hours"] = float(settings["Idle hours"])
     settings["Max rounds"] = int(settings["Max rounds"])
+    settings["Session minutes"] = float(settings["Session minutes"])
     return settings
 
 

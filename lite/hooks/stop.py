@@ -18,12 +18,26 @@ except Exception as e:
 # Blocks are counted per session id: a builder resumed for fix rounds keeps its
 # id, so the limit of 3 is shared across all its rounds, not reset each round.
 LIMITS = {"builder": 3, "test-writer": 2}
-TIMEOUT = 600  # per command, well under the hook's own 1800 seconds
+TIMEOUT = 600  # least time per command; it grows with the session limit
 
 
-def run(command, cwd):
+def run(command, cwd, timeout=None):
     """Run a shell command. Return (exit code, output); the code is None on timeout."""
-    return common.run_shell(command, cwd, TIMEOUT)
+    return common.run_shell(command, cwd, timeout or TIMEOUT)
+
+
+def passed_path(project, session_id):
+    return os.path.join(project, ".lite", "passed-" + session_id)
+
+
+def unchanged_since_pass(project, session_id, cwd):
+    """True when HEAD is the commit that last passed for this session and the tree is clean."""
+    try:
+        with open(passed_path(project, session_id)) as f:
+            return (f.read().strip() == common.git(["rev-parse", "HEAD"], cwd=cwd).strip()
+                    and not common.git(["status", "--porcelain", "--", ".", ":!.lite"], cwd=cwd).strip())
+    except OSError:
+        return False
 
 
 def count_block(project, session_id, limit):
@@ -42,18 +56,25 @@ def count_block(project, session_id, limit):
     return True
 
 
-def problem(role, cwd, project):
+def problem(role, cwd, project, session_id=""):
     """Why the session may not stop yet, or None."""
     if role == "builder":
         settings = common.read_settings(project)
+        if session_id and unchanged_since_pass(project, session_id, cwd):
+            return None
+        timeout = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
         for name in ("Test", "Check"):
             command = settings[name + " command"]
-            code, out = run(command, cwd) if command else (0, "")
+            code, out = run(command, cwd, timeout) if command else (0, "")
             if code is None:
-                return "The %s command timed out after %d seconds. Make it finish." % (name, TIMEOUT)
+                return "The %s command timed out after %d seconds. Make it finish." % (name, timeout)
             if code:
                 return "The %s command fails. Fix it, commit, then finish. Last 60 lines:\n%s" % (
                     name, "\n".join(out.strip().splitlines()[-60:]))
+        if session_id and not common.git(["status", "--porcelain", "--", ".", ":!.lite"], cwd=cwd).strip():
+            os.makedirs(os.path.dirname(passed_path(project, session_id)), exist_ok=True)
+            with open(passed_path(project, session_id), "w") as f:
+                f.write(common.git(["rev-parse", "HEAD"], cwd=cwd).strip())
     start = os.environ.get("LITE_START")
     if role == "test-writer" and start:
         added = common.git(["diff", "--name-only", "--diff-filter=A", start + "..HEAD"], cwd=cwd)
@@ -67,7 +88,7 @@ def main():
         role, project = os.environ.get("LITE_ROLE"), os.environ["LITE_PROJECT"]
         session_id = json.load(sys.stdin)["session_id"]
         if role in LIMITS:
-            why = problem(role, os.getcwd(), project)
+            why = problem(role, os.getcwd(), project, session_id)
             if why and count_block(project, session_id, LIMITS[role]):
                 print(json.dumps({"decision": "block", "reason": why}))
     except Exception as e:
