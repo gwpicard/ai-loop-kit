@@ -191,7 +191,7 @@ the worktrees and issue branches left. Outside services are on the stops list.
 
 `merge.py` is the authoritative line.
 
-- Issue branches merge into the loop branch only through `merge.py`. It
+- The loop merges issues only through `merge.py`; in the loop's sessions the hook refuses `gh` and `git merge`; branch protection on the default branch stops other routes. `merge.py`
   merges the reviewed commit, or a conflict-free merge of it with the current
   loop branch, tested in full on that exact commit (Prepare, Test, Check on a
   fresh checkout). Conflicts go back to the builder and a fresh review.

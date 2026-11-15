@@ -70,7 +70,7 @@ the next build.
 
 By code, in `merge.py`, the authoritative line:
 
-- Issues merge into the loop branch only through `merge.py`: the reviewed
+- The loop merges issues only through `merge.py`; in the loop's sessions the hook refuses `gh` and `git merge`; branch protection on the default branch stops other routes. `merge.py` merges the reviewed
   commit, or a conflict-free merge of it, after a full test run on that exact
   commit.
 - A diff that touches a protected path, a workflow, a lockfile, a settings

@@ -67,7 +67,7 @@ This is the marcdown run, written down, with guards where marcdown was weak.
 | Weak spot (evidence from the run) | Guard | Kind |
 | --- | --- | --- |
 | The coordinator merged to `main` itself | The hook refuses a push to `main`, `master` or the default branch in every session, and `git merge`, `gh` and branch switches in the loop's sessions; branch protection is the line that holds | Code (`guard.py`) |
-| About 20 of 41 fixes merged with no re-check; coordinator edits merged untested | Merging happens only through `merge.py`, which runs the Test command on the exact commit and merges with `--match-head-commit`. The hook refuses `gh` in the loop's sessions | Code |
+| About 20 of 41 fixes merged with no re-check; coordinator edits merged untested | The loop merges only through `merge.py`, which runs the Test command on the exact commit and merges with `--match-head-commit`. In the loop's sessions the hook refuses `gh` and `git merge`; branch protection stops other routes | Code and settings |
 | A builder can weaken the tests that judge it | The hook refuses writes to existing test files in the loop's sessions, and `merge.py` refuses a diff that changes one unless the issue names its path. New tests are allowed | Code |
 | Agents shared one checkout and switched each other's branches | Every builder and reviewer gets its own worktree, created by the supervisor | Code |
 | Reviews lived only in agent hand-backs | `merge.py` refuses unless the review verdict is posted on the pull request | Code |
