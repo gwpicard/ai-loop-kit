@@ -3,21 +3,11 @@
   "owner": {
     "name": "Guillaume Picard"
   },
-  "description": "Shape software pieces, then walk away while a checked run builds them on your own computer.",
+  "description": "Shape software pieces, then walk away while a loop builds, reviews and merges them on your own computer.",
   "plugins": [
     {
       "name": "ai-loop-kit",
       "source": "./kit",
-      "description": "Shape software pieces, build them in runs and check the results."
-    },
-    {
-      "name": "ai-loop-kit-extras",
-      "source": "./extras",
-      "description": "Optional experimental mutation tools and preview gauntlet critics for AI Loop Kit."
-    },
-    {
-      "name": "ai-loop-lite",
-      "source": "./lite",
       "description": "A continuous factory: shape work, then a loop builds, reviews and merges it."
     }
   ]

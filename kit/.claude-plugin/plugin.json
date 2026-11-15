@@ -1,11 +1,8 @@
 {
   "name": "ai-loop-kit",
-  "description": "A thin, checked loop for building software with Claude Code while you are away: shape the pieces, start one run, and let the gate prove each piece is done.",
+  "version": "2.0.0",
+  "description": "A continuous factory: shape work in one session while a loop builds, reviews and merges it on your own computer.",
   "author": {
     "name": "Guillaume Picard"
-  },
-  "homepage": "https://github.com/gwpicard/ai-loop-kit",
-  "repository": "https://github.com/gwpicard/ai-loop-kit",
-  "license": "MIT",
-  "version": "1.7.0"
+  }
 }
