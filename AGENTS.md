@@ -4,21 +4,26 @@ Standing instructions for agents working in this repository.
 
 ## What this repository is
 
-AI Loop Kit: a thin, checked loop for building software with Claude Code
-while the person is away. Walking away is the goal the kit serves.
-Read `docs/DESIGN.md` first. It is the one description of what the kit is,
-how it works and why.
+AI Loop Kit, version 2: a continuous factory for building software with
+Claude Code while the person is away. The person shapes work into issues and
+approves it once; a loop builds, reviews and merges each issue into a loop
+branch. Read `docs/DESIGN.md` first. It is the one description of what the
+kit is, how it works and why.
 
 ## Where things live
 
-- `kit/`: the plugin. `kit/scripts/gate.py` moves pieces, `kit/scripts/run.py`
-  builds them, `kit/hooks/guard.py` refuses the hard rules, and
-  `kit/skills/` holds setup, shape and run.
-- `tests/`: the checks for `kit/` and for the house rules.
-- `docs/OPEN.md`: the maintainer's open questions, decisions to make and ideas
-  waiting for evidence. It is git-ignored and private.
-- History (the old ledger, lessons, build notes, the first kit and its design)
-  is kept outside the repository. Do not treat it as current.
+- `kit/`: the plugin. `kit/scripts/loop.py` supervises, `kit/scripts/flow.py`
+  takes one issue from tests to review, `kit/scripts/merge.py` merges,
+  `kit/scripts/pass_.py` runs the end-of-loop pass, `kit/hooks/guard.py`
+  refuses the hard rules, `kit/briefs/` holds the session instructions and
+  `kit/skills/` holds the shape and loop skills.
+- `kit/tests/`: the checks for `kit/`. `tests/house-rules.sh` checks the house
+  rules over every tracked file.
+- `docs/DESIGN.md`: the design. `docs/OPEN.md`: the maintainer's open
+  questions and ideas waiting for evidence; it is git-ignored and private.
+- History (version 1 of the kit, its ledger, lessons and build notes) is in
+  git under the tag `v1.7.0` and in a copy kept outside the repository. Do
+  not treat it as current.
 - `.agents/maintainer-skills/`: `humanizer`, `release-notes`,
   `review-issues`, `review-public-docs` and `writing-review`, for the
   maintainer.
@@ -27,23 +32,24 @@ how it works and why.
 
 ## How the kit grows
 
-A change enters `kit/` only with evidence that the kit needs it: a failure in
-a real run, friction in real use (the person had to step in, wait or remember
-something), or a gap, named by the person, between what the kit does and the
-walk-away goal. Write the evidence in `docs/OPEN.md` first, add a test that
-reproduces the failure or checks the new behaviour, then make the smallest
-change.
+This repository is built with the kit itself. A change enters `kit/` as a
+shaped issue that the loop builds, not as a hand edit, and only with
+evidence that the kit needs it: a failure in a real run, friction in real use
+(the person had to step in, wait or remember something), or a gap, named by
+the person, between what the kit does and the walk-away goal. Write the
+evidence in `docs/OPEN.md` and in the issue, make the issue's acceptance
+criteria tests that reproduce the failure or check the new behaviour, then
+make the smallest change.
 
-New capability enters as preview. It leaves preview only when the maintainer
-decides so, after a real run has used it. When a change makes code, text or a
-check redundant, the same pull request removes it. At each release, the
-maintainer decides for every preview: it leaves preview, stays with a stated
-reason, or is removed. Keep the kit small enough to read in one sitting.
+When a change makes code, text or a check redundant, the same change removes
+it. Keep the kit small enough to read in one sitting.
 
 ## Commands
 
-- `tests/run-all.sh`: run every check. The last run took about six minutes.
-- `tests/house-rules.sh`: check the house rules over every tracked file.
+- `tests/run-all.sh`: run every check (the kit's tests in parallel, then the
+  house rules).
+- `python3 kit/tests/run.py`: run only the kit's tests, about 80 seconds.
+- `sh tests/house-rules.sh`: check the house rules over every tracked file.
 
 In a fresh clone, the person runs `git config core.hooksPath .githooks` once.
 Agents cannot: the settings deny it. To see whether it is set, read
@@ -53,11 +59,11 @@ Agents cannot: the settings deny it. To see whether it is set, read
 
 Work merges to `main`. `stable` is the default branch and only a release
 moves it. Every pull request names `main` as its base: use
-`gh pr create --base main`. The one exception is a kit run on this
-repository: its piece pull requests name the run's base branch (see "The
-loop" below), and only its final pull request names `main`. A `Closes #N` line does not close the issue when
-the base is not the default branch. The person or the run closes the issue
-after the merge.
+`gh pr create --base main`. The one exception is a loop run on this
+repository: its piece pull requests name the loop branch (see "The loop"
+below), and only its final pull request names `main`. A `Closes #N` line does
+not close the issue when the base is not the default branch, so the loop
+closes the issue after the merge. In every other case the person does.
 
 - Never put an issue or pull request number in a tracked file. When the
   repository moves, the number points at nothing.
@@ -106,26 +112,22 @@ files is only a guard if the agent cannot change it.
 
 ## What makes a piece ready
 
-A piece is a GitHub issue. `kit/spec-format.md` gives its shape. The gate
-decides when it is ready; a label written by hand means nothing.
+A piece is a GitHub issue. `kit/templates/issue.md` gives its shape. A
+collaborator with write access labels it `ready`; the loop builds only those.
 
 ## Where to read next
 
-Read `docs/DESIGN.md`, then `kit/spec-format.md`.
+Read `docs/DESIGN.md`, then `kit/README.md`.
 
 ## The loop
 
-This project uses AI Loop Kit to build itself. The run uses a released copy
-of the kit, never the code it is changing. Pieces are GitHub issues with one
-`state:` label. Only the gate (gate.py) changes a state label. The run merges
-gated pieces into the base branch; the person merges the base branch into
-main.
-Test command: `sh tests/run-all.sh`
-Agent: claude
-Protected paths: `.claude/`, `.githooks/`, `.github/`, `.agents/guard/`
-Idle limit: 10
-Waiting limit: 3
-Base branch: loop/1.8
-Base merges: run
-Keep limit: 30
-Sandbox domains: pypi.org, files.pythonhosted.org
+This repository uses AI Loop Kit to build itself, from a released copy of
+the kit and never from the code it is changing. Pieces are GitHub issues. The
+loop merges built pieces into the loop branch; the person merges the loop
+branch into `main`. The settings the loop reads are in the next section.
+
+## Loop
+Test command: `tests/run-all.sh`
+Loop branch: loop/main
+Parallel: 2
+Protected paths: `.claude/`, `.githooks/`, `.agents/guard/`, `.github/`

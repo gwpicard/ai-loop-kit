@@ -1,6 +1,6 @@
 ---
 name: shape
-description: Turn inbox issues or a new idea into shaped, approved issues for the AI Loop Lite factory. Use when the person wants to plan work, shape issues, clear the inbox or queue work for the loop. Never builds code.
+description: Turn inbox issues or a new idea into shaped, approved issues for the AI Loop Kit factory. Use when the person wants to plan work, shape issues, clear the inbox or queue work for the loop. Never builds code.
 ---
 
 # Shape work for the loop

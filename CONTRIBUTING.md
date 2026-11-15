@@ -1,60 +1,47 @@
 # Contributing
 
-AI Loop Kit is being built, and its maintainer sets the order of the work. Read
-`docs/DESIGN.md` to see how the kit works. A change joins the kit only with
-evidence that it is needed: a failure or friction in real use, or a gap,
-named by the maintainer, between what the kit does and its goal of letting
-the person walk away.
+AI Loop Kit is built with itself, so the way to change it is the way the kit
+asks its users to work.
 
-## Report a problem
+## Changes go through shaped issues
 
-Use the bug form. Say what you expected, what happened and the shortest steps
-that show it. Remove passwords, tokens, personal data and private project
-details before you post.
+A change to `kit/` starts as an issue. Describe the evidence first: a failure
+in a real run, friction in real use, or a gap between what the kit does and the
+walk-away goal. Shape the issue with acceptance criteria and dependencies (the
+shape skill does this), and let the loop build it. Hand edits to `kit/` are the
+exception, for a loop that cannot start. Read `docs/DESIGN.md` before you
+propose a change, and `AGENTS.md` for the standing rules.
 
-Do not report a security problem in a public issue. Read `SECURITY.md`.
+A change that makes code, text or a check redundant removes it in the same
+pull request. The kit should stay small enough to read in one sitting.
 
-## Suggest an idea
+## Run the checks
 
-Use the idea form. Describe the situation where you would use it and what you
-would expect to see. You do not need a technical design.
+From the repository root:
 
-## Pull requests
+    tests/run-all.sh
 
-Work merges to `main`. `stable` is the default branch and only a release
-moves it. Every pull request must name `main` as its base: use
-`gh pr create --base main`. A check refuses pull requests aimed at `stable`.
-Keep each pull request to one slice, with evidence that it works. A person
-reads and merges every pull request.
+This runs the kit's tests in parallel (`python3 kit/tests/run.py`, about 80
+seconds) and then the house rules (`sh tests/house-rules.sh`). Both must pass.
+The tests use a fake `gh` and a fake `claude`, so they need no network and no
+account.
 
-A `Closes #N` line does not close the issue when the base is not the default
-branch. The person or the run closes the issue after the merge.
+## House rules
 
-Run `tests/run-all.sh` before you ask for a review. Read `AGENTS.md` for the
-house rules. They apply to people as well as agents.
+- Write British spelling, with no em or en dashes and paragraphs under about
+  100 words. Claim only what the code or a test shows.
+- Never put an issue or pull request number in a tracked file.
+- Never add a model co-author line or a session link to a commit or pull
+  request. In a fresh clone, run `git config core.hooksPath .githooks` once;
+  the hook strips them.
+- Never push to `main` and never force-push. Open a pull request with base
+  `main`.
+- Never put a secret in a tracked file.
+- Write public text (pull request descriptions, documentation, release notes)
+  in line with the guides in `.agents/maintainer-skills/`.
 
-## Releases
+`tests/house-rules.sh` checks the mechanical ones over every tracked file.
 
-Between releases, `main` keeps the last release number in
-`kit/.claude-plugin/plugin.json`. The release pull request sets the next one.
+## Reporting a vulnerability
 
-Each version has its notes in `docs/release-notes/vX.Y.Z.md`, written to
-`.agents/maintainer-skills/release-notes/SKILL.md` and reviewed before the
-release pull request. `CHANGELOG.md` keeps one short entry for the version
-that links to the notes, and the GitHub release body opens with the notes,
-word for word. Before a release, run
-`.agents/maintainer-skills/review-public-docs/SKILL.md` over the shipped docs.
-
-After the maintainer approves publication, publish and verify the release
-from `main`, then move `stable` with:
-
-```sh
-GITHUB_REPOSITORY=gwpicard/ai-loop-kit \
-  .agents/tools/promote-stable.sh vX.Y.Z <full-release-commit>
-```
-
-Replace both placeholders with the published tag and its full commit hash.
-The tool checks that the release is published, that its tag names the
-commit, and that `stable` reads back at that commit after the write. It
-refuses draft releases, prereleases and updates that would overwrite work.
-The maintainer investigates a refused promotion before trying again.
+See `SECURITY.md`.

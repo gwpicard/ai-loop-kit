@@ -1,6 +1,6 @@
 ---
 name: loop
-description: Start, stop and watch the AI Loop Lite factory that builds ready issues unattended. Use when the person says run the loop, start building, stop the loop, show the board, or answers a parked issue.
+description: Start, stop and watch the AI Loop Kit factory that builds ready issues unattended. Use when the person says run the loop, start building, stop the loop, show the board, or answers a parked issue.
 ---
 
 # Run the loop

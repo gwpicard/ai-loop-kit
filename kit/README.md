@@ -1,4 +1,7 @@
-# AI Loop Kit lite
+# AI Loop Kit: reference
+
+The full reference for the plugin in this folder. The root `README.md` is the
+short guide and `docs/DESIGN.md` explains why the kit works this way.
 
 A continuous factory for building software with Claude Code while you are
 away. You shape and approve work with Claude. A loop on your computer builds
@@ -12,10 +15,10 @@ The loop never asks for input. It parks an issue only for a decision that
 
 You need `git`, `gh` signed in to GitHub, Claude Code and `python3` (3.9 or
 later). Add this repository as a plugin marketplace in Claude Code, then
-install the `ai-loop-lite` plugin from it:
+install the `ai-loop-kit` plugin from it:
 
     /plugin marketplace add gwpicard/ai-loop-kit
-    /plugin install ai-loop-lite@ai-loop-kit
+    /plugin install ai-loop-kit@ai-loop-kit
 
 `<plugin>` below is the installed plugin folder (holding `bin/`).
 
@@ -207,4 +210,4 @@ Code does not enforce these.
 
 ## Tests
 
-Run `python3 lite/tests/run.py` from the repository root: it runs each test module in its own process, in parallel, and exits non-zero on any failure.
+Run `python3 kit/tests/run.py` from the repository root: it runs each test module in its own process, in parallel, and exits non-zero on any failure.
