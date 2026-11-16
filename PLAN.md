@@ -96,3 +96,5 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
