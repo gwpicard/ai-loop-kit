@@ -363,6 +363,21 @@ def hands_on(project, base, loop, old_body):
     return "## Hands-on checks\n\n" + ("\n\n".join(blocks) or "none") + "\n"
 
 
+def decisions(project, base, loop):
+    """The `## Decisions to confirm` section: the lines added under `## Deviations` in PLAN.md since the default branch."""
+    def lines(ref):
+        text = git(["show", "origin/%s:PLAN.md" % ref], cwd=project, check=False)
+        found = re.search(r"^## Deviations[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+        return [l for l in found.group(1).splitlines() if l.strip()] if found else []
+    old, added = lines(base), []
+    for line in lines(loop):
+        if line in old:
+            old.remove(line)
+        else:
+            added.append(line)
+    return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
+
+
 def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
@@ -371,8 +386,6 @@ def drain(project, settings, st):
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
                             prepare=settings["Prepare command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
-    body = "Built by the loop. Landed:\n\n%s\n\nTests %s on the loop branch.\n" % (
-        landed or "Nothing.", "fail: " + failed if failed else "pass")
     if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
         say("running the end-of-loop pass")
         try:
@@ -396,7 +409,9 @@ def drain(project, settings, st):
             old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
         except (ValueError, common.GitHubError):
             pass
-    body += "\n" + hands_on(project, base, loop, old)
+    body = "Built by the loop.\n\n" + hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
+    body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
+        landed or "Nothing.", "fail: " + failed if failed else "pass")
     body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
     if found:
         gh(["pr", "edit", str(found[0]["number"]), "--body-file", "-"], input=body)
