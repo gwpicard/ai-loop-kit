@@ -98,3 +98,8 @@ Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
 - Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
+
+## Deviations
+
+- Setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged). The log is under `.lite/logs/` as the locked tests expect, not `.loop/logs/`.
+- `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.
