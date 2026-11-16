@@ -25,8 +25,9 @@ kit is, how it works and why.
   git under the tag `v1.7.0` and in a copy kept outside the repository. Do
   not treat it as current.
 - `.agents/maintainer-skills/`: `humanizer`, `release-notes`,
-  `review-issues`, `review-public-docs` and `writing-review`, for the
-  maintainer.
+  `review-issues`, `review-public-docs`, `run-review` and `writing-review`,
+  for the maintainer. `run-review` reads a finished or running loop in any
+  project set up for the kit and records where the kit cost the person time.
 - `.agents/guard/blocked-commands.md`: the commands that are off limits.
 - `.githooks/commit-msg`: strips model attribution from commit messages.
 
