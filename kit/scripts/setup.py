@@ -10,6 +10,7 @@ SECTION = "## Loop\nTest command: <the command that runs your tests>\n"
 
 V1 = {"run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json", "summary.md",
       "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}  # files only kit 1.x kept in .loop/
+OURS = {"loop.out", "loop.pid", "pass.json", "builds", "merge.lock", "stop"}  # never moved into .loop/v1/
 
 
 def alive(path):
@@ -38,16 +39,19 @@ def tidy(project):
         if V1 & set(names):
             os.makedirs(os.path.join(loop, "v1"), exist_ok=True)
             for name in names:
-                if name != "v1" and not os.path.exists(os.path.join(loop, "v1", name)):
+                if name != "v1" and name not in OURS and not name.startswith(("passed-", "stop-")) \
+                        and not os.path.exists(os.path.join(loop, "v1", name)):
                     os.rename(os.path.join(loop, name), os.path.join(loop, "v1", name))
                     moved.append(".loop/%s to .loop/v1/" % name)
         if os.path.isdir(lite):
             os.makedirs(loop, exist_ok=True)
             for name in sorted(os.listdir(lite)):
                 old, new = os.path.join(lite, name), os.path.join(loop, name)
+                if os.path.isfile(old) and os.path.isfile(new) and not os.path.exists(new + ".lite"):
+                    new += ".lite"  # such as loop.out, which the start command creates first
                 if not os.path.exists(new):
                     os.rename(old, new)
-                    moved.append(".lite/%s to .loop/" % name)
+                    moved.append(".lite/%s to .loop/%s" % (name, os.path.basename(new) if new.endswith(".lite") else ""))
                 elif os.path.isdir(old) and os.path.isdir(new):  # such as logs/: merge one level
                     for child in sorted(os.listdir(old)):
                         if not os.path.exists(os.path.join(new, child)):
