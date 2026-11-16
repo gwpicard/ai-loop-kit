@@ -59,6 +59,10 @@ artefact) in `AGENTS.md`, and add the answer there. If the Test command takes
 minutes, also ask for a `Test files command` (runs given files, `{files}`
 stands for the paths) and a `Prepare command` (installs a fresh checkout).
 
+Once per project, ask whether the Test and Check commands build every target
+and type-check every source folder. Record the answer under `## Decisions` in
+`PLAN.md`. When they do not, fixing the command is the first issue.
+
 ## Rules
 
 - Label nothing `ready` without the person's yes in this session.
