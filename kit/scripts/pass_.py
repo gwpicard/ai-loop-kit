@@ -117,8 +117,10 @@ def run_pass(project, settings, since_ref, rounds=0):
 def _pass(project, settings, since, tree, r):
     sha, test = git(["rev-parse", "HEAD"], cwd=tree), settings["Test command"]
     plan = git(["show", "HEAD:PLAN.md"], cwd=tree, check=False)
-    context = "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff %s...HEAD\n" % (
-        os.path.join(tree, "PLAN.md"), settings["Loop branch"], test, since)
+    check = settings.get("Check command")
+    context = "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n%sBatch diff: git diff %s...HEAD\n" % (
+        os.path.join(tree, "PLAN.md"), settings["Loop branch"], test,
+        "Check command: %s\n" % check if check else "", since)
     def ask(name, extra=""):  # at most 9 calls: drift, rubric, four red teams, confirm, lessons, simplify
         r["sessions"] += 1
         try:
