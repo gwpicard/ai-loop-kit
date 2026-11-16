@@ -20,6 +20,11 @@ marketplace in Claude Code, then install the `ai-loop-kit` plugin from it:
     /plugin marketplace add gwpicard/ai-loop-kit
     /plugin install ai-loop-kit@ai-loop-kit
 
+After an update of the plugin, restart Claude Code: a session keeps the
+version it started with. The kit refuses to run when the running version is
+older than the one the project was set up with (recorded in
+`.loop/kit-version`), and says so.
+
 `<plugin>` below is the installed plugin folder (holding `bin/`).
 
 ## Set up a project

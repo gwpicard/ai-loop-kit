@@ -8,11 +8,13 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import common
 import flow
 import merge
 import pass_
+import session
 import setup
 from common import GitError, gh, git
 
@@ -342,6 +344,76 @@ def sync_default(project, loop, st):
         return False
 
 
+def hands_on(project, base, loop, old_body):
+    """The `## Hands-on checks` section: each merged issue's steps as boxes, keeping the boxes already ticked."""
+    ticked = set()
+    if "## Hands-on checks" in old_body:
+        kept = old_body.split("## Hands-on checks")[-1].split("\n## ")[0]
+        ticked = set(re.findall(r"^- \[[xX]\] (.*)$", kept, re.M))
+    log = git(["log", "--format=%s", "origin/%s..origin/%s" % (base, loop)], cwd=project, check=False)
+    blocks = []
+    for n in sorted({int(m) for m in re.findall(r"^Issue (\d+)", log, re.M)}):
+        try:
+            info = json.loads(gh(["issue", "view", str(n), "--json", "title,body"]))
+        except (ValueError, common.GitHubError):  # an unreadable issue only leaves its steps out
+            continue
+        found = re.search(r"^## Hands-on check[ \t]*\n(.*?)(?=^## |\Z)", info.get("body") or "", re.M | re.S)
+        steps = re.findall(r"^\s*\d+\.\s+(.+?)\s*$", found.group(1), re.M) if found else []
+        if steps:
+            blocks.append("#%d %s\n\n%s" % (n, info["title"], "\n".join(
+                "- [%s] %s" % ("x" if s in ticked else " ", s) for s in steps)))
+    return "## Hands-on checks\n\n" + ("\n\n".join(blocks) or "none") + "\n"
+
+
+def decisions(project, base, loop):
+    """The `## Decisions to confirm` section: the lines added under `## Deviations` in PLAN.md since the default branch."""
+    def lines(ref):
+        text = git(["show", "origin/%s:PLAN.md" % ref], cwd=project, check=False)
+        found = re.search(r"^## Deviations[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+        return [l for l in found.group(1).splitlines() if l.strip()] if found else []
+    old, added = lines(base), []
+    for line in lines(loop):
+        if line in old:
+            old.remove(line)
+        else:
+            added.append(line)
+    return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
+
+
+def summary(project, settings, head, landed):
+    """The Summary, Evidence and Merge danger sections: one read-only session per new batch, saved for refreshes."""
+    path = os.path.join(project, ".lite", "summary.json")
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    if saved.get("head") == head or "- Issue " not in landed:
+        return saved.get("text", "")
+    base, loop = common.default_branch(project), settings["Loop branch"]
+
+    text = ""
+    try:
+        notes = []
+        try:
+            pass_.batch_lines(project, "origin/" + base, loop, notes)
+        except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
+            pass
+        with common.scratch_tree(project, "origin/" + loop) as tree:
+            prompt = Path(flow.BRIEFS, "pr-summary.md").read_text(encoding="utf-8") + (
+                "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
+                    os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
+            reply = session.run("pass", prompt, tree, settings["Reviewer model"], project, "summary")[0]
+        found = re.search(r"^## Summary\b.*?^## Evidence\b.*?^## Merge danger\b.*", reply, re.M | re.S)
+        text = found.group(0).strip() + "\n" if found else ""
+    except Exception as e:  # the summary never blocks the drain
+        say("the pull request summary did not run: %s: %s" % (type(e).__name__, e))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(dict(head=head, text=text), f)
+    return text
+
+
 def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
@@ -350,8 +422,6 @@ def drain(project, settings, st):
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
                             prepare=settings["Prepare command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
-    body = "Built by the loop. Landed:\n\n%s\n\nTests %s on the loop branch.\n" % (
-        landed or "Nothing.", "fail: " + failed if failed else "pass")
     if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
         say("running the end-of-loop pass")
         try:
@@ -366,10 +436,20 @@ def drain(project, settings, st):
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
         with open(os.path.join(project, ".lite", "pass.json"), "w") as f:
             json.dump(last, f)
-    body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
                                   "open", "--json", "number,url"]))
     found = find()
+    old = ""
+    if found:
+        try:
+            old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
+        except (ValueError, common.GitHubError):
+            pass
+    top = summary(project, settings, head, landed)
+    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n") + hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
+    body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
+        landed or "Nothing.", "fail: " + failed if failed else "pass")
+    body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
     if found:
         gh(["pr", "edit", str(found[0]["number"]), "--body-file", "-"], input=body)
     elif landed:  # a failed create is found by the next check, not repeated
@@ -479,8 +559,15 @@ def main(argv):
         os.makedirs(os.path.join(project, ".lite"), exist_ok=True)
         open(os.path.join(project, ".lite", "stop"), "w").close()
         return say("stop requested; the loop ends after its current step") or 0
+    if cmd in ("run", "check-version"):
+        old = common.kit_version_refusal(project)
+        if old:
+            return say(old) or 1
+        if cmd == "check-version":
+            return 0
+        common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop")
+        say("usage: loop.py run|stop|check-version")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):
