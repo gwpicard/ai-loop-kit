@@ -24,7 +24,9 @@ diff with
 prompt). The prompt gives the latest result of the full Test and Check commands
 on this commit; do not run the full Test command again. Run the Test files
 command (named in the prompt) on the tests you need, and run your own checks.
-Verify against the real thing:
+Return CHANGES for a test that calls internal code in place of the entry point
+the criterion names, or whose example inputs all share one layout where layout
+matters. Verify against the real thing:
 real inputs, the oracle, and renders where the project has them. Check each
 acceptance criterion and give the evidence (a test, a command output, a line
 of code). Report only real

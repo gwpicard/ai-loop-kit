@@ -28,7 +28,9 @@ code and never merges.
    a task.
 5. Ask the oracle question for each piece: how will an agent see that this
    is right (a command, a render, a measurement)? If nothing can, the first
-   issue builds that check.
+   issue builds that check. For each piece a person triggers, also ask which
+   entry point they use (the keys, the menu item, the command, the route), and
+   name it in the criterion.
 6. Split the work into issues an agent can finish in about an hour. Each
    follows `<plugin>/templates/issue.md`: a goal, three to six acceptance
    criteria, how an agent checks it, a `## Paths the builder may change`

@@ -7,6 +7,8 @@ One or two sentences: what changes for the user, and why.
 - [ ] A criterion an agent can check by running something or reading an output.
 - [ ] Three to six of these. Each one is true or false.
 - [ ] Name the exact behaviour, not the method.
+- [ ] For behaviour a person triggers, name the entry point: the keys pressed,
+  the menu item chosen, the command run or the HTTP route called.
 
 ## How an agent checks it
 
