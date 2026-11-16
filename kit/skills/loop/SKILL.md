@@ -11,6 +11,11 @@ review or merge by hand, and never push to the default branch.
 
 `<plugin>` is this skill's plugin folder, two levels up.
 
+## First, check the kit version
+
+Run `<plugin>/bin/loop check-version` from the project root. If it exits
+non-zero, report its two lines and stop.
+
 ## Set up, once per project
 
 Run `python3 <plugin>/scripts/setup.py` from the project root. If it prints
