@@ -14,8 +14,10 @@ from common import gh, git
 FINDINGS = "Pass findings"
 LIMIT = 200  # open issues read; a full page may be truncated
 HELD = r"^[ \t*`]*HELD:[ \t*`]*(.*)$"
+RUBRIC_BLOCK = r"^[\s*`]*RUBRIC (?:CONFIRMED|REJECTED):"
+LOCATED = r"[\w./-]+:\d+"  # file:line
 TITLES = (("drift", "Drift"), ("confirmed", "Red team: confirmed"), ("rejected", "Red team: rejected"),
-          ("rubric", "Rubric"), ("simplify", "Simplify and reconcile"), ("held", "Held for an open decision"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
+          ("rubric", "Rubric"), ("rubric_rejected", "Rubric: rejected"), ("simplify", "Simplify and reconcile"), ("held", "Held for an open decision"), ("lessons", "Lessons"), ("guardrails", "Proposed guardrails"),
           ("issues", "Issues created"), ("batch", "Merged in this batch"), ("errors", "Problems"))
 
 
@@ -141,7 +143,7 @@ def _pass(project, settings, since, tree, r):
         r["errors"].append("batch notes: %s" % e)
     drift = ask("drift")
     r["drift"] += findings(drift)
-    r["rubric"] = findings(ask("rubric"))
+    rubric = findings(ask("rubric"))
     surfaces = re.findall(r"^\s*[-*]\s+(\S.*)$", section(plan, "Surfaces"), re.M)[:4]
     if findings(drift, "SURFACES") and not surfaces:
         r["drift"].append(("Add red-team surfaces to PLAN.md", "Proposed under ## Surfaces:\n- "
@@ -160,11 +162,14 @@ def _pass(project, settings, since, tree, r):
     decisions = ["#%s %s: %s" % (i["number"], i["title"], ((i.get("body") or "").strip().split("\n") or [""])[0][:200])
                  for i in issues if tags(i) & {"inbox", "needs-user"} and not i["title"].startswith(FINDINGS)]
     reply = ask("confirm", "\nOpen decisions (a finding that touches one is held, not queued):\n"
-                + "\n".join(decisions or ["none"]) + "\n\nFindings to judge:\n"
-                + "\n".join("%s | %s | .lite/pass/%s" % c[:3] for c in candidates)) if candidates else ""
+                + "\n".join(decisions or ["none"]) + ("\n\nFindings to judge:\n"
+                + "\n".join("%s | %s | .lite/pass/%s" % c[:3] for c in candidates) if candidates else "")
+                + ("\n\nRubric findings to judge:\n" + "\n".join("%s | %s" % f[:2] for f in rubric) if rubric else "")
+                ) if candidates or rubric else ""
     blocked = "the open-issue list may be truncated" if len(issues) >= LIMIT else ""
     if candidates and not re.search(HELD, reply, re.M):
         blocked = "confirm reply unreadable"
+    unvalidated = bool(rubric) and not re.search(RUBRIC_BLOCK, reply, re.M)
     reply = re.sub(HELD, lambda m: "HELD:\n" + m.group(1) if m.group(1) else "HELD:", reply, flags=re.M)
     said, held = [f[0] for f in findings(reply, "CONFIRMED")], {f[0]: f[1] for f in findings(reply, "HELD")}
     for c in candidates:
@@ -172,16 +177,27 @@ def _pass(project, settings, since, tree, r):
             r["held"].append((c[0], "%s\n\nHeld for an open decision: %s. Not queued as a defect." % (c[1], held[c[0]]), ""))
         else:
             r["confirmed" if c[0] in said else "rejected"].append(c if c[0] in said else (c[0], "not confirmed"))
+    accepted = [f[0] for f in findings(reply, "RUBRIC CONFIRMED")]
+    why = {f[0]: f[1] for f in findings(reply, "RUBRIC REJECTED")}
+    for f in rubric:
+        if unvalidated:  # the reply cannot be read: file the finding, marked
+            r["rubric"].append((f[0], f[1] + " (not validated)", f[2]))
+        elif not re.search(LOCATED, f[1]):
+            r["rubric_rejected"].append((f[0], "no file:line"))
+        elif f[0] in accepted:
+            r["rubric"].append(f)
+        else:
+            r["rubric_rejected"].append((f[0], why.get(f[0]) or "not confirmed"))
     reply = ask("lessons", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nFindings so far:\n"
                 + "\n".join(f[0] for f in r["drift"] + r["rubric"] + r["confirmed"]) + "\n")
     r["lessons"], r["guardrails"] = [f[0] for f in findings(reply, "LESSONS")], findings(reply, "GUARDRAILS")
     r["simplify"] = findings(ask("simplify", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nBuild notes:\n"
                                  + "\n\n".join(notes) + "\n"), "SIMPLIFY")
-    if blocked:  # open decisions cannot be checked: queue nothing
+    if blocked:  # open decisions cannot be checked: queue only the rubric findings
         r["errors"].append("nothing queued: " + blocked)
-        return
+    queued = lambda items: [] if blocked else items
     ready = "ready" if approves(plan, "confirmed defect") else "inbox"
-    if ready == "ready" and r["confirmed"]:
+    if ready == "ready" and queued(r["confirmed"]):
         if r["rounds"] is None or r["rounds"] >= settings["Defect rounds"]:  # an unreadable count fails closed
             ready, r["capped"] = "inbox", "Defect rounds limit (%d) reached%s: confirmed defects are filed as inbox, with their failing tests" % (
                 settings["Defect rounds"], " (the saved count could not be read)" * (r["rounds"] is None))
@@ -190,8 +206,8 @@ def _pass(project, settings, since, tree, r):
             r["rounds"] += 1
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])
     jobs = [(t, "%s\n\n## Failing test\n\nPath: %s\n\n%s\n%s\n%s\n" % (esc(d), p, fence(c), c.rstrip("\n"), fence(c)),
-             ready) for t, d, p, c in r["confirmed"]]
-    found = r["drift"] + r["rubric"] + r["held"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]]
+             ready) for t, d, p, c in queued(r["confirmed"])]
+    found = queued(r["drift"]) + r["rubric"] + queued(r["held"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]])
     line = lambda t, d: "- [ ] **%s**: %s" % (t, esc(d).replace("\n", "\n  "))
     def file(prefix, items):  # one open inbox issue per kind: add only what it does not list yet
         open_ = next((i for i in issues if i["title"].startswith(prefix) and "inbox" in tags(i)), None)
@@ -205,7 +221,7 @@ def _pass(project, settings, since, tree, r):
         elif items:
             jobs.append(("%s, %s, %s" % (prefix, time.strftime("%Y-%m-%d"), sha[:7]), "\n".join(line(t, d) for t, d, _ in items), "inbox"))
     file(FINDINGS, found)
-    file("Simplify and reconcile", r["simplify"])
+    file("Simplify and reconcile", queued(r["simplify"]))
     for title, body, label in jobs:
         number = create(title, body, label)
         r["issues"] += ["#%s %s (%s)" % (number, title, label)] if number else []
