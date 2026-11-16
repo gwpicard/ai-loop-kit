@@ -8,11 +8,13 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import common
 import flow
 import merge
 import pass_
+import session
 import setup
 from common import GitError, gh, git
 
@@ -378,6 +380,40 @@ def decisions(project, base, loop):
     return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
 
 
+def summary(project, settings, head, landed):
+    """The Summary, Evidence and Merge danger sections: one read-only session per new batch, saved for refreshes."""
+    path = os.path.join(project, ".lite", "summary.json")
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    if saved.get("head") == head or "- Issue " not in landed:
+        return saved.get("text", "")
+    base, loop = common.default_branch(project), settings["Loop branch"]
+
+    text = ""
+    try:
+        notes = []
+        try:
+            pass_.batch_lines(project, "origin/" + base, loop, notes)
+        except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
+            pass
+        with common.scratch_tree(project, "origin/" + loop) as tree:
+            prompt = Path(flow.BRIEFS, "pr-summary.md").read_text(encoding="utf-8") + (
+                "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
+                    os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
+            reply = session.run("pass", prompt, tree, settings["Reviewer model"], project, "summary")[0]
+        found = re.search(r"^## Summary\b.*?^## Evidence\b.*?^## Merge danger\b.*", reply, re.M | re.S)
+        text = found.group(0).strip() + "\n" if found else ""
+    except Exception as e:  # the summary never blocks the drain
+        say("the pull request summary did not run: %s: %s" % (type(e).__name__, e))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(dict(head=head, text=text), f)
+    return text
+
+
 def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
@@ -409,7 +445,8 @@ def drain(project, settings, st):
             old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
         except (ValueError, common.GitHubError):
             pass
-    body = "Built by the loop.\n\n" + hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
+    top = summary(project, settings, head, landed)
+    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n") + hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
     body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
         landed or "Nothing.", "fail: " + failed if failed else "pass")
     body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
