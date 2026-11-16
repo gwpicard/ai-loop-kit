@@ -11,27 +11,15 @@ review or merge by hand, and never push to the default branch.
 
 `<plugin>` is this skill's plugin folder, two levels up.
 
-## Set up, once per project
+## Set up first
 
-Run `python3 <plugin>/scripts/setup.py` from the project root. If it prints
-`refused:`, do the `next:` step. If it adds `.lite/` to `.gitignore`, tell
-the person to commit that line. If the preflight fails, report it and stop.
-Setup also reports the optional `Test files command`, `Prepare command`,
-`Check command` and `Smoke command` that are set, `Parallel` (builds at once, default 1)
-and `Defect rounds` (default 2). If the Test command is slow
-(minutes), suggest a `Test files command` (targeted runs) and a `Prepare
-command` (install steps), which keep it to two full runs per issue. If the
-project has many independent issues and a machine with spare CPU and memory,
-suggest `Parallel: 3`; the loop then runs builds as separate processes, queues
-their merges, and says on the board and in `.lite/loop.out` when it waits for
-headroom. If no
-`Smoke command` is set, mention that the end-of-loop pass can run a smoke
-check only when one is in `AGENTS.md`.
+If the project has no `## Loop` section in `AGENTS.md`, or the loop refuses
+because the project is not set up, use the setup skill first.
 
 ## Start and stop
 
-Start: `mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
-from the project root. A second start is refused while a loop is alive. `tail .lite/loop.out`
+Start: `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`
+from the project root. A second start is refused while a loop is alive. `tail .loop/loop.out`
 shows its steps.
 Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
 

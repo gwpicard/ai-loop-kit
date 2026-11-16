@@ -25,21 +25,21 @@ import json, os, sys, time
 sys.path.insert(0, %r)
 import common
 project, number = sys.argv[1], int(sys.argv[2])
-cfg = json.load(open(os.path.join(project, ".lite", "fake.json")))
+cfg = json.load(open(os.path.join(project, ".loop", "fake.json")))
 def log(what):
-    with open(os.path.join(project, ".lite", "fake.log"), "a") as f:
+    with open(os.path.join(project, ".loop", "fake.log"), "a") as f:
         f.write("%%d %%s %%.3f\\n" %% (number, what, time.time()))
 log("start")
 common.event("step", project, issue=number, step="builder")
 if number == cfg.get("stop_at"):
-    open(os.path.join(project, ".lite", "stop"), "w").close()
+    open(os.path.join(project, ".loop", "stop"), "w").close()
 time.sleep(cfg.get("sleep", 0.5))
 if number in cfg.get("crash", []):
     log("crash")
     os._exit(3)
-open(os.path.join(project, ".lite", "merged", str(number)), "w").close()
+open(os.path.join(project, ".loop", "merged", str(number)), "w").close()
 log("end")
-os.makedirs(os.path.join(project, ".lite", "builds"), exist_ok=True)
+os.makedirs(os.path.join(project, ".loop", "builds"), exist_ok=True)
 json.dump({"last": "#%%d merged: done" %% number}, open(common.build_file(project, number, "result"), "w"))
 ''' % SCRIPTS
 
@@ -52,10 +52,10 @@ class ParallelTest(Base):
             mock.patch.object(loop, name).start()
         mock.patch.object(loop, "BUSY_POLL", 0.05).start()
         self.headroom = mock.patch.object(loop, "headroom", return_value=None).start()
-        os.makedirs(os.path.join(self.work, ".lite", "merged"))
+        os.makedirs(os.path.join(self.work, ".loop", "merged"))
         with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
             f.write(AGENTS + "Parallel: 3\n")
-        self.script = os.path.join(self.work, ".lite", "fake_worker.py")
+        self.script = os.path.join(self.work, ".loop", "fake_worker.py")
         with open(self.script, "w") as f:
             f.write(FAKE_WORKER)
         mock.patch.object(loop, "worker_command", lambda p, n, r: [sys.executable, self.script, p, str(n)]).start()
@@ -63,7 +63,7 @@ class ParallelTest(Base):
         self.configure()
 
     def configure(self, **cfg):
-        with open(os.path.join(self.work, ".lite", "fake.json"), "w") as f:
+        with open(os.path.join(self.work, ".loop", "fake.json"), "w") as f:
             json.dump(cfg, f)
 
     def world_of(self, *issues):
@@ -71,7 +71,7 @@ class ParallelTest(Base):
         self.labels = {i["number"]: {l["name"] for l in i["labels"]} for i in issues}
 
     def merged(self):
-        return {int(n) for n in os.listdir(os.path.join(self.work, ".lite", "merged"))}
+        return {int(n) for n in os.listdir(os.path.join(self.work, ".loop", "merged"))}
 
     def fake_gh(self, args, input=None):
         text = " ".join(args)
@@ -94,7 +94,7 @@ class ParallelTest(Base):
 
     def events(self):
         """(issue, what, time) from the fake workers' log, in order."""
-        with open(os.path.join(self.work, ".lite", "fake.log")) as f:
+        with open(os.path.join(self.work, ".loop", "fake.log")) as f:
             return [(int(a), b, float(c)) for a, b, c in (l.split() for l in f)]
 
     def at(self, number, what):
@@ -136,7 +136,7 @@ class ParallelTest(Base):
         self.assertEqual(self.merged(), {2, 3})  # both running builds ended; 4 and 5 never started
         self.assertEqual({n for n, w, _ in self.events() if w == "start"}, {2, 3})
         self.assertIn("exiting: stop requested", [c[0][0] for c in self.say.call_args_list])
-        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".loop", "stop")))
 
     def test_one_crash_leaves_the_others_running_and_is_retried_then_parked(self):
         self.configure(crash=[3], sleep=0.3)
@@ -218,7 +218,7 @@ class ParallelTest(Base):
         self.assertFalse(os.path.exists(common.build_file(self.work, 2, "pid")))  # cleared when reaped
         stray = loop.subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
         self.addCleanup(stray.kill)
-        os.makedirs(os.path.join(self.work, ".lite", "builds"), exist_ok=True)
+        os.makedirs(os.path.join(self.work, ".loop", "builds"), exist_ok=True)
         with open(common.build_file(self.work, 9, "pid"), "w") as f:
             f.write(str(stray.pid))
         self.calls.clear()
@@ -226,7 +226,7 @@ class ParallelTest(Base):
         self.assertIn("refused: build processes of an earlier loop", " ".join(c[0][0] for c in self.say.call_args_list))
         self.assertTrue(os.path.exists(common.build_file(self.work, 9, "pid")))
         self.assertEqual(self.writes("--add-label building"), [])
-        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "loop.pid")))
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".loop", "loop.pid")))
 
 
 class HeadroomTest(unittest.TestCase):

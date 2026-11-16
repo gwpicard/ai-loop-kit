@@ -43,7 +43,7 @@ class SetupTest(FakeGh):
         self.assertEqual(code, 0, text)
         self.assertEqual(len([c for c in self.writes() if c[:2] == ["label", "create"]]), 5)
         self.assertIn(["issue", "pin", "7"], self.calls())
-        self.assertIn(".lite/", pathlib.Path(self.work, ".gitignore").read_text())
+        self.assertIn(".loop/", pathlib.Path(self.work, ".gitignore").read_text())
         self.assertIn("preflight: the Test command passes", text)
         self.assertIn("protect main", text)
         self.assertIn("refs/heads/loop/main", __import__("subprocess").run(
@@ -89,3 +89,47 @@ class SetupTest(FakeGh):
         self.assertEqual(code, 1)
         self.assertIn("preflight: the Test command failed", text)
         self.assertIn("preflight failed", text)
+
+
+class TidyTest(FakeGh):
+    def make(self, folder, names):
+        for name in names:
+            path = os.path.join(self.tmp, folder, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            pathlib.Path(path).write_text(name)
+
+    def test_nothing_to_tidy(self):
+        self.assertEqual(setup.tidy(self.tmp), ([], None))
+
+    def test_1x_files_move_aside_and_lite_moves_in(self):
+        self.make(".loop", ["heartbeat", "events.jsonl", "logs/piece-1-attempt-1.log"])
+        self.make(".lite", ["pass.json", "events.jsonl", "logs/7-builder-1.log"])
+        moved, refusal = setup.tidy(self.tmp)
+        self.assertIsNone(refusal)
+        loop = pathlib.Path(self.tmp, ".loop")
+        self.assertEqual((loop / "v1" / "events.jsonl").read_text(), "events.jsonl")
+        self.assertTrue((loop / "v1" / "heartbeat").exists())
+        self.assertTrue((loop / "v1" / "logs" / "piece-1-attempt-1.log").exists())
+        self.assertTrue((loop / "pass.json").exists())
+        self.assertTrue((loop / "logs" / "7-builder-1.log").exists())
+        self.assertFalse(pathlib.Path(self.tmp, ".lite").exists())
+        self.assertIn(".lite/pass.json to .loop/", moved)
+        self.assertEqual(setup.tidy(self.tmp), ([], None))  # safe to run again
+
+    def test_a_name_already_in_loop_stays_in_lite(self):
+        self.make(".loop", ["pass.json"])
+        self.make(".lite", ["pass.json", "events.jsonl"])
+        moved, _ = setup.tidy(self.tmp)
+        self.assertEqual(pathlib.Path(self.tmp, ".loop", "pass.json").read_text(), "pass.json")
+        self.assertTrue(pathlib.Path(self.tmp, ".lite", "pass.json").exists())
+        self.assertTrue(pathlib.Path(self.tmp, ".loop", "events.jsonl").exists())
+        self.assertIn(".lite/ kept, as .loop/ already has: pass.json", moved)
+
+    def test_a_live_loop_in_lite_refuses_and_moves_nothing(self):
+        self.make(".loop", ["heartbeat"])
+        pathlib.Path(self.tmp, ".lite").mkdir()
+        pathlib.Path(self.tmp, ".lite", "loop.pid").write_text(str(os.getppid()))
+        moved, refusal = setup.tidy(self.tmp)
+        self.assertEqual(moved, [])
+        self.assertIn("running from .lite/", refusal)
+        self.assertTrue(pathlib.Path(self.tmp, ".loop", "heartbeat").exists())

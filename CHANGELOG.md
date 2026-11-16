@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.1 (unreleased)
+
+The runtime folder is `.loop/` again, as in 1.x; 2.0.0 used `.lite/`. Setup
+and every loop start move older files into `.loop/` (kit 1.x files into
+`.loop/v1/`) and delete no file. A new setup skill writes the `## Loop`
+section with you and runs setup, so "set up the loop" now works in a new
+project. The loop's log clean-up removes only its own logs.
+
 ## 2.0.0 (15 November 2026)
 
 Version 2 replaces the kit with a continuous factory. It is a new design, not

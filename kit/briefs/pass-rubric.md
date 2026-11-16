@@ -7,7 +7,7 @@ in PLAN.md first.
 
 Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
 checkout or switch; no gh; no recursive delete. You may create new files under
-`.lite/pass/` only.
+`.loop/pass/` only.
 
 Your job: the rubric review of the batch. The prompt gives the batch diff command.
 Check the changed code for: readability a new reader can follow; errors that

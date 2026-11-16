@@ -7,7 +7,7 @@ in PLAN.md first.
 
 Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
 checkout or switch; no gh; no recursive delete. You may create new files under
-`.lite/pass/` only.
+`.loop/pass/` only.
 
 Your job: learn from the batch. The prompt lists, per merged issue, the fix
 rounds, deviations and parks, and the titles of this pass's findings. Find what

@@ -9,7 +9,7 @@ branch yourself.
 The loop never asks for input. It parks an issue only for a decision that the
 project's `PLAN.md` reserves for a person, and it carries on with the rest.
 
-Version 2.0.0. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
+Version 2.0.1. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
 The full settings reference is in [kit/README.md](kit/README.md).
 
 ## Install
@@ -27,12 +27,13 @@ Put this in the project's `AGENTS.md`:
     ## Loop
     Test command: <the command that runs your tests>
 
-Then ask Claude to set up the loop. Setup creates the labels, the loop
-branch (`loop/main` by default), a pinned `Factory` issue that serves as the
-board, and a `.lite/` line in `.gitignore` for you to commit. It runs your
-Test command on a fresh copy of the loop branch. Running it again is safe.
-Optional keys, such as `Parallel`, `Protected paths` and `Check command`, are
-listed in the reference.
+Then ask Claude to set up the loop. The setup skill proposes these lines from
+your project if they are missing, and asks you to confirm. Setup creates the
+labels, the loop branch (`loop/main` by default), a pinned `Factory` issue
+that serves as the board, and a `.loop/` line in `.gitignore` for you to
+commit. It runs your Test command on a fresh copy of the loop branch. Running
+it again is safe. Optional keys, such as `Parallel`, `Protected paths` and
+`Check command`, are listed in the reference.
 
 ## Shape
 
@@ -46,7 +47,7 @@ shape while the loop runs; new issues join the queue.
 
 Ask Claude to start the loop, or from the project root:
 
-    mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &
+    mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &
 
 `<plugin>/bin/loop stop` stops it, and it stops by itself after 12 idle
 hours. For each ready issue the loop writes failing tests first in one

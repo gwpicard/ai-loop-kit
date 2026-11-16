@@ -114,7 +114,7 @@ class MergeTest(FakeGh):
         self.assertEqual(len(comment), 1)
         close = [c for c in calls if c[:2] == ["issue", "close"]][0]
         self.assertIn("abc123", " ".join(close))
-        with open(os.path.join(self.work, ".lite", "events.jsonl")) as f:
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
             events = f.read()
         self.assertIn('"merged"', events)
         self.assertEqual(common.git(["worktree", "list"], cwd=self.work).count("\n"), 0)

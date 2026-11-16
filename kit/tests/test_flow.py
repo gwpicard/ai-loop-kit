@@ -73,7 +73,7 @@ class FlowTest(FakeClaudeGh):
         calls = self.claude_calls()
         self.assertEqual(roles(calls), ["test-writer", "builder", "reviewer"])
         builder = calls[1]
-        self.assertEqual(builder["env"]["LITE_LOCKED"], "tests/test_new.py")
+        self.assertEqual(builder["env"]["LOOP_LOCKED"], "tests/test_new.py")
         self.assertIn("Add it", builder["prompt"])
         self.assertIn("Do the thing.", builder["prompt"])
         self.assertIn("PLAN.md", builder["prompt"])
@@ -88,7 +88,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.merge.call_args[0][:2], (7, "issue/7"))
         pushed = common.git(["ls-remote", "--heads", self.origin, "issue/7"])
         self.assertIn("refs/heads/issue/7", pushed)
-        self.assertNotIn(".lite-worktrees", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn(".loop-worktrees", common.git(["worktree", "list"], cwd=self.work))
 
     def test_changes_then_approve(self):
         self.build_scenario(reviewer=[CHANGES, APPROVE], builder=[
@@ -152,7 +152,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(r.status, "failed")
         self.assertIn("builder session", r.reason)
         self.assertIn("refs/heads/issue/7", common.git(["ls-remote", self.origin, "issue/7"]))
-        self.assertNotIn(".lite-worktrees", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn(".loop-worktrees", common.git(["worktree", "list"], cwd=self.work))
 
     def test_reuses_an_existing_origin_branch(self):
         run_git(["push", "origin", "main:issue/7"], self.work)
@@ -206,7 +206,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(r.status, "parked")
         self.assertIn("conflicts with loop/main in: app.py", r.reason)
         self.assertEqual(roles(self.claude_calls()), ["builder"])
-        self.assertNotIn(".lite-worktrees", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn(".loop-worktrees", common.git(["worktree", "list"], cwd=self.work))
 
     def test_conflict_markers_left_in_a_committed_merge_park(self):
         r = self.conflicted({"files": {"app.py": "<<<<<<< HEAD\nbranch\n=======\nloop\n>>>>>>> origin/loop/main\n"}})
@@ -228,10 +228,10 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.build().status, "merged")
         calls = self.claude_calls()
         self.assertEqual(roles(calls), ["builder", "reviewer"])
-        self.assertEqual(calls[0]["env"]["LITE_LOCKED"], "tests/test_new.py")
+        self.assertEqual(calls[0]["env"]["LOOP_LOCKED"], "tests/test_new.py")
 
     def test_a_worktree_left_by_a_crash_does_not_block(self):
-        tree = os.path.join(self.tmp, ".lite-worktrees", "work-7")
+        tree = os.path.join(self.tmp, ".loop-worktrees", "work-7")
         run_git(["worktree", "add", "-b", "issue/7", tree, "main"], self.work)
         self.build_scenario()
         self.assertEqual(self.build().status, "merged")
@@ -260,8 +260,8 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(roles(calls)[:3], ["test-writer", "test-writer", "builder"])
         self.assertIn("--resume", calls[1]["argv"])
         self.assertIn("pass before any code exists", calls[1]["prompt"])
-        self.assertEqual(calls[2]["env"]["LITE_LOCKED"], "tests/test_new.py")
-        self.assertNotIn("lite-tree", common.git(["worktree", "list"], cwd=self.work))
+        self.assertEqual(calls[2]["env"]["LOOP_LOCKED"], "tests/test_new.py")
+        self.assertNotIn("loop-tree", common.git(["worktree", "list"], cwd=self.work))
 
     def test_tests_that_still_pass_on_the_base_park_the_issue(self):
         passing = {"files": {"tests/test_ok.py": "x\n"}, "reply": "TESTS:\ntests/test_ok.py"}
@@ -271,7 +271,7 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("pass before any code exists", r.reason)
         self.assertEqual(roles(self.claude_calls()), ["test-writer", "test-writer"])
         self.merge.assert_not_called()
-        self.assertNotIn("lite-tree", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn("loop-tree", common.git(["worktree", "list"], cwd=self.work))
 
     def test_a_given_failing_test_that_formatting_made_pass_is_caught_by_fails_first(self):
         # the guard for a formatted `## Failing test`: the fails-first run after the commit
@@ -359,10 +359,10 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario()
         self.build()
         env = self.claude_calls()[1]["env"]
-        self.assertEqual(env["LITE_ALLOWED"], "tests/test_new.py")
-        self.assertEqual(env["LITE_LOCKED"], "")
-        self.assertEqual(self.claude_calls()[0]["env"]["LITE_ALLOWED"], "")  # the test writer gets none
-        self.assertEqual(self.claude_calls()[2]["env"]["LITE_ALLOWED"], "")  # nor the reviewer
+        self.assertEqual(env["LOOP_ALLOWED"], "tests/test_new.py")
+        self.assertEqual(env["LOOP_LOCKED"], "")
+        self.assertEqual(self.claude_calls()[0]["env"]["LOOP_ALLOWED"], "")  # the test writer gets none
+        self.assertEqual(self.claude_calls()[2]["env"]["LOOP_ALLOWED"], "")  # nor the reviewer
 
     def test_check_command_failure_resumes_the_builder(self):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "BAD": "x\n"}},
@@ -486,7 +486,7 @@ class FlowTest(FakeClaudeGh):
         with mock.patch.object(flow, "after_merge", side_effect=error):
             self.build_scenario()
             self.assertEqual(self.build().status, "merged")
-        with open(os.path.join(self.work, ".lite", "events.jsonl")) as f:
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
             self.assertEqual(f.read().count("note-failed"), 1)
 
     def test_a_failed_note_does_not_undo_the_merge(self):
@@ -663,7 +663,7 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario(builder=[self.PASSED])
         self.assertEqual(self.build().status, "merged")
         prepared = self.runs("prep")
-        self.assertTrue(prepared[0].endswith(".lite-worktrees/work-7"), prepared)
+        self.assertTrue(prepared[0].endswith(".loop-worktrees/work-7"), prepared)
 
     def test_a_failing_prepare_command_fails_the_build(self):
         self.fast(Test_command="true", Prepare_command="echo no deps; exit 4")
@@ -674,7 +674,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.claude_calls(), [])
 
     def test_a_folder_that_is_not_a_worktree_is_renamed_aside_never_deleted(self):
-        tree = os.path.join(self.tmp, ".lite-worktrees", "work-7")
+        tree = os.path.join(self.tmp, ".loop-worktrees", "work-7")
         os.makedirs(tree)
         with open(os.path.join(tree, "keep.txt"), "w") as f:
             f.write("mine\n")

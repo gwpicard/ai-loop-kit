@@ -8,6 +8,51 @@ LABELS = {"inbox": "ededed", "shaping": "fbca04", "ready": "0e8a16",
 SECTION = "## Loop\nTest command: <the command that runs your tests>\n"
 
 
+V1 = {"run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json", "summary.md",
+      "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}  # files only kit 1.x kept in .loop/
+
+
+def alive(path):
+    try:
+        with open(path) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
+def tidy(project):
+    """Bring the runtime files into .loop/: kit 1.x files move into .loop/v1/, and the
+    .lite/ folder of kit 2.0.0 moves into .loop/. Nothing is deleted except an empty .lite/.
+    Return (what moved, a refusal or None)."""
+    loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
+    pid = alive(os.path.join(lite, "loop.pid"))
+    if pid:
+        return [], "refused: a loop of kit 2.0.0 is running from .lite/ (pid %d)\nnext: stop it, then start again" % pid
+    moved, kept = [], []
+    names = sorted(os.listdir(loop)) if os.path.isdir(loop) else []
+    if V1 & set(names):
+        os.makedirs(os.path.join(loop, "v1"), exist_ok=True)
+        for name in names:
+            if name != "v1" and not os.path.exists(os.path.join(loop, "v1", name)):
+                os.rename(os.path.join(loop, name), os.path.join(loop, "v1", name))
+                moved.append(".loop/%s to .loop/v1/" % name)
+    if os.path.isdir(lite):
+        os.makedirs(loop, exist_ok=True)
+        for name in sorted(os.listdir(lite)):
+            if os.path.exists(os.path.join(loop, name)):
+                kept.append(name)
+            else:
+                os.rename(os.path.join(lite, name), os.path.join(loop, name))
+                moved.append(".lite/%s to .loop/" % name)
+        if not kept:
+            os.rmdir(lite)
+    if kept:
+        moved.append(".lite/ kept, as .loop/ already has: " + ", ".join(kept))
+    return moved, None
+
+
 def labels_present():
     return {l["name"] for l in json.loads(gh(["label", "list", "--limit", "200", "--json", "name"]))}
 
@@ -39,6 +84,12 @@ def setup(project="."):
         say("refused: %s\nnext: add these lines to AGENTS.md, then run setup again:\n%s"
             % (e, SECTION))
         return 1
+    moved, refusal = tidy(project)
+    if refusal:
+        say(refusal)
+        return 1
+    if moved:
+        say("runtime folder: moved " + "; ".join(moved))
     branch, command = settings["Loop branch"], settings["Test command"]
     for name in sorted(set(LABELS) - labels_present()):
         gh(["label", "create", name, "--color", LABELS[name]])
@@ -52,13 +103,13 @@ def setup(project="."):
         url = gh(["issue", "create", "--title", "Factory", "--body", "The loop writes the board here."])
         gh(["issue", "pin", url.strip().rsplit("/", 1)[-1]])
         changes.append("Factory issue, pinned")
-    os.makedirs(os.path.join(project, ".lite"), exist_ok=True)
+    os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
     path = os.path.join(project, ".gitignore")
     text = pathlib.Path(path).read_text(encoding="utf-8") if os.path.exists(path) else ""
-    if ".lite/" not in text.split():
+    if ".loop/" not in text.split():
         with open(path, "a", encoding="utf-8") as f:
-            f.write(("" if not text or text.endswith("\n") else "\n") + ".lite/\n")
-        changes.append(".gitignore now lists .lite/ (commit it yourself)")
+            f.write(("" if not text or text.endswith("\n") else "\n") + ".loop/\n")
+        changes.append(".gitignore now lists .loop/ (commit it yourself)")
     say("%s: %s" % ("changed" if changes else "ok", "; ".join(changes) or "nothing to add"))
     failure = merge.run_tests(project, git(["rev-parse", "origin/" + branch], cwd=project), command,
                                prepare=settings["Prepare command"])
