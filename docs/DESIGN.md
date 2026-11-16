@@ -227,9 +227,11 @@ Each comes from a failure seen in a real run.
   settings that are set. Running it again adds only what is missing. It opens
   no pull request and does not check `core.hooksPath`.
 - **One runtime folder.** The loop keeps its lock, logs and state in `.loop/`.
-  Setup and every loop start move older files there first: kit 1.x files into
-  `.loop/v1/`, and the `.lite/` folder of kit 2.0.0 into `.loop/`. They move
-  nothing while a loop of 2.0.0 still runs, and they delete no file.
+  Setup and every loop start first move older files there: kit 1.x files into
+  `.loop/v1/`, and the contents of `.lite/` from kit 2.0.0 into `.loop/`. A
+  name that `.loop/` already has stays in `.lite/`. Nothing moves while a
+  2.0.0 loop runs or while a loop runs from `.loop/`, and no file is deleted;
+  only an emptied `.lite/` folder is removed.
 - **Never silent.** `loop.py` runs unbuffered, prints a line before every
   long step, and gives a reason on every exit, including "nothing to build".
 - **Session isolation.** Sessions start with project-only settings and a

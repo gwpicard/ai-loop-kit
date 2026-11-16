@@ -133,3 +133,24 @@ class TidyTest(FakeGh):
         self.assertEqual(moved, [])
         self.assertIn("running from .lite/", refusal)
         self.assertTrue(pathlib.Path(self.tmp, ".loop", "heartbeat").exists())
+
+    def test_a_running_loop_s_own_files_are_never_moved(self):
+        self.make(".loop", ["heartbeat", "builds/7.step"])
+        pathlib.Path(self.tmp, ".loop", "loop.pid").write_text(str(os.getppid()))
+        self.assertEqual(setup.tidy(self.tmp), ([], None))
+        self.assertTrue(pathlib.Path(self.tmp, ".loop", "builds", "7.step").exists())
+
+    def test_folders_in_both_are_merged(self):
+        self.make(".loop", ["logs/8-reviewer-1.log"])
+        self.make(".lite", ["logs/7-builder-1.log", "logs/8-reviewer-1.log"])
+        moved, _ = setup.tidy(self.tmp)
+        self.assertTrue(pathlib.Path(self.tmp, ".loop", "logs", "7-builder-1.log").exists())
+        self.assertIn(".lite/logs/ merged into .loop/logs/", moved)
+        self.assertTrue(pathlib.Path(self.tmp, ".lite", "logs", "8-reviewer-1.log").exists())  # never overwritten
+
+    def test_a_loop_file_in_the_way_refuses_without_a_traceback(self):
+        pathlib.Path(self.tmp, ".loop").write_text("x")
+        self.make(".lite", ["pass.json"])
+        moved, refusal = setup.tidy(self.tmp)
+        self.assertIn("could not be moved", refusal)
+        self.assertTrue(pathlib.Path(self.tmp, ".lite", "pass.json").exists())

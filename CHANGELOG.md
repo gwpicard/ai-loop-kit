@@ -2,11 +2,15 @@
 
 ## 2.0.1 (unreleased)
 
-The runtime folder is `.loop/` again, as in 1.x; 2.0.0 used `.lite/`. Setup
-and every loop start move older files into `.loop/` (kit 1.x files into
-`.loop/v1/`) and delete no file. A new setup skill writes the `## Loop`
-section with you and runs setup, so "set up the loop" now works in a new
-project. The loop's log clean-up removes only its own logs.
+The runtime folder is `.loop/` again, as in 1.x; 2.0.0 used `.lite/`, and the
+session environment variables `LITE_*` are now `LOOP_*`. Setup and every loop
+start move the files of earlier versions into `.loop/`: kit 1.x files into
+`.loop/v1/` and the contents of `.lite/` into `.loop/`. They move nothing
+while a 2.0.0 loop is running, keep in `.lite/` any file whose name `.loop/`
+already has, and delete no file. A new setup skill means that a request to set
+up the loop in a new project proposes the `## Loop` settings, asks you to
+confirm them and then runs setup. The loop's clean-up of logs older than 14
+days now removes only its own logs.
 
 ## 2.0.0 (15 November 2026)
 

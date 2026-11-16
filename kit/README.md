@@ -92,10 +92,11 @@ per-issue simplify step: the end-of-loop pass simplifies the whole batch once.
 
 Ask Claude to set up the loop (the setup skill writes the `## Loop` section
 with you), or run `python3 <plugin>/scripts/setup.py` from the project root.
-It moves older runtime files into `.loop/` (see the design), creates the
-labels, the loop branch, a pinned `Factory` issue, a `.loop/` line in
-`.gitignore` (commit it yourself) and runs your Test command on a fresh copy
-of the loop branch. Running it again is safe.
+It first moves the runtime files of kit 1.x (into `.loop/v1/`) and of kit
+2.0.0 (the `.lite/` folder) into `.loop/`, then creates the labels, the loop
+branch, a pinned `Factory` issue, a `.loop/` line in `.gitignore` (commit it
+yourself) and runs your Test command on a fresh copy of the loop branch.
+Running it again is safe.
 
 ## Shape
 

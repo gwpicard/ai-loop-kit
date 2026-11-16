@@ -1,5 +1,5 @@
 """Set up a project for the loop. Safe to run again: it only adds what is missing."""
-import json, os, pathlib, sys
+import contextlib, json, os, pathlib, sys
 import common, merge
 from common import LoopError, gh, git
 
@@ -24,30 +24,42 @@ def alive(path):
 
 def tidy(project):
     """Bring the runtime files into .loop/: kit 1.x files move into .loop/v1/, and the
-    .lite/ folder of kit 2.0.0 moves into .loop/. Nothing is deleted except an empty .lite/.
+    .lite/ folder of kit 2.0.0 moves into .loop/. Nothing is deleted except an emptied .lite/.
     Return (what moved, a refusal or None)."""
     loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
+    if alive(os.path.join(loop, "loop.pid")):  # a running loop's files are never moved
+        return [], None
     pid = alive(os.path.join(lite, "loop.pid"))
     if pid:
         return [], "refused: a loop of kit 2.0.0 is running from .lite/ (pid %d)\nnext: stop it, then start again" % pid
     moved, kept = [], []
-    names = sorted(os.listdir(loop)) if os.path.isdir(loop) else []
-    if V1 & set(names):
-        os.makedirs(os.path.join(loop, "v1"), exist_ok=True)
-        for name in names:
-            if name != "v1" and not os.path.exists(os.path.join(loop, "v1", name)):
-                os.rename(os.path.join(loop, name), os.path.join(loop, "v1", name))
-                moved.append(".loop/%s to .loop/v1/" % name)
-    if os.path.isdir(lite):
-        os.makedirs(loop, exist_ok=True)
-        for name in sorted(os.listdir(lite)):
-            if os.path.exists(os.path.join(loop, name)):
-                kept.append(name)
-            else:
-                os.rename(os.path.join(lite, name), os.path.join(loop, name))
-                moved.append(".lite/%s to .loop/" % name)
-        if not kept:
-            os.rmdir(lite)
+    try:
+        names = sorted(os.listdir(loop)) if os.path.isdir(loop) else []
+        if V1 & set(names):
+            os.makedirs(os.path.join(loop, "v1"), exist_ok=True)
+            for name in names:
+                if name != "v1" and not os.path.exists(os.path.join(loop, "v1", name)):
+                    os.rename(os.path.join(loop, name), os.path.join(loop, "v1", name))
+                    moved.append(".loop/%s to .loop/v1/" % name)
+        if os.path.isdir(lite):
+            os.makedirs(loop, exist_ok=True)
+            for name in sorted(os.listdir(lite)):
+                old, new = os.path.join(lite, name), os.path.join(loop, name)
+                if not os.path.exists(new):
+                    os.rename(old, new)
+                    moved.append(".lite/%s to .loop/" % name)
+                elif os.path.isdir(old) and os.path.isdir(new):  # such as logs/: merge one level
+                    for child in sorted(os.listdir(old)):
+                        if not os.path.exists(os.path.join(new, child)):
+                            os.rename(os.path.join(old, child), os.path.join(new, child))
+                    with contextlib.suppress(OSError):
+                        os.rmdir(old)  # only when emptied
+                    moved.append(".lite/%s/ merged into .loop/%s/" % (name, name))
+            kept = sorted(os.listdir(lite))
+            if not kept:
+                os.rmdir(lite)
+    except OSError as e:
+        return moved, "refused: the runtime files could not be moved into .loop/: %s\nnext: move them by hand, then start again" % e
     if kept:
         moved.append(".lite/ kept, as .loop/ already has: " + ", ".join(kept))
     return moved, None
