@@ -116,14 +116,22 @@ class TidyTest(FakeGh):
         self.assertIn(".lite/pass.json to .loop/", moved)
         self.assertEqual(setup.tidy(self.tmp), ([], None))  # safe to run again
 
-    def test_a_name_already_in_loop_stays_in_lite(self):
-        self.make(".loop", ["pass.json"])
-        self.make(".lite", ["pass.json", "events.jsonl"])
+    def test_a_file_already_in_loop_is_kept_and_the_old_one_moves_beside_it(self):
+        self.make(".loop", ["loop.out"])  # the start command creates it before the loop runs
+        pathlib.Path(self.tmp, ".loop", "loop.out").write_text("new")
+        self.make(".lite", ["loop.out", "events.jsonl"])
         moved, _ = setup.tidy(self.tmp)
-        self.assertEqual(pathlib.Path(self.tmp, ".loop", "pass.json").read_text(), "pass.json")
-        self.assertTrue(pathlib.Path(self.tmp, ".lite", "pass.json").exists())
+        self.assertEqual(pathlib.Path(self.tmp, ".loop", "loop.out").read_text(), "new")
+        self.assertEqual(pathlib.Path(self.tmp, ".loop", "loop.out.lite").read_text(), "loop.out")
         self.assertTrue(pathlib.Path(self.tmp, ".loop", "events.jsonl").exists())
-        self.assertIn(".lite/ kept, as .loop/ already has: pass.json", moved)
+        self.assertFalse(pathlib.Path(self.tmp, ".lite").exists())
+        self.assertIn(".lite/loop.out to .loop/loop.out.lite", moved)
+
+    def test_the_start_command_s_output_stays_when_1x_files_move_aside(self):
+        self.make(".loop", ["heartbeat", "loop.out"])
+        setup.tidy(self.tmp)
+        self.assertTrue(pathlib.Path(self.tmp, ".loop", "loop.out").exists())
+        self.assertTrue(pathlib.Path(self.tmp, ".loop", "v1", "heartbeat").exists())
 
     def test_a_live_loop_in_lite_refuses_and_moves_nothing(self):
         self.make(".loop", ["heartbeat"])

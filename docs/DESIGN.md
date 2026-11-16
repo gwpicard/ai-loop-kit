@@ -229,9 +229,10 @@ Each comes from a failure seen in a real run.
 - **One runtime folder.** The loop keeps its lock, logs and state in `.loop/`.
   Setup and every loop start first move older files there: kit 1.x files into
   `.loop/v1/`, and the contents of `.lite/` from kit 2.0.0 into `.loop/`. A
-  name that `.loop/` already has stays in `.lite/`. Nothing moves while a
-  2.0.0 loop runs or while a loop runs from `.loop/`, and no file is deleted;
-  only an emptied `.lite/` folder is removed.
+  file whose name `.loop/` already has moves in beside it as `<name>.lite`,
+  and a folder in both is merged. Nothing moves while a 2.0.0 loop runs or
+  while a loop runs from `.loop/`, and no file is deleted; only an emptied
+  `.lite/` folder is removed.
 - **Never silent.** `loop.py` runs unbuffered, prints a line before every
   long step, and gives a reason on every exit, including "nothing to build".
 - **Session isolation.** Sessions start with project-only settings and a
