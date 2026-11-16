@@ -559,8 +559,15 @@ def main(argv):
         os.makedirs(os.path.join(project, ".lite"), exist_ok=True)
         open(os.path.join(project, ".lite", "stop"), "w").close()
         return say("stop requested; the loop ends after its current step") or 0
+    if cmd in ("run", "check-version"):
+        old = common.kit_version_refusal(project)
+        if old:
+            return say(old) or 1
+        if cmd == "check-version":
+            return 0
+        common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop")
+        say("usage: loop.py run|stop|check-version")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):

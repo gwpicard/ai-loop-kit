@@ -310,3 +310,34 @@ def park(issue, question, recommendation):
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
        input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
              "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))
+
+
+def _version_key(text):
+    return tuple(int(part) for part in re.findall(r"\d+", text))
+
+
+def kit_version():
+    """The running kit's version, from the plugin's manifest."""
+    manifest = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".claude-plugin", "plugin.json")
+    with open(manifest, encoding="utf-8") as f:
+        return json.load(f)["version"]
+
+
+def kit_version_refusal(project):
+    """The two refusal lines when the running kit is older than the one this clone was set up with, else None."""
+    path, running = os.path.join(project, ".loop", "kit-version"), kit_version()
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        recorded = f.read().strip()
+    if recorded and _version_key(running) < _version_key(recorded):
+        return ("refused: this session runs kit %s, but this project was set up with kit %s\n"
+                "next: restart Claude Code so it loads kit %s, then try again" % (running, recorded, recorded))
+    return None
+
+
+def record_kit_version(project):
+    """Write the running version to .loop/kit-version. Call only after kit_version_refusal passed."""
+    os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+    with open(os.path.join(project, ".loop", "kit-version"), "w", encoding="utf-8") as f:
+        f.write(kit_version() + "\n")

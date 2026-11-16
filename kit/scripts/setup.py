@@ -33,6 +33,11 @@ def missing(project, settings):
 def setup(project="."):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
+    old = common.kit_version_refusal(project)
+    if old:
+        say(old)
+        return 1
+    common.record_kit_version(project)
     try:
         settings = common.read_settings(project)
     except common.SettingsError as e:
