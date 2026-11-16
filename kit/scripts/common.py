@@ -265,7 +265,7 @@ def default_branch(project):
 @contextlib.contextmanager
 def scratch_tree(project, ref):
     """A detached worktree of `ref` in a temporary folder, removed afterwards."""
-    parent = tempfile.mkdtemp(prefix="lite-tree-")
+    parent = tempfile.mkdtemp(prefix="lite-tree-", dir=os.path.realpath(tempfile.gettempdir()))
     tree = os.path.join(parent, "tree")
     try:
         git(["worktree", "add", "--detach", tree, ref], cwd=project)

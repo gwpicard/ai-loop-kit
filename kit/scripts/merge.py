@@ -128,10 +128,15 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     return None
 
 
-def run_in(name, command, tree, label, tail=1, tails=None, kinds=None):
+def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None):
     """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`.
     `kinds` collects (name, "timeout", "unrunnable" for exit 126 or 127, or "failed")."""
     code, out = common.run_shell(command, tree, TEST_TIMEOUT)
+    if log:
+        with open(log, "a") as f:
+            f.write("$ %s\n%s%s" % (command, out, "" if out.endswith("\n") or not out else "\n"))
+            if code is None:
+                f.write("timed out\n")
     if kinds is not None and code != 0:
         kinds.append((name, "timeout" if code is None else "unrunnable" if code in (126, 127) else "failed"))
     if code is None:
@@ -142,17 +147,23 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None):
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
-    `tails` collects the last line of each passing Test and Check command."""
+    `tails` collects the last line of each passing Test and Check command. `log` is a file
+    that is replaced by the full output of each command that ran; `where` receives the checkout path."""
     with common.scratch_tree(project, sha) as tree:
+        if where is not None:
+            where.append(tree)
+        if log:
+            os.makedirs(os.path.dirname(log), exist_ok=True)
+            open(log, "w").close()
         for path in overlay[1] if overlay else ():
             if os.path.isfile(os.path.join(overlay[0], path)):
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
         for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
-            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds)):
+            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log)):
                 return failure
         return None
 
