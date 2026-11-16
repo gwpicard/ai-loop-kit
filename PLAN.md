@@ -80,6 +80,7 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 
 ## Standing approvals
 

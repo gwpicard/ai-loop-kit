@@ -45,7 +45,12 @@ def jobs():
 
 def run_job(job):
     module, ids = job
-    p = subprocess.run([sys.executable, "-m", "unittest"] + ids, cwd=ROOT,
+    # Test modules may import the kit's scripts without importing helpers first.
+    # The path is set in the child only, so the hooks the tests start do not inherit it.
+    code = ("import sys, unittest; sys.path.insert(0, %r); "
+            "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
+            % os.path.join(ROOT, "kit", "scripts"))
+    p = subprocess.run([sys.executable, "-c", code] + ids, cwd=ROOT,
                        capture_output=True, text=True)
     ran = re.search(r"Ran (\d+) tests?", p.stderr)
     return module, p.returncode, int(ran.group(1)) if ran else 0, p.stderr
