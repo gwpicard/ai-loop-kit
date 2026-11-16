@@ -41,6 +41,16 @@ holds the house rules; where the two differ, `AGENTS.md` wins.
 - 16 Nov 2026: issues left with the labels of kit 1.x are not migrated or
   reported by the kit. Reason: the one active project that had them was
   converted by hand.
+- 16 Nov 2026: every role (builder, test writer, reviewer, pass) can run on
+  Claude or Codex, chosen per role in the `## Loop` section of `AGENTS.md`
+  and shown to the person before each start. Reason: building on Claude
+  alone uses up the person's Claude usage, and a review by a different
+  model is a more independent check.
+- 16 Nov 2026: a Codex session gets the same guard and stop check as a
+  Claude session, and the guard refuses what it cannot parse; otherwise the
+  kit refuses to run Codex for that role. On a usage limit a session waits
+  and resumes, with no fallback agent. Reason: the safety rules must not
+  depend on which agent runs.
 
 ## Product rules
 
