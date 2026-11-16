@@ -60,12 +60,12 @@ are closed, labels it `building` first, and starts another only while the
 machine has headroom: load average below the CPU count and, on macOS, more
 than about 1.5 GB of free plus inactive memory. It says why when it waits.
 
-Merges into the loop branch queue behind one lock (`.lite/merge.lock`): an
+Merges into the loop branch queue behind one lock (`.loop/merge.lock`): an
 issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
 its step. A stop request starts no new build and lets running builds finish
 their issue. Each build process writes its log to
-`.lite/logs/build-<issue>.log`.
+`.loop/logs/build-<issue>.log`.
 
 A park that names exactly one test path and asks whether to change it needs
 only a reply of "yes" from a collaborator: the loop adds that path to the
@@ -90,10 +90,13 @@ per-issue simplify step: the end-of-loop pass simplifies the whole batch once.
 
 ## Set up with the script
 
-Ask Claude to set up the loop, or run `python3 <plugin>/scripts/setup.py` from
-the project root. It creates the labels, the loop branch, a pinned `Factory`
-issue, a `.lite/` line in `.gitignore` (commit it yourself) and runs your
-Test command on a fresh copy of the loop branch. Running it again is safe.
+Ask Claude to set up the loop (the setup skill writes the `## Loop` section
+with you), or run `python3 <plugin>/scripts/setup.py` from the project root.
+It first moves the runtime files of kit 1.x (into `.loop/v1/`) and of kit
+2.0.0 (the `.lite/` folder) into `.loop/`, then creates the labels, the loop
+branch, a pinned `Factory` issue, a `.loop/` line in `.gitignore` (commit it
+yourself) and runs your Test command on a fresh copy of the loop branch.
+Running it again is safe.
 
 ## Shape
 
@@ -105,7 +108,7 @@ prerequisites first. On your single yes it labels the issues `ready`.
 ## Run
 
 Use the loop skill, or run from the project root
-`mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`.
+`mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`.
 `<plugin>/bin/loop stop` stops it; so does the idle limit.
 
 The pinned `Factory` issue is the board: what is building, what needs you,
@@ -141,8 +144,8 @@ blocks this best-effort.
 - Smoke: the `Smoke command`, if set.
 - Drift: the batch diff against `PLAN.md` (decisions, budgets, duplication).
 - Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
-  most). A finding counts only with a test file under `.lite/pass/` at the
-  path where it belongs (such as `.lite/pass/tests/test_x.py`). The pass
+  most). A finding counts only with a test file under `.loop/pass/` at the
+  path where it belongs (such as `.loop/pass/tests/test_x.py`). The pass
   copies it there and it must fail the Test command (Prepare first) and pass
   the `Check command` (lint, format) with the file in place; a second session
   must confirm it.
@@ -174,7 +177,7 @@ as a comment. Lessons reach `PLAN.md` through an issue, never a direct commit.
 
 The report goes into the pull request body. A pass that fails is noted there
 and never blocks it. The board shows a `Last pass` section, and
-`.lite/pass.json` remembers it. After a pass without errors nothing reruns
+`.loop/pass.json` remembers it. After a pass without errors nothing reruns
 until new merges arrive; after one with errors the next drain tries again.
 
 ## What the loop may leave behind

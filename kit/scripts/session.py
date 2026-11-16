@@ -97,9 +97,9 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
-    handle, groups = tempfile.mkstemp(prefix="lite-groups-")
+    handle, groups = tempfile.mkstemp(prefix="loop-groups-")
     os.close(handle)
-    env = dict(env, LITE_GROUPS=groups)
+    env = dict(env, LOOP_GROUPS=groups)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
         fin.write(prompt)
@@ -129,10 +129,10 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
 def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=()):
     """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
-    env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked), LITE_ALLOWED="\n".join(allowed),
-               LITE_PROTECTED=",".join(settings["Protected paths"]),
-               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=common.default_branch(project),
-               LITE_PROJECT=project, LITE_START=start)
+    env = dict(os.environ, LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
+               LOOP_PROTECTED=",".join(settings["Protected paths"]),
+               LOOP_LOOP_BRANCH=settings["Loop branch"], LOOP_DEFAULT_BRANCH=common.default_branch(project),
+               LOOP_PROJECT=project, LOOP_START=start)
 
     def hook(name, **more):
         return {"type": "command", "command": "python3 " + shlex.quote(
@@ -142,7 +142,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
             "--settings", json.dumps({"hooks": {
                 "PreToolUse": [{"matcher": "*", "hooks": [hook("guard.py")]}],
                 "Stop": [{"hooks": [hook("stop.py", timeout=TEST_TIMEOUT)]}]}})]
-    logs = os.path.join(project, ".lite", "logs")
+    logs = os.path.join(project, ".loop", "logs")
     os.makedirs(logs, exist_ok=True)
     prefix = "%s-%s-" % (issue, role)
     n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1

@@ -1,6 +1,6 @@
 # AI Loop Kit: design
 
-Version 2.0.0. This is the one description of what the kit is, how it works
+Version 2.0.1. This is the one description of what the kit is, how it works
 and why. It describes the kit in `kit/`.
 
 ## The goal
@@ -166,6 +166,7 @@ restart loses nothing.
 | File | What it is |
 | --- | --- |
 | `kit/skills/shape/SKILL.md` | Turns an idea into `PLAN.md` plus issues; asks one batch of questions; lists the person-only prerequisites; one approval |
+| `kit/skills/setup/SKILL.md` | Writes the `## Loop` settings with the person, then runs `scripts/setup.py` |
 | `kit/skills/loop/SKILL.md` | Starts and watches the loop |
 | `kit/templates/PLAN.md`, `kit/templates/issue.md` | The plan and issue shapes |
 | `kit/briefs/` | The instructions for the test writer, the builder, the reviewer and the end-of-loop passes |
@@ -220,11 +221,17 @@ Each comes from a failure seen in a real run.
   touches a protected path, a workflow file, a lockfile or manifest, or a
   settings file or an existing test, unless the issue names that path.
 - **Setup.** `scripts/setup.py` creates the missing labels, the loop branch
-  (from the default branch), a pinned `Factory` issue and a `.lite/` line in
+  (from the default branch), a pinned `Factory` issue and a `.loop/` line in
   `.gitignore`. It runs the Test command, after the Prepare command, on a fresh
   checkout of the loop branch as a preflight, and reports the optional
   settings that are set. Running it again adds only what is missing. It opens
   no pull request and does not check `core.hooksPath`.
+- **One runtime folder.** The loop keeps its lock, logs and state in `.loop/`.
+  Setup and every loop start first move older files there: kit 1.x files into
+  `.loop/v1/`, and the contents of `.lite/` from kit 2.0.0 into `.loop/`. A
+  name that `.loop/` already has stays in `.lite/`. Nothing moves while a
+  2.0.0 loop runs or while a loop runs from `.loop/`, and no file is deleted;
+  only an emptied `.lite/` folder is removed.
 - **Never silent.** `loop.py` runs unbuffered, prints a line before every
   long step, and gives a reason on every exit, including "nothing to build".
 - **Session isolation.** Sessions start with project-only settings and a
@@ -329,14 +336,14 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
   and requires a failure by assertion, not a syntax error in the test.
 - The builder runs the Test files command while it works. The Stop hook runs
   the full Test and Check commands once when it finishes, and records the
-  commit and the output tails in `.lite/passed-<session>`. The flow reuses that
+  commit and the output tails in `.loop/passed-<session>`. The flow reuses that
   pass when it is for the head commit, and otherwise runs the full commands in
   a fresh checkout.
 - There is no per-issue simplify step. The reviewer gets the latest test
   result in its prompt and runs only targeted checks.
 - A folder that is not a registered worktree is renamed aside, never deleted.
   A Stop hook command lives in its own process group, listed in
-  `LITE_GROUPS`, so the loop kills it with the session.
+  `LOOP_GROUPS`, so the loop kills it with the session.
 
 ### Parallel builds
 
@@ -345,7 +352,7 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
 - With 1, the loop builds in its own process. With more, each build is
   `scripts/worker.py`, a separate process that runs the same crash, retry and
   park logic for one issue and leaves its result in
-  `.lite/builds/<issue>.result`. The supervisor, one loop under one lock,
+  `.loop/builds/<issue>.result`. The supervisor, one loop under one lock,
   polls the processes. A process that ends with no result died: the issue is
   queued once more, then parked.
 - Claim: the `building` label goes on before the process starts. A new build
@@ -353,16 +360,16 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
   headroom (load average below the CPU count; on macOS, free plus inactive
   memory above 1.5 GB). The first build always starts. Each deferral is
   logged once per reason.
-- Merge queue: `.lite/merge.lock` (an advisory file lock, freed when its
+- Merge queue: `.loop/merge.lock` (an advisory file lock, freed when its
   holder dies) is held while the loop branch is merged into the issue branch
   and `merge.merge` runs. A clean catch-up is pushed and the verdict's HEAD
   follows it. Conflicts leave the merge open and return the issue to its
   builder for a fix round.
 - If the merge is refused and the loop branch moved, the lock is released,
   the catch-up runs once more, and the merge is retried.
-- The board reads each running build's step from `.lite/builds/<issue>.step`.
+- The board reads each running build's step from `.loop/builds/<issue>.step`.
 - Supervision: workers run in their own session and the pid goes to
-  `.lite/builds/<issue>.pid`. A worker running longer than 3 times
+  `.loop/builds/<issue>.pid`. A worker running longer than 3 times
   `Session minutes` plus 30 minutes is killed with its group and counts as a
   death. If a recorded pid is still alive at start, the loop refuses rather
   than claim those issues again.
@@ -392,7 +399,7 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
 
 - `Defect rounds` (default 2) caps the passes that queue confirmed defects as
   `ready` between merges of issues the person queued. Past it, defects go to
-  `inbox` with their failing tests. The count is in `.lite/pass.json`; an
+  `inbox` with their failing tests. The count is in `.loop/pass.json`; an
   unreadable file counts as the limit reached and a missing one as zero.
 - A red-team test must also pass the Check command with the file in place.
   The test writer may format a given failing test (layout only) so the locked

@@ -1,5 +1,5 @@
 """One build in its own process: python3 worker.py <project> <issue> <replies as JSON>.
-The loop starts it, polls it, and reads the result file it leaves in .lite/builds."""
+The loop starts it, polls it, and reads the result file it leaves in .loop/builds."""
 import json
 import os
 import sys

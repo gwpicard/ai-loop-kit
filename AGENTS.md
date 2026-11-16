@@ -16,7 +16,7 @@ kit is, how it works and why.
   takes one issue from tests to review, `kit/scripts/merge.py` merges,
   `kit/scripts/pass_.py` runs the end-of-loop pass, `kit/hooks/guard.py`
   refuses the hard rules, `kit/briefs/` holds the session instructions and
-  `kit/skills/` holds the shape and loop skills.
+  `kit/skills/` holds the setup, shape and loop skills.
 - `kit/tests/`: the checks for `kit/`. `tests/house-rules.sh` checks the house
   rules over every tracked file.
 - `docs/DESIGN.md`: the design. `docs/OPEN.md`: the maintainer's open

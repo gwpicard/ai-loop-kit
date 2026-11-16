@@ -37,15 +37,15 @@ class GuardCase(unittest.TestCase):
 
     def call(self, tool, inp, role=None, locked=None, cwd=None, default=None, allowed=None):
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith("LITE_")}
+               if not k.startswith("LOOP_")}
         if role:
-            env["LITE_ROLE"] = role
+            env["LOOP_ROLE"] = role
         if default:
-            env["LITE_DEFAULT_BRANCH"] = default
+            env["LOOP_DEFAULT_BRANCH"] = default
         if allowed:
-            env["LITE_ALLOWED"] = "\n".join(allowed)
+            env["LOOP_ALLOWED"] = "\n".join(allowed)
         if locked:
-            env["LITE_LOCKED"] = "\n".join(locked)
+            env["LOOP_LOCKED"] = "\n".join(locked)
         data = {"tool_name": tool, "tool_input": inp, "cwd": cwd or self.work}
         return subprocess.run([sys.executable, GUARD], input=json.dumps(data),
                               capture_output=True, text=True, env=env)
@@ -300,11 +300,11 @@ class TestRole(GuardCase):
                                    role="reviewer"), "reviewer")
         self.refused(self.bash("echo x > %s/new.py" % self.work, role="reviewer"), "reviewer")
 
-    def test_pass_writes_only_under_lite_pass(self):
+    def test_pass_writes_only_under_loop_pass(self):
         self.refused(self.call("Write", {"file_path": "src/new.py", "content": "a"}, role="pass"), "pass")
         self.refused(self.bash("echo x > docs/notes.md", role="pass"), "pass")
-        self.allowed(self.call("Write", {"file_path": ".lite/pass/test_x.py", "content": "a"}, role="pass"))
-        self.allowed(self.bash("echo x > .lite/pass/test_x.py", role="pass"))
+        self.allowed(self.call("Write", {"file_path": ".loop/pass/test_x.py", "content": "a"}, role="pass"))
+        self.allowed(self.bash("echo x > .loop/pass/test_x.py", role="pass"))
         self.refused(self.bash("gh issue list", role="pass"))
 
     def test_everyone_rules_still_apply_with_role(self):

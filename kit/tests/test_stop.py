@@ -32,9 +32,9 @@ class StopHookTest(unittest.TestCase):
             run_git(["commit", "-m", name], self.work)
 
     def stop(self, role, session="s1", **env):
-        broken = "LITE_PROJECT" in env
-        env = dict(dict(os.environ, LITE_ROLE=role, LITE_PROJECT=self.work,
-                        LITE_START=self.start), **env)
+        broken = "LOOP_PROJECT" in env
+        env = dict(dict(os.environ, LOOP_ROLE=role, LOOP_PROJECT=self.work,
+                        LOOP_START=self.start), **env)
         p = subprocess.run([sys.executable, STOP], cwd=self.work, env=env, text=True,
                            input=json.dumps({"session_id": session}), capture_output=True)
         self.assertEqual((p.returncode, "internal error" in p.stderr), (0, broken))
@@ -68,7 +68,7 @@ class StopHookTest(unittest.TestCase):
                 for _ in range(4) for sid in ("s1", "s2")]
         self.assertEqual([b for _, b in seen if _ == "s1"], [True, True, True, False])
         self.assertEqual([b for _, b in seen if _ == "s2"], [True, True, True, False])
-        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.work, ".lite"))),
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.work, ".loop"))),
                          ["stop-s1", "stop-s2"])
 
     def test_a_command_that_hangs_is_killed_and_blocks(self):
@@ -112,7 +112,7 @@ class StopHookTest(unittest.TestCase):
 
     def test_a_pass_records_the_head_and_the_tail_of_the_output(self):
         self.assertIsNone(self.stop("builder"))
-        with open(os.path.join(self.work, ".lite", "passed-s1")) as f:
+        with open(os.path.join(self.work, ".loop", "passed-s1")) as f:
             head, *tail = f.read().splitlines()
         self.assertEqual(head, self.start)
         self.assertIn("Test command passed: 100", tail)
@@ -121,7 +121,7 @@ class StopHookTest(unittest.TestCase):
         sys.path.insert(0, os.path.dirname(STOP))
         import stop
         record = os.path.join(self.work, "groups")
-        with mock.patch.dict(os.environ, {"LITE_GROUPS": record}):
+        with mock.patch.dict(os.environ, {"LOOP_GROUPS": record}):
             code, _ = stop.run("sleep 0.3; cat %s > %s; echo done" % (record, os.path.join(self.work, "during")), self.work)
         self.assertEqual(code, 0)
         with open(os.path.join(self.work, "during")) as f:
@@ -131,9 +131,9 @@ class StopHookTest(unittest.TestCase):
 
     def test_an_error_allows_the_stop(self):
         self.touch("FAIL")
-        self.assertIsNone(self.stop("builder", LITE_PROJECT=os.path.join(self.work, "nowhere")))
+        self.assertIsNone(self.stop("builder", LOOP_PROJECT=os.path.join(self.work, "nowhere")))
         p = subprocess.run([sys.executable, STOP], input="not json", text=True,
-                           capture_output=True, env=dict(os.environ, LITE_ROLE="builder"))
+                           capture_output=True, env=dict(os.environ, LOOP_ROLE="builder"))
         self.assertEqual((p.returncode, p.stdout), (0, ""))
 
     def test_other_roles_are_allowed(self):

@@ -5,12 +5,12 @@ It reads the tool call as JSON on stdin. Exit 2 refuses the call and prints
 `refused:` and `next:` lines on stderr. Exit 0 lets it through, and so does
 any input it cannot parse: the guard never blocks on its own error.
 
-Everywhere: no push to main, master or the default branch (LITE_DEFAULT_BRANCH
+Everywhere: no push to main, master or the default branch (LOOP_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
-content. When LITE_ROLE is set, also: no git push, merge, checkout, switch,
-restore, apply or branch -f, no gh, no write to a path in LITE_LOCKED (newline
-separated) or to a tracked test file (except an exact path in LITE_ALLOWED, for the builder only, that the stops list does not cover), and the reviewer role writes nothing in the project (scratch files in the system
-temp folder are fine; the pass role writes only under .lite/pass/).
+content. When LOOP_ROLE is set, also: no git push, merge, checkout, switch,
+restore, apply or branch -f, no gh, no write to a path in LOOP_LOCKED (newline
+separated) or to a tracked test file (except an exact path in LOOP_ALLOWED, for the builder only, that the stops list does not cover), and the reviewer role writes nothing in the project (scratch files in the system
+temp folder are fine; the pass role writes only under .loop/pass/).
 
 Known limits: this is a regular-expression check on the raw command, so it can
 be routed around (a script, an alias, an unusual spelling). It is an early
@@ -56,7 +56,7 @@ def check_everyone(command):
         raise Refuse("a recursive delete is not allowed",
                      "delete named files one at a time, or report it")
     branches = "|".join(["main", "master"] + [
-        re.escape(b) for b in [os.environ.get("LITE_DEFAULT_BRANCH", "")] if b])
+        re.escape(b) for b in [os.environ.get("LOOP_DEFAULT_BRANCH", "")] if b])
     protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\"]|$)" % branches)
     for m in PUSH.finditer(command):
         if FORCE.search(m.group(1)):
@@ -74,15 +74,15 @@ def check_path(path, role, cwd):
     if role == "reviewer" and (rel == ".." or rel.startswith(".." + os.sep)):  # scratch files, never inside the project
         if any(full == t or full.startswith(t + os.sep) for t in {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}):
             return
-    if role == "reviewer" or (role == "pass" and not rel.startswith(".lite/pass/")):
-        raise Refuse("the %s edits nothing%s" % (role, " outside .lite/pass/" if role == "pass" else ""),
+    if role == "reviewer" or (role == "pass" and not rel.startswith(".loop/pass/")):
+        raise Refuse("the %s edits nothing%s" % (role, " outside .loop/pass/" if role == "pass" else ""),
                      "describe the change in the review instead")
     allowed = {os.path.relpath(os.path.realpath(os.path.join(top, a.strip())), top)
-               for a in os.environ.get("LITE_ALLOWED", "").splitlines() if a.strip()}
-    protected = [x for x in os.environ.get("LITE_PROTECTED", "").split(",") if x] or common.DEFAULTS["Protected paths"].split(", ")
+               for a in os.environ.get("LOOP_ALLOWED", "").splitlines() if a.strip()}
+    protected = [x for x in os.environ.get("LOOP_PROTECTED", "").split(",") if x] or common.DEFAULTS["Protected paths"].split(", ")
     if role == "builder" and rel in allowed and not merge.stop_reason(rel, protected):
         return  # the issue names this path as one the builder may change
-    for locked in os.environ.get("LITE_LOCKED", "").splitlines():
+    for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
         if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
             raise Refuse("%s is a locked test file" % rel,
@@ -104,7 +104,7 @@ def check_role_command(command, role, cwd):
 
 def check(data):
     tool, inp = data.get("tool_name", ""), data.get("tool_input") or {}
-    cwd, role = data.get("cwd") or os.getcwd(), os.environ.get("LITE_ROLE", "")
+    cwd, role = data.get("cwd") or os.getcwd(), os.environ.get("LOOP_ROLE", "")
     if tool == "Bash":
         command = inp.get("command") or ""
         check_everyone(command)
