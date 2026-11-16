@@ -342,6 +342,27 @@ def sync_default(project, loop, st):
         return False
 
 
+def hands_on(project, base, loop, old_body):
+    """The `## Hands-on checks` section: each merged issue's steps as boxes, keeping the boxes already ticked."""
+    ticked = set()
+    if "## Hands-on checks" in old_body:
+        kept = old_body.split("## Hands-on checks")[-1].split("\n## ")[0]
+        ticked = set(re.findall(r"^- \[[xX]\] (.*)$", kept, re.M))
+    log = git(["log", "--format=%s", "origin/%s..origin/%s" % (base, loop)], cwd=project, check=False)
+    blocks = []
+    for n in sorted({int(m) for m in re.findall(r"^Issue (\d+)", log, re.M)}):
+        try:
+            info = json.loads(gh(["issue", "view", str(n), "--json", "title,body"]))
+        except (ValueError, common.GitHubError):  # an unreadable issue only leaves its steps out
+            continue
+        found = re.search(r"^## Hands-on check[ \t]*\n(.*?)(?=^## |\Z)", info.get("body") or "", re.M | re.S)
+        steps = re.findall(r"^\s*\d+\.\s+(.+?)\s*$", found.group(1), re.M) if found else []
+        if steps:
+            blocks.append("#%d %s\n\n%s" % (n, info["title"], "\n".join(
+                "- [%s] %s" % ("x" if s in ticked else " ", s) for s in steps)))
+    return "## Hands-on checks\n\n" + ("\n\n".join(blocks) or "none") + "\n"
+
+
 def drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
@@ -366,10 +387,17 @@ def drain(project, settings, st):
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
         with open(os.path.join(project, ".lite", "pass.json"), "w") as f:
             json.dump(last, f)
-    body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
                                   "open", "--json", "number,url"]))
     found = find()
+    old = ""
+    if found:
+        try:
+            old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
+        except (ValueError, common.GitHubError):
+            pass
+    body += "\n" + hands_on(project, base, loop, old)
+    body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
     if found:
         gh(["pr", "edit", str(found[0]["number"]), "--body-file", "-"], input=body)
     elif landed:  # a failed create is found by the next check, not repeated
