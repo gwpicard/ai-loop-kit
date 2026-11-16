@@ -69,7 +69,7 @@ class Decisions(test_loop.Base):
         self.commit("loop/main", "PLAN.md", HEAD + "\n" + NEW + TAIL, "Issue 2")
         loop.pass_.run_pass.return_value = ({}, "## End-of-loop pass\n\nChecked.\n")
         body = self.drain_body()
-        at = [body.index(s) for s in ("## Hands-on checks", "## Decisions to confirm", "Landed", "## End-of-loop pass")]
+        at = [body.find(s) for s in ("## Hands-on checks", "## Decisions to confirm", "Landed", "## End-of-loop pass")]
         self.assertNotIn(-1, at)
         self.assertEqual(at, sorted(at))
 
