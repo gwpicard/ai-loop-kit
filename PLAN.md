@@ -27,6 +27,20 @@ holds the house rules; where the two differ, `AGENTS.md` wins.
   source folder is asked at shaping and checked by the drift review, with no
   new setup code. Reason: keep the kit small; the drift review already reads
   every batch.
+- 16 Nov 2026: progress is read on GitHub's milestones page; the board keeps
+  only what is building, what needs the person and a progress line per
+  milestone. No notifications for now. Reason: the person followed a
+  milestones page through a whole walk-away run, while the dashboard of
+  version 1 died unseen and the board's long lists were not what the person
+  followed.
+- 16 Nov 2026: the kit refuses to run when the running version is older than
+  the version the clone was set up with, and tells the person to restart
+  Claude Code. Reason: a session keeps the plugin version it started with,
+  and in one project an upgraded project started the old kit's loop an hour
+  after the update.
+- 16 Nov 2026: issues left with the labels of kit 1.x are not migrated or
+  reported by the kit. Reason: the one active project that had them was
+  converted by hand.
 
 ## Product rules
 
