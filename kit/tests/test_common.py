@@ -263,7 +263,7 @@ class GitEventTest(FakeGh):
     def test_event_appends_lines(self):
         common.event("start", root=self.tmp, issue=3)
         common.event("stop", root=self.tmp)
-        with open(os.path.join(self.tmp, ".lite", "events.jsonl")) as f:
+        with open(os.path.join(self.tmp, ".loop", "events.jsonl")) as f:
             lines = f.read().splitlines()
         self.assertEqual([json.loads(l)["kind"] for l in lines], ["start", "stop"])
         self.assertEqual(json.loads(lines[0])["issue"], 3)

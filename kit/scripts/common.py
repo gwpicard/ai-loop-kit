@@ -44,7 +44,7 @@ DEFAULTS = {
 }
 
 
-MARKER = "<!-- lite-loop -->"  # on every comment the loop posts; replies lack it
+MARKER = "<!-- lite-loop -->"  # on every comment the loop posts; replies lack it. Kept as is: comments already posted carry it
 
 
 class LoopError(Exception):
@@ -335,7 +335,7 @@ def files_command(settings, files):
 def read_passed(project, session_id):
     """(commit, output tails) the Stop hook recorded when the full commands last passed for the session."""
     try:
-        with open(os.path.join(project, ".lite", "passed-" + str(session_id))) as f:
+        with open(os.path.join(project, ".loop", "passed-" + str(session_id))) as f:
             head, *tails = f.read().splitlines()
         return head.strip(), tails
     except (OSError, ValueError):
@@ -350,7 +350,7 @@ def default_branch(project):
 @contextlib.contextmanager
 def scratch_tree(project, ref):
     """A detached worktree of `ref` in a temporary folder, removed afterwards."""
-    parent = tempfile.mkdtemp(prefix="lite-tree-", dir=os.path.realpath(tempfile.gettempdir()))
+    parent = tempfile.mkdtemp(prefix="loop-tree-", dir=os.path.realpath(tempfile.gettempdir()))
     tree = os.path.join(parent, "tree")
     try:
         git(["worktree", "add", "--detach", tree, ref], cwd=project)
@@ -361,23 +361,23 @@ def scratch_tree(project, ref):
 
 
 def build_file(root, issue, kind):
-    """Where a running build keeps its `step` or its `result`: .lite/builds/<issue>.<kind>."""
-    return os.path.join(root, ".lite", "builds", "%s.%s" % (issue, kind))
+    """Where a running build keeps its `step` or its `result`: .loop/builds/<issue>.<kind>."""
+    return os.path.join(root, ".loop", "builds", "%s.%s" % (issue, kind))
 
 
 @contextlib.contextmanager
 def merge_lock(root):
     """One merge into the loop branch at a time, across processes. The lock is released when the
     holder ends, even if it dies."""
-    os.makedirs(os.path.join(root, ".lite"), exist_ok=True)
-    with open(os.path.join(root, ".lite", "merge.lock"), "a") as f:
+    os.makedirs(os.path.join(root, ".loop"), exist_ok=True)
+    with open(os.path.join(root, ".loop", "merge.lock"), "a") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         yield
 
 
 def event(kind, root=".", **fields):
-    """Append one JSON line to .lite/events.jsonl. A step of a build also becomes its step file, for the board."""
-    folder = os.path.join(root, ".lite")
+    """Append one JSON line to .loop/events.jsonl. A step of a build also becomes its step file, for the board."""
+    folder = os.path.join(root, ".loop")
     os.makedirs(folder, exist_ok=True)
     if kind == "step" and "issue" in fields:
         os.makedirs(os.path.join(folder, "builds"), exist_ok=True)

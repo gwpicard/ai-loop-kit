@@ -77,7 +77,7 @@ class BoardMilestones(unittest.TestCase):
 
     def test_the_removed_sections_are_gone(self):
         self.world([issue(2), issue(3, ("inbox",)), issue(4, ("shaping",))])
-        pass_dir = os.path.join(self.work, ".lite")
+        pass_dir = os.path.join(self.work, ".loop")
         os.makedirs(pass_dir, exist_ok=True)
         with open(os.path.join(pass_dir, "pass.json"), "w") as f:
             json.dump({"rounds": 1, "time": "2026-11-16 10:00", "defects": 1, "inbox": 1}, f)
@@ -95,8 +95,8 @@ class BoardMilestones(unittest.TestCase):
 
     def test_needs_you_holds_the_pull_request_the_conflict_and_the_cap_notice(self):
         self.world([])
-        os.makedirs(os.path.join(self.work, ".lite"), exist_ok=True)
-        with open(os.path.join(self.work, ".lite", "pass.json"), "w") as f:
+        os.makedirs(os.path.join(self.work, ".loop"), exist_ok=True)
+        with open(os.path.join(self.work, ".loop", "pass.json"), "w") as f:
             json.dump({"rounds": 2, "capped": True, "time": "2026-11-16 10:00", "defects": 1, "inbox": 1}, f)
         body = self.board(pr="https://example/pull/9", conflict="clash in x.txt")
         needs = body.split("## Needs you")[1].split("## Progress")[0]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stop hook for loop sessions. A builder that stops while the Test or Check
 command fails, or a test writer that stops without a new test file, is told
-to continue. Blocks are limited and counted in .lite/stop-<session>. Any
+to continue. Blocks are limited and counted in .loop/stop-<session>. Any
 error allows the stop."""
 import json
 import os
@@ -23,27 +23,27 @@ TIMEOUT = 600  # least time per command; it grows with the session limit
 
 def run(command, cwd, timeout=None):
     """Run a shell command. Return (exit code, output); the code is None on timeout. The command
-    keeps a group of its own, listed in LITE_GROUPS, so the loop ends it with the session."""
-    return common.run_shell(command, cwd, timeout or TIMEOUT, record=os.environ.get("LITE_GROUPS"),
+    keeps a group of its own, listed in LOOP_GROUPS, so the loop ends it with the session."""
+    return common.run_shell(command, cwd, timeout or TIMEOUT, record=os.environ.get("LOOP_GROUPS"),
                             patience=600)  # the hook has its own limit; do not wait it out
 
 
 def passed_path(project, session_id):
-    return os.path.join(project, ".lite", "passed-" + session_id)
+    return os.path.join(project, ".loop", "passed-" + session_id)
 
 
 def unchanged_since_pass(project, session_id, cwd):
     """True when HEAD is the commit that last passed for this session and the tree is clean."""
     try:
         return (common.read_passed(project, session_id)[0] == common.git(["rev-parse", "HEAD"], cwd=cwd).strip()
-                and not common.git(["status", "--porcelain", "--", ".", ":!.lite"], cwd=cwd).strip())
+                and not common.git(["status", "--porcelain", "--", ".", ":!.loop"], cwd=cwd).strip())
     except OSError:
         return False
 
 
 def count_block(project, session_id, limit):
     """Record one more block. False when the limit is already spent."""
-    path = os.path.join(project, ".lite", "stop-" + session_id)
+    path = os.path.join(project, ".loop", "stop-" + session_id)
     try:
         with open(path) as f:
             n = int(f.read())
@@ -75,11 +75,11 @@ def problem(role, cwd, project, session_id=""):
                     name, "\n".join(out.strip().splitlines()[-60:]))
             if command:
                 tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
-        if session_id and not common.git(["status", "--porcelain", "--", ".", ":!.lite"], cwd=cwd).strip():
+        if session_id and not common.git(["status", "--porcelain", "--", ".", ":!.loop"], cwd=cwd).strip():
             os.makedirs(os.path.dirname(passed_path(project, session_id)), exist_ok=True)
             with open(passed_path(project, session_id), "w") as f:
                 f.write("\n".join([common.git(["rev-parse", "HEAD"], cwd=cwd).strip()] + tails) + "\n")
-    start = os.environ.get("LITE_START")
+    start = os.environ.get("LOOP_START")
     if role == "test-writer" and start:
         added = common.git(["diff", "--name-only", "--diff-filter=A", start + "..HEAD"], cwd=cwd)
         if not any(merge.is_test_file(p) for p in added.splitlines()):
@@ -89,7 +89,7 @@ def problem(role, cwd, project, session_id=""):
 
 def main():
     try:
-        role, project = os.environ.get("LITE_ROLE"), os.environ["LITE_PROJECT"]
+        role, project = os.environ.get("LOOP_ROLE"), os.environ["LOOP_PROJECT"]
         session_id = json.load(sys.stdin)["session_id"]
         if role in LIMITS:
             why = problem(role, os.getcwd(), project, session_id)

@@ -30,7 +30,7 @@ def new_state():
 
 
 def take_lock(project):
-    path = os.path.join(project, ".lite", "loop.pid")
+    path = os.path.join(project, ".loop", "loop.pid")
     try:
         with open(path) as f:
             pid = int(f.read().strip())
@@ -45,7 +45,7 @@ def take_lock(project):
 
 def last_pass(project):
     """The last pass report; {} when there is none, {"unreadable": True} when the file is there but cannot be read."""
-    path = os.path.join(project, ".lite", "pass.json")
+    path = os.path.join(project, ".loop", "pass.json")
     if not os.path.exists(path):
         return {}
     try:
@@ -250,7 +250,7 @@ def build_attempts(project, number, replies):
             except common.GitHubError as e:  # the comment is a report: a failed post must not strand the claimed issue
                 say("the crash comment on #%d was not posted: %s" % (number, e))
     common.park(number, "The build crashed twice: " + reason,
-                "Read .lite/logs, then reply to try again or close the issue.")
+                "Read .loop/logs, then reply to try again or close the issue.")
     return "#%d parked after two crashes" % number
 
 
@@ -297,8 +297,8 @@ def start_builds(project, settings, st):
             return
         st["deferred"] = None
         claim(st, number)
-        os.makedirs(os.path.join(project, ".lite", "logs"), exist_ok=True)
-        with open(os.path.join(project, ".lite", "logs", "build-%d.log" % number), "a") as log:
+        os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
+        with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
             proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, [])), cwd=project,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
@@ -320,8 +320,8 @@ def alive(pid):
 
 
 def stray_workers(project):
-    """Pids recorded in .lite/builds/*.pid that are still running."""
-    folder, pids = os.path.join(project, ".lite", "builds"), []
+    """Pids recorded in .loop/builds/*.pid that are still running."""
+    folder, pids = os.path.join(project, ".loop", "builds"), []
     for name in os.listdir(folder) if os.path.isdir(folder) else ():
         try:
             with open(os.path.join(folder, name)) as f:
@@ -359,7 +359,7 @@ def reap(project, st, cap=None):
                    input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
             else:
                 common.park(number, "The build crashed twice: " + reason,
-                            "Read .lite/logs, then reply to try again or close the issue.")
+                            "Read .loop/logs, then reply to try again or close the issue.")
                 st["last"] = "#%d parked after two crashes" % number
                 del st["deaths"][number]
         for kind in ("step", "result", "pid"):
@@ -424,7 +424,7 @@ def decisions(project, base, loop):
 
 def summary(project, settings, head, landed):
     """The Summary, Evidence and Merge danger sections: one read-only session per new batch, saved for refreshes."""
-    path = os.path.join(project, ".lite", "summary.json")
+    path = os.path.join(project, ".loop", "summary.json")
     try:
         with open(path) as f:
             saved = json.load(f)
@@ -476,7 +476,7 @@ def drain(project, settings, st):
                         "rounds", settings["Defect rounds"] if last.get("unreadable") else last.get("rounds", 0)),
                     capped=bool(report.get("capped")),
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
-        with open(os.path.join(project, ".lite", "pass.json"), "w") as f:
+        with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
             json.dump(last, f)
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
                                   "open", "--json", "number,url"]))
@@ -501,15 +501,18 @@ def drain(project, settings, st):
     st["last"] = "drained: " + (failed or "tests pass")
 
 
+OWN_LOG = re.compile(r"(build-\d+|(\d+|pass)-[a-z]+(-[a-z]+)*-\d+)\.log")  # its own logs only: 1.x left piece-* and run-* logs in .loop/logs
+
+
 def clean_up(project, closed):
-    """At loop exit: prune worktrees, drop logs older than 14 days, name what is left behind."""
+    """At loop exit: prune worktrees, drop its own logs older than 14 days, name what is left behind."""
     git(["worktree", "prune"], cwd=project, check=False)
-    logs = os.path.join(project, ".lite", "logs")
-    for path in [os.path.join(logs, n) for n in os.listdir(logs)] if os.path.isdir(logs) else ():
-        if time.time() - os.path.getmtime(path) > 14 * 86400:
+    logs = os.path.join(project, ".loop", "logs")
+    for path in [os.path.join(logs, n) for n in os.listdir(logs) if OWN_LOG.fullmatch(n)] if os.path.isdir(logs) else ():
+        if os.path.isfile(path) and time.time() - os.path.getmtime(path) > 14 * 86400:
             os.remove(path)
     with contextlib.suppress(OSError):
-        os.rmdir(os.path.join(os.path.dirname(project), ".lite-worktrees"))  # only when empty
+        os.rmdir(os.path.join(os.path.dirname(project), ".loop-worktrees"))  # only when empty
     trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines() if l.startswith("worktree ")][1:]
     old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project, check=False).split()
            if b[6:].isdigit() and int(b[6:]) in closed]
@@ -519,19 +522,22 @@ def clean_up(project, closed):
 def run(project):
     project = os.path.abspath(project)
     settings = common.read_settings(project)
-    busy = take_lock(project)
+    moved, busy = setup.tidy(project)
+    if moved:
+        say("runtime folder: moved " + "; ".join(moved))
+    busy = busy or take_lock(project)
     if busy:
         return say(busy) or 1
     st, dirty, built = new_state(), True, time.time()
     cap = (3 * settings["Session minutes"] + 30) * 60  # seconds a build process may run
-    builds = os.path.join(project, ".lite", "builds")
+    builds = os.path.join(project, ".loop", "builds")
     if stray_workers(project):  # a loop that was killed left builds running: do not claim their issues again
-        os.remove(os.path.join(project, ".lite", "loop.pid"))
+        os.remove(os.path.join(project, ".loop", "loop.pid"))
         return say("refused: build processes of an earlier loop are still running (pids %s)\nnext: wait for them, "
                    "or end them, then start again" % ", ".join(map(str, stray_workers(project)))) or 1
     for name in os.listdir(builds) if os.path.isdir(builds) else ():  # left by a loop that was killed
         os.remove(os.path.join(builds, name))
-    stop = os.path.join(project, ".lite", "stop")
+    stop = os.path.join(project, ".loop", "stop")
     if os.path.exists(stop):
         os.remove(stop)
     try:
@@ -586,8 +592,8 @@ def run(project):
                 with contextlib.suppress(OSError):
                     os.killpg(proc.pid, signal.SIGTERM)
         for name in ("stop", "loop.pid"):
-            if os.path.exists(os.path.join(project, ".lite", name)):
-                os.remove(os.path.join(project, ".lite", name))
+            if os.path.exists(os.path.join(project, ".loop", name)):
+                os.remove(os.path.join(project, ".loop", name))
         try:
             clean_up(project, st["closed"])
         except OSError as e:
@@ -598,8 +604,8 @@ def run(project):
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
     if cmd == "stop":
-        os.makedirs(os.path.join(project, ".lite"), exist_ok=True)
-        open(os.path.join(project, ".lite", "stop"), "w").close()
+        os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+        open(os.path.join(project, ".loop", "stop"), "w").close()
         return say("stop requested; the loop ends after its current step") or 0
     if cmd in ("run", "check-version"):
         old = common.kit_version_refusal(project)

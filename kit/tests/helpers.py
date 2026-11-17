@@ -102,7 +102,7 @@ def _template(files):
     key = json.dumps(files, sort_keys=True)
     if key not in _TEMPLATES:
         if not _TEMPLATE_DIR:
-            _TEMPLATE_DIR.append(tempfile.mkdtemp(prefix="lite-tests-"))
+            _TEMPLATE_DIR.append(tempfile.mkdtemp(prefix="loop-tests-"))
             atexit.register(shutil.rmtree, _TEMPLATE_DIR[0], True)
         parent = os.path.join(_TEMPLATE_DIR[0], str(len(_TEMPLATES)))
         os.mkdir(parent)

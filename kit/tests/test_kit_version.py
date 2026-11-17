@@ -147,7 +147,7 @@ class SkillStepTest(unittest.TestCase):
         self.check("shape", "Read `PLAN.md`")
 
     def test_loop_checks_the_version_first(self):
-        self.check("loop", "scripts/setup.py")
+        self.check("loop", "use the setup skill")
 
 
 class ReadmeTest(unittest.TestCase):

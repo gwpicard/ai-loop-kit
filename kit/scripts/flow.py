@@ -176,7 +176,7 @@ def build(issue, project, replies=()):
     project, result = os.path.abspath(project), None
     settings = common.read_settings(project)
     loop, branch = settings["Loop branch"], "issue/%s" % issue
-    tree = os.path.join(os.path.dirname(project), ".lite-worktrees",
+    tree = os.path.join(os.path.dirname(project), ".loop-worktrees",
                         "%s-%s" % (os.path.basename(project), issue))
     try:
         info = json.loads(gh(["issue", "view", str(issue), "--json", "title,body,comments"]))

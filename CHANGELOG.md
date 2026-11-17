@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.2 (17 November 2026)
+
+On macOS, the loop waits before each session and test command while the
+system reports memory pressure, so it stops adding work to a Mac that is
+short of memory. See [the 2.0.2 release notes](docs/release-notes/v2.0.2.md).
+
+## 2.0.1 (16 November 2026)
+
+The runtime folder is `.loop/` again, older runtime files move there by
+themselves, and a new setup skill makes "set up the loop" work in a new
+project. See [the 2.0.1 release notes](docs/release-notes/v2.0.1.md).
+
 ## 2.0.0 (15 November 2026)
 
 Version 2 replaces the kit with a continuous factory. It is a new design, not

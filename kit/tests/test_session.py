@@ -44,18 +44,18 @@ class SessionTest(FakeClaudeGh):
         self.assertTrue(os.path.exists(stop["command"].split()[-1]))
         self.assertEqual(stop["timeout"], 1800)
         env = call["env"]
-        self.assertEqual(env["LITE_PROJECT"], self.work)
-        self.assertEqual(env["LITE_ROLE"], "builder")
-        self.assertEqual(env["LITE_LOCKED"], "a/test_x.py\nb/test_y.py")
-        self.assertEqual(env["LITE_START"], "abc123")
-        self.assertEqual(env["LITE_LOOP_BRANCH"], "loop/main")
-        self.assertEqual(env["LITE_DEFAULT_BRANCH"], "main")
+        self.assertEqual(env["LOOP_PROJECT"], self.work)
+        self.assertEqual(env["LOOP_ROLE"], "builder")
+        self.assertEqual(env["LOOP_LOCKED"], "a/test_x.py\nb/test_y.py")
+        self.assertEqual(env["LOOP_START"], "abc123")
+        self.assertEqual(env["LOOP_LOOP_BRANCH"], "loop/main")
+        self.assertEqual(env["LOOP_DEFAULT_BRANCH"], "main")
         self.assertEqual(call["prompt"], "do it")
 
     def test_logs_and_resume(self):
         self.run_session()
         self.run_session(resume="abc")
-        logs = os.path.join(self.work, ".lite", "logs")
+        logs = os.path.join(self.work, ".loop", "logs")
         self.assertEqual(sorted(os.listdir(logs)), ["7-builder-1.log", "7-builder-2.log"])
         self.assertIn(["--resume", "abc"], [self.claude_calls()[1]["argv"][-2:]])
 
@@ -126,7 +126,7 @@ class SessionTest(FakeClaudeGh):
         else:
             os.kill(pid, 9)
             self.fail("the leftover process is still alive")
-        with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
+        with open(os.path.join(self.work, ".loop", "logs", "7-builder-1.log")) as f:
             self.assertRegex(f.read(), "--- cleanup: left running, killed: %d .*sleep 300" % pid)
 
     def test_a_hook_command_in_its_own_group_is_killed_with_the_session(self):
@@ -143,7 +143,7 @@ class SessionTest(FakeClaudeGh):
         else:
             os.kill(pid, 9)
             self.fail("the hook's command is still alive")
-        with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
+        with open(os.path.join(self.work, ".loop", "logs", "7-builder-1.log")) as f:
             self.assertRegex(f.read(), "--- cleanup: left running, killed: %d .*sleep 300" % pid)
 
     def test_a_recorded_group_is_killed_only_if_its_leader_lives_and_started_after_the_session(self):
@@ -198,7 +198,7 @@ class SessionTest(FakeClaudeGh):
                                             "new container nolabel" + kept, "new container other" + kept,
                                             "new network net1" + kept, "new volume vol1" + kept,
                                             "new image img1" + kept])
-        with open(os.path.join(self.work, ".lite", "logs", "7-builder-1.log")) as f:
+        with open(os.path.join(self.work, ".loop", "logs", "7-builder-1.log")) as f:
             self.assertIn("--- cleanup: removed container mine", f.read())
 
     def test_a_container_that_exited_during_the_session_counts(self):

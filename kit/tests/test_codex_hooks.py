@@ -39,11 +39,11 @@ class CodexGuardTest(unittest.TestCase):
         cls._tmp.cleanup()
 
     def guard(self, data, role="builder", agent="codex", raw=None, locked=()):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("LITE_")}
-        env["LITE_ROLE"] = role
-        env["LITE_LOCKED"] = "\n".join(locked)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("LOOP_")}
+        env["LOOP_ROLE"] = role
+        env["LOOP_LOCKED"] = "\n".join(locked)
         if agent:
-            env["LITE_AGENT"] = agent
+            env["LOOP_AGENT"] = agent
         text = raw if raw is not None else json.dumps(dict(data, cwd=self.work))
         return subprocess.run([sys.executable, GUARD], input=text, capture_output=True, text=True, env=env)
 
@@ -136,7 +136,7 @@ class CodexSessionHooksTest(FakeCodexHooks):
     def test_the_session_is_marked_as_a_codex_session(self):
         self.codex([{"reply": "ok"}])
         self.run_session("reviewer")
-        self.assertEqual(self.codex_calls()[0]["env"]["LITE_AGENT"], "codex")
+        self.assertEqual(self.codex_calls()[0]["env"]["LOOP_AGENT"], "codex")
 
     def test_the_hook_configuration_guards_every_shell_command_and_file_change(self):
         secret = patch(add("src/key.py", "+KEY = '%s'\n" % GH_TOKEN))

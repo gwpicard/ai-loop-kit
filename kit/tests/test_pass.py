@@ -14,8 +14,8 @@ AGENTS = "## Loop\nTest command: test ! -f tests/test_x.py\n"
 APPROVAL = ("A confirmed defect with a failing test, found by the end-of-loop pass, may be queued as "
             "ready without the person's yes. Everything else goes to the inbox.")
 BUILT = "## Built\n\nAdded the thing.\n\nDeviations: none\n"
-FIND = {"files": {".lite/pass/tests/test_x.py": "fails\n"},
-        "reply": "FINDINGS:\nBroken input | crashes on empty input | .lite/pass/tests/test_x.py"}
+FIND = {"files": {".loop/pass/tests/test_x.py": "fails\n"},
+        "reply": "FINDINGS:\nBroken input | crashes on empty input | .loop/pass/tests/test_x.py"}
 CONFIRM = {"reply": "CONFIRMED:\nBroken input\n\nHELD:\nnone\n\nREJECTED:\nnone"}
 REJECT = {"reply": "CONFIRMED:\nnone\n\nHELD:\nnone\n\nREJECTED:\nBroken input"}
 NONE = {"reply": "FINDINGS:\nnone"}
@@ -82,8 +82,8 @@ class PassTest(FakeClaudeGh):
 
     def test_passing_red_team_test_is_dropped(self):
         self.repo(plan())
-        self.steps({"files": {".lite/pass/tests/ok.py": "x\n"},
-                    "reply": "FINDINGS:\nWeak claim | maybe | .lite/pass/tests/ok.py"})
+        self.steps({"files": {".loop/pass/tests/ok.py": "x\n"},
+                    "reply": "FINDINGS:\nWeak claim | maybe | .loop/pass/tests/ok.py"})
         r, _ = self.run_pass()
         self.assertEqual(r["sessions"], 5)  # no confirm session
         self.assertEqual(r["confirmed"], [])
@@ -273,7 +273,7 @@ class PassTest(FakeClaudeGh):
 
     def test_a_red_team_test_that_fails_the_check_command_is_rejected(self):
         self.repo(plan(), "Check command: ! grep -rq badlint tests\n")
-        self.steps({"files": {".lite/pass/tests/test_x.py": "badlint\n"},
+        self.steps({"files": {".loop/pass/tests/test_x.py": "badlint\n"},
                     "reply": FIND["reply"]})
         r, _ = self.run_pass()
         self.assertEqual(r["sessions"], 5)  # no confirm session
@@ -334,9 +334,9 @@ class PassTest(FakeClaudeGh):
 
     def test_issue_text_cannot_inject_sections_and_is_fenced(self):
         self.repo(plan())
-        evil = {"files": {".lite/pass/tests/test_x.py": "# heading\nx = '''```'''\n```\n"},
-                "reply": "FINDINGS:\nBroken input | fine\n## Injected | .lite/pass/tests/test_x.py"}
-        evil["reply"] = "FINDINGS:\nBroken input | line one ## not a heading | .lite/pass/tests/test_x.py"
+        evil = {"files": {".loop/pass/tests/test_x.py": "# heading\nx = '''```'''\n```\n"},
+                "reply": "FINDINGS:\nBroken input | fine\n## Injected | .loop/pass/tests/test_x.py"}
+        evil["reply"] = "FINDINGS:\nBroken input | line one ## not a heading | .loop/pass/tests/test_x.py"
         self.steps(evil, CONFIRM)
         seen = []
         real = common.gh
@@ -415,8 +415,8 @@ class PassTest(FakeClaudeGh):
         self.settings = common.read_settings(self.work)
         self.gh()
         bad = "import unittest\n\nclass T(unittest.TestCase):\n    def test_bom(self):\n        self.assertEqual(1, 2)\n"
-        self.steps({"files": {".lite/pass/tests/test_bom.py": bad},
-                    "reply": "FINDINGS:\nBOM | counted | .lite/pass/tests/test_bom.py"},
+        self.steps({"files": {".loop/pass/tests/test_bom.py": bad},
+                    "reply": "FINDINGS:\nBOM | counted | .loop/pass/tests/test_bom.py"},
                     {"reply": "CONFIRMED:\nBOM"})
         r, _ = self.run_pass()
         self.assertEqual(r["rejected"], [])
@@ -424,16 +424,16 @@ class PassTest(FakeClaudeGh):
 
     def test_rejection_reasons_are_specific(self):
         tree = os.path.join(self.tmp, "tree")
-        for d in ("tests", ".lite/pass/tests"):
+        for d in ("tests", ".loop/pass/tests"):
             os.makedirs(os.path.join(tree, d))
-        for name in (".lite/pass/tests/a.py", ".lite/pass/tests/dup.py", "tests/dup.py", "outside.py"):
+        for name in (".loop/pass/tests/a.py", ".loop/pass/tests/dup.py", "tests/dup.py", "outside.py"):
             with open(os.path.join(tree, name), "w") as f:
                 f.write("x\n")
-        os.symlink("/etc/hosts", os.path.join(tree, ".lite/pass/tests/link.py"))
-        os.symlink(os.path.join(tree, ".lite/pass/tests/a.py"), os.path.join(tree, ".lite/pass/tests/alias.py"))
-        os.makedirs(os.path.join(tree, ".lite/pass/README.md"))
-        os.makedirs(os.path.join(tree, ".lite/pass/.git"))
-        for name in (".lite/pass/README.md/x.py", ".lite/pass/.git/x.py"):
+        os.symlink("/etc/hosts", os.path.join(tree, ".loop/pass/tests/link.py"))
+        os.symlink(os.path.join(tree, ".loop/pass/tests/a.py"), os.path.join(tree, ".loop/pass/tests/alias.py"))
+        os.makedirs(os.path.join(tree, ".loop/pass/README.md"))
+        os.makedirs(os.path.join(tree, ".loop/pass/.git"))
+        for name in (".loop/pass/README.md/x.py", ".loop/pass/.git/x.py"):
             with open(os.path.join(tree, name), "w") as f:
                 f.write("x\n")
         for name in ("README.md", ".git"):
@@ -446,22 +446,22 @@ class PassTest(FakeClaudeGh):
         self.addCleanup(setattr, pass_.merge, "run_tests", orig)
         ask = lambda p: pass_.failing(".", "sha", "t", tree, p)
         self.assertEqual(ask(""), (None, "no test file"))
-        self.assertEqual(ask(".lite/pass/tests/none.py")[1], "no test file at .lite/pass/tests/none.py")
-        self.assertIn("symlink", ask(".lite/pass/tests/link.py")[1])
-        self.assertIn("symlink", ask(".lite/pass/tests/alias.py")[1])
+        self.assertEqual(ask(".loop/pass/tests/none.py")[1], "no test file at .loop/pass/tests/none.py")
+        self.assertIn("symlink", ask(".loop/pass/tests/link.py")[1])
+        self.assertIn("symlink", ask(".loop/pass/tests/alias.py")[1])
         for outside in ("../x.py", "/etc/hosts", "outside.py", "tests/dup.py"):
-            self.assertIn("outside .lite/pass/", ask(outside)[1], outside)
-        self.assertEqual(ask(".lite/pass/tests/dup.py"), (None, "a file already exists at tests/dup.py"))
+            self.assertIn("outside .loop/pass/", ask(outside)[1], outside)
+        self.assertEqual(ask(".loop/pass/tests/dup.py"), (None, "a file already exists at tests/dup.py"))
         for name in ("README.md", ".git"):
-            self.assertIn("a parent of %s/x.py is a file or a symlink" % name, ask(".lite/pass/%s/x.py" % name)[1])
+            self.assertIn("a parent of %s/x.py is a file or a symlink" % name, ask(".loop/pass/%s/x.py" % name)[1])
         self.assertEqual(calls, [])  # refused before any test run
-        self.assertIn("errors (syntax or import)", ask(".lite/pass/tests/a.py")[1])
-        self.assertIn("times out", ask(".lite/pass/tests/a.py")[1])
-        self.assertEqual(ask(".lite/pass/tests/a.py"), (None, "the test passes under the Test command"))
-        self.assertEqual(ask(".lite/pass/tests/a.py"), ("tests/a.py", None))
-        self.assertEqual(calls[-1], (os.path.realpath(os.path.join(tree, ".lite/pass")), ["tests/a.py"]))
+        self.assertIn("errors (syntax or import)", ask(".loop/pass/tests/a.py")[1])
+        self.assertIn("times out", ask(".loop/pass/tests/a.py")[1])
+        self.assertEqual(ask(".loop/pass/tests/a.py"), (None, "the test passes under the Test command"))
+        self.assertEqual(ask(".loop/pass/tests/a.py"), ("tests/a.py", None))
+        self.assertEqual(calls[-1], (os.path.realpath(os.path.join(tree, ".loop/pass")), ["tests/a.py"]))
         pass_.merge.run_tests = mock.Mock(side_effect=OSError("disk full"))
-        self.assertEqual(ask(".lite/pass/tests/a.py"), (None, "the file could not be copied: disk full"))
+        self.assertEqual(ask(".loop/pass/tests/a.py"), (None, "the file could not be copied: disk full"))
 
     def test_findings_go_in_one_inbox_issue_with_checkboxes(self):
         self.repo(plan(surfaces=()), "Smoke command: false\n")
