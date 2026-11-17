@@ -51,6 +51,12 @@ holds the house rules; where the two differ, `AGENTS.md` wins.
   kit refuses to run Codex for that role. On a usage limit a session waits
   and resumes, with no fallback agent. Reason: the safety rules must not
   depend on which agent runs.
+- 17 Nov 2026: the steps for trying the product live in a `## Try it`
+  section of `PLAN.md`, written at shaping. The final pull request shows
+  them, with the loop branch and its head commit, at the top of its
+  hands-on checks. Reason: a hands-on check needs a build the person can
+  run, and nothing told them how to get one. The steps are prose for a
+  person, so they belong in the plan, not in a setting.
 
 ## Product rules
 
