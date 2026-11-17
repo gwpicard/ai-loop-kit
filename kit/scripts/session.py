@@ -95,7 +95,7 @@ def _wait_seconds(text):
     return int(min(max(wait, 60), 6 * 3600))
 
 
-def _exec(argv(resume), prompt, cwd, env, log, role, issue, limit):
+def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
     handle, groups = tempfile.mkstemp(prefix="lite-groups-")
     os.close(handle)
