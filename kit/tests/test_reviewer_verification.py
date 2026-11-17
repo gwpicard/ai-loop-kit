@@ -2,6 +2,7 @@
 import os
 import unittest
 
+from kit.tests import helpers  # noqa: F401  (puts kit/scripts on the path)
 import merge
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
