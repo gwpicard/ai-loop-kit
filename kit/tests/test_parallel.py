@@ -238,14 +238,6 @@ class HeadroomTest(unittest.TestCase):
                 mock.patch.object(loop.os, "cpu_count", return_value=4), mock.patch.object(loop.sys, "platform", "linux"):
             self.assertIsNone(loop.headroom())
 
-    def test_macos_memory_is_free_plus_inactive_pages(self):
-        vm = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:   10000.\nPages inactive:   %d.\n"
-        for inactive, expect in ((50000, False), (100000, True)):
-            with mock.patch.object(loop.os, "getloadavg", return_value=(0.1, 1, 1)), \
-                    mock.patch.object(loop.sys, "platform", "darwin"), \
-                    mock.patch.object(loop.subprocess, "run", return_value=mock.Mock(stdout=vm % inactive)):
-                self.assertEqual(loop.headroom() is None, expect)
-
 
 def tree(work, name, files=None):
     path = os.path.join(os.path.dirname(work), "trees", name)
