@@ -34,12 +34,13 @@ def take_lock(project):
     try:
         with open(path) as f:
             pid = int(f.read().strip())
-        os.kill(pid, 0)
-        return "refused: a loop is already running (pid %d)\nnext: loop.py stop, or wait" % pid
     except (OSError, ValueError):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(str(os.getpid()))
+        pid = None
+    if pid is not None and alive(pid):
+        return "refused: a loop is already running (pid %d)\nnext: loop.py stop, or wait" % pid
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(str(os.getpid()))
 
 
 def last_pass(project):
@@ -316,6 +317,7 @@ def reap(project, st, cap=None):
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .lite/logs, then reply to try again or close the issue.")
                 st["last"] = "#%d parked after two crashes" % number
+                del st["deaths"][number]
         for kind in ("step", "result", "pid"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
