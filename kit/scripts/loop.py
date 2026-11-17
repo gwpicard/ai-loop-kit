@@ -355,8 +355,11 @@ def reap(project, st, cap=None):
             reason = "the build process ended with exit code %s and no result" % proc.returncode
             say("crash on #%d: %s" % (number, reason))
             if st["deaths"][number] == 1:
-                gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
-                   input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
+                try:
+                    gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
+                       input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
+                except common.GitHubError as e:  # the comment is a report: a failed post must not stop the reap
+                    say("#%d: the crash comment did not post: %s" % (number, e))
             else:
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .loop/logs, then reply to try again or close the issue.")
