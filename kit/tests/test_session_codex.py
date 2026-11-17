@@ -65,11 +65,6 @@ class CodexSessionTest(FakeCodexGh):
         with self.assertRaises(session.SessionError):
             self.run_session()
 
-    def test_codex_is_still_refused_in_settings_for_every_role(self):
-        for role in common.ROLES:
-            with self.assertRaises(common.SettingsError, msg=role):
-                self.read("%s: codex gpt-6\n" % role)
-
     def read(self, body):
         with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
             f.write(AGENTS + body)

@@ -573,7 +573,12 @@ def main(argv):
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):
             subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
-        problem = setup.missing(project, common.read_settings(project))
+        settings = common.read_settings(project)
+        problem = common.codex_refusal(settings)
+        if problem:
+            say("refused: %s\nnext: install a current Codex or choose claude for that role" % problem)
+            return 1
+        problem = setup.missing(project, settings)
         if problem:  # before the lock is taken
             say("refused: %s\nnext: run %s" % (problem, os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup.py")))
             return 1
