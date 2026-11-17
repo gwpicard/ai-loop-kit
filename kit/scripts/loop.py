@@ -95,32 +95,32 @@ def blocked_rows(st):
     return rows
 
 
+def progress_rows(st):
+    """One line per open milestone with a `ready`, `building` or `needs-user` issue, counted as GitHub counts it."""
+    active = {(i.get("milestone") or {}).get("number") for i in st["issues"]
+              if i["labels"] & {"ready", "building", "needs-user"}} - {None}
+    if not active:
+        return []
+    try:
+        found = json.loads(gh(["api", "repos/{owner}/{repo}/milestones?state=open&per_page=100"]) or "[]")
+    except ValueError:
+        return []
+    return ["- %s: %d of %d issues closed (%s)" % (m["title"], m["closed_issues"], m["closed_issues"] + m["open_issues"], m["html_url"])
+            for m in sorted(found if isinstance(found, list) else [], key=lambda m: m["number"]) if m.get("number") in active]
+
+
 def write_board(project, st):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
     row = lambda i, text: "- #%d %s: %s" % (i["number"], i["title"], text)
-    waits = lambda i: "not built: labelled by a non-collaborator" if st["trust"].get(
-        (i["number"], i.get("updatedAt"))) is False else "waits on " + (", ".join(
-            "#%d" % d for d in common.depends_on(i["body"]) if d not in st["closed"]) or "nothing")
-    base, b = common.default_branch(project), st["building"]
-    git(["fetch", "--no-prune", "origin"], cwd=project, check=False)
-    landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (
-        base, common.read_settings(project)["Loop branch"])], cwd=project, check=False)
-    p = last_pass(project)
-    p = {} if p.get("unreadable") else p
+    b, p = st["building"], last_pass(project)
     body = board_body([
         ("Building now", ["#%d, %s, since %s" % (n, step_of(project, n), since) for n, (since, _) in sorted(b.items())]),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
-                       for i in of("needs-user")] + blocked_rows(st)),
-        ("Queue, in build order", [row(i, waits(i)) for i in of("ready")
-                                   if i["number"] not in b]),
-        ("To shape", [row(i, l) for l in ("inbox", "shaping") for i in of(l)]),
-        ("Landed since the last merge into " + base, landed.splitlines()),
-        ("Pull request into " + base, [st["pr"]] if st["pr"] else []),
-        ("Last pass", ["%s: %s confirmed defects, %s inbox issues created, report in %s" % (
-            p["time"], p["defects"], p["inbox"], st["pr"] or "the pull request") + (
-            "; defect rounds limit reached, defects filed as inbox" if p.get("capped") else "")] if p else []),
-        ("Conflict", [st["conflict"]] if st["conflict"] else ["None."])], st["last"], st["next"])
+                       for i in of("needs-user")] + blocked_rows(st) + ([st["pr"]] if st["pr"] else [])
+                      + ([st["conflict"]] if st["conflict"] else [])
+                      + (["Notice: defect rounds limit reached, defects filed as inbox issues."] if p.get("capped") else [])),
+        ("Progress", progress_rows(st))], st["last"], st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
         st["factory"]["body"] = body
@@ -129,7 +129,7 @@ def write_board(project, st):
 def snapshot(st):
     listing = lambda state, fields: json.loads(gh(
         ["issue", "list", "--state", state, "--limit", "500", "--json", fields]))
-    opened = listing("open", "number,title,body,labels,updatedAt")
+    opened = listing("open", "number,title,body,labels,updatedAt,milestone")
     st["factory"] = ([i for i in opened if i["title"] == "Factory"] or [None])[0]
     st["issues"] = [dict(i, labels={l["name"] for l in i["labels"]})
                     for i in opened if i["title"] != "Factory"]

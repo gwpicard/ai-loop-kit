@@ -318,17 +318,6 @@ class LoopTest(Base):
         self.assertEqual(len(problem), 1)
         self.assertNotIn("\n", problem[0])
 
-    def test_untrusted_ready_issue_is_marked_on_the_board(self):
-        self.world([issue(5)])
-        st = loop.new_state()
-        loop.snapshot(st)
-        with mock.patch.object(common, "ready_is_trusted", return_value=False) as check:
-            self.assertIsNone(loop.pick(st))
-            self.assertIsNone(loop.pick(st))
-        self.assertEqual(check.call_count, 1)
-        loop.write_board(self.work, st)
-        self.assertIn("not built: labelled by a non-collaborator", self.board_inputs()[-1])
-
     def test_every_comment_the_loop_posts_carries_the_marker(self):
         self.world([issue(2)])
         with self.fake_build({2: RuntimeError("boom")}):
@@ -372,20 +361,8 @@ class LoopTest(Base):
         loop.write_board(self.work, st)
         body = self.board_inputs()[-1]
         for text in ("#7, reviewing, since 10:00", "- #4 Piece 4: Which port? (reply on the issue)",
-                     "- #8 Piece 8: waits on nothing", "- #9 Piece 9: waits on #8",
-                     "- #%d Piece %d: inbox" % (10, 10), "- #%d Piece %d: shaping" % (11, 11), "https://example/pull/1",
-                     "clash in x.txt"):
+                     "https://example/pull/1", "clash in x.txt"):
             self.assertIn(text, body)
-
-    def test_the_building_issue_is_not_in_the_queue(self):
-        self.world([issue(2), issue(3)])
-        st = loop.new_state()
-        loop.snapshot(st)
-        st["building"] = {2: ("10:00", None)}
-        loop.write_board(self.work, st)
-        body = self.board_inputs()[-1]
-        self.assertEqual(body.count("Piece 2"), 0)
-        self.assertIn("Piece 3: waits on nothing", body)
 
     def test_board_is_not_rewritten_when_unchanged(self):
         self.world([])
@@ -465,15 +442,6 @@ class GitTest(Base):
         self.assertEqual(len(self.writes("pr create")), 1)
         self.assertEqual(len(self.writes("pr edit 9")), 1)
 
-    def test_landed_section_lists_merges_made_since_the_last_fetch(self):
-        self.land()
-        run_git(["update-ref", "refs/remotes/origin/loop/main", "origin/main"], self.work)  # stale
-        self.world([])
-        st = loop.new_state()
-        loop.snapshot(st)
-        loop.write_board(self.work, st)
-        self.assertIn("- Issue 2", self.board_inputs()[-1])
-
     def test_default_branch_ahead_is_merged_into_the_loop_branch(self):
         self.commit("main", "y.txt", "y\n", "later")
         self.world([])
@@ -492,7 +460,7 @@ class GitTest(Base):
         self.assertFalse(loop.sync_default(self.work, "loop/main", loop.new_state()))
         self.run_loop()
         self.assertEqual(self.writes("needs-user"), [])
-        self.assertIn("## Conflict\n\nMerging main into loop/main", self.board_inputs()[0])
+        self.assertIn("## Needs you\n\nMerging main into loop/main", self.board_inputs()[0])
 
 
     def pass_world(self):
@@ -564,16 +532,6 @@ class GitTest(Base):
             self.run_loop()
             run_pass.assert_not_called()
         self.assertEqual(len(self.writes("pr create")), 1)
-
-    def test_board_shows_the_last_pass(self):
-        with self.pass_world():
-            self.run_loop()
-        st = loop.new_state()
-        st["pr"] = "https://example/pull/9"
-        loop.snapshot(st)
-        loop.write_board(self.work, st)
-        self.assertRegex(self.board_inputs()[-1], r"## Last pass\n\n\d{4}-\d\d-\d\d \d\d:\d\d: 1 confirmed defects, "
-                         r"1 inbox issues created, report in https://example/pull/9")
 
     def test_a_pass_with_errors_is_retried_at_the_next_drain(self):
         with self.pass_world() as run_pass:
