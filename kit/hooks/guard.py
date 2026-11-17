@@ -3,7 +3,9 @@
 
 It reads the tool call as JSON on stdin. Exit 2 refuses the call and prints
 `refused:` and `next:` lines on stderr. Exit 0 lets it through, and so does
-any input it cannot parse: the guard never blocks on its own error.
+any input it cannot parse: the guard never blocks on its own error. A Codex
+session (LITE_AGENT=codex) is the exception: it sends shell commands and
+apply_patch calls, and the guard refuses a payload or an error it cannot parse.
 
 Everywhere: no push to main, master or the default branch (LITE_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
@@ -37,11 +39,11 @@ SECRETS = re.compile(
     r"|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b"
     r"|\bsk-ant-[A-Za-z0-9_-]{10,}|\bxox[bp]-[A-Za-z0-9-]{10,}")
 GIT = r"\bgit(?:\s+(?:-C\s+\S+|-c\s+\S+|--\S+))*\s+"
-DELETE = re.compile(r"\brm\s+(?:-\S+\s+)*(?:-\w*[rR]|--recursive)|\bfind\b.*-delete|\brmtree\b")
-PUSH = re.compile(GIT + r"push\b([^;&|\n]*)")
-FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+\S*)(?=\s|$)")
+DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
+PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
+FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
-GH = re.compile(r"(?<![\w.-])gh\b")
+GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
 
 
@@ -57,7 +59,7 @@ def check_everyone(command):
                      "delete named files one at a time, or report it")
     branches = "|".join(["main", "master"] + [
         re.escape(b) for b in [os.environ.get("LITE_DEFAULT_BRANCH", "")] if b])
-    protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\"]|$)" % branches)
+    protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\")]|$)" % branches)
     for m in PUSH.finditer(command):
         if FORCE.search(m.group(1)):
             raise Refuse("a force, mirror or all-branch push is not allowed",
@@ -102,9 +104,43 @@ def check_role_command(command, role, cwd):
             check_path(target, role, cwd)
 
 
+PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)
+
+
+def unparsed(what):
+    return Refuse("the guard cannot parse %s" % what, "make the call in a plain form, or report it")
+
+
+def check_codex(data, role, cwd):
+    """A Codex call: a shell command (a string or an argument list) or an apply_patch. Refuse what is not understood."""
+    tool, inp = data.get("tool_name"), data.get("tool_input")
+    if tool == "Bash":
+        command = inp.get("command") if isinstance(inp, dict) else None
+        if isinstance(command, list) and command and all(isinstance(a, str) for a in command):
+            command = " ".join(command)
+        if not isinstance(command, str) or not command.strip():
+            raise unparsed("this shell command")
+        check_everyone(command)
+        if role:
+            check_role_command(command, role, cwd)
+        return
+    if tool != "apply_patch":
+        raise unparsed("the tool %r" % (tool,))
+    text = inp.get("command") if isinstance(inp, dict) else inp
+    paths = PATCH_PATH.findall(text) if isinstance(text, str) else []
+    if not paths:
+        raise unparsed("this patch")
+    if SECRETS.search(text):
+        raise Refuse("the content holds a secret shape", "read the secret from the environment instead")
+    for path in paths if role else ():
+        check_path(path, role, cwd)
+
+
 def check(data):
     tool, inp = data.get("tool_name", ""), data.get("tool_input") or {}
     cwd, role = data.get("cwd") or os.getcwd(), os.environ.get("LITE_ROLE", "")
+    if os.environ.get("LITE_AGENT") == "codex":
+        return check_codex(data, role, cwd)
     if tool == "Bash":
         command = inp.get("command") or ""
         check_everyone(command)
@@ -127,10 +163,15 @@ def main():
         data = json.load(sys.stdin)
         if isinstance(data, dict):
             check(data)
+        elif os.environ.get("LITE_AGENT") == "codex":
+            raise unparsed("this payload")
     except Refuse as r:
         sys.stderr.write("refused: %s\nnext: %s\n" % (r.reason, r.step))
         return 2
     except Exception as e:
+        if os.environ.get("LITE_AGENT") == "codex":
+            sys.stderr.write("refused: the guard failed on this call: %s\nnext: make the call in a plain form, or report it\n" % e)
+            return 2
         sys.stderr.write("guard: internal error, allowing the call: %s\n" % e)
         return 0
     return 0

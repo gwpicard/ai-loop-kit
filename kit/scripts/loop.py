@@ -20,7 +20,6 @@ from common import GitError, gh, git
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
-MIN_FREE = 1.5e9  # bytes of free plus inactive memory below which no new build starts (macOS)
 HERE = os.path.dirname(os.path.abspath(__file__))
 say = lambda text: print(text, flush=True)
 
@@ -35,12 +34,13 @@ def take_lock(project):
     try:
         with open(path) as f:
             pid = int(f.read().strip())
-        os.kill(pid, 0)
-        return "refused: a loop is already running (pid %d)\nnext: loop.py stop, or wait" % pid
     except (OSError, ValueError):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(str(os.getpid()))
+        pid = None
+    if pid is not None and alive(pid):
+        return "refused: a loop is already running (pid %d)\nnext: loop.py stop, or wait" % pid
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(str(os.getpid()))
 
 
 def last_pass(project):
@@ -216,7 +216,10 @@ def build_attempts(project, number, replies):
 def build_once(project, st, number):
     claim(st, number)
     st["building"][number] = (time.strftime("%H:%M"), None)
-    write_board(project, st)
+    try:
+        write_board(project, st)
+    except common.GitHubError as e:  # the board is a report: a failed edit must not strand the claimed issue
+        say("the board was not updated for #%d: %s" % (number, e))
     st["last"] = build_attempts(project, number, st["replies"].get(number, []))
     with contextlib.suppress(OSError):
         os.remove(common.build_file(project, number, "step"))
@@ -224,19 +227,16 @@ def build_once(project, st, number):
 
 def headroom():
     """None when the machine can take another build, else why not: load average at or above the CPU
-    count, or (on macOS) free plus inactive memory below MIN_FREE."""
+    count, or (on macOS) memory pressure at warning or critical."""
     try:
         load, cpus = os.getloadavg()[0], os.cpu_count() or 1
         if load >= cpus:
             return "load average %.1f is not below the %d CPUs" % (load, cpus)
-        if sys.platform == "darwin":
-            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10).stdout
-            free = sum(int(re.search(name + r":\s+(\d+)", out).group(1)) for name in ("Pages free", "Pages inactive"))
-            free *= int(re.search(r"page size of (\d+)", out).group(1))
-            if free < MIN_FREE:
-                return "free plus inactive memory is %.1f GB, below %.1f GB" % (free / 1e9, MIN_FREE / 1e9)
-    except (OSError, AttributeError, ValueError, subprocess.SubprocessError):
+    except (OSError, AttributeError, ValueError):
         pass  # no way to tell: do not hold builds back
+    level = common.pressure_level()
+    if level and level >= 2:
+        return "memory pressure is %s" % ("critical" if level >= 4 else "warning")
     return None
 
 
@@ -320,6 +320,7 @@ def reap(project, st, cap=None):
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .lite/logs, then reply to try again or close the issue.")
                 st["last"] = "#%d parked after two crashes" % number
+                del st["deaths"][number]
         for kind in ("step", "result", "pid"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
@@ -403,7 +404,7 @@ def summary(project, settings, head, landed):
             prompt = Path(flow.BRIEFS, "pr-summary.md").read_text(encoding="utf-8") + (
                 "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
-            reply = session.run("pass", prompt, tree, settings["Reviewer model"], project, "summary")[0]
+            reply = session.run("pass", prompt, tree, settings["Pass"][1], project, "summary", agent=settings["Pass"][0])[0]
         found = re.search(r"^## Summary\b.*?^## Evidence\b.*?^## Merge danger\b.*", reply, re.M | re.S)
         text = found.group(0).strip() + "\n" if found else ""
     except Exception as e:  # the summary never blocks the drain

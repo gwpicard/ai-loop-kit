@@ -35,12 +35,15 @@ Put this in the project's `AGENTS.md`:
     Test command: <the command that runs your tests>
 
 Optional keys in the same section: `Loop branch` (default `loop/main`),
-`Builder model` and `Reviewer model` (default `sonnet`), `Protected paths`,
+`Builder`, `Test writer`, `Reviewer` and `Pass` (each `<agent> <model>`,
+default `claude sonnet`; only `claude` is accepted for now), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command`, `Parallel` (default 1) and `Defect rounds`
-(default 2).
+(default 2). The older `Builder model: <m>` line still sets the builder and
+test writer to `claude <m>`, and `Reviewer model: <m>` the reviewer and the
+pass, unless the new line for that role is set.
 
 `Test files command` is the fast path: it runs only some test files, with
 `{files}` replaced by their paths (for example `pytest {files}`). Without it,
@@ -62,8 +65,9 @@ the loop or the others.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
-machine has headroom: load average below the CPU count and, on macOS, more
-than about 1.5 GB of free plus inactive memory. It says why when it waits.
+machine has headroom: load average below the CPU count and, on macOS, normal
+memory pressure. It says why when it waits. Every session and test command
+also waits, on macOS, while memory pressure is above normal.
 
 Merges into the loop branch queue behind one lock (`.lite/merge.lock`): an
 issue catches up with the loop branch, then merges, and a branch that

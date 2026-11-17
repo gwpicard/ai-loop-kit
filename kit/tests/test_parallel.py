@@ -192,8 +192,8 @@ class ParallelTest(Base):
 
     def test_deferral_is_logged_when_the_kind_of_reason_changes(self):
         reasons = iter(["load average 9.0 is not below the 8 CPUs", "load average 9.5 is not below the 8 CPUs",
-                        "free plus inactive memory is 1.0 GB, below 1.5 GB"])
-        self.headroom.side_effect = lambda: next(reasons, "free plus inactive memory is 1.0 GB, below 1.5 GB")
+                        "memory pressure is warning"])
+        self.headroom.side_effect = lambda: next(reasons, "memory pressure is warning")
         self.configure(sleep=0.6)
         self.world_of(issue(2), issue(3))
         self.run_it()
@@ -237,14 +237,6 @@ class HeadroomTest(unittest.TestCase):
         with mock.patch.object(loop.os, "getloadavg", return_value=(3.9, 1, 1)), \
                 mock.patch.object(loop.os, "cpu_count", return_value=4), mock.patch.object(loop.sys, "platform", "linux"):
             self.assertIsNone(loop.headroom())
-
-    def test_macos_memory_is_free_plus_inactive_pages(self):
-        vm = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:   10000.\nPages inactive:   %d.\n"
-        for inactive, expect in ((50000, False), (100000, True)):
-            with mock.patch.object(loop.os, "getloadavg", return_value=(0.1, 1, 1)), \
-                    mock.patch.object(loop.sys, "platform", "darwin"), \
-                    mock.patch.object(loop.subprocess, "run", return_value=mock.Mock(stdout=vm % inactive)):
-                self.assertEqual(loop.headroom() is None, expect)
 
 
 def tree(work, name, files=None):

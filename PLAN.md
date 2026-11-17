@@ -80,6 +80,7 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 
 ## Standing approvals
 
@@ -96,3 +97,13 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
+- Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
+- Issue 575: `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.
+- Issue 564: the person approved editing one existing test in `kit/tests/test_pass.py` (the Three rubric finding now has a `file:line` and a scripted confirm reply), because the criterion requires it.
+- Issue 564: when the confirm reply is unreadable or the open-issue list is truncated, only rubric findings are filed; drift, held, guardrails, lessons, simplify and red-team candidates stay unqueued as before.
+- Issue 562: step 5 of the shape skill is the oracle question again (prerequisites moved to step 6), because the locked test finds that step by the number 5 and a merged step 1 had moved it to 6.
+- Issue 580: the issue says `LOOP_*`, but the kit's variables are `LITE_*`; the tests check every `LITE_*` variable `session.run` sets. The sandbox criterion (commit in the worktree, write under `.loop/`) needs the real Codex and has no test; the builder records the sandbox options under this heading.
+- Issue 580: sandbox options for a Codex builder: `-s workspace-write` on a new session, plus `-c sandbox_mode="workspace-write"` on resume (`exec resume` has no `-s`), and `-c sandbox_workspace_write.writable_roots=[<git common dir>]` on both, because `--add-dir` is also missing from `exec resume` and a worktree's commits write into the main checkout's `.git`. `.loop/` and `.lite/` sit inside the worktree, so they need no extra option. Not run against the real Codex.
+- Issue 581: a Codex session gets the guard as a PreToolUse hook (matcher `Bash|apply_patch`) and the stop check as a Stop hook, both passed as `-c hooks=...` on every start and resume, with `LITE_AGENT=codex` set so `guard.py` refuses what it cannot parse. The kit passes `--dangerously-bypass-hook-trust` because Codex otherwise asks for persisted trust of the hooks, which an unattended run cannot give; the only hooks it runs are the two the kit writes itself from its own folder. Not run against the real Codex: the tests use the fake `codex`.

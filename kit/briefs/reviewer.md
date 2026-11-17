@@ -24,14 +24,29 @@ diff with
 prompt). The prompt gives the latest result of the full Test and Check commands
 on this commit; do not run the full Test command again. Run the Test files
 command (named in the prompt) on the tests you need, and run your own checks.
-Verify against the real thing:
+Follow the code path from the entry point and check the wiring the tests do
+not reach: registration, menus, routes, configuration.
+
+For each test the builder added (not the locked tests, which were shown to
+fail first), state whether it would fail on the loop branch without the change.
+A test that cannot fail is a CHANGES item.
+
+Give each numbered fix its `file:line`, the concrete failure scenario and the
+fix. Report only findings you have verified. An uncertain finding is a
+follow-up marked "unverified", never a fix. No finding is better than a
+speculative one.
+
+Return CHANGES for a test that calls internal code in place of the entry point
+the criterion names, or whose example inputs all share one layout where layout
+matters. Verify against the real thing:
 real inputs, the oracle, and renders where the project has them. Check each
 acceptance criterion and give the evidence (a test, a command output, a line
 of code). Report only real
 problems: wrong behaviour, a missing criterion, a weakened test, an unrecorded
 deviation. Do not report taste.
 
-End your reply with this block and nothing after it:
+End your prose with a short "Checked and sound" list of what you checked and
+found correct, then end your reply with this block and nothing after it:
 
 VERDICT: APPROVE or CHANGES
 HEAD: <the sha printed by git rev-parse HEAD>

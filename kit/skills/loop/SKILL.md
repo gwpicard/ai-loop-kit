@@ -33,6 +33,14 @@ headroom. If no
 `Smoke command` is set, mention that the end-of-loop pass can run a smoke
 check only when one is in `AGENTS.md`.
 
+## Confirm the agents, before every start
+
+Read `Builder:`, `Test writer:`, `Reviewer:` and `Pass:` from the `## Loop`
+section of `AGENTS.md` (each `<agent> <model>`, default `claude sonnet`; an
+older `Builder model` or `Reviewer model` line sets two of them). Show the
+four to the person and ask once whether to change any. Write a change to
+`AGENTS.md` before the start. Only `claude` is accepted for now.
+
 ## Start and stop
 
 Start: `mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`
