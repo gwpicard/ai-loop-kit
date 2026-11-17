@@ -391,7 +391,8 @@ def hands_on(project, base, loop, old_body):
     ticked = set()
     if "## Hands-on checks" in old_body:
         kept = old_body.split("## Hands-on checks")[-1].split("\n## ")[0]
-        ticked = set(re.findall(r"^- \[[xX]\] (.*)$", kept, re.M))
+        blocks_at = re.search(r"^#\d+ ", kept, re.M)  # the steps above the first issue block hold no checks
+        ticked = set(re.findall(r"^- \[[xX]\] (.*)$", kept[blocks_at.start():] if blocks_at else "", re.M))
     log = git(["log", "--format=%s", "origin/%s..origin/%s" % (base, loop)], cwd=project, check=False)
     blocks = []
     for n in sorted({int(m) for m in re.findall(r"^Issue (\d+)", log, re.M)}):
@@ -404,7 +405,18 @@ def hands_on(project, base, loop, old_body):
         if steps:
             blocks.append("#%d %s\n\n%s" % (n, info["title"], "\n".join(
                 "- [%s] %s" % ("x" if s in ticked else " ", s) for s in steps)))
-    return "## Hands-on checks\n\n" + ("\n\n".join(blocks) or "none") + "\n"
+    if not blocks:
+        return "## Hands-on checks\n\nnone\n"
+    head = git(["rev-parse", "--short", "origin/" + loop], cwd=project, check=False).strip()
+    plan = git(["show", "origin/%s:PLAN.md" % loop], cwd=project, check=False)
+    found = re.search(r"^## Try it[ \t]*\n(.*?)(?=^## |\Z)", plan, re.M | re.S)
+    steps = re.sub(r"<!--.*?-->", "", found.group(1) if found else "", flags=re.S).strip()
+    if steps.lower().rstrip(".") == "none":
+        intro = ""
+    else:
+        intro = "Build: `%s` at `%s`.\n\n" % (loop, head)
+        intro += (steps if steps else "No steps to run it are written. Add them under `## Try it` in `PLAN.md`.") + "\n\n"
+    return "## Hands-on checks\n\n" + intro + "\n\n".join(blocks) + "\n"
 
 
 def decisions(project, base, loop):
