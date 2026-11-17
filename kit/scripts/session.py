@@ -126,6 +126,15 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     return out, err, p.returncode
 
 
+def _codex_hooks():
+    """The same guard and stop check as a Claude session, as a TOML inline table for `-c hooks=...`."""
+    def hook(name, timeout=""):
+        command = json.dumps("python3 " + shlex.quote(os.path.join(HOOKS, name)))
+        return '{type = "command", command = %s%s}' % (command, ", timeout = %d" % timeout if timeout else "")
+    return ('{PreToolUse = [{matcher = "Bash|apply_patch", hooks = [%s]}], '
+            'Stop = [{hooks = [%s]}]}' % (hook("guard.py"), hook("stop.py", TEST_TIMEOUT)))
+
+
 def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
     """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
     common_dir = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
@@ -136,7 +145,8 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
     os.close(handle)
     def argv(resume):
         return (["codex", "exec"] + (["resume", resume] if resume else ["-s", "workspace-write"])
-                + ["-m", model, "-c", 'sandbox_mode="workspace-write"', "-c", roots, "--json", "-o", last, "-"])
+                + ["-m", model, "-c", 'sandbox_mode="workspace-write"', "-c", roots,
+                   "-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
     try:
         while True:
             common.wait_for_memory()
@@ -186,6 +196,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
     n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
     log = os.path.join(logs, "%s%d.log" % (prefix, n))
     if agent == "codex":
+        env["LITE_AGENT"] = "codex"
         return _codex(role, prompt, cwd, model, env, log, issue, resume, settings["Session minutes"] * 60)
 
     def hook(name, **more):
