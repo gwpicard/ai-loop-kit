@@ -36,6 +36,13 @@ Start: `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`
 from the project root. A second start is refused while a loop is alive. `tail .loop/loop.out`
 shows its steps.
 Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
+Pause: `<plugin>/bin/loop pause` freezes the loop and every process it
+started, with nothing killed, for when the Mac is slow. Processor use stops at
+once; memory is not freed at once. `<plugin>/bin/loop resume` continues every
+build where it was. A session step may fail once on resume, because a timer or
+request outside the kit ran out meanwhile; that counts as a build crash. The
+board shows `Paused since` while the loop is paused, and `loop stop` on a
+paused loop resumes it first.
 
 ## Read the board
 
