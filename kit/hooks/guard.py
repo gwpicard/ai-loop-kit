@@ -99,7 +99,7 @@ def check_role_command(command, role, cwd):
     if ROLE_GIT.search(command) or GH.search(command):
         raise Refuse("git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
-    for m in REDIRECT.finditer(QUOTED.sub("''", command)):  # a quoted > is text, not a redirect
+    for m in REDIRECT.finditer(QUOTED.sub(lambda q: q.group(0).replace(">", "_"), command)):  # a quoted > is text, but a quoted target stays
         target = (m.group(1) or m.group(2)).strip("'\"")
         if target and target != "/dev/null" and not target.startswith("&"):
             check_path(target, role, cwd)
