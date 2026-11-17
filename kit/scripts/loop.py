@@ -216,7 +216,10 @@ def build_attempts(project, number, replies):
 def build_once(project, st, number):
     claim(st, number)
     st["building"][number] = (time.strftime("%H:%M"), None)
-    write_board(project, st)
+    try:
+        write_board(project, st)
+    except common.GitHubError as e:  # the board is a report: a failed edit must not strand the claimed issue
+        say("the board was not updated for #%d: %s" % (number, e))
     st["last"] = build_attempts(project, number, st["replies"].get(number, []))
     with contextlib.suppress(OSError):
         os.remove(common.build_file(project, number, "step"))
