@@ -104,3 +104,4 @@ plan did not make: the issue, what they chose, and why.
 - Issue 564: the person approved editing one existing test in `kit/tests/test_pass.py` (the Three rubric finding now has a `file:line` and a scripted confirm reply), because the criterion requires it.
 - Issue 564: when the confirm reply is unreadable or the open-issue list is truncated, only rubric findings are filed; drift, held, guardrails, lessons, simplify and red-team candidates stay unqueued as before.
 - Issue 562: step 5 of the shape skill is the oracle question again (prerequisites moved to step 6), because the locked test finds that step by the number 5 and a merged step 1 had moved it to 6.
+- Issue 580: the issue says `LOOP_*`, but the kit's variables are `LITE_*`; the tests check every `LITE_*` variable `session.run` sets. The sandbox criterion (commit in the worktree, write under `.loop/`) needs the real Codex and has no test; the builder records the sandbox options under this heading.
