@@ -119,7 +119,7 @@ def write_board(project, st):
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
                        for i in of("needs-user")] + blocked_rows(st) + ([st["pr"]] if st["pr"] else [])
                       + ([st["conflict"]] if st["conflict"] else [])
-                      + (["The defect rounds limit reached, so defects were filed as inbox issues."] if p.get("capped") else [])),
+                      + (["Notice: defect rounds limit reached, defects filed as inbox issues."] if p.get("capped") else [])),
         ("Progress", progress_rows(st))], st["last"], st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
