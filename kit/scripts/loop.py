@@ -20,7 +20,6 @@ from common import GitError, gh, git
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
-MIN_FREE = 1.5e9  # bytes of free plus inactive memory below which no new build starts (macOS)
 HERE = os.path.dirname(os.path.abspath(__file__))
 say = lambda text: print(text, flush=True)
 
@@ -225,19 +224,16 @@ def build_once(project, st, number):
 
 def headroom():
     """None when the machine can take another build, else why not: load average at or above the CPU
-    count, or (on macOS) free plus inactive memory below MIN_FREE."""
+    count, or (on macOS) memory pressure at warning or critical."""
     try:
         load, cpus = os.getloadavg()[0], os.cpu_count() or 1
         if load >= cpus:
             return "load average %.1f is not below the %d CPUs" % (load, cpus)
-        if sys.platform == "darwin":
-            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10).stdout
-            free = sum(int(re.search(name + r":\s+(\d+)", out).group(1)) for name in ("Pages free", "Pages inactive"))
-            free *= int(re.search(r"page size of (\d+)", out).group(1))
-            if free < MIN_FREE:
-                return "free plus inactive memory is %.1f GB, below %.1f GB" % (free / 1e9, MIN_FREE / 1e9)
-    except (OSError, AttributeError, ValueError, subprocess.SubprocessError):
+    except (OSError, AttributeError, ValueError):
         pass  # no way to tell: do not hold builds back
+    level = common.pressure_level()
+    if level and level >= 2:
+        return "memory pressure is %s" % ("critical" if level >= 4 else "warning")
     return None
 
 
