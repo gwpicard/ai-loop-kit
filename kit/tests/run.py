@@ -7,18 +7,24 @@ share of that module's tests), so one slow module does not set the total time.
 Prints one line per module and a summary. Exits non-zero if any test fails.
 Standard library only.
 """
+import atexit
 import collections
 import concurrent.futures
 import os
 import re
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 SHARD_SIZE = 10  # tests per process, at most
+JOB_TIMEOUT = 1800  # seconds a test process may run
+QUIET = {}  # environment given to the test processes
+GROUPS = set()  # process groups of the running test processes
 
 
 def test_ids(suite):
@@ -43,16 +49,55 @@ def jobs():
     return sorted(out, key=lambda j: -len(j[1]))
 
 
+def kill_group(pgid):
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def stop_all():
+    for pgid in list(GROUPS):
+        kill_group(pgid)
+
+
+def stop(signum, frame):
+    stop_all()
+    os._exit(128 + signum)
+
+
 def run_job(job):
     module, ids = job
-    p = subprocess.run([sys.executable, "-m", "unittest"] + ids, cwd=ROOT,
-                       capture_output=True, text=True)
-    ran = re.search(r"Ran (\d+) tests?", p.stderr)
-    return module, p.returncode, int(ran.group(1)) if ran else 0, p.stderr
+    p = subprocess.Popen([sys.executable, "-m", "unittest"] + ids, cwd=ROOT, text=True, start_new_session=True,
+                         env=dict(os.environ, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    GROUPS.add(p.pid)
+    try:
+        out, err = p.communicate(timeout=JOB_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        kill_group(p.pid)
+        p.communicate()
+        return module, 1, 0, "%s: a test process ran longer than %d seconds and was killed\n" % (module, JOB_TIMEOUT)
+    finally:
+        kill_group(p.pid)  # nothing the tests started outlives them
+        GROUPS.discard(p.pid)
+    ran = re.search(r"Ran (\d+) tests?", err)
+    return module, p.returncode, int(ran.group(1)) if ran else 0, err
 
 
 def main():
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    atexit.register(stop_all)
     work = jobs()
+    # A sysctl that reports normal pressure comes first on the path, so the tests do not wait on this
+    # machine's real memory pressure; tests that check the wait put their own sysctl in front of it.
+    stub_dir = tempfile.TemporaryDirectory(prefix="sysctl-stub-")
+    atexit.register(stub_dir.cleanup)
+    stub = os.path.join(stub_dir.name, "sysctl")
+    with open(stub, "w") as f:
+        f.write("#!/bin/sh\necho 1\n")
+    os.chmod(stub, 0o755)
+    QUIET["PATH"] = stub_dir.name + os.pathsep + os.environ.get("PATH", "")
     workers = max(1, min(os.cpu_count() or 1, 8, len(work)))
     start = time.time()
     ran, bad, errors = collections.Counter(), set(), []

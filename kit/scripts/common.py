@@ -7,6 +7,7 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -56,6 +57,42 @@ class SettingsError(LoopError):
 
 def sleep(seconds):
     time.sleep(seconds)
+
+
+PRESSURE_POLL = 30  # seconds between readings while memory is under pressure
+PRESSURE_REPEAT = 600  # seconds between repeats of the wait's first line
+
+
+def pressure_level():
+    """The macOS memory-pressure level (1 normal, 2 warning, 4 critical), or None when it cannot be read."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
+                             capture_output=True, text=True, timeout=10).stdout
+        return int(out.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def wait_for_memory(patience=None):
+    """Hold while macOS reports memory pressure, reading again every PRESSURE_POLL seconds. Give up after
+    `patience` seconds when set. Print a line when the wait begins, every ten minutes and when it ends."""
+    level = pressure_level()
+    if level is None or level < 2:
+        return
+    began = last = time.time()
+    print("waiting for memory pressure to ease (level %d)" % level, flush=True)
+    while level is not None and level >= 2:
+        if patience is not None and time.time() - began >= patience:
+            print("memory pressure did not ease in %d minutes; starting anyway" % (patience // 60), flush=True)
+            return
+        sleep(PRESSURE_POLL)
+        level = pressure_level()
+        if level and level >= 2 and time.time() - last >= PRESSURE_REPEAT:
+            last = time.time()
+            print("still waiting for memory pressure to ease (level %d)" % level, flush=True)
+    print("memory pressure eased after %d minutes" % ((time.time() - began) // 60), flush=True)
 
 
 # Settings
@@ -220,10 +257,12 @@ def _record(path, pid, add):
         pass
 
 
-def run_shell(command, cwd, timeout, record=None):
+def run_shell(command, cwd, timeout, record=None, patience=None):
     """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
     With `record`, the group id is listed in that file while the command runs, so whoever
-    ends the caller can also end the command."""
+    ends the caller can also end the command. Before it starts, the command waits while memory is under
+    pressure (at most `patience` seconds when set); the wait does not count against `timeout`."""
+    wait_for_memory(patience)
     p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
