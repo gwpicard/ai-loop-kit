@@ -158,9 +158,9 @@ class CodexBuilderBuildTest(test_flow.FlowTest, FakeCodexCheck):
         self.assertEqual([c["role"] for c in self.claude_calls()], ["test-writer", "reviewer"])
         calls = real_codex_calls(self.codex_calls())
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]["env"]["LITE_ROLE"], "builder")
-        self.assertEqual(calls[0]["env"]["LITE_AGENT"], "codex")
-        self.assertEqual(calls[0]["env"]["LITE_LOCKED"], "tests/test_new.py")
+        self.assertEqual(calls[0]["env"]["LOOP_ROLE"], "builder")
+        self.assertEqual(calls[0]["env"]["LOOP_AGENT"], "codex")
+        self.assertEqual(calls[0]["env"]["LOOP_LOCKED"], "tests/test_new.py")
         self.assertTrue(any("hooks" in a for a in calls[0]["argv"]))
 
     def test_a_codex_limit_in_the_build_waits_and_resumes(self):

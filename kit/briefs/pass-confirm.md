@@ -7,10 +7,10 @@ in PLAN.md first.
 
 Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
 checkout or switch; no gh; no recursive delete. You may create new files under
-`.lite/pass/` only.
+`.loop/pass/` only.
 
 Your job: judge red-team findings and rubric findings. The prompt lists each as
-`<title> | <evidence> | <test path>`; the test files are under `.lite/pass/`.
+`<title> | <evidence> | <test path>`; the test files are under `.loop/pass/`.
 For each finding, read its test and run the real behaviour yourself. Accept a
 finding only when the defect is real, the project's own rules or PLAN.md say it
 is wrong, and the test fails for that reason and not for a mistake in the test.

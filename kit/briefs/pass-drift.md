@@ -7,7 +7,7 @@ in PLAN.md first.
 
 Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
 checkout or switch; no gh; no recursive delete. You may create new files under
-`.lite/pass/` only.
+`.loop/pass/` only.
 
 Your job: the drift review of the batch. The prompt gives the batch diff command.
 Read the diff and PLAN.md, then check: decisions in PLAN.md still hold; budgets

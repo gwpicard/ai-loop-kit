@@ -81,8 +81,8 @@ class Base(unittest.TestCase):
 
     def stop_after(self):
         """The fake world never changes, so end the run after a build."""
-        os.makedirs(os.path.join(self.work, ".lite"), exist_ok=True)
-        open(os.path.join(self.work, ".lite", "stop"), "w").close()
+        os.makedirs(os.path.join(self.work, ".loop"), exist_ok=True)
+        open(os.path.join(self.work, ".loop", "stop"), "w").close()
 
     def fake_build(self, results=None):
         def build(number, project, replies=()):
@@ -102,14 +102,14 @@ class Base(unittest.TestCase):
 class LoopTest(Base):
     def setUp(self):
         super().setUp()
-        os.makedirs(os.path.join(self.work, ".lite"))
+        os.makedirs(os.path.join(self.work, ".loop"))
         with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
             f.write(AGENTS)
         mock.patch.object(loop, "sync_default").start()
         mock.patch.object(loop, "drain").start()
 
     def pid_file(self):
-        return os.path.join(self.work, ".lite", "loop.pid")
+        return os.path.join(self.work, ".loop", "loop.pid")
 
     def test_dead_pid_lock_is_taken_over(self):
         self.world([])
@@ -130,6 +130,16 @@ class LoopTest(Base):
         self.assertTrue(os.path.exists(self.pid_file()))
         self.assertEqual(self.calls, [])
 
+    def test_a_live_loop_of_kit_2_0_0_in_lite_refuses(self):
+        self.world([])
+        os.makedirs(os.path.join(self.work, ".lite"))
+        with open(os.path.join(self.work, ".lite", "loop.pid"), "w") as f:
+            f.write(str(os.getppid()))
+        self.assertEqual(self.run_loop(), 1)
+        self.assertIn("running from .lite/", self.say.call_args[0][0])
+        self.assertFalse(os.path.exists(self.pid_file()))
+        self.assertEqual(self.calls, [])
+
     def test_stop_file_exits(self):
         self.world([])
         with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
@@ -148,7 +158,7 @@ class LoopTest(Base):
         loop.time.sleep.side_effect = ask_once
         self.assertEqual(self.run_loop(), 0)
         self.assertIn("stop requested", self.say.call_args_list[-2][0][0])
-        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "stop")))
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".loop", "stop")))
 
     def test_a_failing_clean_up_is_logged_and_leaves_no_lock(self):
         self.world([])
@@ -353,8 +363,8 @@ class LoopTest(Base):
         st = loop.new_state()
         loop.snapshot(st)
         loop.answer(st)
-        os.makedirs(os.path.join(self.work, ".lite", "builds"))
-        with open(os.path.join(self.work, ".lite", "builds", "7.step"), "w") as f:
+        os.makedirs(os.path.join(self.work, ".loop", "builds"))
+        with open(os.path.join(self.work, ".loop", "builds", "7.step"), "w") as f:
             f.write("reviewing")
         st.update(building={7: ("10:00", None)}, pr="https://example/pull/1",
                   conflict="clash in x.txt")
@@ -396,21 +406,21 @@ class GitTest(Base):
 
     def test_loop_exit_cleans_up_and_names_what_is_left(self):
         parent = os.path.dirname(self.work)
-        empty = os.path.join(parent, ".lite-worktrees")
+        empty = os.path.join(parent, ".loop-worktrees")
         os.makedirs(empty)
         gone = os.path.join(parent, "gone-tree")
         for args in (["branch", "issue/5"], ["branch", "issue/6"], ["branch", "issue/x"],
                      ["worktree", "add", "-q", "--detach", gone], ["worktree", "add", "-q", "--detach", parent + "/kept"]):
             run_git(args, self.work)
         shutil.rmtree(gone)  # a worktree whose folder was deleted: prune drops it
-        logs = os.path.join(self.work, ".lite", "logs")
+        logs = os.path.join(self.work, ".loop", "logs")
         os.makedirs(logs)
-        for name, days in (("old.log", 15), ("new.log", 13)):
+        for name, days in (("7-builder-1.log", 15), ("8-reviewer-1.log", 13), ("piece-3-attempt-1.log", 15)):
             path = os.path.join(logs, name)
             open(path, "w").close()
             os.utime(path, (time.time() - days * 86400,) * 2)
         loop.clean_up(self.work, {5})
-        self.assertEqual(os.listdir(logs), ["new.log"])
+        self.assertEqual(sorted(os.listdir(logs)), ["8-reviewer-1.log", "piece-3-attempt-1.log"])  # a 1.x log is not ours
         self.assertFalse(os.path.exists(empty))
         line = self.say.call_args[0][0]
         self.assertRegex(line, r"^left behind: worktrees: \S*/kept; branches of closed issues: issue/5$")
@@ -464,7 +474,7 @@ class GitTest(Base):
 
 
     def pass_world(self):
-        os.makedirs(os.path.join(self.work, ".lite"), exist_ok=True)
+        os.makedirs(os.path.join(self.work, ".loop"), exist_ok=True)
         self.land()
         self.world([])
         self.tests = mock.patch.object(merge, "run_tests", return_value=None).start()
@@ -501,12 +511,12 @@ class GitTest(Base):
             self.run_loop()
             self.assertEqual(run_pass.call_args[1]["rounds"], 0)  # no file yet
             for text in ("{not json", "[]", '{"rounds": "two"}'):
-                with open(os.path.join(self.work, ".lite", "pass.json"), "w") as f:
+                with open(os.path.join(self.work, ".loop", "pass.json"), "w") as f:
                     f.write(text)
                 self.commit("loop/main", "z%d.txt" % len(text), "z\n", "Issue 3")
                 self.run_loop()
                 self.assertIsNone(run_pass.call_args[1]["rounds"], text)
-                self.assertIsInstance(json.load(open(os.path.join(self.work, ".lite", "pass.json")))["rounds"], int)
+                self.assertIsInstance(json.load(open(os.path.join(self.work, ".loop", "pass.json")))["rounds"], int)
 
     def test_board_says_when_the_defect_rounds_limit_was_reached(self):
         with self.pass_world() as run_pass:
@@ -570,7 +580,7 @@ class StartCheckTest(Base):
         self.assertIn("refused: " + reason, text)
         self.assertIn("next: run ", text)
         self.assertIn("setup.py", text)
-        self.assertFalse(os.path.exists(os.path.join(self.work, ".lite", "loop.pid")))
+        self.assertFalse(os.path.exists(os.path.join(self.work, ".loop", "loop.pid")))
 
     def test_no_remote_refuses_at_start(self):
         code, run = self.start(remote=False)

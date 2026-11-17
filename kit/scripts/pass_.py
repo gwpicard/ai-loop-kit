@@ -38,13 +38,13 @@ def esc(text):  # a finding cannot start a section of the issue
 
 def failing(project, sha, test, tree, path, prepare="", check=""):
     # (path the Test command finds the file at, None) if it fails there once copied; else (None, why not)
-    base, full = os.path.realpath(os.path.join(tree, ".lite", "pass")), os.path.join(tree, path)
+    base, full = os.path.realpath(os.path.join(tree, ".loop", "pass")), os.path.join(tree, path)
     rel = os.path.relpath(os.path.realpath(full), base)
     parts = rel.split(os.sep)
     parent = next((q for q in (os.path.join(tree, *parts[:i]) for i in range(1, len(parts)))
                    if os.path.islink(q) or os.path.lexists(q) and not os.path.isdir(q)), "")
     bad = ("no test file" if not path else "the path is a symlink: " + path if os.path.islink(full)
-           else "the path is outside .lite/pass/: " + path if rel.split(os.sep)[0] == ".."
+           else "the path is outside .loop/pass/: " + path if rel.split(os.sep)[0] == ".."
            else "no test file at " + path if not os.path.isfile(full)
            else "a file already exists at " + rel if os.path.lexists(os.path.join(tree, rel))
            else "a parent of %s is a file or a symlink: %s" % (rel, parent) if parent else "")
@@ -163,7 +163,7 @@ def _pass(project, settings, since, tree, r):
                  for i in issues if tags(i) & {"inbox", "needs-user"} and not i["title"].startswith(FINDINGS)]
     reply = ask("confirm", "\nOpen decisions (a finding that touches one is held, not queued):\n"
                 + "\n".join(decisions or ["none"]) + ("\n\nFindings to judge:\n"
-                + "\n".join("%s | %s | .lite/pass/%s" % c[:3] for c in candidates) if candidates else "")
+                + "\n".join("%s | %s | .loop/pass/%s" % c[:3] for c in candidates) if candidates else "")
                 + ("\n\nRubric findings to judge:\n" + "\n".join("%s | %s" % f[:2] for f in rubric) if rubric else "")
                 ) if candidates or rubric else ""
     blocked = "the open-issue list may be truncated" if len(issues) >= LIMIT else ""

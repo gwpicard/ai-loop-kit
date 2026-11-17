@@ -97,9 +97,9 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
-    handle, groups = tempfile.mkstemp(prefix="lite-groups-")
+    handle, groups = tempfile.mkstemp(prefix="loop-groups-")
     os.close(handle)
-    env = dict(env, LITE_GROUPS=groups)
+    env = dict(env, LOOP_GROUPS=groups)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
         fin.write(prompt)
@@ -141,7 +141,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
                                 capture_output=True, text=True).stdout.strip()
     # a worktree's .git points into the main checkout, so its commits need that folder writable
     roots = "sandbox_workspace_write.writable_roots=[%s]" % json.dumps(common_dir)
-    handle, last = tempfile.mkstemp(prefix="lite-codex-")
+    handle, last = tempfile.mkstemp(prefix="loop-codex-")
     os.close(handle)
     def argv(resume):
         return (["codex", "exec"] + (["resume", resume] if resume else ["-s", "workspace-write"])
@@ -185,18 +185,18 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
 def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=(), agent="claude"):
     """Run `agent` (claude or codex) as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
-    env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked), LITE_ALLOWED="\n".join(allowed),
-               LITE_PROTECTED=",".join(settings["Protected paths"]),
-               LITE_LOOP_BRANCH=settings["Loop branch"], LITE_DEFAULT_BRANCH=common.default_branch(project),
-               LITE_PROJECT=project, LITE_START=start)
+    env = dict(os.environ, LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
+               LOOP_PROTECTED=",".join(settings["Protected paths"]),
+               LOOP_LOOP_BRANCH=settings["Loop branch"], LOOP_DEFAULT_BRANCH=common.default_branch(project),
+               LOOP_PROJECT=project, LOOP_START=start)
 
-    logs = os.path.join(project, ".lite", "logs")
+    logs = os.path.join(project, ".loop", "logs")
     os.makedirs(logs, exist_ok=True)
     prefix = "%s-%s-" % (issue, role)
     n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
     log = os.path.join(logs, "%s%d.log" % (prefix, n))
     if agent == "codex":
-        env["LITE_AGENT"] = "codex"
+        env["LOOP_AGENT"] = "codex"
         return _codex(role, prompt, cwd, model, env, log, issue, resume, settings["Session minutes"] * 60)
 
     def hook(name, **more):

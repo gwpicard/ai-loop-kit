@@ -7,8 +7,8 @@ import common
 import session
 
 AGENTS = "## Loop\nTest command: true\nLoop branch: loop/main\n"
-ENV = ("LITE_ROLE", "LITE_LOCKED", "LITE_ALLOWED", "LITE_PROTECTED", "LITE_LOOP_BRANCH",
-       "LITE_DEFAULT_BRANCH", "LITE_PROJECT", "LITE_START")
+ENV = ("LOOP_ROLE", "LOOP_LOCKED", "LOOP_ALLOWED", "LOOP_PROTECTED", "LOOP_LOOP_BRANCH",
+       "LOOP_DEFAULT_BRANCH", "LOOP_PROJECT", "LOOP_START")
 
 
 class CodexSessionTest(FakeCodexGh):
@@ -53,12 +53,12 @@ class CodexSessionTest(FakeCodexGh):
         env = self.codex_calls()[0]["env"]
         for name in ENV:
             self.assertIn(name, env)
-        self.assertEqual(env["LITE_PROJECT"], self.work)
-        self.assertEqual(env["LITE_ROLE"], "builder")
-        self.assertEqual(env["LITE_LOCKED"], "a/test_x.py\nb/test_y.py")
-        self.assertEqual(env["LITE_ALLOWED"], "src/")
-        self.assertEqual(env["LITE_START"], "abc123")
-        self.assertEqual(env["LITE_LOOP_BRANCH"], "loop/main")
+        self.assertEqual(env["LOOP_PROJECT"], self.work)
+        self.assertEqual(env["LOOP_ROLE"], "builder")
+        self.assertEqual(env["LOOP_LOCKED"], "a/test_x.py\nb/test_y.py")
+        self.assertEqual(env["LOOP_ALLOWED"], "src/")
+        self.assertEqual(env["LOOP_START"], "abc123")
+        self.assertEqual(env["LOOP_LOOP_BRANCH"], "loop/main")
 
     def test_a_failed_codex_run_raises_a_session_error(self):
         self.codex([{"error": "boom"}])

@@ -42,13 +42,13 @@ class PreflightOutputTest(FakeGh):
         return code, buf.getvalue()
 
     def log(self):
-        return pathlib.Path(self.work, ".lite", "logs", "preflight.log").read_text()
+        return pathlib.Path(self.work, ".loop", "logs", "preflight.log").read_text()
 
     def test_failure_prints_tail_log_path_folder_and_hint(self):
         code, text = self.setup_failing("## Loop\nTest command: seq 1 30; exit 1\n")
         self.assertEqual(code, 1)
         self.assertIn("preflight.log", text)
-        self.assertIn("lite-tree-", text)
+        self.assertIn("loop-tree-", text)
         self.assertIn(HINT, text)
         self.assertIn("\n30\n", text)
         self.assertIn("\n11\n", text)
@@ -62,7 +62,7 @@ class PreflightOutputTest(FakeGh):
         self.setup_failing(agents)
         log = self.log()
         self.assertLess(log.index("prepared-marker"), log.index("tested-marker"))
-        pathlib.Path(self.work, ".lite", "logs", "preflight.log").write_text("stale-marker\n")
+        pathlib.Path(self.work, ".loop", "logs", "preflight.log").write_text("stale-marker\n")
         self.setup_failing(agents)
         self.assertNotIn("stale-marker", self.log())
 

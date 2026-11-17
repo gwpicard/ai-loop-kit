@@ -5,7 +5,7 @@ text} (committed)}. The nth call uses step n; the last step repeats. A new
 session reports `thread`, default "thread-<n>"; `exec resume <id>` reports <id>.
 It writes JSON events on stdout as `codex exec --json` does, and the reply to
 the file after -o when given. Each call is recorded with its argv, standard
-input, working directory and every LITE_ variable.
+input, working directory and every LOOP_ variable.
 """
 import json
 import os
@@ -22,7 +22,7 @@ state = json.load(open(path + ".state")) if os.path.exists(path + ".state") else
 n = state["n"]
 state["n"] = n + 1
 json.dump(state, open(path + ".state", "w"))
-env = {k: v for k, v in os.environ.items() if k.startswith("LITE_")}
+env = {k: v for k, v in os.environ.items() if k.startswith("LOOP_")}
 with open(path + ".calls", "a") as f:
     f.write(json.dumps({"argv": argv, "env": env, "prompt": prompt, "cwd": os.getcwd()}) + "\\n")
 steps = json.load(open(path)).get("steps", [])
