@@ -127,7 +127,7 @@ def _pass(project, settings, since, tree, r):
         r["sessions"] += 1
         try:
             return session.run("pass", Path(flow.BRIEFS, "pass-%s.md" % name).read_text(encoding="utf-8") + context + extra,
-                               tree, settings["Reviewer model"], project, "pass")[0]
+                               tree, settings["Pass"][1], project, "pass", agent=settings["Pass"][0])[0]
         except common.LoopError as e:
             r["errors"].append("%s session: %s" % (name, e))
             return ""

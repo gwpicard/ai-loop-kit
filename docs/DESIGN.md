@@ -182,6 +182,11 @@ parallel in about 100 seconds.
 ## Settings, in `AGENTS.md`
 
 `Test command` is the only required key. The others are listed in the README.
+Four lines choose the agent and model of each role: `Builder`, `Test writer`,
+`Reviewer` and `Pass`, each `<agent> <model>` (default `claude sonnet`).
+Only `claude` is accepted so far. The loop skill shows the four lines before
+every start and writes any change to `AGENTS.md`; the person's Claude usage
+is then a choice made in the open, not a default.
 
 ## Simplification as a step
 

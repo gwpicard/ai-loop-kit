@@ -19,10 +19,17 @@ TRANSIENT = re.compile(
     r"|network is unreachable|unexpected EOF", re.I)
 RATE_LIMITED = re.compile(r"HTTP (403|429)|rate limit", re.I)
 
+ROLES = ("Builder", "Test writer", "Reviewer", "Pass")
+AGENTS = ("claude",)
+
 DEFAULTS = {
     "Loop branch": "loop/main",
-    "Builder model": "sonnet",
-    "Reviewer model": "sonnet",
+    "Builder model": "sonnet",  # older lines: set Builder and Test writer
+    "Reviewer model": "sonnet",  # older lines: set Reviewer and Pass
+    "Builder": "claude sonnet",
+    "Test writer": "claude sonnet",
+    "Reviewer": "claude sonnet",
+    "Pass": "claude sonnet",
     "Protected paths": ".github/, .claude/, .githooks/",
     "Idle hours": "12",
     "Max rounds": "3",
@@ -113,11 +120,24 @@ def read_settings(root="."):
         m = re.match(r"\s*([A-Za-z ]+?):\s*(.*?)\s*$", line)
         if inside and m:
             found[m.group(1)] = m.group(2).replace("`", "").strip()
+    for role, old in (("Builder", "Builder model"), ("Test writer", "Builder model"),
+                      ("Reviewer", "Reviewer model"), ("Pass", "Reviewer model")):
+        if found.get(old) and not found.get(role):
+            found[role] = "claude " + found[old]
     settings = dict(DEFAULTS)
     settings.update({k: v for k, v in found.items() if v and k in DEFAULTS})
     if not found.get("Test command"):
         raise SettingsError("AGENTS.md has no 'Test command:' under '## Loop'")
     settings["Test command"] = found["Test command"]
+    for role in ROLES:
+        words = settings[role].split()
+        if len(words) != 2:
+            raise SettingsError("AGENTS.md line '%s: %s' must be '<agent> <model>', such as 'claude sonnet'"
+                                % (role, settings[role]))
+        if words[0] not in AGENTS:
+            raise SettingsError("AGENTS.md line '%s: %s' names an agent the kit does not support; supported: %s"
+                                % (role, settings[role], ", ".join(AGENTS)))
+        settings[role] = tuple(words)
     settings["Protected paths"] = [
         p.strip() for p in settings["Protected paths"].split(",") if p.strip()]
     settings["Idle hours"] = float(settings["Idle hours"])
