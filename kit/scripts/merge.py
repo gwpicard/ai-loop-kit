@@ -17,7 +17,8 @@ LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
     "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
-    "gemfile", "pipfile", "composer.json"}
+    "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
+    "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved"}
 TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__")
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
