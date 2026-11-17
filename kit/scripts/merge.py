@@ -51,7 +51,7 @@ def locked_paths(comments):
     """Paths in every `TESTS:` block of the issue comments."""
     paths = []
     for c in comments:
-        for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(.*?)(?:\n[ \t]*\n|\Z)",
+        for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(?:[ \t]*\n)*(.*?)(?:\n[ \t]*\n|\Z)",
                              (c.get("body") or "").replace("\r\n", "\n"), re.S | re.M):
             paths += _items(m.group(1))
     return paths
