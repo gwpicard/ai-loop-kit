@@ -320,6 +320,7 @@ def reap(project, st, cap=None):
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .lite/logs, then reply to try again or close the issue.")
                 st["last"] = "#%d parked after two crashes" % number
+                del st["deaths"][number]
         for kind in ("step", "result", "pid"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
