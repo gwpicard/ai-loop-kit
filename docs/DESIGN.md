@@ -1,6 +1,6 @@
 # AI Loop Kit: design
 
-Version 2.0.2. This is the one description of what the kit is, how it works
+Version 2.1.0. This is the one description of what the kit is, how it works
 and why. It describes the kit in `kit/`.
 
 ## The goal

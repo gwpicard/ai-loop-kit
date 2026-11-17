@@ -255,7 +255,8 @@ class GitEventTest(FakeGh):
         with self.assertRaises(common.GitError):
             common.git(["checkout", "nope"], cwd=work)
         self.assertEqual(common.git(["checkout", "nope"], cwd=work, check=False), "")
-        with mock.patch.object(common, "TIMEOUT", 0.001):
+        slow = common.subprocess.TimeoutExpired(["git", "status"], common.TIMEOUT)
+        with mock.patch.object(common.subprocess, "run", side_effect=slow):  # a real timeout races the runner
             with self.assertRaises(common.GitError) as cm:
                 common.git(["status"], cwd=work)
         self.assertIn("timed out", str(cm.exception))

@@ -27,7 +27,8 @@ Read `Builder:`, `Test writer:`, `Reviewer:` and `Pass:` from the `## Loop`
 section of `AGENTS.md` (each `<agent> <model>`, default `claude sonnet`; an
 older `Builder model` or `Reviewer model` line sets two of them). Show the
 four to the person and ask once whether to change any. Write a change to
-`AGENTS.md` before the start. Only `claude` is accepted for now.
+`AGENTS.md` before the start. The agent is `claude` or `codex`; Codex is a
+preview.
 
 ## Start and stop
 
