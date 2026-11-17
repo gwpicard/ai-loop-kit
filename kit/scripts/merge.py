@@ -16,8 +16,10 @@ TEST_TIMEOUT = 1800
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
-    "pyproject.toml", "go.mod", "cargo.toml"}
-TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*")
+    "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
+    "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
+    "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved"}
+TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__")
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
@@ -31,10 +33,10 @@ def parse_verdict(text):
     """Return (verdict, head) from the last VERDICT block, or (None, None)."""
     lines = text.splitlines()
     for i in range(len(lines) - 1, -1, -1):
-        m = re.match(r"\s*VERDICT:\s*(\w+)\s*$", lines[i])
+        m = re.match(r"[\s*`]*VERDICT:[\s*`]*(\w+)[\s*`.,;:!]*$", lines[i])
         if m:
             for line in lines[i + 1:i + 4]:
-                h = re.match(r"\s*HEAD:\s*([0-9a-fA-F]{7,40})\s*$", line)
+                h = re.match(r"[\s*`]*HEAD:[\s*`]*([0-9a-fA-F]{7,40})[\s*`]*$", line)
                 if h:
                     return m.group(1).upper(), h.group(1).lower()
             return m.group(1).upper(), None
@@ -50,7 +52,7 @@ def locked_paths(comments):
     paths = []
     for c in comments:
         for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(.*?)(?:\n[ \t]*\n|\Z)",
-                             c.get("body") or "", re.S | re.M):
+                             (c.get("body") or "").replace("\r\n", "\n"), re.S | re.M):
             paths += _items(m.group(1))
     return paths
 
@@ -59,7 +61,7 @@ def locked_baseline(comments):
     """The commit named by the last `Commit:` line of the last `TESTS:` comment: the test writer's final
     commit. None for a comment without one."""
     for c in reversed(comments):
-        body = c.get("body") or ""
+        body = (c.get("body") or "").replace("\r\n", "\n")
         if re.search(r"^[ \t]*TESTS:", body, re.M):
             found = re.findall(r"^[ \t]*Commit:[ \t]*([0-9a-f]{7,40})[ \t]*$", body, re.M)
             return found[-1] if found else None

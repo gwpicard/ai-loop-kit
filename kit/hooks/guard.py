@@ -39,11 +39,11 @@ SECRETS = re.compile(
     r"|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b"
     r"|\bsk-ant-[A-Za-z0-9_-]{10,}|\bxox[bp]-[A-Za-z0-9-]{10,}")
 GIT = r"\bgit(?:\s+(?:-C\s+\S+|-c\s+\S+|--\S+))*\s+"
-DELETE = re.compile(r"\brm\s+(?:-\S+\s+)*(?:-\w*[rR]|--recursive)|\bfind\b.*-delete|\brmtree\b")
-PUSH = re.compile(GIT + r"push\b([^;&|\n]*)")
-FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+\S*)(?=\s|$)")
+DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
+PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
+FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
-GH = re.compile(r"(?<![\w.-])gh\b")
+GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
 
 
@@ -59,7 +59,7 @@ def check_everyone(command):
                      "delete named files one at a time, or report it")
     branches = "|".join(["main", "master"] + [
         re.escape(b) for b in [os.environ.get("LITE_DEFAULT_BRANCH", "")] if b])
-    protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\"]|$)" % branches)
+    protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\")]|$)" % branches)
     for m in PUSH.finditer(command):
         if FORCE.search(m.group(1)):
             raise Refuse("a force, mirror or all-branch push is not allowed",
