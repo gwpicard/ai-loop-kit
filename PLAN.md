@@ -57,6 +57,16 @@ holds the house rules; where the two differ, `AGENTS.md` wins.
   hands-on checks. Reason: a hands-on check needs a build the person can
   run, and nothing told them how to get one. The steps are prose for a
   person, so they belong in the plan, not in a setting.
+- 17 Nov 2026: `loop pause` freezes the running loop and everything it
+  started, and `loop resume` continues it where it was. The pause kills
+  nothing. Paused time does not count against the build cap, the session
+  limit or a Test command timeout. A paused loop stays paused until the
+  person resumes or stops it. Timers outside the kit, such as Claude Code's
+  own hook timeout or a request in flight, may fail once on resume; that
+  counts as a build crash. No variant kills builds to free memory at once.
+  Reason: the Mac slowed or ran short of memory during runs, `loop stop`
+  waits for running builds to finish, and killing a build discards the
+  uncommitted work in its worktree.
 
 ## Product rules
 
