@@ -73,7 +73,7 @@ def allowed_paths(body):
                   flags=re.S | re.M)  # fenced content grants nothing
     m = re.search(r"^## Paths the builder may change[^\n]*\n(.*?)(?=^## |\Z)",
                   body, re.S | re.M | re.I)
-    return {p for p in _items(m.group(1) if m else "")
+    return {p.removeprefix("./") for p in _items(m.group(1) if m else "")
             if p.lower() not in ("", "none")}
 
 
