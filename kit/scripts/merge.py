@@ -19,7 +19,7 @@ LOCKFILES = {
     "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved"}
-TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
+TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__")
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
@@ -79,7 +79,7 @@ def allowed_paths(body):
 
 def is_test_file(path):
     parts = path.lower().split("/")
-    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES)
+    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES) or path.endswith("Test.java")  # case matters: Contest.java is source
     return not ARTEFACT.search(path.lower()) and (named or any(p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower()))
 
 
