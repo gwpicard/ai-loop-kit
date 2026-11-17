@@ -123,7 +123,7 @@ def codex_refusal(settings):
     if not any(l.split()[:1] == ["hooks"] for l in (ask(["features", "list"]) or "").splitlines()):
         return "%s, but this Codex has no hooks feature, so the guard cannot run" % who
     for args in (["exec"], ["exec", "resume"]):
-        words = (ask(args + ["--help"]) or "").split()
+        words = re.findall(r"(?<![\w-])-{1,2}[A-Za-z][\w-]*", ask(args + ["--help"]) or "")
         for flag in CODEX_FLAGS:
             if flag not in words and not (flag == "-s" and args[1:]):  # `exec resume` has no -s
                 return "%s, but `codex %s` has no %s flag" % (who, " ".join(args), flag)
