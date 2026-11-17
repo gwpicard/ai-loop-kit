@@ -80,6 +80,7 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 
 ## Standing approvals
 
@@ -96,3 +97,10 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
+- Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
+- Issue 575: `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.
+- Issue 564: the person approved editing one existing test in `kit/tests/test_pass.py` (the Three rubric finding now has a `file:line` and a scripted confirm reply), because the criterion requires it.
+- Issue 564: when the confirm reply is unreadable or the open-issue list is truncated, only rubric findings are filed; drift, held, guardrails, lessons, simplify and red-team candidates stay unqueued as before.
+- Issue 562: step 5 of the shape skill is the oracle question again (prerequisites moved to step 6), because the locked test finds that step by the number 5 and a merged step 1 had moved it to 6.
