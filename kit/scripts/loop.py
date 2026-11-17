@@ -401,7 +401,7 @@ def summary(project, settings, head, landed):
             prompt = Path(flow.BRIEFS, "pr-summary.md").read_text(encoding="utf-8") + (
                 "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
-            reply = session.run("pass", prompt, tree, settings["Reviewer model"], project, "summary")[0]
+            reply = session.run("pass", prompt, tree, settings["Pass"][1], project, "summary", agent=settings["Pass"][0])[0]
         found = re.search(r"^## Summary\b.*?^## Evidence\b.*?^## Merge danger\b.*", reply, re.M | re.S)
         text = found.group(0).strip() + "\n" if found else ""
     except Exception as e:  # the summary never blocks the drain

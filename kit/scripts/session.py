@@ -126,8 +126,8 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     return out, err, p.returncode
 
 
-def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=()):
-    """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
+def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=(), agent="claude"):
+    """Run `agent` (only claude, for now) as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
     env = dict(os.environ, LITE_ROLE=role, LITE_LOCKED="\n".join(locked), LITE_ALLOWED="\n".join(allowed),
                LITE_PROTECTED=",".join(settings["Protected paths"]),

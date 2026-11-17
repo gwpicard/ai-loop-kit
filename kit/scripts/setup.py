@@ -44,6 +44,8 @@ def setup(project="."):
         say("refused: %s\nnext: add these lines to AGENTS.md, then run setup again:\n%s"
             % (e, SECTION))
         return 1
+    for role in common.ROLES:
+        say("%s: %s" % (role, " ".join(settings[role])))
     branch, command = settings["Loop branch"], settings["Test command"]
     for name in sorted(set(LABELS) - labels_present()):
         gh(["label", "create", name, "--color", LABELS[name]])
