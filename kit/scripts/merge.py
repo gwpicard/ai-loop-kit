@@ -88,7 +88,8 @@ def stop_reason(path, protected):
     low = path.lower()
     name = low.split("/")[-1]
     for p in protected:
-        if (low + "/").startswith(p.lower().rstrip("/") + "/"):
+        prefix = p.lower().removeprefix("./").rstrip("/")
+        if (low + "/").startswith(prefix + "/"):
             return "protected path " + p
     if low.startswith(".github/workflows/"):
         return "workflow file"
