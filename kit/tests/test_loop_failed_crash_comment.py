@@ -14,7 +14,9 @@ class FailedCrashComment(_LoopTest):
         sleeps = []
 
         def sleep(seconds):
-            sleeps.append(seconds)
+            # On Linux subprocess.run polls with time.sleep; the loop's own waits are 1 s or more.
+            if seconds >= 1:
+                sleeps.append(seconds)
             if len(sleeps) > 20:
                 raise RuntimeError("the loop waits for a build that is not running")
         loop.time.sleep.side_effect = sleep
