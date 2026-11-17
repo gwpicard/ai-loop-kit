@@ -40,7 +40,7 @@ SECRETS = re.compile(
     r"|\bsk-ant-[A-Za-z0-9_-]{10,}|\bxox[bp]-[A-Za-z0-9-]{10,}")
 GIT = r"\bgit(?:\s+(?:-C\s+\S+|-c\s+\S+|--\S+))*\s+"
 DELETE = re.compile(r"\brm\s+(?:-\S+\s+)*(?:-\w*[rR]|--recursive)|\bfind\b.*-delete|\brmtree\b")
-PUSH = re.compile(GIT + r"push\b([^;&|\n]*)")
+PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+\S*)(?=\s|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w.-])gh\b")
