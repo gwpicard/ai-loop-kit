@@ -27,6 +27,13 @@ An agent that needs one of these ends its reply with
 
 Add the rules of this project below.
 
+## Try it
+
+<!-- The steps a person follows to run the product from the loop branch, and
+the result to expect. The final pull request shows them above the hands-on
+checks. Leave this empty when there is nothing to run; write `none` to say so
+and hide the reminder. -->
+
 ## Lessons
 
 One line per trap that a later session would hit too. Sessions append here.
