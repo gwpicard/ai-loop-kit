@@ -17,7 +17,7 @@ LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
     "pyproject.toml", "go.mod", "cargo.toml"}
-TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*")
+TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__")
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
