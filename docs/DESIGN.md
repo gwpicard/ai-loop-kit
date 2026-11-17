@@ -235,7 +235,13 @@ Each comes from a failure seen in a real run.
 - **Session isolation.** Sessions start with project-only settings and a
   strict MCP configuration, so they do not inherit the person's plugins and
   MCP servers (one project's sessions carried 41).
-- **Limits.** A Claude usage limit or a GitHub rate limit waits for its
+- **Codex.** Any role can run on Codex (`Builder: codex <model>`). It gets
+  the guard and the stop check as hooks, with `LITE_AGENT=codex` so the guard
+  refuses what it cannot parse. Setup and the loop's start check, for each
+  role set to `codex`, that the `codex` command, its hooks feature and the
+  flags the kit passes exist, and refuse naming the missing one. Without that
+  guard the kit does not run Codex.
+- **Limits.** A Claude or Codex usage limit or a GitHub rate limit waits for its
   reset; it is neither a failure nor a park.
 - **Safe to repeat.** Every step can run twice after a crash: create a
   pull request only if none exists, and clear `building` before a retry.

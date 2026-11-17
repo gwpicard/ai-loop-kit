@@ -44,13 +44,6 @@ class SettingsTest(unittest.TestCase):
                     read("%s: %s\n" % (role, value))
                 self.assertIn(role, str(cm.exception))
 
-    def test_an_unknown_agent_names_the_line_and_the_agents_supported(self):
-        with self.assertRaises(common.SettingsError) as cm:
-            read("Reviewer: codex gpt-6\n")
-        self.assertIn("Reviewer", str(cm.exception))
-        self.assertIn("codex", str(cm.exception))
-        self.assertIn("claude", str(cm.exception))
-
     def test_builder_model_sets_builder_and_test_writer(self):
         s = read("Builder model: opus\n")
         self.assertEqual((tuple(s["Builder"]), tuple(s["Test writer"])), (("claude", "opus"),) * 2)
@@ -111,15 +104,6 @@ class SetupAgentsTest(test_setup.SetupTest):
         for line in ("Builder: claude opus", "Test writer: claude sonnet",
                      "Reviewer: claude haiku", "Pass: claude haiku"):
             self.assertIn(line, lines)
-
-    def test_setup_refuses_an_unknown_agent(self):
-        self.repo("## Loop\nTest command: true\nBuilder: codex gpt-6\n")
-        self.fresh()
-        code, text = test_setup.run(self.work)
-        self.assertEqual(code, 1)
-        self.assertIn("refused", text)
-        self.assertIn("Builder", text)
-        self.assertEqual(self.writes(), [])
 
 
 def only_own_tests(cls):
