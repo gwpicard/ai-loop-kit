@@ -44,6 +44,7 @@ PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
+QUOTED = re.compile(r"'[^']*'")
 REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
 
 
@@ -98,7 +99,7 @@ def check_role_command(command, role, cwd):
     if ROLE_GIT.search(command) or GH.search(command):
         raise Refuse("git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
-    for m in REDIRECT.finditer(command):
+    for m in REDIRECT.finditer(QUOTED.sub("''", command)):  # a quoted > is text, not a redirect
         target = (m.group(1) or m.group(2)).strip("'\"")
         if target and target != "/dev/null" and not target.startswith("&"):
             check_path(target, role, cwd)
