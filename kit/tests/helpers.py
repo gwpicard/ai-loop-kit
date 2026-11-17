@@ -138,6 +138,9 @@ def make_repo(parent, files=None):
 
 def copy_repo(template, parent):
     """Copy a make_repo result into parent and repoint origin. Return (work, origin)."""
+    while os.path.exists(os.path.join(parent, "work")):  # a second repo in one folder gets its own subfolder
+        parent = os.path.join(parent, "again")
+        os.makedirs(parent, exist_ok=True)
     work, origin = (os.path.join(parent, n) for n in ("work", "origin.git"))
     shutil.copytree(os.path.join(template, "work"), work)
     shutil.copytree(os.path.join(template, "origin.git"), origin)

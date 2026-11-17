@@ -16,8 +16,10 @@ TEST_TIMEOUT = 1800
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
-    "pyproject.toml", "go.mod", "cargo.toml"}
-TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*.spec.*")
+    "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
+    "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
+    "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved"}
+TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__")
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
@@ -31,10 +33,10 @@ def parse_verdict(text):
     """Return (verdict, head) from the last VERDICT block, or (None, None)."""
     lines = text.splitlines()
     for i in range(len(lines) - 1, -1, -1):
-        m = re.match(r"\s*VERDICT:\s*(\w+)\s*$", lines[i])
+        m = re.match(r"[\s*`]*VERDICT:[\s*`]*(\w+)[\s*`.,;:!]*$", lines[i])
         if m:
             for line in lines[i + 1:i + 4]:
-                h = re.match(r"\s*HEAD:\s*([0-9a-fA-F]{7,40})\s*$", line)
+                h = re.match(r"[\s*`]*HEAD:[\s*`]*([0-9a-fA-F]{7,40})[\s*`]*$", line)
                 if h:
                     return m.group(1).upper(), h.group(1).lower()
             return m.group(1).upper(), None
@@ -49,8 +51,8 @@ def locked_paths(comments):
     """Paths in every `TESTS:` block of the issue comments."""
     paths = []
     for c in comments:
-        for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(.*?)(?:\n[ \t]*\n|\Z)",
-                             c.get("body") or "", re.S | re.M):
+        for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(?:[ \t]*\n)*(.*?)(?:\n[ \t]*\n|\Z)",
+                             (c.get("body") or "").replace("\r\n", "\n"), re.S | re.M):
             paths += _items(m.group(1))
     return paths
 
@@ -59,7 +61,7 @@ def locked_baseline(comments):
     """The commit named by the last `Commit:` line of the last `TESTS:` comment: the test writer's final
     commit. None for a comment without one."""
     for c in reversed(comments):
-        body = c.get("body") or ""
+        body = (c.get("body") or "").replace("\r\n", "\n")
         if re.search(r"^[ \t]*TESTS:", body, re.M):
             found = re.findall(r"^[ \t]*Commit:[ \t]*([0-9a-f]{7,40})[ \t]*$", body, re.M)
             return found[-1] if found else None
@@ -67,17 +69,18 @@ def locked_baseline(comments):
 
 def allowed_paths(body):
     """Paths listed under the issue's `## Paths the builder may change`."""
+    body = body.replace("\r\n", "\n")
     body = re.sub(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", "", body,
                   flags=re.S | re.M)  # fenced content grants nothing
     m = re.search(r"^## Paths the builder may change[^\n]*\n(.*?)(?=^## |\Z)",
                   body, re.S | re.M | re.I)
-    return {p for p in _items(m.group(1) if m else "")
+    return {p.removeprefix("./") for p in _items(m.group(1) if m else "")
             if p.lower() not in ("", "none")}
 
 
 def is_test_file(path):
     parts = path.lower().split("/")
-    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES)
+    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES) or path.endswith("Test.java")  # case matters: Contest.java is source
     return not ARTEFACT.search(path.lower()) and (named or any(p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower()))
 
 
@@ -86,7 +89,8 @@ def stop_reason(path, protected):
     low = path.lower()
     name = low.split("/")[-1]
     for p in protected:
-        if (low + "/").startswith(p.lower().rstrip("/") + "/"):
+        prefix = p.lower().removeprefix("./").rstrip("/")
+        if (low + "/").startswith(prefix + "/"):
             return "protected path " + p
     if low.startswith(".github/workflows/"):
         return "workflow file"
@@ -128,10 +132,15 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     return None
 
 
-def run_in(name, command, tree, label, tail=1, tails=None, kinds=None):
+def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None):
     """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`.
     `kinds` collects (name, "timeout", "unrunnable" for exit 126 or 127, or "failed")."""
     code, out = common.run_shell(command, tree, TEST_TIMEOUT)
+    if log:
+        with open(log, "a") as f:
+            f.write("$ %s\n%s%s" % (command, out, "" if out.endswith("\n") or not out else "\n"))
+            if code is None:
+                f.write("timed out\n")
     if kinds is not None and code != 0:
         kinds.append((name, "timeout" if code is None else "unrunnable" if code in (126, 127) else "failed"))
     if code is None:
@@ -142,17 +151,23 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None):
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
-    `tails` collects the last line of each passing Test and Check command."""
+    `tails` collects the last line of each passing Test and Check command. `log` is a file
+    that is replaced by the full output of each command that ran; `where` receives the checkout path."""
     with common.scratch_tree(project, sha) as tree:
+        if where is not None:
+            where.append(tree)
+        if log:
+            os.makedirs(os.path.dirname(log), exist_ok=True)
+            open(log, "w").close()
         for path in overlay[1] if overlay else ():
             if os.path.isfile(os.path.join(overlay[0], path)):
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
         for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
-            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds)):
+            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log)):
                 return failure
         return None
 

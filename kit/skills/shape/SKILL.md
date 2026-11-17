@@ -11,38 +11,45 @@ code and never merges.
 
 ## Steps
 
-1. Read `PLAN.md` (start from `<plugin>/templates/PLAN.md` if the project
+1. Run `<plugin>/bin/loop check-version` from the project root first. If it
+   exits non-zero, report its two lines and stop.
+2. Read `PLAN.md` (start from `<plugin>/templates/PLAN.md` if the project
    has none) and the code the work touches. Read open `inbox` issues, or
    take the person's idea.
-2. Ask ONE batch of questions, all at once, and wait for the answers. Ask
+3. Ask ONE batch of questions, all at once, and wait for the answers. Ask
    only what the plan and the code cannot answer.
-3. Add each decision to `PLAN.md`, with the date and the reason. It is a
+4. Add each decision to `PLAN.md`, with the date and the reason. It is a
    living file: every builder reads all of it. A new `PLAN.md` also carries
    `## Lessons` (sessions append traps), `## Standing approvals` (what the
    end-of-loop pass may queue as ready without a yes) and `## Surfaces` (the
    parts the red team attacks). Ask the person about the last two; on an
    existing plan, add any that is missing.
-4. List the prerequisites only a person can clear (accounts, keys, money,
+5. Ask the oracle question for each piece: how will an agent see that this
+   is right (a command, a render, a measurement)? If nothing can, the first
+   issue builds that check. For each piece a person triggers, also ask which
+   entry point they use (the keys, the menu item, the command, the route), and
+   name it in the criterion.
+   For each piece a person sees or touches, also ask for its hands-on
+   steps: what they would do in the real product and the result to expect.
+   They go in the issue's `## Hands-on check` section.
+6. List the prerequisites only a person can clear (accounts, keys, money,
    settings, access, a decision on going public). Put them first and get
    them cleared before any label goes on. Name each one as plainly as
    a task.
-5. Ask the oracle question for each piece: how will an agent see that this
-   is right (a command, a render, a measurement)? If nothing can, the first
-   issue builds that check.
-6. Split the work into issues an agent can finish in about an hour. Each
+7. Split the work into issues an agent can finish in about an hour. Each
    follows `<plugin>/templates/issue.md`: a goal, three to six acceptance
    criteria, how an agent checks it, a `## Paths the builder may change`
    section (normally `none`), `Depends on: #a, #b`, and a milestone. A path
    named anywhere else in the issue body grants nothing.
-7. Create each issue with `gh issue create --label shaping --milestone
+8. Create each issue with `gh issue create --label shaping --milestone
    <name>`, dependencies first. Then write `Depends on: #n` with the real
    numbers into the dependants. Show every issue in full. Ask for one yes
    for the whole batch.
-8. On the yes, label each issue `ready` with `gh issue edit <n>
+9. On the yes, label each issue `ready` with `gh issue edit <n>
    --add-label ready`. The loop builds an issue only when the person's own
    login added that label, which holds when this runs in the person's
    session. Remove `shaping` and `inbox` from it.
-9. Close a raw `inbox` issue with a comment linking to the issues that
+10. Close a raw `inbox` issue with a comment linking to the issues that
    replace it.
 
 ## Inbox issues from the loop
@@ -55,6 +62,10 @@ needs a `Check command` (guardrails) or a `Smoke command` (the real
 artefact) in `AGENTS.md`, and add the answer there. If the Test command takes
 minutes, also ask for a `Test files command` (runs given files, `{files}`
 stands for the paths) and a `Prepare command` (installs a fresh checkout).
+
+Once per project, ask whether the Test and Check commands build every target
+and type-check every source folder. Record the answer under `## Decisions` in
+`PLAN.md`. When they do not, fixing the command is the first issue.
 
 ## Rules
 

@@ -11,10 +11,23 @@ review or merge by hand, and never push to the default branch.
 
 `<plugin>` is this skill's plugin folder, two levels up.
 
-## Set up first
+## First, check the kit version
+
+Run `<plugin>/bin/loop check-version` from the project root. If it exits
+non-zero, report its two lines and stop.
+
+## Set up, once per project
 
 If the project has no `## Loop` section in `AGENTS.md`, or the loop refuses
 because the project is not set up, use the setup skill first.
+
+## Confirm the agents, before every start
+
+Read `Builder:`, `Test writer:`, `Reviewer:` and `Pass:` from the `## Loop`
+section of `AGENTS.md` (each `<agent> <model>`, default `claude sonnet`; an
+older `Builder model` or `Reviewer model` line sets two of them). Show the
+four to the person and ask once whether to change any. Write a change to
+`AGENTS.md` before the start. Only `claude` is accepted for now.
 
 ## Start and stop
 
@@ -26,9 +39,10 @@ Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
 ## Read the board
 
 The board is the pinned `Factory` issue: what is building, what needs the
-person, the queue, what waits to be shaped, what landed, and the open pull
-request into the default branch, and the last end-of-loop pass (time,
-confirmed defects, inbox issues created, link to the pull request). Find it with
+person (parked issues, unbuilt dependencies, the open pull request into the
+default branch, a conflict, the defect rounds limit notice), and one progress
+line for each open milestone with its closed and total counts and a link.
+GitHub's milestones page shows the same progress in full. Find it with
 `gh issue list --search "Factory in:title"`, read it with `gh issue view`,
 and summarise it.
 

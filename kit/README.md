@@ -20,6 +20,11 @@ marketplace in Claude Code, then install the `ai-loop-kit` plugin from it:
     /plugin marketplace add gwpicard/ai-loop-kit
     /plugin install ai-loop-kit@ai-loop-kit
 
+After an update of the plugin, restart Claude Code: a session keeps the
+version it started with. The kit refuses to run when the running version is
+older than the one the project was set up with (recorded in
+`.loop/kit-version`), and says so.
+
 `<plugin>` below is the installed plugin folder (holding `bin/`).
 
 ## Set up a project
@@ -30,12 +35,24 @@ Put this in the project's `AGENTS.md`:
     Test command: <the command that runs your tests>
 
 Optional keys in the same section: `Loop branch` (default `loop/main`),
-`Builder model` and `Reviewer model` (default `sonnet`), `Protected paths`,
+`Builder`, `Test writer`, `Reviewer` and `Pass` (each `<agent> <model>`,
+default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command`, `Parallel` (default 1) and `Defect rounds`
-(default 2).
+(default 2). The older `Builder model: <m>` line still sets the builder and
+test writer to `claude <m>`, and `Reviewer model: <m>` the reviewer and the
+pass, unless the new line for that role is set.
+
+Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
+runs under the same rules as a Claude one: the guard and the stop check are
+passed to it as hooks, and the guard refuses a command it cannot parse. Setup
+and the loop's start check the installed Codex for each role set to `codex`:
+the `codex` command, its hooks feature and the flags the kit passes. When one
+is missing they refuse and name it, and nothing runs Codex without the guard.
+On a Codex usage limit the session waits for the reset time in the reply (30
+minutes without one) and resumes; there is no fallback agent.
 
 `Test files command` is the fast path: it runs only some test files, with
 `{files}` replaced by their paths (for example `pytest {files}`). Without it,
@@ -112,10 +129,14 @@ Use the loop skill, or run from the project root
 `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`.
 `<plugin>/bin/loop stop` stops it; so does the idle limit.
 
-The pinned `Factory` issue is the board: what is building, what needs you,
-the queue, what has landed, the open pull request and the last pass. To
-answer a parked issue, reply on it; the loop queues it again and gives your
-reply to the next build.
+The pinned `Factory` issue is the board, in three sections: `Building now`;
+`Needs you`, with parked issues, unbuilt dependencies, the open pull request
+into the default branch, a conflict and the notice that the defect rounds
+limit was reached; and `Progress`, one line for each open milestone that
+has an open `ready`, `building` or `needs-user` issue, with its closed and
+total issue counts and a link to its milestone page. Read the full
+progress on GitHub's milestones page. To answer a parked issue, reply on it;
+the loop queues it again and gives your reply to the next build.
 
 ## What each issue gets
 
@@ -177,8 +198,7 @@ issue, a checkbox each; an open `Pass findings` issue gets only what it lacks,
 as a comment. Lessons reach `PLAN.md` through an issue, never a direct commit.
 
 The report goes into the pull request body. A pass that fails is noted there
-and never blocks it. The board shows a `Last pass` section, and
-`.loop/pass.json` remembers it. After a pass without errors nothing reruns
+and never blocks it. `.loop/pass.json` remembers it. After a pass without errors nothing reruns
 until new merges arrive; after one with errors the next drain tries again.
 
 ## What the loop may leave behind
@@ -233,7 +253,7 @@ Code does not enforce these.
   only what it exercises.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.
-- Notifications are not built; watch the board. Branch protection is your
+- Notifications are not built; watch the board and the milestones page. Branch protection is your
   job: setup recommends it only.
 
 ## Tests

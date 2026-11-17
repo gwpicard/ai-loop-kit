@@ -68,7 +68,12 @@ def stop(signum, frame):
 
 def run_job(job):
     module, ids = job
-    p = subprocess.Popen([sys.executable, "-m", "unittest"] + ids, cwd=ROOT, text=True, start_new_session=True,
+    # Test modules may import the kit's scripts without importing helpers first.
+    # The path is set in the child only, so the hooks the tests start do not inherit it.
+    code = ("import sys, unittest; sys.path.insert(0, %r); "
+            "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
+            % os.path.join(ROOT, "kit", "scripts"))
+    p = subprocess.Popen([sys.executable, "-c", code] + ids, cwd=ROOT, text=True, start_new_session=True,
                          env=dict(os.environ, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     GROUPS.add(p.pid)
     try:

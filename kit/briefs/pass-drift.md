@@ -13,7 +13,10 @@ Your job: the drift review of the batch. The prompt gives the batch diff command
 Read the diff and PLAN.md, then check: decisions in PLAN.md still hold; budgets
 and size limits are met; the same logic is not written twice across issues;
 docs and comments describe what the code now does; the lessons in PLAN.md
-are still true.
+are still true; every source folder or build target changed in the batch is built,
+type-checked or tested by the commands the prompt names (Test command, and Check
+command when one is given). Report each one they skip as a finding, with the
+path and the evidence.
 
 Report only real problems with evidence; do not report taste. One finding per
 line, each as `<short title> | <what is wrong and the evidence> | <path>`;

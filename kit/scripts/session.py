@@ -126,13 +126,78 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     return out, err, p.returncode
 
 
-def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=()):
-    """Run claude -p as `role` in `cwd`. Return (reply text, session id)."""
+def _codex_hooks():
+    """The same guard and stop check as a Claude session, as a TOML inline table for `-c hooks=...`."""
+    def hook(name, timeout=""):
+        command = json.dumps("python3 " + shlex.quote(os.path.join(HOOKS, name)))
+        return '{type = "command", command = %s%s}' % (command, ", timeout = %d" % timeout if timeout else "")
+    return ('{PreToolUse = [{matcher = "Bash|apply_patch", hooks = [%s]}], '
+            'Stop = [{hooks = [%s]}]}' % (hook("guard.py"), hook("stop.py", TEST_TIMEOUT)))
+
+
+def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
+    """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
+    common_dir = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
+                                capture_output=True, text=True).stdout.strip()
+    # a worktree's .git points into the main checkout, so its commits need that folder writable
+    roots = "sandbox_workspace_write.writable_roots=[%s]" % json.dumps(common_dir)
+    handle, last = tempfile.mkstemp(prefix="loop-codex-")
+    os.close(handle)
+    def argv(resume):
+        return (["codex", "exec"] + (["resume", resume] if resume else ["-s", "workspace-write"])
+                + ["-m", model, "-c", 'sandbox_mode="workspace-write"', "-c", roots,
+                   "-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
+    try:
+        while True:
+            common.wait_for_memory()
+            out, err, code = _exec(argv(resume), prompt, cwd, env, log, role, issue, limit)
+            events = []
+            for line in out.splitlines():
+                with contextlib.suppress(ValueError):
+                    event = json.loads(line)
+                    if isinstance(event, dict):
+                        events.append(event)
+            thread = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None) or resume
+            with open(last, encoding="utf-8") as f:
+                text = f.read()
+            if not text:
+                text = next((str(e.get("item", {}).get("text") or "") for e in reversed(events)
+                             if e.get("type") == "item.completed"
+                             and e.get("item", {}).get("type") == "agent_message"), "")
+            problem = "\n".join(str(e.get("message") or "") for e in events if e.get("type") == "error") or err
+            if code and LIMIT.search(problem + text):
+                wait = _wait_seconds(problem + text)
+                print("%s session hit the Codex usage limit; waiting %d minutes, "
+                      "then resuming" % (role, wait // 60), flush=True)
+                common.sleep(wait)
+                resume = thread or resume
+                continue
+            if code or not thread:
+                lines = problem.strip().splitlines()
+                raise SessionError("%s session failed (exit %d): %s" % (
+                    role, code, lines[-1] if lines else "no output"))
+            return text, thread
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(last)
+
+
+def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=(), agent="claude"):
+    """Run `agent` (claude or codex) as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
     env = dict(os.environ, LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
                LOOP_PROTECTED=",".join(settings["Protected paths"]),
                LOOP_LOOP_BRANCH=settings["Loop branch"], LOOP_DEFAULT_BRANCH=common.default_branch(project),
                LOOP_PROJECT=project, LOOP_START=start)
+
+    logs = os.path.join(project, ".loop", "logs")
+    os.makedirs(logs, exist_ok=True)
+    prefix = "%s-%s-" % (issue, role)
+    n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
+    log = os.path.join(logs, "%s%d.log" % (prefix, n))
+    if agent == "codex":
+        env["LOOP_AGENT"] = "codex"
+        return _codex(role, prompt, cwd, model, env, log, issue, resume, settings["Session minutes"] * 60)
 
     def hook(name, **more):
         return {"type": "command", "command": "python3 " + shlex.quote(
@@ -142,11 +207,6 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
             "--settings", json.dumps({"hooks": {
                 "PreToolUse": [{"matcher": "*", "hooks": [hook("guard.py")]}],
                 "Stop": [{"hooks": [hook("stop.py", timeout=TEST_TIMEOUT)]}]}})]
-    logs = os.path.join(project, ".loop", "logs")
-    os.makedirs(logs, exist_ok=True)
-    prefix = "%s-%s-" % (issue, role)
-    n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
-    log = os.path.join(logs, "%s%d.log" % (prefix, n))
     while True:
         common.wait_for_memory()
         out, err, code = _exec(argv + (["--resume", resume] if resume else []),

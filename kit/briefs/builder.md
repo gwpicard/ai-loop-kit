@@ -22,6 +22,10 @@ no recursive delete; no secrets; never edit an existing test file or any path
 the test writer locked. If a test seems wrong, make the code satisfy it and
 note the doubt under `## Deviations`.
 
+A fix for a review finding comes with a test that reproduces the finding
+through the real entry point. If you cannot write one, the BUILT block names
+the fix as unverified and says why.
+
 Your job: make this issue's acceptance criteria true with the smallest change
 that fits the project's conventions. Read the issue, PLAN.md and the tests
 already written. Implement, and commit.

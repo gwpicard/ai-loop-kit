@@ -466,7 +466,9 @@ class PassTest(FakeClaudeGh):
     def test_findings_go_in_one_inbox_issue_with_checkboxes(self):
         self.repo(plan(surfaces=()), "Smoke command: false\n")
         self.claude({"pass": [{"reply": "FINDINGS:\nOne | a\nmore |\nTwo | b |\n\nSURFACES:\nnone"},
-                              {"reply": "FINDINGS:\nThree | c |"}, {"reply": LESSONS["reply"]}]})
+                              {"reply": "FINDINGS:\nThree | kit/scripts/a.py:3 c |"},
+                              {"reply": "RUBRIC CONFIRMED:\nThree\n\nRUBRIC REJECTED:\nnone\n\nCONFIRMED:\nnone\n\nHELD:\nnone\n\nREJECTED:\nnone"},
+                              {"reply": LESSONS["reply"]}]})
         seen = self.bodies()
         r, _ = self.run_pass()
         made = [(a, i) for a, i in seen if a[:2] == ["issue", "create"]]
@@ -475,7 +477,7 @@ class PassTest(FakeClaudeGh):
         self.assertRegex(args[args.index("--title") + 1], r"^Pass findings, \d{4}-\d\d-\d\d, [0-9a-f]{7}$")
         self.assertEqual(args[args.index("--label") + 1], "inbox")
         for line in ("- [ ] **Smoke command failed on the loop branch**: ", "- [ ] **One**: a", "- [ ] **Two**: b",
-                     "- [ ] **Three**: c", "- [ ] **Budget on input size**: add a size budget",
+                     "- [ ] **Three**: kit/scripts/a.py:3 c", "- [ ] **Budget on input size**: add a size budget",
                      "- [ ] **Add to PLAN.md ## Lessons**: Check empty input first."):
             self.assertIn(line, body)
         self.assertEqual(len(r["issues"]), 1)

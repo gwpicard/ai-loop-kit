@@ -94,6 +94,11 @@ def missing(project, settings):
 def setup(project="."):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
+    old = common.kit_version_refusal(project)
+    if old:
+        say(old)
+        return 1
+    common.record_kit_version(project)
     try:
         settings = common.read_settings(project)
     except common.SettingsError as e:
@@ -106,6 +111,12 @@ def setup(project="."):
         return 1
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
+    problem = common.codex_refusal(settings)
+    if problem:
+        say("refused: %s\nnext: install a current Codex or choose claude for that role, then run setup again" % problem)
+        return 1
+    for role in common.ROLES:
+        say("%s: %s" % (role, " ".join(settings[role])))
     branch, command = settings["Loop branch"], settings["Test command"]
     for name in sorted(set(LABELS) - labels_present()):
         gh(["label", "create", name, "--color", LABELS[name]])
@@ -127,9 +138,13 @@ def setup(project="."):
             f.write(("" if not text or text.endswith("\n") else "\n") + ".loop/\n")
         changes.append(".gitignore now lists .loop/ (commit it yourself)")
     say("%s: %s" % ("changed" if changes else "ok", "; ".join(changes) or "nothing to add"))
-    failure = merge.run_tests(project, git(["rev-parse", "origin/" + branch], cwd=project), command,
-                               prepare=settings["Prepare command"])
-    say("preflight: " + (failure or "the Test command passes on a fresh checkout of " + branch))
+    log, where = os.path.join(project, ".loop", "logs", "preflight.log"), []
+    failure = merge.run_tests(project, git(["rev-parse", "origin/" + branch], cwd=project), command, tail=20,
+                               check=settings["Check command"], prepare=settings["Prepare command"], log=log, where=where)
+    say("preflight: " + (failure.replace(": ", ":\n", 1) if failure else "the Test command passes on a fresh checkout of " + branch))
+    if failure:
+        say("log: %s (the checkout ran in %s, removed afterwards)" % (log, where[0]))
+        say("hint: a test that passes in the project folder but fails here usually depends on where the checkout lives or on files git does not track")
     say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Test files command", "Prepare command", "Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set") + "; Session minutes: %g; Parallel: %d; Defect rounds: %d" % (settings["Session minutes"], settings["Parallel"], settings["Defect rounds"]))
     say("advice: protect %s on GitHub (Settings, Branches) so only a pull request changes it" % base)
     say("summary: %d change(s), preflight %s" % (len(changes), "failed" if failure else "passed"))

@@ -19,10 +19,18 @@ TRANSIENT = re.compile(
     r"|network is unreachable|unexpected EOF", re.I)
 RATE_LIMITED = re.compile(r"HTTP (403|429)|rate limit", re.I)
 
+ROLES = ("Builder", "Test writer", "Reviewer", "Pass")
+AGENTS = ("claude", "codex")
+CODEX_FLAGS = ("-s", "-m", "-c", "--json", "-o", "--dangerously-bypass-hook-trust")
+
 DEFAULTS = {
     "Loop branch": "loop/main",
-    "Builder model": "sonnet",
-    "Reviewer model": "sonnet",
+    "Builder model": "sonnet",  # older lines: set Builder and Test writer
+    "Reviewer model": "sonnet",  # older lines: set Reviewer and Pass
+    "Builder": "claude sonnet",
+    "Test writer": "claude sonnet",
+    "Reviewer": "claude sonnet",
+    "Pass": "claude sonnet",
     "Protected paths": ".github/, .claude/, .githooks/",
     "Idle hours": "12",
     "Max rounds": "3",
@@ -97,6 +105,31 @@ def wait_for_memory(patience=None):
 
 # Settings
 
+def codex_refusal(settings):
+    """Why the installed Codex cannot run the roles set to codex, or None. It runs no session."""
+    roles = [r for r in ROLES if settings[r][0] == "codex"]
+    if not roles:
+        return None
+    who = "%s set to codex" % ", ".join(roles)
+
+    def ask(args):
+        try:
+            p = subprocess.run(["codex"] + args, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return p.stdout + p.stderr if p.returncode == 0 else None
+    if ask(["--version"]) is None:
+        return "%s, but the codex command is missing or does not run" % who
+    if not any(l.split()[:1] == ["hooks"] for l in (ask(["features", "list"]) or "").splitlines()):
+        return "%s, but this Codex has no hooks feature, so the guard cannot run" % who
+    for args in (["exec"], ["exec", "resume"]):
+        words = (ask(args + ["--help"]) or "").split()
+        for flag in CODEX_FLAGS:
+            if flag not in words and not (flag == "-s" and args[1:]):  # `exec resume` has no -s
+                return "%s, but `codex %s` has no %s flag" % (who, " ".join(args), flag)
+    return None
+
+
 def read_settings(root="."):
     """Read the `## Loop` section of AGENTS.md into a dict with defaults."""
     path = os.path.join(root, "AGENTS.md")
@@ -113,11 +146,24 @@ def read_settings(root="."):
         m = re.match(r"\s*([A-Za-z ]+?):\s*(.*?)\s*$", line)
         if inside and m:
             found[m.group(1)] = m.group(2).replace("`", "").strip()
+    for role, old in (("Builder", "Builder model"), ("Test writer", "Builder model"),
+                      ("Reviewer", "Reviewer model"), ("Pass", "Reviewer model")):
+        if found.get(old) and not found.get(role):
+            found[role] = "claude " + found[old]
     settings = dict(DEFAULTS)
     settings.update({k: v for k, v in found.items() if v and k in DEFAULTS})
     if not found.get("Test command"):
         raise SettingsError("AGENTS.md has no 'Test command:' under '## Loop'")
     settings["Test command"] = found["Test command"]
+    for role in ROLES:
+        words = settings[role].split()
+        if len(words) != 2:
+            raise SettingsError("AGENTS.md line '%s: %s' must be '<agent> <model>', such as 'claude sonnet'"
+                                % (role, settings[role]))
+        if words[0] not in AGENTS:
+            raise SettingsError("AGENTS.md line '%s: %s' names an agent the kit does not support; supported: %s"
+                                % (role, settings[role], ", ".join(AGENTS)))
+        settings[role] = tuple(words)
     settings["Protected paths"] = [
         p.strip() for p in settings["Protected paths"].split(",") if p.strip()]
     settings["Idle hours"] = float(settings["Idle hours"])
@@ -263,7 +309,7 @@ def run_shell(command, cwd, timeout, record=None, patience=None):
     ends the caller can also end the command. Before it starts, the command waits while memory is under
     pressure (at most `patience` seconds when set); the wait does not count against `timeout`."""
     wait_for_memory(patience)
-    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, start_new_session=True,
+    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, errors="replace", start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True)
@@ -304,7 +350,7 @@ def default_branch(project):
 @contextlib.contextmanager
 def scratch_tree(project, ref):
     """A detached worktree of `ref` in a temporary folder, removed afterwards."""
-    parent = tempfile.mkdtemp(prefix="loop-tree-")
+    parent = tempfile.mkdtemp(prefix="loop-tree-", dir=os.path.realpath(tempfile.gettempdir()))
     tree = os.path.join(parent, "tree")
     try:
         git(["worktree", "add", "--detach", tree, ref], cwd=project)
@@ -349,3 +395,34 @@ def park(issue, question, recommendation):
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
        input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
              "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))
+
+
+def _version_key(text):
+    return tuple(int(part) for part in re.findall(r"\d+", text))
+
+
+def kit_version():
+    """The running kit's version, from the plugin's manifest."""
+    manifest = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".claude-plugin", "plugin.json")
+    with open(manifest, encoding="utf-8") as f:
+        return json.load(f)["version"]
+
+
+def kit_version_refusal(project):
+    """The two refusal lines when the running kit is older than the one this clone was set up with, else None."""
+    path, running = os.path.join(project, ".loop", "kit-version"), kit_version()
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        recorded = f.read().strip()
+    if recorded and _version_key(running) < _version_key(recorded):
+        return ("refused: this session runs kit %s, but this project was set up with kit %s\n"
+                "next: restart Claude Code so it loads kit %s, then try again" % (running, recorded, recorded))
+    return None
+
+
+def record_kit_version(project):
+    """Write the running version to .loop/kit-version. Call only after kit_version_refusal passed."""
+    os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+    with open(os.path.join(project, ".loop", "kit-version"), "w", encoding="utf-8") as f:
+        f.write(kit_version() + "\n")
