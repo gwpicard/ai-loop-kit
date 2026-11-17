@@ -283,7 +283,7 @@ def run_shell(command, cwd, timeout, record=None, patience=None):
     ends the caller can also end the command. Before it starts, the command waits while memory is under
     pressure (at most `patience` seconds when set); the wait does not count against `timeout`."""
     wait_for_memory(patience)
-    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, start_new_session=True,
+    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, errors="replace", start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True)
