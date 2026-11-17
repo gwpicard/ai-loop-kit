@@ -52,7 +52,7 @@ def locked_paths(comments):
     paths = []
     for c in comments:
         for m in re.finditer(r"^[ \t]*TESTS:[ \t]*\n(.*?)(?:\n[ \t]*\n|\Z)",
-                             c.get("body") or "", re.S | re.M):
+                             (c.get("body") or "").replace("\r\n", "\n"), re.S | re.M):
             paths += _items(m.group(1))
     return paths
 
@@ -61,7 +61,7 @@ def locked_baseline(comments):
     """The commit named by the last `Commit:` line of the last `TESTS:` comment: the test writer's final
     commit. None for a comment without one."""
     for c in reversed(comments):
-        body = c.get("body") or ""
+        body = (c.get("body") or "").replace("\r\n", "\n")
         if re.search(r"^[ \t]*TESTS:", body, re.M):
             found = re.findall(r"^[ \t]*Commit:[ \t]*([0-9a-f]{7,40})[ \t]*$", body, re.M)
             return found[-1] if found else None
