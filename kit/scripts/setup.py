@@ -44,6 +44,10 @@ def setup(project="."):
         say("refused: %s\nnext: add these lines to AGENTS.md, then run setup again:\n%s"
             % (e, SECTION))
         return 1
+    problem = common.codex_refusal(settings)
+    if problem:
+        say("refused: %s\nnext: install a current Codex or choose claude for that role, then run setup again" % problem)
+        return 1
     for role in common.ROLES:
         say("%s: %s" % (role, " ".join(settings[role])))
     branch, command = settings["Loop branch"], settings["Test command"]

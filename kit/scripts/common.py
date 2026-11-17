@@ -20,7 +20,8 @@ TRANSIENT = re.compile(
 RATE_LIMITED = re.compile(r"HTTP (403|429)|rate limit", re.I)
 
 ROLES = ("Builder", "Test writer", "Reviewer", "Pass")
-AGENTS = ("claude",)
+AGENTS = ("claude", "codex")
+CODEX_FLAGS = ("-s", "-m", "-c", "--json", "-o", "--dangerously-bypass-hook-trust")
 
 DEFAULTS = {
     "Loop branch": "loop/main",
@@ -103,6 +104,31 @@ def wait_for_memory(patience=None):
 
 
 # Settings
+
+def codex_refusal(settings):
+    """Why the installed Codex cannot run the roles set to codex, or None. It runs no session."""
+    roles = [r for r in ROLES if settings[r][0] == "codex"]
+    if not roles:
+        return None
+    who = "%s set to codex" % ", ".join(roles)
+
+    def ask(args):
+        try:
+            p = subprocess.run(["codex"] + args, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return p.stdout + p.stderr if p.returncode == 0 else None
+    if ask(["--version"]) is None:
+        return "%s, but the codex command is missing or does not run" % who
+    if not any(l.split()[:1] == ["hooks"] for l in (ask(["features", "list"]) or "").splitlines()):
+        return "%s, but this Codex has no hooks feature, so the guard cannot run" % who
+    for args in (["exec"], ["exec", "resume"]):
+        words = (ask(args + ["--help"]) or "").split()
+        for flag in CODEX_FLAGS:
+            if flag not in words and not (flag == "-s" and args[1:]):  # `exec resume` has no -s
+                return "%s, but `codex %s` has no %s flag" % (who, " ".join(args), flag)
+    return None
+
 
 def read_settings(root="."):
     """Read the `## Loop` section of AGENTS.md into a dict with defaults."""

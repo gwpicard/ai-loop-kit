@@ -36,7 +36,7 @@ Put this in the project's `AGENTS.md`:
 
 Optional keys in the same section: `Loop branch` (default `loop/main`),
 `Builder`, `Test writer`, `Reviewer` and `Pass` (each `<agent> <model>`,
-default `claude sonnet`; only `claude` is accepted for now), `Protected paths`,
+default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
@@ -44,6 +44,15 @@ Test command run is slow), `Test files command`, `Prepare command`,
 (default 2). The older `Builder model: <m>` line still sets the builder and
 test writer to `claude <m>`, and `Reviewer model: <m>` the reviewer and the
 pass, unless the new line for that role is set.
+
+Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
+runs under the same rules as a Claude one: the guard and the stop check are
+passed to it as hooks, and the guard refuses a command it cannot parse. Setup
+and the loop's start check the installed Codex for each role set to `codex`:
+the `codex` command, its hooks feature and the flags the kit passes. When one
+is missing they refuse and name it, and nothing runs Codex without the guard.
+On a Codex usage limit the session waits for the reset time in the reply (30
+minutes without one) and resumes; there is no fallback agent.
 
 `Test files command` is the fast path: it runs only some test files, with
 `{files}` replaced by their paths (for example `pytest {files}`). Without it,
