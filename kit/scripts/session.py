@@ -148,6 +148,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
     n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
     log = os.path.join(logs, "%s%d.log" % (prefix, n))
     while True:
+        common.wait_for_memory()
         out, err, code = _exec(argv + (["--resume", resume] if resume else []),
                                prompt, cwd, env, log, role, issue, settings["Session minutes"] * 60)
         try:

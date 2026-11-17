@@ -57,8 +57,9 @@ the loop or the others.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
-machine has headroom: load average below the CPU count and, on macOS, more
-than about 1.5 GB of free plus inactive memory. It says why when it waits.
+machine has headroom: load average below the CPU count and, on macOS, normal
+memory pressure. It says why when it waits. Every session and test command
+also waits, on macOS, while memory pressure is above normal.
 
 Merges into the loop branch queue behind one lock (`.loop/merge.lock`): an
 issue catches up with the loop branch, then merges, and a branch that

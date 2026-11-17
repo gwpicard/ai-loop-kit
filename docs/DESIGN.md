@@ -1,6 +1,6 @@
 # AI Loop Kit: design
 
-Version 2.0.1. This is the one description of what the kit is, how it works
+Version 2.0.2. This is the one description of what the kit is, how it works
 and why. It describes the kit in `kit/`.
 
 ## The goal
@@ -358,9 +358,13 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
   queued once more, then parked.
 - Claim: the `building` label goes on before the process starts. A new build
   starts while fewer than N run, an eligible issue exists and the machine has
-  headroom (load average below the CPU count; on macOS, free plus inactive
-  memory above 1.5 GB). The first build always starts. Each deferral is
-  logged once per reason.
+  headroom (load average below the CPU count; on macOS, normal memory
+  pressure). The first build always starts. Each deferral is logged once per
+  reason.
+- Memory: on macOS, every session and every test command first waits while
+  the system's memory-pressure level is above normal, and prints a line
+  saying so. A command the Stop hook runs waits at most 10 minutes, then
+  starts.
 - Merge queue: `.loop/merge.lock` (an advisory file lock, freed when its
   holder dies) is held while the loop branch is merged into the issue branch
   and `merge.merge` runs. A clean catch-up is pushed and the verdict's HEAD
