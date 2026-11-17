@@ -51,9 +51,10 @@ Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
 ## Read the board
 
 The board is the pinned `Factory` issue: what is building, what needs the
-person, the queue, what waits to be shaped, what landed, and the open pull
-request into the default branch, and the last end-of-loop pass (time,
-confirmed defects, inbox issues created, link to the pull request). Find it with
+person (parked issues, unbuilt dependencies, the open pull request into the
+default branch, a conflict, the defect rounds limit notice), and one progress
+line for each open milestone with its closed and total counts and a link.
+GitHub's milestones page shows the same progress in full. Find it with
 `gh issue list --search "Factory in:title"`, read it with `gh issue view`,
 and summarise it.
 

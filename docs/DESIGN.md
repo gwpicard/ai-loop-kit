@@ -19,8 +19,9 @@ Three rules follow:
    while the loop runs.
 2. The loop never stops for a cause it can handle: a GitHub error, a review
    finding, a failed test, a crashed session, the end of a batch.
-3. Progress is visible on GitHub. The board shows when the loop parks an
-   issue or finishes. Notifications are not built.
+3. Progress is visible on GitHub. The milestones page shows how far each
+   milestone has come; the board shows what is building and what needs you.
+   Notifications are not built.
 
 ## Default posture: a goal, not a conversation
 
@@ -99,19 +100,23 @@ public repository never reaches an unattended builder.
 every step. It shows:
 
 - what is building now, and since when;
-- what needs you, each with its question and the reply to type;
-- the queue in build order, with what each waits on;
-- what is waiting to be shaped (`inbox` and `shaping`);
-- what landed since your last merge into `main`, and the open final pull
-  request;
+- what needs you: parked issues, each with its question and the reply to
+  type, the dependencies the loop will never build, the open final pull
+  request, a conflict and the notice that the defect rounds limit was
+  reached;
+- progress: one line for each open milestone that has a `ready`,
+  `building` or `needs-user` issue, with its closed and total issue counts
+  as GitHub reports them for the whole milestone, and a link to its
+  milestone page;
 - the last event and the time of the next check.
 
-It is a dashboard with no server: it lives on GitHub, works from your
-phone, and cannot drift from the truth because `loop.py` writes it from the
-labels. To answer a question, reply on the parked issue; the next poll
-reads a reply from a collaborator, removes `needs-user` and requeues the
-issue. A real dashboard can replace the pinned issue later, reading the
-same labels.
+An empty section reads `Nothing.` Progress lives on GitHub's milestones
+page, where the shape skill puts each issue in a milestone; the board keeps
+only what is building and what needs you. It has no server: it lives on
+GitHub, works from your phone, and cannot drift from the truth because
+`loop.py` writes it from the labels. To answer a question, reply on the
+parked issue; the next poll reads a reply from a collaborator, removes
+`needs-user` and requeues the issue.
 
 ### Shaping while it runs
 
@@ -305,8 +310,8 @@ Version 2 replaces it with the design above. What was dropped, and why:
   before any build, and five of ten judges needed a hand fix. Version 2 writes
   the tests in the run, from the acceptance criteria, in a separate session,
   and locks them against the builder.
-- **The dashboard server.** The board is one pinned GitHub issue, which needs
-  no server and works from a phone.
+- **The dashboard server.** The board is one pinned GitHub issue and progress
+  is the milestones page; neither needs a server, and both work from a phone.
 - **Size.** Version 1 measured 9,144 lines of kit Python in 44 scripts, 124
   test files and a 20-minute suite; the sum of its concepts and settings was
   the cost of every change. Version 2 is about 2,100 lines of Python in 10
@@ -396,7 +401,7 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
   issues may carry a `## Failing test`.
 - After new merges the drain runs the end-of-loop pass (smoke, drift, red
   team with failing tests, rubric, lessons, simplify and reconcile), puts its
-  report in the pull request body, and the board shows the last pass.
+  report in the pull request body.
   The README describes it in detail.
 
 ### Limits on defect rounds and paths

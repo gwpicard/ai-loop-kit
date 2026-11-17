@@ -126,10 +126,14 @@ Use the loop skill, or run from the project root
 `mkdir -p .lite && nohup <plugin>/bin/loop run > .lite/loop.out 2>&1 &`.
 `<plugin>/bin/loop stop` stops it; so does the idle limit.
 
-The pinned `Factory` issue is the board: what is building, what needs you,
-the queue, what has landed, the open pull request and the last pass. To
-answer a parked issue, reply on it; the loop queues it again and gives your
-reply to the next build.
+The pinned `Factory` issue is the board, in three sections: `Building now`;
+`Needs you`, with parked issues, unbuilt dependencies, the open pull request
+into the default branch, a conflict and the notice that the defect rounds
+limit was reached; and `Progress`, one line for each open milestone that
+has an open `ready`, `building` or `needs-user` issue, with its closed and
+total issue counts and a link to its milestone page. Read the full
+progress on GitHub's milestones page. To answer a parked issue, reply on it;
+the loop queues it again and gives your reply to the next build.
 
 ## What each issue gets
 
@@ -191,8 +195,7 @@ issue, a checkbox each; an open `Pass findings` issue gets only what it lacks,
 as a comment. Lessons reach `PLAN.md` through an issue, never a direct commit.
 
 The report goes into the pull request body. A pass that fails is noted there
-and never blocks it. The board shows a `Last pass` section, and
-`.lite/pass.json` remembers it. After a pass without errors nothing reruns
+and never blocks it. `.lite/pass.json` remembers it. After a pass without errors nothing reruns
 until new merges arrive; after one with errors the next drain tries again.
 
 ## What the loop may leave behind
@@ -247,7 +250,7 @@ Code does not enforce these.
   only what it exercises.
 - Behaviour that only a person can see, such as how an interaction feels,
   is unchecked unless the issue gives an agent a way to check it.
-- Notifications are not built; watch the board. Branch protection is your
+- Notifications are not built; watch the board and the milestones page. Branch protection is your
   job: setup recommends it only.
 
 ## Tests

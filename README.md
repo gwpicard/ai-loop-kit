@@ -61,10 +61,11 @@ opens one pull request into your default branch.
 
 ## The board
 
-The pinned `Factory` issue on GitHub shows what is building, what needs you,
-the queue, what has landed, the open pull request and the last pass. To answer
-a parked issue, reply on it; the loop queues it again and gives your reply to
-the next build.
+The pinned `Factory` issue on GitHub shows what is building, what needs you
+(parked issues, the open pull request, a conflict) and one progress line for
+each open milestone. GitHub's milestones page shows progress in full. To
+answer a parked issue, reply on it; the loop queues it again and gives your
+reply to the next build.
 
 ## What is guaranteed
 
@@ -94,7 +95,7 @@ be routed around:
 - The reviewer and the end-of-loop pass can miss a defect.
 - Behaviour that only a person can see is unchecked unless the issue gives an
   agent a way to check it.
-- Notifications are not built: watch the board.
+- Notifications are not built: watch the board and the milestones page.
 - Branch protection on your default branch is your job. Setup only recommends
   it.
 
