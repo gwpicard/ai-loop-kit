@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.1 (17 November 2026)
+
+The start check for Codex roles accepts the comma form of short flags in
+`codex exec --help`, so it no longer refuses codex-cli 0.166.0 for a role
+set to `codex`. See [the 2.1.1 release notes](docs/release-notes/v2.1.1.md).
+
 ## 2.1.0 (17 November 2026)
 
 The final pull request opens with a summary, evidence and merge danger, and
