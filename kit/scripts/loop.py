@@ -534,6 +534,103 @@ def clean_up(project, closed):
     say("left behind: worktrees: %s; branches of closed issues: %s" % (", ".join(trees) or "none", ", ".join(old) or "none"))
 
 
+def process_table():
+    """{pid: (ppid, state)} for every process."""
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,stat="], capture_output=True, text=True).stdout
+    rows = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            rows[int(parts[0])] = (int(parts[1]), parts[2])
+    return rows
+
+
+def live_tree(root, rows):
+    """The pids under root in `rows`, root first, each parent before its children; zombies left out."""
+    found, todo = [], [root]
+    while todo:
+        pid = todo.pop(0)
+        if pid in rows and pid not in found and not rows[pid][1].startswith("Z"):
+            found.append(pid)
+            todo += sorted(p for p, r in rows.items() if r[0] == pid)
+    return found
+
+
+def signal_all(pids, sig):
+    for pid in pids:
+        with contextlib.suppress(OSError):
+            os.kill(pid, sig)
+
+
+def board_line(line):
+    """Put `line` first on the Factory board body, or take a pause line off it when `line` is empty."""
+    opened = json.loads(gh(["issue", "list", "--state", "open", "--limit", "500", "--json",
+                            "number,title,body,labels,updatedAt,milestone"]))
+    board = ([i for i in opened if i["title"] == "Factory"] or [None])[0]
+    if not board:
+        return
+    old = board["body"] or ""
+    body = old.partition("\n")[2].lstrip("\n") if old.startswith("Paused since") else old
+    body = line + "\n\n" + body if line else body
+    if body.strip() != old.strip():
+        gh(["issue", "edit", str(board["number"]), "--body-file", "-"], input=body)
+
+
+def live_pid(project):
+    try:
+        with open(os.path.join(project, ".loop", "loop.pid")) as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+    return pid if alive(pid) else None
+
+
+def pause(project):
+    pid, mark = live_pid(project), os.path.join(project, ".loop", "paused")
+    if pid is None:
+        return say("refused: no loop is running here; start one with loop run") or 1
+    if os.path.exists(mark):
+        return say("refused: the loop is already paused; run loop resume") or 1
+    since = time.time()
+    with open(mark, "w") as f:  # lets the next issue leave paused time out of its limits
+        json.dump(dict(since=since, pid=pid), f)
+    while True:  # the supervisor first; list again until every descendant is stopped, so nothing starts a child mid-freeze
+        rows = process_table()
+        running = [p for p in live_tree(pid, rows) if not rows[p][1].startswith("T")]
+        if not running:
+            break
+        signal_all(running, signal.SIGSTOP)
+        time.sleep(0.05)
+    line = "Paused since %s. Resume with loop resume." % time.strftime("%H:%M", time.localtime(since))
+    with open(os.path.join(project, ".loop", "loop.out"), "a") as f:  # the supervisor is frozen and cannot write it
+        f.write(line + "\n")
+    try:
+        board_line(line)
+    except (common.GitHubError, ValueError, OSError) as e:
+        say("the board was not updated: %s" % e)
+    return say("paused %d processes; processor use stopped, memory is not freed at once; run loop resume" % len(live_tree(pid, process_table()))) or 0
+
+
+def resume(project):
+    pid, mark = live_pid(project), os.path.join(project, ".loop", "paused")
+    if pid is None or not os.path.exists(mark):
+        return say("refused: the loop is not paused; run loop pause") or 1
+    while True:  # children before the supervisor, until nothing in the tree is stopped
+        rows = process_table()
+        tree = live_tree(pid, rows)
+        stopped = [p for p in tree if rows[p][1].startswith("T")]
+        if not stopped:
+            break
+        signal_all(reversed(stopped), signal.SIGCONT)
+        time.sleep(0.05)
+    os.remove(mark)
+    try:
+        board_line("")
+    except (common.GitHubError, ValueError, OSError) as e:
+        say("the board was not updated: %s" % e)
+    return say("resumed %d processes" % len(tree)) or 0
+
+
 def run(project):
     project = os.path.abspath(project)
     settings = common.read_settings(project)
@@ -606,7 +703,7 @@ def run(project):
             if proc and proc.poll() is None:
                 with contextlib.suppress(OSError):
                     os.killpg(proc.pid, signal.SIGTERM)
-        for name in ("stop", "loop.pid"):
+        for name in ("stop", "loop.pid", "paused"):
             if os.path.exists(os.path.join(project, ".loop", name)):
                 os.remove(os.path.join(project, ".loop", name))
         try:
@@ -618,7 +715,13 @@ def run(project):
 
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "pause":
+        return pause(project)
+    if cmd == "resume":
+        return resume(project)
     if cmd == "stop":
+        if live_pid(project) and os.path.exists(os.path.join(project, ".loop", "paused")):
+            resume(project)
         os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
         open(os.path.join(project, ".loop", "stop"), "w").close()
         return say("stop requested; the loop ends after its current step") or 0
@@ -630,7 +733,7 @@ def main(argv):
             return 0
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|check-version")
+        say("usage: loop.py run|stop|pause|resume|check-version")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):
