@@ -62,7 +62,7 @@ class BlockedDependencyTest(Base):
                              prs=[pr(30, "develop", closes=[9])])
         rows = self.rows(body, 9)
         self.assertEqual(len(rows), 1)
-        self.assertIn("#30", rows[0])
+        self.assertIn("#%d" % 30, rows[0])
         self.assertIn("develop", rows[0])
         self.assertIn("merge", rows[0])
         self.assertRegex(rows[0], r"\b2\b")
@@ -76,7 +76,7 @@ class BlockedDependencyTest(Base):
         self.assertRegex(rows[0], r"\b1\b")
 
     def test_a_dependency_that_exists_nowhere_asks_to_check_the_depends_on_line(self):
-        body, _ = self.board([issue(5, ("ready",), "Depends on: #99")])
+        body, _ = self.board([issue(5, ("ready",), "Depends on: #%d" % 99)])
         rows = self.rows(body, 99)
         self.assertEqual(len(rows), 1)
         self.assertIn("check the `Depends on` line", rows[0])
@@ -96,12 +96,12 @@ class BlockedDependencyTest(Base):
         self.assertEqual(self.rows(body, 3), [])
 
     def test_the_new_rows_cost_at_most_one_extra_gh_call(self):
-        self.board([issue(5, ("ready",), "Depends on: #9, #99"), issue(9, ("inbox",))])
+        self.board([issue(5, ("ready",), "Depends on: #9, #%d" % 99), issue(9, ("inbox",))])
         self.assertLessEqual(len([c for c in self.calls if "pr list" in c]), 1)
         self.assertEqual(len([c for c in self.calls if c.startswith("issue list")]), 2)
 
     def test_a_merged_pull_request_on_a_depends_on_line_counts_as_done(self):
-        self.world([issue(5, ("ready",), "Depends on: #40")],
+        self.world([issue(5, ("ready",), "Depends on: #%d" % 40)],
                    prs=[pr(40, "main", state="MERGED")])
         st = loop.new_state()
         loop.snapshot(st)
@@ -111,7 +111,7 @@ class BlockedDependencyTest(Base):
         self.assertEqual(self.rows(self.board_inputs()[-1], 40), [])
 
     def test_an_open_pull_request_does_not_count_as_done(self):
-        self.world([issue(5, ("ready",), "Depends on: #40")], prs=[pr(40, "main")])
+        self.world([issue(5, ("ready",), "Depends on: #%d" % 40)], prs=[pr(40, "main")])
         st = loop.new_state()
         loop.snapshot(st)
         with mock.patch.object(common, "ready_is_trusted", return_value=True):

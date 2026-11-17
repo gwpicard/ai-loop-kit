@@ -25,7 +25,7 @@ say = lambda text: print(text, flush=True)
 
 
 def new_state():
-    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, started={}, pr=None,
+    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, started={}, pr=None, prs=[],
                 conflict="", last="loop started", next="after the current step")
 
 
@@ -71,6 +71,30 @@ def step_of(project, number):
         return "starting"
 
 
+def blocked_rows(st):
+    """Rows for dependencies of `ready` issues that the loop will never build."""
+    waiting, known = {}, {i["number"]: i for i in st["issues"]}
+    for i in st["issues"]:
+        if "ready" in i["labels"]:
+            for d in set(common.depends_on(i["body"])) - st["closed"]:
+                waiting[d] = waiting.get(d, 0) + 1
+    rows = []
+    for d, count in sorted(waiting.items()):
+        i, by = known.get(d), "%d ready issue%s wait%s on it" % (count, "s" * (count != 1), "s" * (count == 1))
+        if i and i["labels"] & {"ready", "building", "needs-user"}:
+            continue
+        title = i["title"] if i else "not found"
+        closing = [p for p in st["prs"] if d in p["closes"] or d == p["number"]]
+        if closing:
+            action = "pull request #%d into %s is open, merge it" % (closing[0]["number"], closing[0]["base"])
+        elif i:
+            action = "shape the issue or label it `ready`"
+        else:
+            action = "check the `Depends on` line"
+        rows.append("- #%d %s: %s (%s)" % (d, title, action, by))
+    return rows
+
+
 def write_board(project, st):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
@@ -87,7 +111,7 @@ def write_board(project, st):
     body = board_body([
         ("Building now", ["#%d, %s, since %s" % (n, step_of(project, n), since) for n, (since, _) in sorted(b.items())]),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
-                       for i in of("needs-user")]),
+                       for i in of("needs-user")] + blocked_rows(st)),
         ("Queue, in build order", [row(i, waits(i)) for i in of("ready")
                                    if i["number"] not in b]),
         ("To shape", [row(i, l) for l in ("inbox", "shaping") for i in of(l)]),
@@ -112,6 +136,20 @@ def snapshot(st):
     if not st["factory"]:
         say("refused: no Factory issue to write the board on\nnext: run setup")
     st["closed"] = {i["number"] for i in listing("closed", "number")}
+    st["prs"] = []
+    try:
+        pulls = json.loads(gh(["pr", "list", "--state", "all", "--limit", "500", "--json",
+                               "number,baseRefName,state,closingIssuesReferences"]) or "[]")
+    except ValueError:
+        pulls = []
+    for p in pulls if isinstance(pulls, list) else []:
+        if not isinstance(p, dict) or not isinstance(p.get("number"), int):
+            continue
+        if p.get("state") == "MERGED":
+            st["closed"].add(p["number"])  # a merged pull request on a `Depends on` line is done
+        elif p.get("state", "OPEN") == "OPEN":
+            st["prs"].append(dict(number=p["number"], base=p.get("baseRefName", ""),
+                                  closes={r.get("number") for r in p.get("closingIssuesReferences") or []}))
 
 
 def answer(st, protected=None):
