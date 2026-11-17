@@ -33,7 +33,7 @@ def parse_verdict(text):
     """Return (verdict, head) from the last VERDICT block, or (None, None)."""
     lines = text.splitlines()
     for i in range(len(lines) - 1, -1, -1):
-        m = re.match(r"[\s*`]*VERDICT:[\s*`]*(\w+)[\s*`]*$", lines[i])
+        m = re.match(r"[\s*`]*VERDICT:[\s*`]*(\w+)[\s*`.,;:!]*$", lines[i])
         if m:
             for line in lines[i + 1:i + 4]:
                 h = re.match(r"[\s*`]*HEAD:[\s*`]*([0-9a-fA-F]{7,40})[\s*`]*$", line)
