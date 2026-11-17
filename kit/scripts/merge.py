@@ -46,7 +46,7 @@ def parse_verdict(text):
 
 
 def _items(text):
-    return [p.strip().lstrip("-* ").strip("` ") for p in text.splitlines()]
+    return [re.sub(r"^\d+[.)]\s+", "", p.strip()).lstrip("-* ").strip("` ") for p in text.splitlines()]
 
 
 def locked_paths(comments):
