@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 (17 November 2026)
+
+The final pull request opens with a summary, evidence and merge danger, and
+lists hands-on checks and decisions to confirm. Tests must drive the entry
+point a person uses, and the reviewer reports only verified findings as
+fixes. The kit refuses to run when it is older than the project's setup, and
+each role can use Claude or Codex, with Codex as a preview. See [the 2.1.0 release notes](docs/release-notes/v2.1.0.md).
+
 ## 2.0.2 (17 November 2026)
 
 On macOS, the loop waits before each session and test command while the
