@@ -18,7 +18,8 @@ LOCKFILES = {
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
     "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
-    "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved"}
+    "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
+    "pdm.lock", "deno.lock", "pom.xml", "build.gradle", "setup.py"}
 TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
 TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
@@ -95,7 +96,7 @@ def stop_reason(path, protected):
             return "protected path " + p
     if low.startswith(".github/workflows/"):
         return "workflow file"
-    if name in LOCKFILES or re.match(r"requirements.*\.txt$", name):
+    if name in LOCKFILES or re.match(r"requirements.*\.(txt|in)$", name):
         return "lockfile or package manifest"
     if name in ("settings.json", "settings.local.json"):
         return "settings file"
