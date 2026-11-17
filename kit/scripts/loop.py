@@ -244,8 +244,11 @@ def build_attempts(project, number, replies):
             reason = "%s: %s" % (type(e).__name__, e)
         say("crash on #%d: %s" % (number, reason))
         if attempt == 1:
-            gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
-               input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
+            try:
+                gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
+                   input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
+            except common.GitHubError as e:  # the comment is a report: a failed post must not strand the claimed issue
+                say("the crash comment on #%d was not posted: %s" % (number, e))
     common.park(number, "The build crashed twice: " + reason,
                 "Read .lite/logs, then reply to try again or close the issue.")
     return "#%d parked after two crashes" % number
