@@ -35,12 +35,13 @@ def take_lock(project):
     try:
         with open(path) as f:
             pid = int(f.read().strip())
-        os.kill(pid, 0)
-        return "refused: a loop is already running (pid %d)\nnext: loop.py stop, or wait" % pid
     except (OSError, ValueError):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(str(os.getpid()))
+        pid = None
+    if pid is not None and alive(pid):
+        return "refused: a loop is already running (pid %d)\nnext: loop.py stop, or wait" % pid
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(str(os.getpid()))
 
 
 def last_pass(project):
