@@ -15,6 +15,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -22,6 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 SHARD_SIZE = 10  # tests per process, at most
 JOB_TIMEOUT = 1800  # seconds a test process may run
+QUIET = {}  # environment given to the test processes
 GROUPS = set()  # process groups of the running test processes
 
 
@@ -72,7 +74,7 @@ def run_job(job):
             "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
             % os.path.join(ROOT, "kit", "scripts"))
     p = subprocess.Popen([sys.executable, "-c", code] + ids, cwd=ROOT, text=True, start_new_session=True,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                         env=dict(os.environ, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     GROUPS.add(p.pid)
     try:
         out, err = p.communicate(timeout=JOB_TIMEOUT)
@@ -92,6 +94,15 @@ def main():
     signal.signal(signal.SIGINT, stop)
     atexit.register(stop_all)
     work = jobs()
+    # A sysctl that reports normal pressure comes first on the path, so the tests do not wait on this
+    # machine's real memory pressure; tests that check the wait put their own sysctl in front of it.
+    stub_dir = tempfile.TemporaryDirectory(prefix="sysctl-stub-")
+    atexit.register(stub_dir.cleanup)
+    stub = os.path.join(stub_dir.name, "sysctl")
+    with open(stub, "w") as f:
+        f.write("#!/bin/sh\necho 1\n")
+    os.chmod(stub, 0o755)
+    QUIET["PATH"] = stub_dir.name + os.pathsep + os.environ.get("PATH", "")
     workers = max(1, min(os.cpu_count() or 1, 8, len(work)))
     start = time.time()
     ran, bad, errors = collections.Counter(), set(), []
