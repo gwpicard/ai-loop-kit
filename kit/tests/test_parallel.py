@@ -192,8 +192,8 @@ class ParallelTest(Base):
 
     def test_deferral_is_logged_when_the_kind_of_reason_changes(self):
         reasons = iter(["load average 9.0 is not below the 8 CPUs", "load average 9.5 is not below the 8 CPUs",
-                        "free plus inactive memory is 1.0 GB, below 1.5 GB"])
-        self.headroom.side_effect = lambda: next(reasons, "free plus inactive memory is 1.0 GB, below 1.5 GB")
+                        "memory pressure is warning"])
+        self.headroom.side_effect = lambda: next(reasons, "memory pressure is warning")
         self.configure(sleep=0.6)
         self.world_of(issue(2), issue(3))
         self.run_it()
