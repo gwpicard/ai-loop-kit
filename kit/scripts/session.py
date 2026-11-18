@@ -6,6 +6,7 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -139,8 +140,21 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
     """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
     common_dir = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
                                 capture_output=True, text=True).stdout.strip()
-    # a worktree's .git points into the main checkout, so its commits need that folder writable
-    roots = "sandbox_workspace_write.writable_roots=[%s]" % json.dumps(common_dir)
+    # a worktree's .git points into the main checkout, so its commits need that folder writable;
+    # build tools also write to the temp and cache folders, and to any the project names
+    candidates = [common_dir, os.environ.get("TMPDIR", "")]
+    if sys.platform == "darwin":
+        for name in ("DARWIN_USER_TEMP_DIR", "DARWIN_USER_CACHE_DIR"):
+            with contextlib.suppress(OSError):
+                candidates.append(subprocess.run(["getconf", name], capture_output=True, text=True).stdout.strip())
+    with contextlib.suppress(common.SettingsError):
+        candidates += [os.path.expanduser(p) for p in common.read_settings(cwd)["Codex writable roots"]]
+    folders = []
+    for path in candidates:
+        path = os.path.realpath(path) if path else ""
+        if os.path.isdir(path) and path not in folders:
+            folders.append(path)
+    roots = "sandbox_workspace_write.writable_roots=" + json.dumps(folders)
     handle, last = tempfile.mkstemp(prefix="loop-codex-")
     os.close(handle)
     def argv(resume):
