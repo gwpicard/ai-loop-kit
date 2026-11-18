@@ -32,6 +32,7 @@ DEFAULTS = {
     "Reviewer": "claude sonnet",
     "Pass": "claude sonnet",
     "Protected paths": ".github/, .claude/, .githooks/",
+    "Codex writable roots": "",  # comma-separated folders a Codex session may write, beyond temp and cache
     "Idle hours": "12",
     "Max rounds": "3",
     "Session minutes": "45",
@@ -166,6 +167,8 @@ def read_settings(root="."):
         settings[role] = tuple(words)
     settings["Protected paths"] = [
         p.strip() for p in settings["Protected paths"].split(",") if p.strip()]
+    settings["Codex writable roots"] = [
+        p.strip() for p in settings["Codex writable roots"].split(",") if p.strip()]
     settings["Idle hours"] = float(settings["Idle hours"])
     settings["Max rounds"] = int(settings["Max rounds"])
     settings["Session minutes"] = float(settings["Session minutes"])
