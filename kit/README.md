@@ -41,13 +41,13 @@ default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command`, `Parallel` (default 1) and `Defect rounds`
-(default 2). `Codex writable roots` is a comma-separated list of folders,
-written like `Protected paths`, that a Codex session may write besides the
+(default 2). `Codex writable roots` lists further folders, comma-separated
+like `Protected paths`, that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
 tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM. The
-older `Builder model: <m>` line still sets the builder and test writer to `claude <m>`, and `Reviewer model: <m>` the reviewer and the
-pass, unless the new line for that role is set.
+older `Builder model: <m>` line still sets the builder and test writer to
+`claude <m>`, and `Reviewer model: <m>` the reviewer and the pass, unless the new line for that role is set.
 
 Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
 runs under the same rules as a Claude one: the guard and the stop check are
