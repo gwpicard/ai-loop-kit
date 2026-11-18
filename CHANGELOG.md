@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2 (18 November 2026)
+
+A Codex session may write to the temp and cache folders that build tools use,
+and a new `Codex writable roots` setting names further folders, such as
+SwiftPM's cache. See [the 2.1.2 release notes](docs/release-notes/v2.1.2.md).
+
 ## 2.1.1 (17 November 2026)
 
 The start check for Codex roles accepts the comma form of short flags in
