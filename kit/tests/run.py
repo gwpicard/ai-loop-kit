@@ -74,7 +74,7 @@ def run_job(job):
             "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
             % os.path.join(ROOT, "kit", "scripts"))
     p = subprocess.Popen([sys.executable, "-c", code] + ids, cwd=ROOT, text=True, start_new_session=True,
-                         env=dict(os.environ, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                         env=dict({k: v for k, v in os.environ.items() if k != "LOOP_AGENT"}, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     GROUPS.add(p.pid)
     try:
         out, err = p.communicate(timeout=JOB_TIMEOUT)
