@@ -331,16 +331,17 @@ def paused_seconds(project, since):
     return total
 
 
-def wait_limited(wait, limit, project, poll=0.5):
+def wait_limited(wait, limit, project):
     """Call `wait(timeout)` until it returns, as `wait(limit)` would, but leave paused time out of `limit`.
-    Raises subprocess.TimeoutExpired when the unpaused time passes `limit`."""
+    The wait sleeps to the deadline without polling: a paused waiter is frozen, finds its deadline passed
+    on resume and looks again. Raises subprocess.TimeoutExpired when the unpaused time passes `limit`."""
     start = time.time()
     while True:
         left = start + limit + paused_seconds(project, start) - time.time()
         if left <= 0:
             raise subprocess.TimeoutExpired("wait", limit)
         try:
-            return wait(min(left, poll))
+            return wait(left)
         except subprocess.TimeoutExpired:
             pass
 
