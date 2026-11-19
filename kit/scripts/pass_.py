@@ -66,7 +66,7 @@ def failing(project, sha, test, tree, path, prepare="", check=""):
 
 def findings(text, name="FINDINGS"):  # (title, detail, path) per `title | detail | path` line
     rows = [(l.split("|", 2) + ["", ""])[:3] for l in flow.parse_block(text, name) if re.sub(r"[^a-z]", "", l.lower()) not in ("none", "nonefound", "nofindings")]
-    return [(t.strip(), d.strip(), p.strip()) for t, d, p in rows]
+    return [(t.strip(), d.strip(), p.strip().strip("`").strip()) for t, d, p in rows]
 
 
 def fix_rounds(texts):
