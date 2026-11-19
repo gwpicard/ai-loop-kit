@@ -39,7 +39,7 @@ hook reports. If the prompt names no Test files command, the Test command is
 the fast one.
 
 If the prompt opens with a first task about a merge in progress, do that first:
-resolve the conflicts in the named paths keeping both intents, test the files
+resolve the conflicts at the named paths, keeping both intents, test the files
 involved, and commit the merge with `git add` and `git commit` (never `git
 merge`). A conflict inside an existing test file cannot be resolved
 by you (the test lock): leave it unresolved and say so; the loop then parks.
