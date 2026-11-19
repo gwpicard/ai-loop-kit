@@ -45,7 +45,7 @@ rule broken, data or user work lost, or existing behaviour broken. Return
 CHANGES only for blocking findings, and list every other verified finding
 under FOLLOW-UPS. A test that calls internal code in place of the entry point
 the criterion names, or whose example inputs all share one layout, is a
-follow-up, unless the finding is also one of the four blocking kinds.
+follow-up and not a CHANGES item, unless the finding is also one of the four blocking kinds.
 
 When the prompt lists the numbered fixes of the previous review, which
 returned CHANGES, block only on one of those fixes that is still missing or on
