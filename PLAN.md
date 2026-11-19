@@ -67,6 +67,25 @@ holds the house rules; where the two differ, `AGENTS.md` wins.
   Reason: the Mac slowed or ran short of memory during runs, `loop stop`
   waits for running builds to finish, and killing a build discards the
   uncommitted work in its worktree.
+- 19 Nov 2026: a review returns CHANGES only for a blocking finding: an
+  acceptance criterion not met, a project rule broken, data or user work
+  lost, or existing behaviour broken. Every other verified finding,
+  including a builder's extra test that cannot fail, is a follow-up that
+  becomes an `inbox` issue when the issue merges. From the second round,
+  the reviewer blocks only on an earlier finding that is still unfixed or
+  on something the fix broke. There is no setting for a stricter review.
+  Reason: on ai-docs-kit, review rounds chased one new edge case after
+  another until issues parked with every criterion met, and the person
+  stepped in four or five times a night. The locked tests are already
+  shown to fail before the code exists.
+- 19 Nov 2026: when the only conflict between an issue branch and the loop
+  branch is in `PLAN.md`, and both sides only added lines, the loop keeps
+  both sides, the loop branch's lines first, and goes on without a builder
+  round or a park. Any other conflict goes to the builder as before.
+  Reason: on ai-docs-kit, issues parked on `PLAN.md` conflicts that were
+  resolved each time by keeping both sides, and a shaping session's
+  `PLAN.md` pull request met a builder's lines at the end of the same
+  section.
 
 ## Product rules
 
