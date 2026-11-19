@@ -27,6 +27,23 @@ ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled out
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
 
 
+AGENT_TRAILER = re.compile(
+    r"^\s*co-authored-by:.*(claude|codex|chatgpt|openai|@anthropic\.com|@openai\.com)",
+    re.I)
+
+
+def squash_body(project, loop, sha):
+    """The builder's commit messages in order, without agent co-author trailers."""
+    log = git(["log", "--reverse", "--format=%B%x00", "origin/%s..%s" % (loop, sha)],
+              cwd=project)
+    messages = []
+    for raw in log.split("\0"):
+        lines = [l for l in raw.strip().splitlines() if not AGENT_TRAILER.match(l)]
+        if text := "\n".join(lines).strip():
+            messages.append(text)
+    return "\n\n".join(messages)
+
+
 def _refuse(reason, park=False):
     return Result(False, park, reason, None)
 
@@ -228,8 +245,10 @@ def _merge(issue, branch, verdict_text, project):
             gh(["pr", "comment", str(number), "--body-file", "-"],
                input=verdict_text, retry=False)
         try:
-            gh(["pr", "merge", str(number), "--squash", "--match-head-commit",
-                sha, "--delete-branch"], retry=False)
+            gh(["pr", "merge", str(number), "--squash",
+                "--subject", "Issue %s (#%s)" % (issue, number),
+                "--body", squash_body(project, loop, sha),
+                "--match-head-commit", sha, "--delete-branch"], retry=False)
         except common.GitHubError as e:
             err = e
         pr = find_pr(branch, loop, sha)
