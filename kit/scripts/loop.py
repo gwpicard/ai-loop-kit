@@ -340,7 +340,7 @@ def reap(project, st, cap=None):
         if proc is None:
             continue
         began = st["started"].get(number, time.time())
-        if proc.poll() is None and cap and time.time() - began - common.paused_seconds(project, began) > cap:
+        if proc.poll() is None and cap and time.time() - began > cap and time.time() - began - common.paused_seconds(project, began) > cap:
             say("#%d: the build process ran over %d minutes, killing it" % (number, cap // 60))
             with contextlib.suppress(OSError):
                 os.killpg(proc.pid, signal.SIGKILL)
