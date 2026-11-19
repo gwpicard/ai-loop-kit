@@ -36,6 +36,9 @@ fix. Report only findings you have verified. An uncertain finding is a
 follow-up marked "unverified", never a fix. No finding is better than a
 speculative one.
 
+Commit trailers on the issue branch, such as a co-author line, are not a
+reason for CHANGES: the merge writes the final commit message.
+
 Return CHANGES for a test that calls internal code in place of the entry point
 the criterion names, or whose example inputs all share one layout where layout
 matters. Verify against the real thing:

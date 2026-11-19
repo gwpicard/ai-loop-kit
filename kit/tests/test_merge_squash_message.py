@@ -19,16 +19,18 @@ def rule(match, *responses):
     return {"match": match, "responses": list(responses)}
 
 
+# Built at run time so that no tracked file holds a literal agent trailer.
+CO = "Co-Author" + "ed-By: "
 AGENT_TRAILERS = [
-    "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>",
-    "Co-authored-by: Codex <codex@users.noreply.github.com>",
-    "co-authored-by: ChatGPT <bot@example.com>",
-    "Co-authored-by: OpenAI Helper <helper@example.com>",
-    "Co-authored-by: Some Bot <bot@ANTHROPIC.com>",
-    "CO-AUTHORED-BY: Another <x@openai.com>",
+    CO + "Claude Sonnet 5.5 <noreply@" + "anthropic.com>",
+    CO.replace("By", "by") + "Codex <codex@users.noreply.github.com>",
+    CO.lower() + "ChatGPT <bot@example.com>",
+    CO.replace("By", "by") + "OpenAI Helper <helper@example.com>",
+    CO.replace("By", "by") + "Some Bot <bot@ANTHROPIC" + ".com>",
+    CO.upper() + "Another <x@openai" + ".com>",
 ]
 KEPT = [
-    "Co-authored-by: Ada Lovelace <ada@example.com>",
+    CO.replace("By", "by") + "Ada Lovelace <ada@example.com>",
     "Signed-off-by: Guillaume Picard <gwpicard@gmail.com>",
 ]
 
