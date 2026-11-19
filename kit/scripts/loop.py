@@ -339,7 +339,8 @@ def reap(project, st, cap=None):
     for number, (_, proc) in list(st["building"].items()):
         if proc is None:
             continue
-        if proc.poll() is None and cap and time.time() - st["started"].get(number, time.time()) > cap:
+        began = st["started"].get(number, time.time())
+        if proc.poll() is None and cap and time.time() - began - common.paused_seconds(project, began) > cap:
             say("#%d: the build process ran over %d minutes, killing it" % (number, cap // 60))
             with contextlib.suppress(OSError):
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -623,6 +624,8 @@ def resume(project):
             break
         signal_all(reversed(stopped), signal.SIGCONT)
         time.sleep(0.05)
+    with open(mark) as f, open(os.path.join(project, ".loop", "pauses"), "a") as g:  # for the limits
+        g.write("%s %s\n" % (json.load(f)["since"], time.time()))
     os.remove(mark)
     try:
         board_line("")
@@ -703,7 +706,7 @@ def run(project):
             if proc and proc.poll() is None:
                 with contextlib.suppress(OSError):
                     os.killpg(proc.pid, signal.SIGTERM)
-        for name in ("stop", "loop.pid", "paused"):
+        for name in ("stop", "loop.pid", "paused", "pauses"):
             if os.path.exists(os.path.join(project, ".loop", name)):
                 os.remove(os.path.join(project, ".loop", name))
         try:

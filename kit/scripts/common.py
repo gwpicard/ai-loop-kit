@@ -306,6 +306,45 @@ def _record(path, pid, add):
         pass
 
 
+def project_of(cwd):
+    """The project folder holding `.loop/`: LOOP_PROJECT, else the main checkout of the repository at `cwd`."""
+    if os.environ.get("LOOP_PROJECT"):
+        return os.environ["LOOP_PROJECT"]
+    p = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
+                       capture_output=True, text=True)
+    return os.path.dirname(p.stdout.strip()) if p.returncode == 0 and p.stdout.strip() else cwd
+
+
+def paused_seconds(project, since):
+    """Seconds since `since` that the loop spent paused: finished pauses are listed in `.loop/pauses`
+    by `loop resume`, a pause in progress is the `.loop/paused` mark."""
+    now, total = time.time(), 0.0
+    spans = []
+    with contextlib.suppress(OSError, ValueError):
+        with open(os.path.join(project, ".loop", "pauses")) as f:
+            spans = [tuple(map(float, line.split())) for line in f if line.strip()]
+    with contextlib.suppress(OSError, ValueError, KeyError):
+        with open(os.path.join(project, ".loop", "paused")) as f:
+            spans.append((json.load(f)["since"], now))
+    for begin, end in spans:
+        total += max(0.0, min(end, now) - max(begin, since))
+    return total
+
+
+def wait_limited(wait, limit, project, poll=0.5):
+    """Call `wait(timeout)` until it returns, as `wait(limit)` would, but leave paused time out of `limit`.
+    Raises subprocess.TimeoutExpired when the unpaused time passes `limit`."""
+    start = time.time()
+    while True:
+        left = start + limit + paused_seconds(project, start) - time.time()
+        if left <= 0:
+            raise subprocess.TimeoutExpired("wait", limit)
+        try:
+            return wait(min(left, poll))
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def run_shell(command, cwd, timeout, record=None, patience=None):
     """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
     With `record`, the group id is listed in that file while the command runs, so whoever
@@ -317,7 +356,7 @@ def run_shell(command, cwd, timeout, record=None, patience=None):
     if record:
         _record(record, p.pid, True)
     try:
-        out, _ = p.communicate(timeout=timeout)
+        out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd))
         return p.returncode, out
     except subprocess.TimeoutExpired:
         os.killpg(p.pid, signal.SIGKILL)
