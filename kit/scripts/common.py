@@ -307,18 +307,24 @@ def _record(path, pid, add):
 
 
 def project_of(cwd):
-    """The project folder holding `.loop/`: LOOP_PROJECT, else the main checkout of the repository at `cwd`."""
+    """The project folder holding `.loop/`: LOOP_PROJECT, else the main checkout of the repository at `cwd`.
+    None when git is missing or fails: paused time is then not counted."""
     if os.environ.get("LOOP_PROJECT"):
         return os.environ["LOOP_PROJECT"]
-    p = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
-                       capture_output=True, text=True)
-    return os.path.dirname(p.stdout.strip()) if p.returncode == 0 and p.stdout.strip() else cwd
+    try:
+        p = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
+                           capture_output=True, text=True)
+    except OSError:
+        return None
+    return os.path.dirname(p.stdout.strip()) if p.returncode == 0 and p.stdout.strip() else None
 
 
 def paused_seconds(project, since):
     """Seconds since `since` that the loop spent paused: finished pauses are listed in `.loop/pauses`
     by `loop resume`, a pause in progress is the `.loop/paused` mark."""
     now, total = time.time(), 0.0
+    if project is None:
+        return total
     spans = []
     with contextlib.suppress(OSError, ValueError):
         with open(os.path.join(project, ".loop", "pauses")) as f:
