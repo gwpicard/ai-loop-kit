@@ -52,9 +52,17 @@ def post_once(issue, body):
                      for c in merge.view("issue", issue, "comments").get("comments", [])))
 
 
-def after_merge(issue, report, review, commit, files, pr, post=True):
-    """Post the build note, then the pull request body, then the reviewer's
-    follow-ups as inbox issues. Each step is safe to run again."""
+def fixes_of(review):
+    """The numbered fixes after the last VERDICT line of a review, before its FOLLOW-UPS."""
+    tail = re.split(r"^[\s*`]*VERDICT:", review, flags=re.M)[-1]
+    tail = re.split(r"^[\s*`]*FOLLOW-UPS:", tail, flags=re.M)[0]
+    return [l.strip() for l in tail.splitlines() if re.match(r"\s*\d+[.)]\s", l)]
+
+
+def after_merge(issue, report, review, commit, files, pr, post=True, earlier=()):
+    """Post the build note, then the pull request body, then the follow-ups of
+    every review round (`earlier` holds those before the approving `review`)
+    as inbox issues. Each step is safe to run again."""
     m = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.S | re.M)
     built = (m.group(1).strip() if m else "") or "No BUILT block in the builder's report."
     deviations = "\n".join(parse_block(report, "DEVIATIONS")) or "none"
@@ -66,7 +74,7 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
         post_once(issue, note)
         if pr:
             gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
-    for line in [l for l in parse_block(review, "FOLLOW-UPS") if l.lower() != "none"]:
+    for line in [l for r in (*earlier, review) for l in parse_block(r, "FOLLOW-UPS") if l.lower() != "none"]:
         title = line[:100]
         once(lambda: gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
                         input="Follow-up from #%s.\n\n%s\n\n%s\n" % (issue, line, common.MARKER),
@@ -75,10 +83,10 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
 
-def note_after_merge(issue, project, report, review, commit, files, pr, post=True):
+def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=()):
     """after_merge that never undoes a merge: any error is logged."""
     try:
-        after_merge(issue, report, review, commit, files, pr, post)
+        after_merge(issue, report, review, commit, files, pr, post, earlier)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
 
@@ -305,7 +313,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     common.event("step", project, issue=issue, step="builder")
     report, sid = ask("builder", settings["Builder"], locked=locked)
-    feedback = ""
+    feedback, fixes, earlier = "", [], []  # fixes: the last review's numbered fixes, when it returned CHANGES
     for rnd in range(1, settings["Max rounds"] + 1):
         if feedback:
             common.event("step", project, issue=issue, step="fix", round=rnd)
@@ -323,7 +331,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                 continue
         common.event("step", project, issue=issue, step="review", round=rnd)
         review, _ = ask("reviewer", settings["Reviewer"], report=report, locked=locked,
-                        extra="\nLatest test result: passed on this commit.\n" + "\n".join(tails) + "\n")
+                        extra="\nLatest test result: passed on this commit.\n" + "\n".join(tails) + "\n"
+                        + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
+                           if fixes else ""))
         verdict, _ = merge.parse_verdict(review)
         try:  # the person can follow the fix rounds; a failure to post never stops the build
             post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
@@ -342,7 +352,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                     pr = (merge.find_pr(branch, settings["Loop branch"], head) or {}).get("number")
                 except common.LoopError:
                     pr = None
-                note_after_merge(issue, project, report, review, result.commit, landed.files, pr)
+                note_after_merge(issue, project, report, review, result.commit, landed.files, pr, earlier=earlier)
                 return Result("merged", result.reason)
             elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,
@@ -352,6 +362,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                 feedback = "The merge was refused: " + result.reason
         else:
             feedback = review if verdict else "The review had no VERDICT block."
+            if verdict:
+                fixes = fixes_of(review)
+                earlier.append(review)
     raise Parked("The build did not pass review in %d rounds. Last problem: %s"
                  % (settings["Max rounds"], feedback.strip()[:600]),
                  "Reply with what to change, or close the issue.")
