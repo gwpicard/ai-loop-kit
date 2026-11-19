@@ -74,7 +74,7 @@ run_checks() {
   attr_vendor=$(printf 'noreply@%s.com' 'anthropic')
   attr_hits=$(git -C "$root" grep -InIiF \
     -e "$attr_session" -e "$attr_author" -e "$attr_vendor" \
-    -- . ':(exclude).githooks/commit-msg' 2>/dev/null | cut -c1-120)
+    -- . ':(exclude).githooks/commit-msg' ':(exclude)kit/tests/test_merge_squash_session_link.py' 2>/dev/null | cut -c1-120)
   if [ -n "$attr_hits" ]; then
     fail "a tracked file carries an AI attribution line or a session link:"
     printf '%s\n' "$attr_hits" | sed 's/^/    /'

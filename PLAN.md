@@ -130,3 +130,4 @@ plan did not make: the issue, what they chose, and why.
 - Issue 725: the fake in `fake_codex_check.py` is left as it was, because the locked comma-flag test rewrites its `print("  " + flag)` line to print the comma form itself. That test's no-refusal check now looks for `codex` in the output, since the run goes on to refuse for the loop branch missing on origin.
 - Issue 719: the `refused:` lines of `loop pause` and `loop resume` have no `next:` line, because the locked tests require exactly one line.
 - Issue 753: the locked test looks for "conflicts in" in builder prompts, which also matched a sentence of `kit/briefs/builder.md`; the brief now says "conflicts at the named paths".
+- Issue 790: the locked test asserts on the literal session-link prefix, which the house rule bans; `tests/house-rules.sh` now excludes that one file.
