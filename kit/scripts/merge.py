@@ -30,15 +30,17 @@ BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # 
 AGENT_TRAILER = re.compile(
     r"^\s*co-authored-by:.*(claude|codex|chatgpt|openai|@anthropic\.com|@openai\.com)",
     re.I)
+# The lines .githooks/commit-msg strips: a session link and a generated-with footer.
+GENERATED_LINE = re.compile(r"^\s*(\S*claude\.ai/code/session_\S*|.*generated with \[?claude)", re.I)
 
 
 def squash_body(project, loop, sha):
-    """The builder's commit messages in order, without agent co-author trailers."""
+    """The builder's commit messages in order, without agent co-author trailers, session links and generated footers."""
     log = git(["log", "--reverse", "--format=%B%x00", "origin/%s..%s" % (loop, sha)],
               cwd=project)
     messages = []
     for raw in log.split("\0"):
-        lines = [l for l in raw.strip().splitlines() if not AGENT_TRAILER.match(l)]
+        lines = [l for l in raw.strip().splitlines() if not (AGENT_TRAILER.match(l) or GENERATED_LINE.match(l))]
         if text := "\n".join(lines).strip():
             messages.append(text)
     return "\n\n".join(messages)
