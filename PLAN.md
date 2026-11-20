@@ -97,6 +97,7 @@ An agent that needs one of these ends its reply with
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
+- Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
 
 ## Standing approvals
 
@@ -114,6 +115,7 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.
 - Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
 - Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
 - Issue 575: `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.
