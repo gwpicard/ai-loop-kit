@@ -417,13 +417,14 @@ refusal costs no test run.
   queued once more, then parked.
 - Claim: the `building` label goes on before the process starts. A new build
   starts while fewer than N run, an eligible issue exists and the machine has
-  headroom (load average below the CPU count; on macOS, normal memory
-  pressure). The first build always starts. Each deferral is logged once per
-  reason.
-- Memory: on macOS, every session and every test command first waits while
-  the system's memory-pressure level is above normal, and prints a line
-  saying so. A command the Stop hook runs waits at most 10 minutes, then
-  starts.
+  headroom (load average below the CPU count; on macOS, memory pressure below
+  critical, level 4). The first build always starts. Each deferral is logged
+  once per reason.
+- Memory: on macOS, sessions and test commands wait only at critical pressure
+  (level 4), with more than one build running. They wait at most 10 minutes,
+  then start anyway and log a line. A build running alone never waits for memory.
+  Memory waits happen before the merge lock is taken, do not count against
+  the build cap and record `memory-wait` events with the level and seconds waited.
 - Disk: before a build and each test command, the loop checks free space on
   the project volume and in the temp folder. Below 2 GB it prints one line,
   records a `disk-wait` event and checks again every minute. A failure reporting

@@ -166,7 +166,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
                    "-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
     try:
         while True:
-            common.wait_for_memory()
+            common.wait_for_memory(project=env["LOOP_PROJECT"], issue=issue)
             out, err, code = _exec(argv(resume), prompt, cwd, env, log, role, issue, limit)
             events = []
             for line in out.splitlines():
@@ -227,7 +227,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
                 "PreToolUse": [{"matcher": "*", "hooks": [hook("guard.py")]}],
                 "Stop": [{"hooks": [hook("stop.py", timeout=TEST_TIMEOUT)]}]}})]
     while True:
-        common.wait_for_memory()
+        common.wait_for_memory(project=project, issue=issue)
         out, err, code = _exec(argv + (["--resume", resume] if resume else []),
                                prompt, cwd, env, log, role, issue, settings["Session minutes"] * 60)
         try:

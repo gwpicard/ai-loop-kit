@@ -87,9 +87,13 @@ the loop or the others.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
-machine has headroom: load average below the CPU count and, on macOS, normal
-memory pressure. It says why when it waits. Every session and test command
-also waits, on macOS, while memory pressure is above normal.
+machine has headroom: load average below the CPU count and, on macOS, memory
+pressure below critical (level 4). It says why when it waits. With more than
+one build running, sessions and test commands wait at critical pressure for
+at most 10 minutes, then start anyway and log a line. A build running alone
+never waits for memory. Memory waits happen before the merge lock is taken
+and do not count against the build cap; each records a `memory-wait` event
+with its level and seconds waited.
 
 Before a build or a test command starts, the loop checks free space on the
 project volume and in the temp folder. With less than 2 GB free, it prints a

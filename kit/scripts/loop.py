@@ -299,7 +299,7 @@ def build_once(project, st, number):
 
 def headroom():
     """None when the machine can take another build, else why not: load average at or above the CPU
-    count, or (on macOS) memory pressure at warning or critical."""
+    count, or (on macOS) critical memory pressure."""
     try:
         load, cpus = os.getloadavg()[0], os.cpu_count() or 1
         if load >= cpus:
@@ -307,8 +307,8 @@ def headroom():
     except (OSError, AttributeError, ValueError):
         pass  # no way to tell: do not hold builds back
     level = common.pressure_level()
-    if level and level >= 2:
-        return "memory pressure is %s" % ("critical" if level >= 4 else "warning")
+    if level == 4:
+        return "memory pressure is critical"
     return None
 
 
@@ -371,7 +371,7 @@ def reap(project, st, cap=None):
         if proc is None:
             continue
         began = st["started"].get(number, time.time())
-        if proc.poll() is None and cap and time.time() - began > cap and time.time() - began - common.paused_seconds(project, began) > cap:
+        if proc.poll() is None and cap and time.time() - began > cap and time.time() - began - common.paused_seconds(project, began, number) > cap:
             say("#%d: the build process ran over %d minutes, killing it" % (number, cap // 60))
             with contextlib.suppress(OSError):
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -407,7 +407,7 @@ def reap(project, st, cap=None):
                 st["last"] = "#%d parked after two crashes" % number
                 del st["deaths"][number]
                 st["attempts"].pop(number, None)
-        for kind in ("step", "result", "pid", "attempt"):
+        for kind in ("step", "result", "pid", "attempt", "memory"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
 

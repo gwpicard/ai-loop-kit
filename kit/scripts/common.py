@@ -97,7 +97,8 @@ def sleep(seconds):
 
 
 PRESSURE_POLL = 30  # seconds between readings while memory is under pressure
-PRESSURE_REPEAT = 600  # seconds between repeats of the wait's first line
+_MEMORY_HELD = contextvars.ContextVar("memory_held", default=False)
+_BUILD = contextvars.ContextVar("build", default=(None, None))
 
 
 def pressure_level():
@@ -112,24 +113,49 @@ def pressure_level():
         return None
 
 
-def wait_for_memory(patience=None):
-    """Hold while macOS reports memory pressure, reading again every PRESSURE_POLL seconds. Give up after
-    `patience` seconds when set. Print a line when the wait begins, every ten minutes and when it ends."""
-    level = pressure_level()
-    if level is None or level < 2:
+def build_count(project):
+    try:
+        return sum(name.endswith(".pid") for name in os.listdir(os.path.join(project, ".loop", "builds")))
+    except OSError:
+        return 0
+
+
+def wait_for_memory(project=None, issue=None):
+    """Wait at most ten minutes at critical pressure, only with more than one build running."""
+    root, number = _BUILD.get()
+    project = project or root or project_of(".")
+    issue = issue if issue is not None else number or os.environ.get("LOOP_ISSUE")
+    if _MEMORY_HELD.get() or not project or build_count(project) <= 1:
         return
-    began = last = time.time()
+    level = pressure_level()
+    if level != 4:
+        return
+    began = time.time()
+    os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+    path = build_file(project, issue, "memory") if issue is not None else None
+    def record(end=None):
+        if path:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a") as f:
+                f.write("%s%s\n" % (began, " " + str(end) if end is not None else ""))
+    record()
     say("waiting for memory pressure to ease (level %d)" % level)
-    while level is not None and level >= 2:
-        if patience is not None and time.time() - began >= patience:
-            say("memory pressure did not ease in %d minutes; starting anyway" % (patience // 60))
-            return
-        sleep(PRESSURE_POLL)
-        level = pressure_level()
-        if level and level >= 2 and time.time() - last >= PRESSURE_REPEAT:
-            last = time.time()
-            say("still waiting for memory pressure to ease (level %d)" % level)
-    say("memory pressure eased after %d minutes" % ((time.time() - began) // 60))
+    try:
+        while level == 4 and build_count(project) > 1:
+            left = 600 - (time.time() - began)
+            if left <= 0:
+                line = "memory pressure did not ease in 10 minutes; starting anyway"
+                say(line)
+                with open(os.path.join(project, ".loop", "loop.out"), "a") as f:
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+                return
+            sleep(min(PRESSURE_POLL, left))
+            level = pressure_level()
+        say("memory wait ended after %d minutes" % ((time.time() - began) // 60))
+    finally:
+        record(time.time())
+        event("memory-wait", project, level=4, seconds=int(time.time() - began),
+              **({"issue": issue} if issue is not None else {}))
 
 
 # Settings
@@ -352,9 +378,10 @@ def project_of(cwd):
     return os.path.dirname(p.stdout.strip()) if p.returncode == 0 and p.stdout.strip() else None
 
 
-def paused_seconds(project, since):
+def paused_seconds(project, since, issue=None):
     """Seconds since `since` that the loop spent paused: finished pauses are listed in `.loop/pauses`
-    by `loop resume`, a pause in progress is the `.loop/paused` mark."""
+    by `loop resume`, a pause in progress is the `.loop/paused` mark. With `issue`, include its memory
+    waits from `.loop/builds/<issue>.memory`: a start alone is still waiting, a pair is finished."""
     now, total = time.time(), 0.0
     if project is None:
         return total
@@ -365,8 +392,19 @@ def paused_seconds(project, since):
     with contextlib.suppress(OSError, ValueError, KeyError):
         with open(os.path.join(project, ".loop", "paused")) as f:
             spans.append((json.load(f)["since"], now))
-    for begin, end in spans:
-        total += max(0.0, min(end, now) - max(begin, since))
+    if issue is not None:
+        waits = {}
+        with contextlib.suppress(OSError, ValueError):
+            with open(build_file(project, issue, "memory")) as f:
+                for line in f:
+                    values = list(map(float, line.split()))
+                    if values:
+                        waits[values[0]] = values[1] if len(values) > 1 else now
+        spans.extend(waits.items())
+    until = since
+    for begin, end in sorted(spans):
+        total += max(0.0, min(end, now) - max(begin, until))
+        until = max(until, min(end, now))
     return total
 
 
@@ -401,14 +439,16 @@ def record_session(session_id, env):
 
 
 @contextlib.contextmanager
-def build_environment(project):
+def build_environment(project, issue=None):
     path = tempfile.mkdtemp(prefix="loop-build-", dir=tempfile.gettempdir())
     created = os.stat(path)
     token = _BUILD_TEMP.set(path)
+    build = _BUILD.set((project, issue))
     try:
         yield
     finally:
         _BUILD_TEMP.reset(token)
+        _BUILD.reset(build)
         if not os.path.islink(path) and os.path.isdir(path) and os.path.samestat(created, os.stat(path)):
             for name in os.listdir(path):
                 if name.startswith("session-"):
@@ -441,20 +481,20 @@ def wait_for_disk(project, reason="", **fields):
         sleep(60)
 
 
-def run_shell(command, cwd, timeout, record=None, patience=None):
-    code, out = _run_shell(command, cwd, timeout, record, patience)
+def run_shell(command, cwd, timeout, record=None):
+    code, out = _run_shell(command, cwd, timeout, record)
     if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
         wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device")
-        code, out = _run_shell(command, cwd, timeout, record, patience)
+        code, out = _run_shell(command, cwd, timeout, record)
     return code, out
 
 
-def _run_shell(command, cwd, timeout, record=None, patience=None):
+def _run_shell(command, cwd, timeout, record=None):
     """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
     With `record`, the group id is listed in that file while the command runs, so whoever
-    ends the caller can also end the command. Before it starts, the command waits while memory is under
-    pressure (at most `patience` seconds when set); the wait does not count against `timeout`."""
-    wait_for_memory(patience)
+    ends the caller can also end the command. Before it starts, the command waits at critical memory
+    pressure for at most ten minutes; the wait is outside `timeout`."""
+    wait_for_memory(project_of(cwd))
     wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
     p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -519,7 +559,11 @@ def merge_lock(root):
     os.makedirs(os.path.join(root, ".loop"), exist_ok=True)
     with open(os.path.join(root, ".loop", "merge.lock"), "a") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
-        yield
+        token = _MEMORY_HELD.set(True)
+        try:
+            yield
+        finally:
+            _MEMORY_HELD.reset(token)
 
 
 def event(kind, root=".", **fields):

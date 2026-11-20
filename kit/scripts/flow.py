@@ -183,6 +183,7 @@ def land(issue, branch, review, project, tree, settings):
 def _land(issue, branch, review, project, tree, settings):
     loop = settings["Loop branch"]
     for attempt in (1, 2):
+        common.wait_for_memory(project=project, issue=issue)
         with common.merge_lock(project):
             git(["fetch", "--no-prune", "origin"], cwd=project)
             based, old = git(["rev-parse", "origin/" + loop], cwd=project), git(["rev-parse", "HEAD"], cwd=tree)
@@ -241,7 +242,7 @@ def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
     project = os.path.abspath(project)
     common.wait_for_disk(project)
-    with common.build_environment(project):
+    with common.build_environment(project, issue):
         return _build_tree(issue, project, replies)
 
 

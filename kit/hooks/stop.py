@@ -24,8 +24,7 @@ TIMEOUT = 600  # least time per command; it grows with the session limit
 def run(command, cwd, timeout=None):
     """Run a shell command. Return (exit code, output); the code is None on timeout. The command
     keeps a group of its own, listed in LOOP_GROUPS, so the loop ends it with the session."""
-    return common.run_shell(command, cwd, timeout or TIMEOUT, record=os.environ.get("LOOP_GROUPS"),
-                            patience=600)  # the hook has its own limit; do not wait it out
+    return common.run_shell(command, cwd, timeout or TIMEOUT, record=os.environ.get("LOOP_GROUPS"))
 
 
 def passed_path(project, session_id):
