@@ -54,6 +54,18 @@ class SessionTest(FakeClaudeGh):
         self.assertEqual(env["LOOP_DEFAULT_BRANCH"], "main")
         self.assertEqual(call["prompt"], "do it")
 
+    def test_test_commands_reach_every_session_role(self):
+        for files in ("", "make unit {files}"):
+            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+                f.write(AGENTS + "Test files command: " + files + "\n")
+            for role in ("builder", "reviewer", "test-writer", "pass"):
+                with self.subTest(role=role, files=files):
+                    self.run_session(role=role)
+                    env = self.claude_calls()[-1]["env"]
+                    self.assertEqual(env["LOOP_ROLE"], role)
+                    self.assertEqual(env["LOOP_TEST_COMMAND"], "true")
+                    self.assertEqual(env["LOOP_TEST_FILES_COMMAND"], files)
+
     def test_logs_and_resume(self):
         self.run_session()
         self.run_session(resume="abc")
