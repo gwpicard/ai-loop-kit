@@ -99,7 +99,8 @@ public repository never reaches an unattended builder.
 `loop.py` keeps one pinned issue, "Factory", and rewrites its body after
 every step. It shows:
 
-- what is building now, and since when;
+- what is building now, its step and elapsed minutes in that step, or whether
+  the drain or end-of-loop pass is running;
 - what needs you: parked issues, each with its question and the reply to
   type, the dependencies the loop will never build, the open final pull
   request, a conflict and the notice that the defect rounds limit was
@@ -108,7 +109,9 @@ every step. It shows:
   `building` or `needs-user` issue, with its closed and total issue counts
   as GitHub reports them for the whole milestone, and a link to its
   milestone page;
-- the last event and the time of the next check.
+- the last event and the date and time of the next check; when ready issues
+  are waiting and nothing is building, parked dependencies or load or memory
+  deferrals explain why.
 
 An empty section reads `Nothing.` Progress lives on GitHub's milestones
 page, where the shape skill puts each issue in a milestone; the board keeps
@@ -117,6 +120,12 @@ GitHub, works from your phone, and cannot drift from the truth because
 `loop.py` writes it from the labels. To answer a question, reply on the
 parked issue; the next poll reads a reply from a collaborator, removes
 `needs-user` and requeues the issue.
+
+`loop status` answers what happened from local `.loop/` files, without GitHub
+or a session. It shows current activity and the last 12 hours of merges,
+parks, crashes, rule counts, stage timings, agents and models. `--since`
+accepts a date and time, today's time, or a duration. Stage timings count
+steps completed in the window; merged issue totals use their recorded history.
 
 ### Shaping while it runs
 

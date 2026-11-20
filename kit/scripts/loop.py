@@ -16,6 +16,7 @@ import merge
 import pass_
 import session
 import setup
+import status
 from common import GitError, gh, git, say
 
 POLL = 120
@@ -108,18 +109,40 @@ def progress_rows(st):
             for m in sorted(found if isinstance(found, list) else [], key=lambda m: m["number"]) if m.get("number") in active]
 
 
-def write_board(project, st):
+def write_board(project, st, doing=None):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
     row = lambda i, text: "- #%d %s: %s" % (i["number"], i["title"], text)
     b, p = st["building"], last_pass(project)
+    _, ended, recorded = status.activity(status.read_events(project))
+    doing = doing or recorded
+    parked = {i["number"] for i in of("needs-user")}
+    building = []
+    for n, (since, _) in sorted(b.items()):
+        if n in parked or n in ended:
+            continue
+        try:
+            minutes = max(0, int(time.time() - os.path.getmtime(common.build_file(project, n, "step"))) // 60)
+        except OSError:
+            minutes = 0
+        building.append("#%d, %s, since %s (%d min in step)" % (n, step_of(project, n), since, minutes))
+    if not building and doing != "idle":
+        building = [doing]
+    why = []
+    if not building and of("ready"):
+        held = {d for i in of("ready") for d in common.depends_on(i["body"]) if d not in st["closed"]}
+        why = ["dependencies held by needs-user: " + ", ".join("#%d %s" % (i["number"], i["title"])
+               for i in of("needs-user") if i["number"] in held)] if held & parked else []
+        if st["deferred"]:
+            why.append("deferred for " + st["deferred"])
+    last = st["last"] + ("\nWhy idle: " + "; ".join(why) if why else "")
     body = board_body([
-        ("Building now", ["#%d, %s, since %s" % (n, step_of(project, n), since) for n, (since, _) in sorted(b.items())]),
+        ("Building now", building),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
                        for i in of("needs-user")] + blocked_rows(st) + ([st["pr"]] if st["pr"] else [])
                       + ([st["conflict"]] if st["conflict"] else [])
                       + (["Notice: defect rounds limit reached, defects filed as inbox issues."] if p.get("capped") else [])),
-        ("Progress", progress_rows(st))], st["last"], st["next"])
+        ("Progress", progress_rows(st))], last, st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
         st["factory"]["body"] = body
@@ -473,6 +496,8 @@ def summary(project, settings, head, landed):
 
 def drain(project, settings, st):
     with common.timed("drain", project) as end:
+        if st.get("factory"):
+            write_board(project, st)
         end["outcome"] = "fail"
         failed = _drain(project, settings, st)
         end["outcome"] = "fail" if failed else "pass"
@@ -488,6 +513,9 @@ def _drain(project, settings, st):
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
         say("running the end-of-loop pass")
+        if st.get("factory"):
+            st["last"] = "running the end-of-loop pass"
+            write_board(project, st, doing="running the end-of-loop pass")
         try:
             report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base,
                                           rounds=None if last.get("unreadable") else last.get("rounds", 0))
@@ -597,7 +625,7 @@ def run(project):
                     reason = "nothing built for %g hours" % settings["Idle hours"]
                     say("exiting: nothing built for %g hours" % settings["Idle hours"])
                     break
-                st["next"] = time.strftime("%H:%M", time.localtime(time.time() + POLL))
+                st["next"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + POLL))
                 write_board(project, st)
             except Exception as e:  # one line, never a traceback or a silent death
                 say("problem, will check again: %s: %s" % (type(e).__name__, e))
@@ -630,6 +658,19 @@ def run(project):
 
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "status":
+        if len(argv) != 1 and not (len(argv) == 3 and argv[1] == "--since"):
+            print("usage: loop status [--since <time>]")
+            return 2
+        now = time.time()
+        try:
+            since = status.since_time(argv[2] if len(argv) == 3 else None, now)
+        except ValueError as e:
+            print(str(e))
+            return 2
+        running, builds = status.build_state(project, alive)
+        print(status.render(status.read_events(project), now, since, running, builds))
+        return 0
     if cmd == "stop":
         os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
         open(os.path.join(project, ".loop", "stop"), "w").close()
@@ -643,7 +684,7 @@ def main(argv):
             return 0
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|check-version")
+        say("usage: loop.py run|stop|check-version|status [--since <time>]")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):

@@ -39,6 +39,9 @@ Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
 
 ## Read the board
 
+Run `<plugin>/bin/loop status` first for "what happened" questions.
+Use `--since <time>` to change its 12-hour window.
+
 The board is the pinned `Factory` issue: what is building, what needs the
 person (parked issues, unbuilt dependencies, the open pull request into the
 default branch, a conflict, the defect rounds limit notice), and one progress

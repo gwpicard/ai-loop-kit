@@ -85,7 +85,8 @@ also waits, on macOS, while memory pressure is above normal.
 Merges into the loop branch queue behind one lock (`.loop/merge.lock`): an
 issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
-its step. A stop request starts no new build and lets running builds finish
+its step and elapsed minutes in that step, or says when the drain or pass is
+running. A stop request starts no new build and lets running builds finish
 their issue. Each build process writes its log to
 `.loop/logs/build-<issue>.log`. Lines in these logs and `loop.out` start with a
 local timestamp (`YYYY-MM-DD HH:MM:SS`).
@@ -94,6 +95,13 @@ local timestamp (`YYYY-MM-DD HH:MM:SS`).
 session agents and models, merges, parks, crashes, drains, passes and stop or
 exit reasons. Refusals carry stable rule ids, such as `test-lock`. Every record
 names the running kit version and the project folder’s base name.
+
+`<plugin>/bin/loop status` reads only `.loop/` and checks local pids. It shows
+current activity, merges, parks, crashes, rule counts, stage times, agents and
+models from the last 12 hours, without GitHub or a session. `--since` accepts
+`YYYY-MM-DD HH:MM`, `HH:MM` (today), or a duration such as `4h` or `90m`.
+Stage totals and medians use steps completed in the window; a merged issue's
+total minutes and review rounds use its full recorded history.
 
 A park that names exactly one test path and asks whether to change it needs
 only a reply of "yes" from a collaborator: the loop adds that path to the
@@ -147,6 +155,8 @@ has an open `ready`, `building` or `needs-user` issue, with its closed and
 total issue counts and a link to its milestone page. Read the full
 progress on GitHub's milestones page. To answer a parked issue, reply on it;
 the loop queues it again and gives your reply to the next build.
+The next check includes its date. When ready issues are waiting and nothing
+is building, `Why idle` names parked dependencies or a load or memory deferral.
 
 ## What each issue gets
 
