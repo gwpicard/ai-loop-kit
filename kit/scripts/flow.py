@@ -1,8 +1,11 @@
 """Build one issue end to end: tests, code, review, merge."""
 import collections
+import difflib
 import json
 import os
 import re
+import subprocess
+import tempfile
 import time
 
 import common
@@ -20,7 +23,7 @@ class Parked(Exception):
 
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
-    blocks = re.findall(r"^[\s*`]*%s:[*`]*[^\S\n]*\n(?:[^\S\n]*\n)*((?:(?![\s*`]*[A-Z]+:)[^\S\n]*\S.*\n?)*)" % name, text, re.M)
+    blocks = re.findall(r"^[\s*`]*%s:[*`]*[^\S\n]*\n(?:[^\S\n]*\n)*((?:(?![\s*`]*[A-Z-]+:)[^\S\n]*\S.*\n?)*)" % name, text, re.M)
     items = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", l).strip()
              for l in blocks[-1].splitlines()] if blocks else []
     if name == "TESTS":
@@ -51,9 +54,17 @@ def post_once(issue, body):
                      for c in merge.view("issue", issue, "comments").get("comments", [])))
 
 
-def after_merge(issue, report, review, commit, files, pr, post=True):
-    """Post the build note, then the pull request body, then the reviewer's
-    follow-ups as inbox issues. Each step is safe to run again."""
+def fixes_of(review):
+    """The numbered fixes after the last VERDICT line of a review, before its FOLLOW-UPS."""
+    tail = re.split(r"^[\s*`]*VERDICT:", review, flags=re.M)[-1]
+    tail = re.split(r"^[\s*`]*FOLLOW-UPS:", tail, flags=re.M)[0]
+    return [l.strip() for l in tail.splitlines() if re.match(r"\s*\d+[.)]\s", l)]
+
+
+def after_merge(issue, report, review, commit, files, pr, post=True, earlier=()):
+    """Post the build note, then the pull request body, then the follow-ups of
+    every review round (`earlier` holds those before the approving `review`)
+    as inbox issues. Each step is safe to run again."""
     m = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.S | re.M)
     built = (m.group(1).strip() if m else "") or "No BUILT block in the builder's report."
     deviations = "\n".join(parse_block(report, "DEVIATIONS")) or "none"
@@ -65,7 +76,7 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
         post_once(issue, note)
         if pr:
             gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
-    for line in [l for l in parse_block(review, "FOLLOW-UPS")
+    for line in [l for r in (*earlier, review) for l in parse_block(r, "FOLLOW-UPS")
                  if len(l.split()) >= 4 and not re.search(r"\bunverified\b", l, re.I)][:2]:
         title = line[:100]
         once(lambda: gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
@@ -75,10 +86,10 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
 
-def note_after_merge(issue, project, report, review, commit, files, pr, post=True):
+def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=()):
     """after_merge that never undoes a merge: any error is logged."""
     try:
-        after_merge(issue, report, review, commit, files, pr, post)
+        after_merge(issue, report, review, commit, files, pr, post, earlier)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
 
@@ -124,6 +135,30 @@ def fails_properly(kinds, failed, body):
     return "Your tests do not fail by assertion. Make them fail by assertion for the right reason."
 
 
+def keep_added_plan_lines(tree):
+    """Finish a merge open in the tree when PLAN.md is the only conflict and both sides only added
+    lines to it: keep both, the loop branch's lines first, and commit. Return True when it did."""
+    if git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines() != ["PLAN.md"]:
+        return False
+    base, mine, theirs = ((git(["show", ":%d:PLAN.md" % n], cwd=tree, check=False) + "\n").splitlines(True) for n in (1, 2, 3))
+    for side in (mine, theirs):
+        if any(op not in ("insert", "equal") for op, *_ in difflib.SequenceMatcher(None, base, side, autojunk=False).get_opcodes()):
+            return False
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for name, lines in (("loop", theirs), ("base", base), ("issue", mine)):
+            paths.append(os.path.join(d, name))
+            with open(paths[-1], "w", encoding="utf-8", newline="") as f:
+                f.writelines(lines)
+        out = subprocess.run(["git", "merge-file", "-p", "--union"] + paths, cwd=tree,
+                             capture_output=True, text=True, timeout=common.TIMEOUT).stdout
+    with open(os.path.join(tree, "PLAN.md"), "w", encoding="utf-8", newline="") as f:
+        f.write(out)
+    git(["add", "PLAN.md"], cwd=tree)
+    git(["commit", "--no-edit"], cwd=tree)
+    return True
+
+
 Landed = collections.namedtuple("Landed", "result conflicts head review files")
 
 
@@ -157,7 +192,8 @@ def _land(issue, branch, review, project, tree, settings):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
-                return Landed(None, conflicts, old, review, [])
+                if not keep_added_plan_lines(tree):
+                    return Landed(None, conflicts, old, review, [])
             head = git(["rev-parse", "HEAD"], cwd=tree)
             if head != old:
                 git(["push", "origin", branch], cwd=tree)
@@ -237,6 +273,8 @@ def _build_tree(issue, project, replies):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
+                if keep_added_plan_lines(tree):
+                    conflicts = []
         return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
         common.park(issue, *p.args, project=project)
@@ -341,7 +379,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     report, sid = ask("builder", settings["Builder"], locked=locked)
-    feedback = ""
+    feedback, fixes, earlier = "", [], []  # fixes: the last review's numbered fixes, when it returned CHANGES
     for rnd in range(1, settings["Max rounds"] + 1):
         if feedback:
             report, sid = ask("builder", settings["Builder"], step="fix", rnd=rnd, resume=sid,
@@ -359,7 +397,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             if feedback:
                 continue
         review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
-                        extra="\nLatest test result: passed on this commit. " + " | ".join(tails) + "\n")
+                        extra="\nLatest test result: passed on this commit. " + " | ".join(tails) + "\n"
+                        + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
+                           if fixes else ""))
         verdict, _ = merge.parse_verdict(review)
         try:  # the person can follow the fix rounds; a failure to post never stops the build
             post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
@@ -378,7 +418,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                     pr = (merge.find_pr(branch, settings["Loop branch"], head) or {}).get("number")
                 except common.LoopError:
                     pr = None
-                note_after_merge(issue, project, report, review, result.commit, landed.files, pr)
+                note_after_merge(issue, project, report, review, result.commit, landed.files, pr, earlier=earlier)
                 return Result("merged", result.reason)
             elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,
@@ -388,6 +428,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                 feedback = "The merge was refused: " + result.reason
         else:
             feedback = review if verdict else "The review had no VERDICT block."
+            if verdict:
+                fixes = fixes_of(review)
+                earlier.append(review)
     raise Parked("The build did not pass review in %d rounds. Last problem: %s"
                  % (settings["Max rounds"], feedback.strip()[:600]),
                  "Reply with what to change, or close the issue.")

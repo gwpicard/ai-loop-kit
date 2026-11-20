@@ -30,7 +30,10 @@ code and never merges.
    name it in the criterion.
    For each piece a person sees or touches, also ask for its hands-on
    steps: what they would do in the real product and the result to expect.
-   They go in the issue's `## Hands-on check` section.
+   They go in the issue's `## Hands-on check` section. When a piece has
+   one and the plan's `## Try it` is missing or empty, ask for the steps
+   that run the product from the loop branch, with the result to expect,
+   and add the section to `PLAN.md`.
 6. List the prerequisites only a person can clear (accounts, keys, money,
    settings, access, a decision on going public). Put them first and get
    them cleared before any label goes on. Name each one as plainly as

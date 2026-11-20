@@ -38,14 +38,14 @@ SECRETS = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\bgh[pousr]_[A-Za-z0-9]{20,}"
     r"|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b"
     r"|\bsk-ant-[A-Za-z0-9_-]{10,}|\bxox[abprs]-[A-Za-z0-9-]{10,}")
-GIT = r"\bgit(?:\s+(?:-C\s+\S+|-c\s+\S+|--\S+))*\s+"
+GIT = r"\bgit(?:(?:\s|\\\n)+(?:-C(?:\s|\\\n)+\S+|-c(?:\s|\\\n)+\S+|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:\s|\\\n)+\S+|--\S+|-[A-Za-z]+))*(?:\s|\\\n)+"
 DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
 PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 QUOTED = re.compile(r"'[^']*'")
-REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
+REDIRECT = re.compile(r"\d*>>?(&)?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
 
 
 class Refuse(Exception):
@@ -113,7 +113,9 @@ def check_role_command(command, role, cwd):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
     for m in REDIRECT.finditer(QUOTED.sub(lambda q: q.group(0).replace(">", "_"), command)):  # a quoted > is text, but a quoted target stays
-        target = (m.group(1) or m.group(2)).strip("'\"")
+        target = (m.group(2) or m.group(3)).strip("'\"")
+        if m.group(1) and re.fullmatch(r"\d+-?|-", target):  # >&2 and >&- duplicate or close a descriptor
+            continue
         if target and target != "/dev/null" and not target.startswith("&"):
             check_path(target, role, cwd)
 

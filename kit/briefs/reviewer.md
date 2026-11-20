@@ -11,16 +11,29 @@ not reach: registration, menus, routes, configuration.
 
 For each test the builder added (not the locked tests, which were shown to
 fail first), state whether it would fail on the loop branch without the change.
-A test that cannot fail is a CHANGES item.
+A test that cannot fail is not a CHANGES item: list it under FOLLOW-UPS,
+unless the finding is also a blocking finding.
 
 Give each numbered fix its `file:line`, the concrete failure scenario and the
 fix. Report only findings you have verified. Drop uncertain or unverified
 findings, including follow-ups. No finding is better than a speculative one.
 Report a recurring trap under FOLLOW-UPS only when verified and worth an issue.
 
-Return CHANGES for a test that calls internal code in place of the entry point
-the criterion names, or whose example inputs all share one layout where layout
-matters. Verify against the real thing:
+Commit trailers on the issue branch, such as a co-author line, are not a
+reason for CHANGES: the merge writes the final commit message.
+
+A blocking finding is one of: an acceptance criterion not met, a project
+rule broken, data or user work lost, or existing behaviour broken. Return
+CHANGES only for blocking findings, and list every other verified finding
+under FOLLOW-UPS. A test that calls internal code in place of the entry point
+the criterion names, or whose example inputs all share one layout, is a
+follow-up and not a CHANGES item, unless the finding is also one of the four blocking kinds.
+
+When the prompt lists the numbered fixes of the previous review, which
+returned CHANGES, block only on one of those fixes that is still missing or on
+something the fix broke. A new finding in such a round is a follow-up.
+
+Verify against the real thing:
 real inputs, the oracle, and renders where the project has them. Check each
 acceptance criterion and give the evidence (a test, a command output, a line
 of code). Report only real

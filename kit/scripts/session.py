@@ -101,6 +101,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     handle, groups = tempfile.mkstemp(prefix="loop-groups-", dir=env.get("TMPDIR"))
     os.close(handle)
     env = dict(env, LOOP_GROUPS=groups)
+    project_of_cwd = env.get("LOOP_PROJECT") or common.project_of(cwd)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as fin, \
             tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as fout, \
@@ -110,7 +111,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
         p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:
-            p.wait(timeout=limit)
+            common.wait_limited(p.wait, limit, project_of_cwd)
             problem = None
         except subprocess.TimeoutExpired:
             problem = "%s session timed out after %g minutes" % (role, limit / 60)
