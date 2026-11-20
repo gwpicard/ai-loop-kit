@@ -135,6 +135,37 @@ def fails_properly(kinds, failed, body):
     return "Your tests do not fail by assertion. Make them fail by assertion for the right reason."
 
 
+def revert_check(issue, project, tree, head, settings, locked, body):
+    """Tell the reviewer which builder tests do not prove the issue's change."""
+    files, listed = [], []
+    if settings["Test files command"]:
+        base = git(["merge-base", head, "origin/" + settings["Loop branch"]], cwd=tree)
+        changes = git(["diff", "--no-renames", "--name-status", "-z", base, head], cwd=tree).split("\0")
+        entries = list(zip(changes[0::2], changes[1::2]))
+        code = [p for _, p in entries if not merge.is_test_file(p)]
+        tests = sorted(p for status, p in entries if status != "D" and merge.is_test_file(p) and p not in locked)
+        if code and tests:
+            with common.scratch_tree(project, head) as scratch:
+                git(["restore", "--source=" + base, "--staged", "--worktree", "--"] + code, cwd=scratch)
+                failure = (merge.run_in("Prepare", settings["Prepare command"], scratch, head[:10], 60)
+                           if settings["Prepare command"] else None)
+                if failure:
+                    listed.append("Revert check unverified: " + failure)
+                else:
+                    for path in tests:
+                        files.append(path)
+                        kinds = []
+                        failed = merge.run_in("Test", common.files_command(settings, [path]), scratch,
+                                              head[:10], 60, kinds=kinds)
+                        if not failed:
+                            listed.append("passes without the change: " + path)
+                        elif why := fails_properly(kinds, failed, body):
+                            listed.append("Revert check unverified: %s: %s" % (path, why))
+    common.event("revert-check", project, issue=issue, rule="revert-check", files=files,
+                 outcome="listed" if listed else "passed" if files else "skipped")
+    return "\n".join(listed) + "\n" if listed else ""
+
+
 def keep_added_plan_lines(tree):
     """Finish a merge open in the tree when PLAN.md is the only conflict and both sides only added
     lines to it: keep both, the loop branch's lines first, and commit. Return True when it did."""
@@ -396,8 +427,10 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                                        prepare=settings["Prepare command"], tails=tails)
             if feedback:
                 continue
+        reverted = revert_check(issue, project, tree, head, settings, locked, info.get("body") or "")
         review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
                         extra="\nLatest test result: passed on this commit. " + " | ".join(tails) + "\n"
+                        + reverted
                         + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
                            if fixes else ""))
         verdict, _ = merge.parse_verdict(review)
