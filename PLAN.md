@@ -99,6 +99,7 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 - Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
 - When running the suite inside a loop session, unset `LOOP_PROJECT`; otherwise the disk tests write events to the enclosing project instead of their fixture.
+- Reviewer prompts include the whole brief; keep the literal revert result prefix out of its explanatory prose so a skipped check has no result line.
 
 ## Standing approvals
 
@@ -115,6 +116,9 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Revert check: run the Test files command once per builder test file in one scratch worktree per review, so a failing file cannot hide a passing one. Report command or preparation errors as unverified rather than as proof. The person authorised the two existing command-count assertions to include the revert runs; all their other checks stay intact.
+- Revert check brief: keep the locked brief tests' references to tests that cannot fail and FOLLOW-UPS, but limit that exception to tests guarding existing behaviour explained in DEVIATIONS, as the new criterion requires.
 
 - Revert check tests: exercise complete issue builds with fake agents and a real targeted test command. The builder records a Stop hook pass so each review must still run its own revert check. Cover added, modified and removed non-test files, changed existing tests and all three skip conditions.
 
