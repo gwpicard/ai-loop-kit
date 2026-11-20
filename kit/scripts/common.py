@@ -159,7 +159,18 @@ def codex_refusal(settings):
     return None
 
 
-def read_settings(root="."):
+def setting_lines(text):
+    inside = False
+    for line in text.splitlines(keepends=True):
+        if re.match(r"#{1,6}\s", line):
+            inside = line.strip().lower() == "## loop"
+            continue
+        m = re.match(r"\s*([^:]+?):\s*(.*?)\s*$", line)
+        if inside and m:
+            yield line, m.group(1), m.group(2).replace("`", "").strip()
+
+
+def read_settings(root=".", unknown=None):
     """Read the `## Loop` section of AGENTS.md into a dict with defaults."""
     path = os.path.join(root, "AGENTS.md")
     try:
@@ -167,14 +178,9 @@ def read_settings(root="."):
             text = f.read()
     except OSError:
         raise SettingsError("no AGENTS.md in " + os.path.abspath(root))
-    found, inside = {}, False
-    for line in text.splitlines():
-        if re.match(r"#{1,6}\s", line):
-            inside = line.strip().lower() == "## loop"
-            continue
-        m = re.match(r"\s*([A-Za-z ]+?):\s*(.*?)\s*$", line)
-        if inside and m:
-            found[m.group(1)] = m.group(2).replace("`", "").strip()
+    found = {key: value for _, key, value in setting_lines(text)}
+    if unknown is not None:
+        unknown.extend(k for k in found if k not in DEFAULTS and k != "Test command")
     for role, old in (("Builder", "Builder model"), ("Test writer", "Builder model"),
                       ("Reviewer", "Reviewer model"), ("Pass", "Reviewer model")):
         if found.get(old) and not found.get(role):

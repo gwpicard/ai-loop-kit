@@ -248,15 +248,21 @@ Each comes from a failure seen in a real run.
   (from the default branch), a pinned `Factory` issue and a `.loop/` line in
   `.gitignore`. It runs the Test command, after the Prepare command, on a fresh
   checkout of the loop branch as a preflight, and reports the optional
-  settings that are set. Running it again adds only what is missing. It opens
+  settings that are set. Running it again is safe. It opens
   no pull request and does not check `core.hooksPath`.
+
+  Every release that changes what a project holds ships its migration in setup.
+  Migrations are safe to run twice and delete nothing. Setup prints each change
+  before applying it and logs the time, kit version and undo instructions in
+  `.loop/migrations.log`. `--dry-run` previews every change without writing
+  files or GitHub data, or running preflight.
+
 - **One runtime folder.** The loop keeps its lock, logs and state in `.loop/`.
   Setup and every loop start first move older files there: kit 1.x files into
   `.loop/v1/`, and the contents of `.lite/` from kit 2.0.0 into `.loop/`. A
   file whose name `.loop/` already has moves in beside it as `<name>.lite`,
   and a folder in both is merged. Nothing moves while a 2.0.0 loop runs or
-  while a loop runs from `.loop/`, and no file is deleted; only an emptied
-  `.lite/` folder is removed.
+  while a loop runs from `.loop/`, and nothing is deleted, including empty folders.
 - **Events.** `.loop/events.jsonl` records step starts and ends with durations
   and outcomes, session agents and models, parks, crashes, merge refusals,
   drains, passes and stop or exit reasons. Refusals name a stable rule id;

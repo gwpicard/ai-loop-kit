@@ -122,6 +122,16 @@ class LoopTest(Base):
         mock.patch.object(loop, "sync_default").start()
         mock.patch.object(loop, "drain").start()
 
+    def test_unknown_settings_are_named_once_and_the_loop_starts(self):
+        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
+            f.write("Defect rounds: 2\nFuture-key: yes\n## Other\nNot a setting: ignored\n")
+        self.world([issue(8)])
+        with self.fake_build():
+            self.assertEqual(self.run_loop(), 0)
+        self.assertEqual(self.built, [(8, [])])
+        notices = [c.args[0] for c in self.say.call_args_list if "next: run setup" in c.args[0]]
+        self.assertEqual(notices, ["unknown Loop settings: Defect rounds, Future-key; next: run setup"])
+
     def pid_file(self):
         return os.path.join(self.work, ".loop", "loop.pid")
 

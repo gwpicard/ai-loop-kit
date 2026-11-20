@@ -571,7 +571,10 @@ def clean_up(project, closed):
 
 def run(project):
     project = os.path.abspath(project)
-    settings = common.read_settings(project)
+    unknown = []
+    settings = common.read_settings(project, unknown=unknown)
+    if unknown:
+        say("unknown Loop settings: %s; next: run setup" % ", ".join(unknown))
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))

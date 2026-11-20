@@ -27,6 +27,15 @@ older than the one the project was set up with (recorded in
 
 `<plugin>` below is the installed plugin folder (holding `bin/`).
 
+## Upgrading
+
+Every release that changes what a project holds ships its migration in setup.
+Run `python3 <plugin>/scripts/setup.py --dry-run` to preview every change without
+writing files or GitHub data, or running preflight. Without the flag, setup
+prints each change before applying it and logs the time, kit version and undo
+instructions in `.loop/migrations.log`. Migrations are safe to run twice and
+delete nothing.
+
 ## Set up a project
 
 Put this in the project's `AGENTS.md`:
