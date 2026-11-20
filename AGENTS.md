@@ -126,9 +126,18 @@ the kit and never from the code it is changing. Pieces are GitHub issues. The
 loop merges built pieces into the loop branch; the person merges the loop
 branch into `main`. The settings the loop reads are in the next section.
 
+In a Codex session, create and edit files with `apply_patch`, not with a
+shell heredoc or `cat >`. The guard reads the text of a shell command, so a
+command whose file content mentions `gh` or `git push` is refused, and the
+issue parks.
+
 ## Loop
 Test command: `tests/run-all.sh`
 Test files command: `python3 kit/tests/run.py {files}`
 Loop branch: loop/main
 Parallel: 2
+Builder: codex gpt-6.1-sol
+Test writer: codex gpt-6.1-sol
+Reviewer: codex gpt-6.1-sol
+Pass: codex gpt-6.1-sol
 Protected paths: `.claude/`, `.githooks/`, `.agents/guard/`, `.github/`
