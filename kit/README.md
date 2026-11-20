@@ -87,7 +87,13 @@ issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
 its step. A stop request starts no new build and lets running builds finish
 their issue. Each build process writes its log to
-`.loop/logs/build-<issue>.log`.
+`.loop/logs/build-<issue>.log`. Lines in these logs and `loop.out` start with a
+local timestamp (`YYYY-MM-DD HH:MM:SS`).
+
+`.loop/events.jsonl` records step starts and ends, durations in whole seconds,
+session agents and models, merges, parks, crashes, drains, passes and stop or
+exit reasons. Refusals carry stable rule ids, such as `test-lock`. Every record
+names the running kit version and the project folder’s base name.
 
 A park that names exactly one test path and asks whether to change it needs
 only a reply of "yes" from a collaborator: the loop adds that path to the

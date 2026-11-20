@@ -13,6 +13,7 @@ import flow
 import merge
 
 AGENTS = "## Loop\nCheck command: test ! -f BAD\nTest command: seq 1 99; { test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }; } || { echo AssertionError; false; }\nLoop branch: loop/main\nMax rounds: 2\n"
+REAL_MERGE = merge.merge
 MERGED = merge.Result(True, False, "merged as abc", "abc")
 APPROVE = {"reply": "All good.\n\nVERDICT: APPROVE\nHEAD: {HEAD}\n\n1. none"}
 CHANGES = {"reply": "VERDICT: CHANGES\nHEAD: {HEAD}\n\n1. Handle the empty case"}
@@ -43,7 +44,7 @@ class FlowTest(FakeClaudeGh):
         self.merge = patch.start()
         self.addCleanup(patch.stop)
         pr = mock.patch.object(merge, "find_pr", return_value={"number": 9})
-        pr.start()
+        self.pr = pr.start()
         self.addCleanup(pr.stop)
 
     def issue_view(self, comments=(), listed=(), body="Do the thing."):
@@ -65,6 +66,40 @@ class FlowTest(FakeClaudeGh):
                 "reviewer": [APPROVE]}
         base.update(steps)
         self.claude(base)
+
+    def test_build_events_pair_steps_and_record_provenance(self):
+        self.merge.side_effect = REAL_MERGE
+        self.pr.return_value = {"number": 9, "state": "MERGED", "mergeCommit": {"oid": "abc"}}
+        self.build_scenario(reviewer=[CHANGES, APPROVE], builder=[
+            {"files": {"app.py": "1\n"}}, {"files": {"app.py": "2\n"}}])
+        self.assertEqual(self.build().status, "merged")
+        events = [json.loads(l) for l in Path(self.work, ".loop/events.jsonl").read_text().splitlines()]
+        for e in events:
+            self.assertEqual((e["kit"], e["project"]), (common.kit_version(), "work"))
+            self.assertIn("time", e)
+        steps = [e for e in events if e["kind"] == "step"]
+        starts, ends = steps[::2], steps[1::2]
+        self.assertEqual({e["step"] for e in starts},
+                         {"test-writer", "fails-first", "builder", "tests", "review", "fix", "merge"})
+        for start, end in zip(starts, ends):
+            self.assertEqual((start["phase"], end["phase"]), ("start", "end"))
+            self.assertEqual((start["step"], start.get("round")), (end["step"], end.get("round")))
+            self.assertIsInstance(end["seconds"], int)
+            self.assertGreaterEqual(end["seconds"], 0)
+            self.assertIn(end["outcome"], ("done", "approve", "changes", "passed", "failed", "merged"))
+            if end["step"] in ("test-writer", "builder", "review", "fix"):
+                self.assertEqual((end["agent"], end["model"]), ("claude", "sonnet"))
+        self.assertEqual(self.claude_calls()[0]["env"]["LOOP_ISSUE"], "7")
+
+    def test_park_records_the_reason_and_session_end(self):
+        self.build_scenario(builder=[{"reply": "PARK: Need credentials | Supply them."}])
+        result = self.build()
+        self.assertEqual(result.status, "parked")
+        events = [json.loads(l) for l in Path(self.work, ".loop/events.jsonl").read_text().splitlines()]
+        self.assertEqual([(e["issue"], e["reason"]) for e in events if e["kind"] == "parked"],
+                         [(7, "Need credentials")])
+        self.assertEqual([e["outcome"] for e in events if e.get("step") == "builder" and e["phase"] == "end"],
+                         ["parked"])
 
     def test_happy_path(self):
         self.build_scenario()

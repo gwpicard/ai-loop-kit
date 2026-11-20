@@ -346,6 +346,9 @@ class LoopTest(Base):
         self.assertEqual(self.run_loop(), 0)
         said = [c[0][0] for c in self.say.call_args_list]
         self.assertIn("exiting: nothing built for 0 hours", said)
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
+            exits = [e for e in map(json.loads, f) if e["kind"] == "exit"]
+        self.assertEqual([e["reason"] for e in exits], ["nothing built for 0 hours"])
         self.assertTrue(said[-1].startswith("left behind: "))
 
     def test_board_body_renders_every_section(self):

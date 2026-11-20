@@ -245,6 +245,13 @@ Each comes from a failure seen in a real run.
   and a folder in both is merged. Nothing moves while a 2.0.0 loop runs or
   while a loop runs from `.loop/`, and no file is deleted; only an emptied
   `.lite/` folder is removed.
+- **Events.** `.loop/events.jsonl` records step starts and ends with durations
+  and outcomes, session agents and models, parks, crashes, merge refusals,
+  drains, passes and stop or exit reasons. Refusals name a stable rule id;
+  pass end events count sessions, confirmed and rejected red-team findings,
+  and issues created. Every record carries the running kit version and the
+  project folder’s base name.
+  Loop output and per-build log lines start with a local timestamp.
 - **Never silent.** `loop.py` runs unbuffered, prints a line before every
   long step, and gives a reason on every exit, including "nothing to build".
 - **Session isolation.** Sessions start with project-only settings and a

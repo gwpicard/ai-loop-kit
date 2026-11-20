@@ -1,5 +1,6 @@
 """Shared helpers: settings, GitHub and git calls, events, labels, trust."""
 import contextlib
+import contextvars
 import fcntl
 import json
 import os
@@ -64,6 +65,32 @@ class SettingsError(LoopError):
     pass
 
 
+def say(text):
+    for line in str(text).splitlines():
+        print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
+
+
+_ACTIVE = contextvars.ContextVar("events", default={})
+
+
+@contextlib.contextmanager
+def timed(kind, root=".", **fields):
+    key = (kind, os.path.abspath(root), fields.get("issue"), fields.get("step"))
+    active = _ACTIVE.get()
+    if key in active:
+        yield active[key]
+        return
+    end = dict(outcome="crashed")
+    token = _ACTIVE.set({**active, key: end})
+    began = time.monotonic()
+    try:
+        event(kind, root, phase="start", **fields)
+        yield end
+    finally:
+        _ACTIVE.reset(token)
+        event(kind, root, phase="end", seconds=int(time.monotonic() - began), **fields, **end)
+
+
 def sleep(seconds):
     time.sleep(seconds)
 
@@ -91,17 +118,17 @@ def wait_for_memory(patience=None):
     if level is None or level < 2:
         return
     began = last = time.time()
-    print("waiting for memory pressure to ease (level %d)" % level, flush=True)
+    say("waiting for memory pressure to ease (level %d)" % level)
     while level is not None and level >= 2:
         if patience is not None and time.time() - began >= patience:
-            print("memory pressure did not ease in %d minutes; starting anyway" % (patience // 60), flush=True)
+            say("memory pressure did not ease in %d minutes; starting anyway" % (patience // 60))
             return
         sleep(PRESSURE_POLL)
         level = pressure_level()
         if level and level >= 2 and time.time() - last >= PRESSURE_REPEAT:
             last = time.time()
-            print("still waiting for memory pressure to ease (level %d)" % level, flush=True)
-    print("memory pressure eased after %d minutes" % ((time.time() - began) // 60), flush=True)
+            say("still waiting for memory pressure to ease (level %d)" % level)
+    say("memory pressure eased after %d minutes" % ((time.time() - began) // 60))
 
 
 # Settings
@@ -382,17 +409,19 @@ def event(kind, root=".", **fields):
     """Append one JSON line to .loop/events.jsonl. A step of a build also becomes its step file, for the board."""
     folder = os.path.join(root, ".loop")
     os.makedirs(folder, exist_ok=True)
-    if kind == "step" and "issue" in fields:
+    if kind == "step" and "issue" in fields and fields.get("phase", "start") == "start":
         os.makedirs(os.path.join(folder, "builds"), exist_ok=True)
         with open(build_file(root, fields["issue"], "step"), "w") as f:
             f.write(fields["step"] + (" round %s" % fields["round"] if "round" in fields else ""))
-    record = dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind=kind, **fields)
+    record = dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind=kind, kit=kit_version(),
+                  project=os.path.basename(os.path.abspath(root)), **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
 
-def park(issue, question, recommendation):
+def park(issue, question, recommendation, project="."):
     """Hand an issue to the person: label needs-user, drop building, comment."""
+    event("parked", project, issue=issue, reason=question)
     add_label(issue, "needs-user")
     remove_label(issue, "building")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,

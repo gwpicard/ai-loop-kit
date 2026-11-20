@@ -16,16 +16,15 @@ import merge
 import pass_
 import session
 import setup
-from common import GitError, gh, git
+from common import GitError, gh, git, say
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
 HERE = os.path.dirname(os.path.abspath(__file__))
-say = lambda text: print(text, flush=True)
 
 
 def new_state():
-    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, started={}, pr=None, prs=[],
+    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, attempts={}, deferred=None, started={}, pr=None, prs=[],
                 conflict="", last="loop started", next="after the current step")
 
 
@@ -226,11 +225,15 @@ def claim(st, number):
             i["labels"] = (i["labels"] - {"ready"}) | {"building"}
 
 
-def build_attempts(project, number, replies):
+def build_attempts(project, number, replies, previous=0):
     """Build one issue, a second time after a crash, and park it after two. Return a line for the board.
     This runs in the loop when `Parallel` is 1 and in a worker process otherwise."""
     for attempt in (1, 2):
-        say("building #%d, attempt %d" % (number, attempt))
+        path = common.build_file(project, number, "attempt")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(str(previous + attempt))
+        say("building #%d, attempt %d" % (number, previous + attempt))
         try:
             r = flow.build(number, project, replies)
             if r.status != "failed":
@@ -242,6 +245,7 @@ def build_attempts(project, number, replies):
             return "#%d: GitHub problem, will try again" % number
         except Exception as e:  # a crash must not stop the loop
             reason = "%s: %s" % (type(e).__name__, e)
+        common.event("crashed", project, issue=number, reason=reason, attempt=previous + attempt)
         say("crash on #%d: %s" % (number, reason))
         if attempt == 1:
             try:
@@ -250,7 +254,7 @@ def build_attempts(project, number, replies):
             except common.GitHubError as e:  # the comment is a report: a failed post must not strand the claimed issue
                 say("the crash comment on #%d was not posted: %s" % (number, e))
     common.park(number, "The build crashed twice: " + reason,
-                "Read .loop/logs, then reply to try again or close the issue.")
+                "Read .loop/logs, then reply to try again or close the issue.", project=project)
     return "#%d parked after two crashes" % number
 
 
@@ -262,8 +266,9 @@ def build_once(project, st, number):
     except common.GitHubError as e:  # the board is a report: a failed edit must not strand the claimed issue
         say("the board was not updated for #%d: %s" % (number, e))
     st["last"] = build_attempts(project, number, st["replies"].get(number, []))
-    with contextlib.suppress(OSError):
-        os.remove(common.build_file(project, number, "step"))
+    for kind in ("step", "attempt"):
+        with contextlib.suppress(OSError):
+            os.remove(common.build_file(project, number, kind))
 
 
 def headroom():
@@ -281,8 +286,8 @@ def headroom():
     return None
 
 
-def worker_command(project, number, replies):
-    return [sys.executable, os.path.join(HERE, "worker.py"), project, str(number), json.dumps(replies)]
+def worker_command(project, number, replies, previous=0):
+    return [sys.executable, os.path.join(HERE, "worker.py"), project, str(number), json.dumps(replies), str(previous)]
 
 
 def start_builds(project, settings, st):
@@ -299,7 +304,7 @@ def start_builds(project, settings, st):
         claim(st, number)
         os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
         with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
-            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, [])), cwd=project,
+            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, []), st["attempts"].get(number, st["deaths"].get(number, 0))), cwd=project,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
         with open(common.build_file(project, number, "pid"), "w") as f:
@@ -350,19 +355,29 @@ def reap(project, st, cap=None):
         try:
             with open(common.build_file(project, number, "result")) as f:
                 st["last"] = json.load(f)["last"]
+            st["attempts"].pop(number, None)
+            st["deaths"].pop(number, None)
         except (OSError, ValueError, KeyError):
             st["deaths"][number] = st["deaths"].get(number, 0) + 1
             reason = "the build process ended with exit code %s and no result" % proc.returncode
+            try:
+                with open(common.build_file(project, number, "attempt")) as f:
+                    attempt = int(f.read())
+            except (OSError, ValueError):
+                attempt = st["deaths"][number]
+            st["attempts"][number] = attempt
+            common.event("crashed", project, issue=number, reason=reason, attempt=attempt)
             say("crash on #%d: %s" % (number, reason))
             if st["deaths"][number] == 1:
                 gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
                    input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
             else:
                 common.park(number, "The build crashed twice: " + reason,
-                            "Read .loop/logs, then reply to try again or close the issue.")
+                            "Read .loop/logs, then reply to try again or close the issue.", project=project)
                 st["last"] = "#%d parked after two crashes" % number
                 del st["deaths"][number]
-        for kind in ("step", "result", "pid"):
+                st["attempts"].pop(number, None)
+        for kind in ("step", "result", "pid", "attempt"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
 
@@ -457,6 +472,13 @@ def summary(project, settings, head, landed):
 
 
 def drain(project, settings, st):
+    with common.timed("drain", project) as end:
+        end["outcome"] = "fail"
+        failed = _drain(project, settings, st)
+        end["outcome"] = "fail" if failed else "pass"
+
+
+def _drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
     say("draining: running the Test command on " + loop)
@@ -499,6 +521,7 @@ def drain(project, settings, st):
             "--body-file", "-"], retry=False, input=body)
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
+    return failed
 
 
 OWN_LOG = re.compile(r"(build-\d+|(\d+|pass)-[a-z]+(-[a-z]+)*-\d+)\.log")  # its own logs only: 1.x left piece-* and run-* logs in .loop/logs
@@ -540,6 +563,7 @@ def run(project):
     stop = os.path.join(project, ".loop", "stop")
     if os.path.exists(stop):
         os.remove(stop)
+    reason = "interrupted"
     try:
         while not os.path.exists(stop):
             try:
@@ -570,6 +594,7 @@ def run(project):
                     drain(project, settings, st)
                     dirty = False
                 if time.time() - built >= settings["Idle hours"] * 3600:
+                    reason = "nothing built for %g hours" % settings["Idle hours"]
                     say("exiting: nothing built for %g hours" % settings["Idle hours"])
                     break
                 st["next"] = time.strftime("%H:%M", time.localtime(time.time() + POLL))
@@ -579,6 +604,7 @@ def run(project):
             for _ in range(POLL // 5):
                 os.path.exists(stop) or time.sleep(5)
         else:
+            reason = "stop requested"
             say("exiting: stop requested")
         while st["building"]:  # running builds finish their current issue
             say("waiting for %d running builds" % len(st["building"]))
@@ -587,6 +613,7 @@ def run(project):
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
+        common.event("exit", project, reason=reason)
         for _, proc in st["building"].values():  # only reached with builds left after an error or an interrupt
             if proc and proc.poll() is None:
                 with contextlib.suppress(OSError):
@@ -606,6 +633,7 @@ def main(argv):
     if cmd == "stop":
         os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
         open(os.path.join(project, ".loop", "stop"), "w").close()
+        common.event("stop", project, reason="stop requested")
         return say("stop requested; the loop ends after its current step") or 0
     if cmd in ("run", "check-version"):
         old = common.kit_version_refusal(project)

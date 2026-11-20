@@ -57,6 +57,7 @@ class GuardCase(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("refused: ", r.stderr)
         self.assertIn("next: ", r.stderr)
+        self.assertRegex(r.stderr, r"(?m)^rule: [a-z]+(?:-[a-z]+)*$")
         self.assertIn(text, r.stderr)
 
     def allowed(self, r):

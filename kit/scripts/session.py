@@ -181,8 +181,8 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
             problem = "\n".join(str(e.get("message") or "") for e in events if e.get("type") == "error") or err
             if code and LIMIT.search(problem + text):
                 wait = _wait_seconds(problem + text)
-                print("%s session hit the Codex usage limit; waiting %d minutes, "
-                      "then resuming" % (role, wait // 60), flush=True)
+                common.say("%s session hit the Codex usage limit; waiting %d minutes, "
+                      "then resuming" % (role, wait // 60))
                 common.sleep(wait)
                 resume = thread or resume
                 continue
@@ -202,7 +202,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
     env = dict(os.environ, LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
                LOOP_PROTECTED=",".join(settings["Protected paths"]),
                LOOP_LOOP_BRANCH=settings["Loop branch"], LOOP_DEFAULT_BRANCH=common.default_branch(project),
-               LOOP_PROJECT=project, LOOP_START=start)
+               LOOP_PROJECT=project, LOOP_ISSUE=str(issue), LOOP_START=start)
 
     logs = os.path.join(project, ".loop", "logs")
     os.makedirs(logs, exist_ok=True)
@@ -233,8 +233,8 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
         text = str(data.get("result") or "") if data else out + err
         if LIMIT.search(text) and (not data or data.get("is_error") or code):
             wait = _wait_seconds(text)
-            print("%s session hit the Claude usage limit; waiting %d minutes, "
-                  "then resuming" % (role, wait // 60), flush=True)
+            common.say("%s session hit the Claude usage limit; waiting %d minutes, "
+                  "then resuming" % (role, wait // 60))
             common.sleep(wait)
             resume = (data or {}).get("session_id") or resume
             continue

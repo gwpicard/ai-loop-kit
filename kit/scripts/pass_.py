@@ -108,11 +108,16 @@ def run_pass(project, settings, since_ref, rounds=0):
     # run the pass on origin/<loop branch>; return (report dict, Markdown report)
     project = os.path.abspath(project)
     r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0, rounds=rounds, capped="")
-    try:
-        with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
-            _pass(project, settings, since_ref, tree, r)
-    except Exception as e:  # the pass never raises; it reports
-        r["errors"].append("pass stopped: %s" % e)
+    with common.timed("pass", project) as end:
+        try:
+            with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
+                _pass(project, settings, since_ref, tree, r)
+        except Exception as e:  # the pass never raises; it reports
+            r["errors"].append("pass stopped: %s" % e)
+        end.update(outcome="failed" if r["errors"] else "done", sessions=r["sessions"],
+                   confirmed=len(r["confirmed"]),
+                   rejected=len(r["rejected"]),
+                   issues=sum("finding(s) added" not in i for i in r["issues"]))
     return r, markdown(r)
 
 

@@ -82,7 +82,10 @@ class MergeTest(FakeGh):
         ])
 
     def run_merge(self, sha, text=None):
-        return merge.merge(1, "issue/1", text or verdict(sha), self.work)
+        result = merge.merge(1, "issue/1", text or verdict(sha), self.work)
+        if not result.ok:
+            self.assertRegex(result.rule, r"^[a-z]+(?:-[a-z]+)*$")
+        return result
 
     def names(self):
         return [" ".join(c[:2]) for c in self.calls()]
@@ -429,6 +432,18 @@ class MergeTest(FakeGh):
         self.assertIsNone(merge.run_tests(self.work, sha, "echo a; echo b; test -f prepared",
                                           prepare="touch prepared", tails=tails))
         self.assertEqual(tails, ["Test command passed: b"])
+
+    def test_test_lock_refusal_records_rule_and_merge_end(self):
+        sha = self.branch({"tests/test_old.py": "changed\n"})
+        self.rules(sha)
+        result = self.run_merge(sha)
+        self.assertEqual(result.rule, "test-lock")
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
+            events = [json.loads(l) for l in f]
+        self.assertEqual([(e["rule"], e["issue"]) for e in events if e["kind"] == "rule"], [("test-lock", 1)])
+        self.assertEqual((events[-1]["phase"], events[-1]["outcome"], events[-1]["rule"]),
+                         ("end", "refused", "test-lock"))
+        self.assertIsInstance(events[-1]["seconds"], int)
 
     def test_unexpected_error_is_a_refusal(self):
         sha = self.good()

@@ -130,6 +130,21 @@ def land(issue, branch, review, project, tree, settings):
     """Merge into the loop branch, one merge at a time. Under the merge lock: catch the issue branch up
     with the loop branch, then merge.merge. A clean catch-up is pushed and the verdict's HEAD follows it;
     conflicts are left open in the tree. A refusal while the loop branch has moved is tried once more."""
+    common.say("#%s: merging" % issue)
+    with common.timed("step", project, issue=issue, step="merge") as end:
+        landed = _land(issue, branch, review, project, tree, settings)
+        end.clear()
+        if landed.conflicts:
+            end["outcome"] = "conflict"
+        else:
+            result = landed.result
+            end["outcome"] = "merged" if result.ok else "refused"
+            if not result.ok:
+                end.update(rule=result.rule, reason=result.reason)
+        return landed
+
+
+def _land(issue, branch, review, project, tree, settings):
     loop = settings["Loop branch"]
     for attempt in (1, 2):
         with common.merge_lock(project):
@@ -204,7 +219,7 @@ def build(issue, project, replies=()):
                     raise
         return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
-        common.park(issue, *p.args)
+        common.park(issue, *p.args, project=project)
         return Result("parked", p.args[0])
     except common.LoopError as e:
         return Result("failed", str(e))
@@ -222,26 +237,44 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     # paths the issue lets the builder change, except those the stops list covers
     allowed = [p for p in sorted(merge.allowed_paths(info.get("body") or "")) if not merge.stop_reason(p, settings["Protected paths"])]
 
-    def ask(role, who, report=None, resume=None, extra="", locked=()):
+    def ask(role, who, report=None, resume=None, extra="", locked=(), step=None, rnd=None):
         if role == "builder":
             locked = [p for p in locked if p not in allowed]
         prompt = (extra.strip() if resume else
                   prompt_for(role, issue, info, tree, settings, replies, report) + extra)
-        text, sid = session.run(role, prompt, tree, who[1], project, issue,
-                                agent=who[0], resume=resume, locked=locked, start=start,
-                                allowed=allowed if role == "builder" else ())
-        stop = re.search(r"^[\s*`]*PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
-        if stop:
-            raise Parked(stop.group(1).strip("*` "),
-                         (stop.group(2) or "Decide, then reply here.").strip("*` "))
-        return text, sid
+        fields = dict(issue=issue, step=step or ("review" if role == "reviewer" else role),
+                      agent=who[0], model=who[1])
+        if rnd is not None:
+            fields["round"] = rnd
+        common.say("#%s: %s (%s %s)" % (issue, fields["step"], who[0], who[1]))
+        with common.timed("step", project, **fields) as end:
+            text, sid = session.run(role, prompt, tree, who[1], project, issue,
+                                    agent=who[0], resume=resume, locked=locked, start=start,
+                                    allowed=allowed if role == "builder" else ())
+            stop = re.search(r"^[\s*`]*PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
+            if stop:
+                end["outcome"] = "parked"
+                raise Parked(stop.group(1).strip("*` "),
+                             (stop.group(2) or "Decide, then reply here.").strip("*` "))
+            end["outcome"] = ((merge.parse_verdict(text)[0] or "changes").lower()
+                              if role == "reviewer" else "done")
+            return text, sid
+
+    def tests(step, sha, command, tail, rnd=None, **kwargs):
+        fields = dict(issue=issue, step=step)
+        if rnd is not None:
+            fields["round"] = rnd
+        common.say("#%s: %s" % (issue, step))
+        with common.timed("step", project, **fields) as end:
+            failure = merge.run_tests(project, sha, command, tail, **kwargs)
+            end["outcome"] = "failed" if failure else "passed"
+            return failure
 
     posted = max([int(n) for c in info.get("comments", []) for n in
                   re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
     locked = merge.locked_paths(info.get("comments", []))
     if conflicts:
-        common.event("step", project, issue=issue, step="conflicts")
-        ask("builder", settings["Builder"], locked=locked, extra=(
+        ask("builder", settings["Builder"], step="conflicts", locked=locked, extra=(
             "\n\nFirst task: the branch is in the middle of merging %s and conflicts in: %s. Resolve the "
             "conflicts keeping both intents, run the Test command, then commit the merge. Do not run git merge."
             % (settings["Loop branch"], ", ".join(conflicts))))
@@ -249,7 +282,6 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         if marked or git(["rev-parse", "-q", "--verify", "MERGE_HEAD"], cwd=tree, check=False):
             raise Parked("The issue branch conflicts with %s in: %s, and the builder did not finish the merge."
                          % (settings["Loop branch"], ", ".join(conflicts)), "Reply with how to resolve it.")
-    common.event("step", project, issue=issue, step="test-writer")
     rerun = git(["branch", "-r", "--list", "origin/" + branch], cwd=project) and locked
     if not rerun:
         text, writer = ask("test-writer", settings["Test writer"])
@@ -258,7 +290,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_file(p)
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
-            elif not (failed := merge.run_tests(project, start, common.files_command(settings, locked), 60,
+            elif not (failed := tests("fails-first", start, common.files_command(settings, locked), 60, rnd=attempt,
                                                 overlay=(tree, locked), prepare=settings["Prepare command"],
                                                 kinds=(kinds := []))):
                 why = "Your tests pass before any code exists. Make them fail for the right reason."
@@ -269,19 +301,17 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             if attempt == 2:
                 raise Parked("The tests are not usable: " + why[0].lower() + why[1:],
                              "Reply with what the tests should check, or close the issue.")
-            text, _ = ask("test-writer", settings["Test writer"], resume=writer, locked=locked,
+            text, _ = ask("test-writer", settings["Test writer"], rnd=attempt + 1, resume=writer, locked=locked,
                           extra=why + " Commit, and end with the TESTS: block again.")
             locked = parse_block(text)
         git(["push", "origin", branch], cwd=tree)
         post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
-    common.event("step", project, issue=issue, step="builder")
     report, sid = ask("builder", settings["Builder"], locked=locked)
     feedback = ""
     for rnd in range(1, settings["Max rounds"] + 1):
         if feedback:
-            common.event("step", project, issue=issue, step="fix", round=rnd)
-            report, sid = ask("builder", settings["Builder"], resume=sid,
+            report, sid = ask("builder", settings["Builder"], step="fix", rnd=rnd, resume=sid,
                               extra="\n\nFix these, test the files you touch, commit. The Stop hook runs the "
                               "full commands when you finish:\n" + feedback, locked=locked)
         head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
@@ -289,12 +319,11 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         if passed[0] == head:
             tails = passed[1]
         else:
-            feedback = merge.run_tests(project, head, settings["Test command"], 80, check=settings["Check command"],
+            feedback = tests("tests", head, settings["Test command"], 80, rnd=rnd, check=settings["Check command"],
                                        prepare=settings["Prepare command"], tails=tails)
             if feedback:
                 continue
-        common.event("step", project, issue=issue, step="review", round=rnd)
-        review, _ = ask("reviewer", settings["Reviewer"], report=report, locked=locked,
+        review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
                         extra="\nLatest test result: passed on this commit.\n" + "\n".join(tails) + "\n")
         verdict, _ = merge.parse_verdict(review)
         try:  # the person can follow the fix rounds; a failure to post never stops the build

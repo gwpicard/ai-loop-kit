@@ -49,24 +49,24 @@ REDIRECT = re.compile(r"\d*>>?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|
 
 
 class Refuse(Exception):
-    def __init__(self, reason, step):
+    def __init__(self, rule, reason, step):
         super().__init__(reason)
-        self.reason, self.step = reason, step
+        self.rule, self.reason, self.step = rule, reason, step
 
 
 def check_everyone(command):
     if DELETE.search(command):
-        raise Refuse("a recursive delete is not allowed",
+        raise Refuse("recursive-delete", "a recursive delete is not allowed",
                      "delete named files one at a time, or report it")
     branches = "|".join(["main", "master"] + [
         re.escape(b) for b in [os.environ.get("LOOP_DEFAULT_BRANCH", "")] if b])
     protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\")]|$)" % branches)
     for m in PUSH.finditer(command):
         if FORCE.search(m.group(1)):
-            raise Refuse("a force, mirror or all-branch push is not allowed",
+            raise Refuse("force-push", "a force, mirror or all-branch push is not allowed",
                          "push a normal fast-forward of your own branch")
         if protected.search(m.group(1)):
-            raise Refuse("a push to the default branch is not allowed",
+            raise Refuse("default-branch", "a push to the default branch is not allowed",
                          "push a feature branch and open a pull request")
 
 
@@ -78,7 +78,7 @@ def check_path(path, role, cwd):
         if any(full == t or full.startswith(t + os.sep) for t in {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}):
             return
     if role == "reviewer" or (role == "pass" and not rel.startswith(".loop/pass/")):
-        raise Refuse("the %s edits nothing%s" % (role, " outside .loop/pass/" if role == "pass" else ""),
+        raise Refuse("role-write", "the %s edits nothing%s" % (role, " outside .loop/pass/" if role == "pass" else ""),
                      "describe the change in the review instead")
     allowed = {os.path.relpath(os.path.realpath(os.path.join(top, a.strip())), top)
                for a in os.environ.get("LOOP_ALLOWED", "").splitlines() if a.strip()}
@@ -88,16 +88,16 @@ def check_path(path, role, cwd):
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
         if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
-            raise Refuse("%s is a locked test file" % rel,
+            raise Refuse("test-lock", "%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
     if merge.is_test_file(rel) and common.git(["ls-files", "--", full], cwd, check=False):
-        raise Refuse("%s is an existing test file" % rel,
+        raise Refuse("test-lock", "%s is an existing test file" % rel,
                      "leave existing tests alone; add a new test file if needed")
 
 
 def check_role_command(command, role, cwd):
     if ROLE_GIT.search(command) or GH.search(command):
-        raise Refuse("git push, merge, branch changes and gh are not allowed in a %s session" % role,
+        raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
     for m in REDIRECT.finditer(QUOTED.sub(lambda q: q.group(0).replace(">", "_"), command)):  # a quoted > is text, but a quoted target stays
         target = (m.group(1) or m.group(2)).strip("'\"")
@@ -109,7 +109,7 @@ PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): 
 
 
 def unparsed(what):
-    return Refuse("the guard cannot parse %s" % what, "make the call in a plain form, or report it")
+    return Refuse("guard-input", "the guard cannot parse %s" % what, "make the call in a plain form, or report it")
 
 
 def check_codex(data, role, cwd):
@@ -132,7 +132,7 @@ def check_codex(data, role, cwd):
     if not paths:
         raise unparsed("this patch")
     if SECRETS.search(text):
-        raise Refuse("the content holds a secret shape", "read the secret from the environment instead")
+        raise Refuse("secret", "the content holds a secret shape", "read the secret from the environment instead")
     for path in paths if role else ():
         check_path(path, role, cwd)
 
@@ -153,10 +153,27 @@ def check(data):
     texts = [inp.get("content"), inp.get("new_string"), inp.get("new_source")]
     texts += [e.get("new_string") for e in inp.get("edits") or []]
     if any(isinstance(t, str) and SECRETS.search(t) for t in texts):
-        raise Refuse("the content holds a secret shape",
+        raise Refuse("secret", "the content holds a secret shape",
                      "read the secret from the environment instead")
     if role:
         check_path(inp.get("file_path") or inp.get("notebook_path") or "", role, cwd)
+
+
+def refuse(r):
+    project = os.environ.get("LOOP_PROJECT")
+    if project:
+        try:
+            fields = dict(rule=r.rule, reason=r.reason)
+            if os.environ.get("LOOP_ROLE"):
+                fields["role"] = os.environ["LOOP_ROLE"]
+            if os.environ.get("LOOP_ISSUE"):
+                issue = os.environ["LOOP_ISSUE"]
+                fields["issue"] = int(issue) if issue.isdigit() else issue
+            common.event("rule", project, **fields)
+        except Exception:
+            pass
+    sys.stderr.write("refused: %s\nrule: %s\nnext: %s\n" % (r.reason, r.rule, r.step))
+    return 2
 
 
 def main():
@@ -167,12 +184,11 @@ def main():
         elif os.environ.get("LOOP_AGENT") == "codex":
             raise unparsed("this payload")
     except Refuse as r:
-        sys.stderr.write("refused: %s\nnext: %s\n" % (r.reason, r.step))
-        return 2
+        return refuse(r)
     except Exception as e:
         if os.environ.get("LOOP_AGENT") == "codex":
-            sys.stderr.write("refused: the guard failed on this call: %s\nnext: make the call in a plain form, or report it\n" % e)
-            return 2
+            return refuse(Refuse("guard-error", "the guard failed on this call: %s" % e,
+                                 "make the call in a plain form, or report it"))
         sys.stderr.write("guard: internal error, allowing the call: %s\n" % e)
         return 0
     return 0

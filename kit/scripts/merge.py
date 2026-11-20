@@ -11,7 +11,7 @@ import subprocess
 import common
 from common import gh, git
 
-Result = collections.namedtuple("Result", "ok park reason commit")
+Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
 TEST_TIMEOUT = 1800
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
@@ -25,8 +25,8 @@ ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled out
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
 
 
-def _refuse(reason, park=False):
-    return Result(False, park, reason, None)
+def _refuse(rule, reason, park=False):
+    return Result(False, park, reason, None, rule)
 
 
 def parse_verdict(text):
@@ -185,10 +185,16 @@ def view(kind, number, field):
 
 
 def merge(issue, branch, verdict_text, project="."):
-    try:
-        return _merge(issue, branch, verdict_text, project)
-    except Exception as e:  # fail closed: a refusal, never a traceback
-        return _refuse(str(e) or type(e).__name__)
+    with common.timed("step", project, issue=issue, step="merge") as end:
+        try:
+            result = _merge(issue, branch, verdict_text, project)
+        except Exception as e:  # fail closed: a refusal, never a traceback
+            result = _refuse("merge-error", str(e) or type(e).__name__)
+        end["outcome"] = "merged" if result.ok else "refused"
+        if not result.ok:
+            end.update(rule=result.rule, reason=result.reason)
+            common.event("rule", project, issue=issue, role="merge", rule=result.rule, reason=result.reason)
+        return result
 
 
 def _merge(issue, branch, verdict_text, project):
@@ -196,20 +202,23 @@ def _merge(issue, branch, verdict_text, project):
     loop = settings["Loop branch"]
     verdict, head = parse_verdict(verdict_text)
     if verdict != "APPROVE":
-        return _refuse("the review verdict is %s, not APPROVE" % (verdict or "missing"))
+        return _refuse("review-verdict", "the review verdict is %s, not APPROVE" % (verdict or "missing"))
     git(["fetch", "--no-prune", "origin"], cwd=project)
     sha = git(["rev-parse", "--verify", "origin/" + branch], cwd=project)
     if not head or not sha.startswith(head):
-        return _refuse("the branch head %s is not the reviewed commit %s"
+        return _refuse("review-head", "the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
     if failure := run_tests(project, sha, settings["Test command"],
                             check=settings["Check command"], prepare=settings["Prepare command"]):
-        return _refuse(failure)
+        return _refuse("test-command", failure)
     info = view("issue", issue, "body,comments")
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
                       allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", [])),
                       locked_baseline(info.get("comments", []))):
-        return _refuse(stop, park=True)
+        return _refuse("test-lock" if stop.startswith(("existing test", "locked test")) else
+                       "protected-path" if stop.startswith("protected path") else
+                       "workflow" if stop.startswith("workflow file") else
+                       "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):
@@ -217,7 +226,7 @@ def _merge(issue, branch, verdict_text, project):
                 "--title", "Issue %s" % issue, "--body", "Built by the loop."], retry=False)
         pr = find_pr(branch, loop, sha)
         if pr is None:
-            return _refuse("the pull request could not be created")
+            return _refuse("pull-request", "the pull request could not be created")
     if pr["state"] == "OPEN":
         number, err = pr["number"], None
         comments = view("pr", number, "comments").get("comments", [])
@@ -232,14 +241,14 @@ def _merge(issue, branch, verdict_text, project):
             err = e
         pr = find_pr(branch, loop, sha)
         if pr is None or pr["state"] != "MERGED":
-            return _refuse(str(err or "the pull request is not merged"))
+            return _refuse("merge-refused", str(err or "the pull request is not merged"))
     commit = (pr.get("mergeCommit") or {}).get("oid") or "unknown"
     try:
         gh(["issue", "close", str(issue), "--comment",
             "Merged into %s as %s.\n\n%s" % (loop, commit, common.MARKER)], retry=False)
     except common.GitHubError:
         if view("issue", issue, "state").get("state") != "CLOSED":
-            return _refuse("merged as %s but the issue did not close" % commit)
+            return _refuse("issue-close", "merged as %s but the issue did not close" % commit)
     common.remove_label(issue, "building")
     common.event("merged", project, issue=issue, branch=branch, commit=commit)
     return Result(True, False, "merged as " + commit, commit)

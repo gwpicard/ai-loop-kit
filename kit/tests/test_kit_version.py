@@ -63,7 +63,7 @@ class KitVersionTest(FakeGh):
         before = tree(self.work)
         r = self.cli(KIT, "check-version")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(r.stdout.splitlines(), self.refusal(REAL, "99.0.0"))
+        self.assertEqual([l[20:] for l in r.stdout.splitlines()], self.refusal(REAL, "99.0.0"))
         self.assertEqual(tree(self.work), before)
         self.assertEqual(recorded(self.work), "99.0.0")
 
@@ -86,7 +86,7 @@ class KitVersionTest(FakeGh):
         record(self.work, "2.10.0")
         r = self.cli(plugin_copy(self.tmp, "2.9.0"), "check-version")
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stdout.splitlines(), self.refusal("2.9.0", "2.10.0"))
+        self.assertEqual([l[20:] for l in r.stdout.splitlines()], self.refusal("2.9.0", "2.10.0"))
 
     def test_loop_run_refuses_an_older_kit_and_writes_nothing(self):
         self.project()
@@ -94,7 +94,7 @@ class KitVersionTest(FakeGh):
         before = tree(self.work)
         r = self.cli(KIT, "run")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(r.stdout.splitlines(), self.refusal(REAL, "99.0.0"))
+        self.assertEqual([l[20:] for l in r.stdout.splitlines()], self.refusal(REAL, "99.0.0"))
         self.assertEqual(tree(self.work), before)
         self.assertEqual(self.calls(), [])
 
