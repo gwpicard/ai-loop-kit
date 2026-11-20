@@ -152,9 +152,9 @@ commit, and otherwise runs the same targeted set in a fresh checkout. Without
 a Test files command, these steps use the full Test command.
 
 The reviewer is given that result and runs only targeted checks. With a Test
-files command set, the guard refuses the full Test command in builder and
-reviewer sessions. There is no per-issue simplify step: the end-of-loop pass
-simplifies the whole batch once.
+files command set, the guard refuses the full Test command in builder,
+test-writer, reviewer and pass sessions. There is no per-issue simplify step:
+the end-of-loop pass simplifies the whole batch once.
 
 ## Set up with the script
 

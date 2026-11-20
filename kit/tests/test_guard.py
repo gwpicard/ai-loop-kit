@@ -175,7 +175,7 @@ class TestRole(GuardCase):
                                        locked=["tests/test_added.py"], **kw), "locked test")
 
     def test_full_test_segments_are_refused_only_with_a_test_files_command(self):
-        for role in ("builder", "reviewer"):
+        for role in ("builder", "reviewer", "test-writer", "pass"):
             for command in ("make test", "  make test  ", "true && make test", "false || make test",
                             "make test; true", "make test | cat", "true\nmake test"):
                 with self.subTest(role=role, command=command):
@@ -183,8 +183,7 @@ class TestRole(GuardCase):
                                  "make unit {files}")
             self.allowed(self.bash("make test", role=role, test="make test"))
             self.allowed(self.bash("make test-unit", role=role, test="make test", files="make unit {files}"))
-        for role in (None, "test-writer", "pass"):
-            self.allowed(self.bash("make test", role=role, test="make test", files="make unit {files}"))
+        self.allowed(self.bash("make test", role=None, test="make test", files="make unit {files}"))
 
     def test_push_merge_gh_refused(self):
         for role in ["builder", "test-writer", "reviewer"]:
