@@ -40,8 +40,8 @@ default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
-`Check command`, `Smoke command`, `Parallel` (default 1) and `Defect rounds`
-(default 2). `Codex writable roots` lists further folders, comma-separated
+`Check command`, `Smoke command` and `Parallel` (default 1).
+`Codex writable roots` lists further folders, comma-separated
 like `Protected paths`, that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
@@ -153,9 +153,8 @@ Use the loop skill, or run from the project root
 
 The pinned `Factory` issue is the board, in three sections: `Building now`;
 `Needs you`, with parked issues, unbuilt dependencies, the open pull request
-into the default branch, a conflict and the notice that the defect rounds
-limit was reached; and `Progress`, one line for each open milestone that
-has an open `ready`, `building` or `needs-user` issue, with its closed and
+into the default branch and a conflict; and `Progress`, one line for each
+open milestone that has an open `ready`, `building` or `needs-user` issue, with its closed and
 total issue counts and a link to its milestone page. Read the full
 progress on GitHub's milestones page. To answer a parked issue, reply on it;
 the loop queues it again and gives your reply to the next build.
@@ -204,17 +203,8 @@ blocks this best-effort.
   one such issue is open, later passes add to it as a comment, as for
   `Pass findings`.
 
-A confirmed defect becomes an issue with a `## Failing test` section. It is
-labelled `ready` only if a paragraph under `## Standing approvals` in
-`PLAN.md` says positively that a confirmed defect may be queued as ready,
-with no negation such as not, never, no or unless; anything unclear fails
-closed to `inbox`.
-
-`Defect rounds` caps how often this happens: a round is one pass that queued
-at least one confirmed defect as `ready`, counted since the last merge of an
-issue the person queued (the loop's own issues carry its marker in the body).
-At the limit, confirmed defects are filed as `inbox`, still with their
-failing tests, and the report and the board say so.
+A confirmed defect becomes an `inbox` issue with a `## Failing test`
+section. Shape and approve it like any other issue.
 
 A finding that touches an open `inbox` or `needs-user` decision is held,
 never queued. Every other finding, guardrail and lesson goes into one `inbox`

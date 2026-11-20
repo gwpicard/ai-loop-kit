@@ -79,7 +79,7 @@ class BoardActivityTest(unittest.TestCase):
                 mock.patch.object(loop, "decisions", return_value=""), \
                 mock.patch.object(loop, "gh", return_value="[]"):
             loop._drain(self.project, {"Loop branch": "loop/main", "Test command": "true",
-                        "Check command": "", "Prepare command": "", "Defect rounds": 2}, self.st)
+                        "Check command": "", "Prepare command": ""}, self.st)
 
     def test_next_check_has_a_date(self):
         Path(self.project, "AGENTS.md").write_text("## Loop\nTest command: true\nIdle hours: 12\n")

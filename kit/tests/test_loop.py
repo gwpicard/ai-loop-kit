@@ -482,7 +482,7 @@ class GitTest(Base):
         self.world([])
         self.tests = mock.patch.object(merge, "run_tests", return_value=None).start()
         return mock.patch.object(pass_, "run_pass", return_value=(
-            {"confirmed": [1], "issues": ["#5 a (inbox)", "#6 b (ready)"]}, "## End-of-loop pass (1 sessions)\n"))
+            {"confirmed": [1], "issues": ["#5 a (inbox)", "#6 b (inbox)"]}, "## End-of-loop pass (1 sessions)\n"))
 
     def test_drain_runs_the_pass_only_after_new_merges_and_reports_in_the_body(self):
         with self.pass_world() as run_pass:
@@ -499,37 +499,21 @@ class GitTest(Base):
             self.assertEqual(run_pass.call_count, 2)
             self.assertRegex(run_pass.call_args[0][2], "^[0-9a-f]{40}$")
 
-    def test_the_defect_round_count_survives_between_passes_and_reaches_the_pass(self):
+    def test_an_old_pass_file_ignores_rounds_and_keeps_its_report(self):
         with self.pass_world() as run_pass:
-            run_pass.return_value = ({"rounds": 1, "issues": []}, "## End-of-loop pass\n")
             self.run_loop()
-            self.assertEqual(run_pass.call_args[1]["rounds"], 0)
-            self.commit("loop/main", "z.txt", "z\n", "Issue 3")
-            self.run_loop()
-            self.assertEqual(run_pass.call_args[1]["rounds"], 1)
-
-    def test_a_corrupt_pass_file_counts_as_capped_and_a_missing_one_as_zero(self):
-        with self.pass_world() as run_pass:
-            run_pass.return_value = ({"rounds": 1, "issues": []}, "## End-of-loop pass\n")
-            self.run_loop()
-            self.assertEqual(run_pass.call_args[1]["rounds"], 0)  # no file yet
-            for text in ("{not json", "[]", '{"rounds": "two"}'):
-                with open(os.path.join(self.work, ".loop", "pass.json"), "w") as f:
-                    f.write(text)
-                self.commit("loop/main", "z%d.txt" % len(text), "z\n", "Issue 3")
+            path = os.path.join(self.work, ".loop", "pass.json")
+            with open(path) as f:
+                saved = json.load(f)
+            self.assertEqual(set(saved), {"head", "time", "text", "defects", "inbox"})
+            for rounds in (2, "obsolete"):
+                with open(path, "w") as f:
+                    json.dump(dict(saved, rounds=rounds), f)
+                self.world([], prs=[{"number": 9, "url": "https://example/pull/9"}])
                 self.run_loop()
-                self.assertIsNone(run_pass.call_args[1]["rounds"], text)
-                self.assertIsInstance(json.load(open(os.path.join(self.work, ".loop", "pass.json")))["rounds"], int)
-
-    def test_board_says_when_the_defect_rounds_limit_was_reached(self):
-        with self.pass_world() as run_pass:
-            run_pass.return_value = ({"rounds": 2, "capped": True, "confirmed": [1], "issues": []}, "## End-of-loop pass\n")
-            self.run_loop()
-        st = loop.new_state()
-        st["pr"] = "https://example/pull/9"
-        loop.snapshot(st)
-        loop.write_board(self.work, st)
-        self.assertIn("defect rounds limit reached, defects filed as inbox", self.board_inputs()[-1])
+                self.assertEqual(run_pass.call_count, 1)
+                body = [i for c, i in self.inputs if c.startswith("pr edit 9")][-1]
+                self.assertIn(saved["text"], body)
 
     def test_a_pass_that_raises_does_not_block_the_pull_request(self):
         with self.pass_world() as run_pass:

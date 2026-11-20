@@ -145,7 +145,7 @@ def setup(project="."):
     if failure:
         say("log: %s (the checkout ran in %s, removed afterwards)" % (log, where[0]))
         say("hint: a test that passes in the project folder but fails here usually depends on where the checkout lives or on files git does not track")
-    say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Test files command", "Prepare command", "Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set") + "; Session minutes: %g; Parallel: %d; Defect rounds: %d" % (settings["Session minutes"], settings["Parallel"], settings["Defect rounds"]))
+    say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Test files command", "Prepare command", "Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set") + "; Session minutes: %g; Parallel: %d" % (settings["Session minutes"], settings["Parallel"]))
     say("advice: protect %s on GitHub (Settings, Branches) so only a pull request changes it" % base)
     say("summary: %d change(s), preflight %s" % (len(changes), "failed" if failure else "passed"))
     return 1 if failure else 0

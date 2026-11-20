@@ -103,8 +103,7 @@ every step. It shows:
   the drain or end-of-loop pass is running;
 - what needs you: parked issues, each with its question and the reply to
   type, the dependencies the loop will never build, the open final pull
-  request, a conflict and the notice that the defect rounds limit was
-  reached;
+  request and a conflict;
 - progress: one line for each open milestone that has a `ready`,
   `building` or `needs-user` issue, with its closed and total issue counts
   as GitHub reports them for the whole milestone, and a link to its
@@ -433,19 +432,17 @@ refusal costs no test run.
   `Smoke command` (the real artefact, run by the pass only) are optional.
 - After each merge the issue and the pull request get a `## Built` note, and
   the reviewer's follow-ups become `inbox` issues.
-- `PLAN.md` has `## Lessons`, `## Standing approvals` and `## Surfaces`;
-  issues may carry a `## Failing test`.
+- `PLAN.md` has `## Lessons` and `## Surfaces`; issues may carry a
+  `## Failing test`.
 - After new merges the drain runs the end-of-loop pass (smoke, drift, red
   team with failing tests, rubric, lessons, simplify and reconcile), puts its
   report in the pull request body.
   The README describes it in detail.
 
-### Limits on defect rounds and paths
+### Pass findings and paths
 
-- `Defect rounds` (default 2) caps the passes that queue confirmed defects as
-  `ready` between merges of issues the person queued. Past it, defects go to
-  `inbox` with their failing tests. The count is in `.loop/pass.json`; an
-  unreadable file counts as the limit reached and a missing one as zero.
+- Confirmed defects are filed as `inbox` issues with their failing tests,
+  then shaped and approved like any other issue.
 - A red-team test must also pass the Check command with the file in place.
   The test writer may format a given failing test (layout only) so the locked
   file never fails the Check command. The fails-first run after that commit

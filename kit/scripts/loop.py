@@ -44,18 +44,16 @@ def take_lock(project):
 
 
 def last_pass(project):
-    """The last pass report; {} when there is none, {"unreadable": True} when the file is there but cannot be read."""
+    """The last pass report, or {} when missing or unreadable."""
     path = os.path.join(project, ".loop", "pass.json")
-    if not os.path.exists(path):
-        return {}
     try:
         with open(path) as f:
             last = json.load(f)
-        if isinstance(last, dict) and isinstance(last.get("rounds", 0), int) and not isinstance(last.get("rounds"), bool):
+        if isinstance(last, dict):
             return last
     except (OSError, ValueError):
         pass
-    return {"unreadable": True}
+    return {}
 
 
 def board_body(sections, last, next_check):
@@ -113,7 +111,7 @@ def write_board(project, st, doing=None):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
     row = lambda i, text: "- #%d %s: %s" % (i["number"], i["title"], text)
-    b, p = st["building"], last_pass(project)
+    b = st["building"]
     _, ended, recorded = status.activity(status.read_events(project))
     doing = doing or recorded
     parked = {i["number"] for i in of("needs-user")}
@@ -140,8 +138,7 @@ def write_board(project, st, doing=None):
         ("Building now", building),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
                        for i in of("needs-user")] + blocked_rows(st) + ([st["pr"]] if st["pr"] else [])
-                      + ([st["conflict"]] if st["conflict"] else [])
-                      + (["Notice: defect rounds limit reached, defects filed as inbox issues."] if p.get("capped") else [])),
+                      + ([st["conflict"]] if st["conflict"] else [])),
         ("Progress", progress_rows(st))], last, st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
@@ -517,14 +514,11 @@ def _drain(project, settings, st):
             st["last"] = "running the end-of-loop pass"
             write_board(project, st, doing="running the end-of-loop pass")
         try:
-            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base,
-                                          rounds=None if last.get("unreadable") else last.get("rounds", 0))
+            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
         except Exception as e:  # the pass never blocks the drain or the pull request
             report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
         last = dict(head=last.get("head") if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
-                    defects=len(report.get("confirmed", [])), rounds=settings["Defect rounds"] if report.get("rounds", 0) is None else report.get(
-                        "rounds", settings["Defect rounds"] if last.get("unreadable") else last.get("rounds", 0)),
-                    capped=bool(report.get("capped")),
+                    defects=len(report.get("confirmed", [])),
                     inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
         with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
             json.dump(last, f)
