@@ -97,6 +97,9 @@ An agent that needs one of these ends its reply with
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
+- The test-lock hook refuses edits to existing tests even when the issue allows them; write judging tests in a new file when instructed to continue.
+- The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
+- Unset an inherited `LOOP_PROJECT` when checking disk tests: it redirects their disk checks and events away from the temporary project in the fixture.
 
 ## Standing approvals
 
@@ -113,6 +116,8 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Settings in JSON: judging tests live in a new file because the test-lock hook refused an existing test edit and the follow-up instructed the writer to continue with new tests. Fixture conversion stays with the builder. Live reload uses the run command handler with fake workers and bounded waits; setup and the legacy refusal use subprocess commands.
 
 - Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
 - Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
