@@ -21,8 +21,10 @@ class Parked(Exception):
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
     blocks = re.findall(r"^[\s*`]*%s:[*`]*[^\S\n]*\n(?:[^\S\n]*\n)*((?:(?![\s*`]*[A-Z]+:)[^\S\n]*\S.*\n?)*)" % name, text, re.M)
-    items = [re.sub(r"^`([^`]+)`.*", r"\1", re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", l).strip()).strip("` ")
+    items = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", l).strip()
              for l in blocks[-1].splitlines()] if blocks else []
+    if name == "TESTS":
+        items = [re.sub(r"^`([^`]+)`.*", r"\1", i).strip("` ") for i in items]
     return [i for i in items if i]
 
 

@@ -422,6 +422,16 @@ class FlowTest(FakeClaudeGh):
         flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
         self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
 
+    def test_follow_ups_starting_with_the_same_backticked_name_keep_their_text(self):
+        sent = self.spy_gh()
+        self.issue_view()
+        lines = ["`marc` command exits 0 on a missing file", "`marc` command drops blank lines"]
+        flow.after_merge(7, "", "FOLLOW-UPS:\n- %s\n2. %s\n" % tuple(lines), "abc", [], None, post=False)
+        created = [(a, i) for a, i in sent if a[:2] == ["issue", "create"]]
+        self.assertEqual([a[a.index("--title") + 1] for a, _ in created], lines)
+        for (_, body), line in zip(created, lines):
+            self.assertIn("\n\n" + line + "\n\n", body)
+
     def test_every_verdict_is_posted_on_the_issue(self):
         sent = self.spy_gh()
         self.build_scenario(reviewer=[{"reply": "VERDICT: CHANGES\nHEAD: {HEAD}\n1. fix it"}, APPROVE])

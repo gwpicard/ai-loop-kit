@@ -128,6 +128,7 @@ branch into `main`. The settings the loop reads are in the next section.
 
 ## Loop
 Test command: `tests/run-all.sh`
+Test files command: `python3 kit/tests/run.py {files}`
 Loop branch: loop/main
 Parallel: 2
 Protected paths: `.claude/`, `.githooks/`, `.agents/guard/`, `.github/`

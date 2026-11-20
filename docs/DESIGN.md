@@ -183,7 +183,9 @@ restart loses nothing.
 | `kit/hooks/guard.py`, `kit/hooks/stop.py` | The refusals and the Stop hook |
 
 The tests are in `kit/tests/`; `python3 kit/tests/run.py` runs them in
-parallel in about 100 seconds.
+parallel in about 100 seconds. File paths or module names select only those
+modules, with the same sharding and output; `-h` or `--help` prints the usage.
+An argument that names no test module exits non-zero.
 
 ## Settings, in `AGENTS.md`
 

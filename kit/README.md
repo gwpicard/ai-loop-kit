@@ -263,3 +263,8 @@ Code does not enforce these.
 ## Tests
 
 Run `python3 kit/tests/run.py` from the repository root: it runs each test module in its own process, in parallel, and exits non-zero on any failure.
+
+Pass test file paths or module names to run only those modules, for example
+`python3 kit/tests/run.py kit/tests/test_flow.py` or
+`python3 kit/tests/run.py kit.tests.test_flow`. `-h` or `--help` prints the usage;
+an argument that names no test module exits non-zero.
