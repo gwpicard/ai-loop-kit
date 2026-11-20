@@ -100,6 +100,9 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
 - When running the suite inside a loop session, unset `LOOP_PROJECT`; otherwise the disk tests write events to the enclosing project instead of their fixture.
 - Reviewer prompts include the whole brief; keep the literal revert result prefix out of its explanatory prose so a skipped check has no result line.
+- Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
+- Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
+- A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
 
 ## Standing approvals
 
@@ -122,6 +125,8 @@ plan did not make: the issue, what they chose, and why.
 
 - Revert check tests: exercise complete issue builds with fake agents and a real targeted test command. The builder records a Stop hook pass so each review must still run its own revert check. Cover added, modified and removed non-test files, changed existing tests and all three skip conditions.
 
+- Full Test command restriction: retain the shared session environment code, which already passes both test commands to every role. Replace the environment-only test with a check that invokes the configured guard using the spawned session's environment, with and without a Test files command. It fails on the loop branch for test-writer and pass refusals and passes with the fix.
+- Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.
 - Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
 - Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
 - Issue 575: `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.
