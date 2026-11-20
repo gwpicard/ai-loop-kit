@@ -65,7 +65,8 @@ def after_merge(issue, report, review, commit, files, pr, post=True):
         post_once(issue, note)
         if pr:
             gh(["pr", "edit", str(pr), "--body-file", "-"], input=note)
-    for line in [l for l in parse_block(review, "FOLLOW-UPS") if l.lower() != "none"]:
+    for line in [l for l in parse_block(review, "FOLLOW-UPS")
+                 if len(l.split()) >= 4 and not re.search(r"\bunverified\b", l, re.I)][:2]:
         title = line[:100]
         once(lambda: gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
                         input="Follow-up from #%s.\n\n%s\n\n%s\n" % (issue, line, common.MARKER),
@@ -171,9 +172,16 @@ def _land(issue, branch, review, project, tree, settings):
     return Landed(result, [], head, review, files)
 
 
-def prompt_for(role, number, info, tree, settings, replies, report=None):
-    with open(os.path.join(BRIEFS, role + ".md"), encoding="utf-8") as f:
-        text = f.read()
+def brief(role):
+    text = []
+    for name in ("preamble", role):
+        with open(os.path.join(BRIEFS, name + ".md"), encoding="utf-8") as f:
+            text.append(f.read().rstrip())
+    return "\n\n".join(text) + "\n"
+
+
+def prompt_for(role, number, info, tree, settings, replies, report=None, history=None):
+    text = brief(role)
     text += ("\n\n# Issue %s: %s\n\n%s\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n"
              % (number, info["title"], info.get("body") or "", os.path.join(tree, "PLAN.md"),
                 settings["Loop branch"], settings["Test command"]))
@@ -182,9 +190,14 @@ def prompt_for(role, number, info, tree, settings, replies, report=None):
     if settings["Check command"]:
         text += "Check command: %s\n" % settings["Check command"]
     if replies:
-        text += "\nThe person's replies to an earlier park:\n" + "\n---\n".join(replies) + "\n"
-    if report:
-        text += "\nThe builder's last report:\n" + report + "\n"
+        text += "\nThe person's replies to the last park:\n" + "\n---\n".join(replies) + "\n"
+    if role == "builder" and history:
+        text += "\nRead earlier build and review notes: %s\n" % history
+    if role == "reviewer" and report:
+        blocks = re.findall(r"^[\s*`]*(BUILT|DEVIATIONS):[*`]*[^\S\n]*\n(.*?)"
+                            r"(?=^[\s*`]*[A-Z][A-Z -]*:|\Z)", report, re.M | re.S)
+        text += "\nThe builder's last report:\n" + "\n".join(
+            name + ":\n" + body.strip() for name, body in blocks) + "\n"
     return text
 
 
@@ -235,12 +248,23 @@ def _build_tree(issue, project, replies):
             common.git(["worktree", "remove", "--force", tree], cwd=project, check=False)
             common.git(["worktree", "prune"], cwd=project, check=False)
         if result and result.status == "merged":  # a squash merge makes -d refuse
+            history = os.path.join(project, ".loop", "history-%s.md" % issue)
+            if os.path.exists(history):
+                os.remove(history)
             common.git(["branch", "-D", branch], cwd=project, check=False)
 
 
 def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     start = git(["rev-parse", "HEAD"], cwd=tree)
     baseline = git(["merge-base", "HEAD", "origin/" + settings["Loop branch"]], cwd=tree)
+    notes = [c.get("body") or "" for c in info.get("comments", [])
+             if re.match(r"^## (?:Review, round \d+|Built)\b", c.get("body") or "")]
+    history = None
+    if notes:
+        history = os.path.join(project, ".loop", "history-%s.md" % issue)
+        os.makedirs(os.path.dirname(history), exist_ok=True)
+        with open(history, "w", encoding="utf-8") as f:
+            f.write("\n\n".join(notes) + "\n")
 
     # paths the issue lets the builder change, except those the stops list covers
     allowed = [p for p in sorted(merge.allowed_paths(info.get("body") or "")) if not merge.stop_reason(p, settings["Protected paths"])]
@@ -249,7 +273,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         if role == "builder":
             locked = [p for p in locked if p not in allowed]
         prompt = (extra.strip() if resume else
-                  prompt_for(role, issue, info, tree, settings, replies, report) + extra)
+                  prompt_for(role, issue, info, tree, settings, replies, report, history) + extra)
         fields = dict(issue=issue, step=step or ("review" if role == "reviewer" else role),
                       agent=who[0], model=who[1])
         if rnd is not None:

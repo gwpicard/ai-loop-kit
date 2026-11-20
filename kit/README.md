@@ -177,9 +177,15 @@ is building, `Why idle` names parked dependencies or a load or memory deferral.
   without a new test file (two at most).
 - **Build note.** After the merge, the issue and the pull request get a
   `## Built` note: what changed and why, deviations, the merge and files.
+- **Restart history.** A restarted builder reads earlier review rounds and
+  build notes from `.loop/history-<issue>.md` in the project folder, outside
+  the worktree. The file is removed after the merge. Prompts carry only
+  replies to the last park; reviewers get only BUILT and DEVIATIONS from
+  the builder's report.
 - **Merge conflicts.** A reused issue branch that conflicts with the loop
   branch is left mid-merge; the builder resolves it first, else the issue parks.
-- **Follow-ups.** Non-blocking work the reviewer names becomes an `inbox` issue.
+- **Follow-ups.** At most two verified non-blocking findings become `inbox`
+  issues per issue. Unverified findings and titles under four words are dropped.
 - **Lessons and failing tests.** Sessions append traps to `## Lessons`. A
   `## Failing test` section is committed as given by the test writer.
 
@@ -269,9 +275,9 @@ can be routed around. It is registered for the loop's own sessions (through
 
 ## What is guaranteed by instruction to the model
 
-The briefs tell sessions never to ask, to record deviations and to park on
-the stops list, and the reviewer to check every criterion with evidence.
-Code does not enforce these.
+The shared preamble tells sessions never to ask and to park on the stops
+list. Role briefs require recorded deviations and a review of every criterion
+with evidence. Code does not enforce these.
 
 ## What is not guaranteed
 

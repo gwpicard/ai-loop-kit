@@ -482,7 +482,7 @@ def summary(project, settings, head, landed):
         except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
             pass
         with common.scratch_tree(project, "origin/" + loop) as tree:
-            prompt = Path(flow.BRIEFS, "pr-summary.md").read_text(encoding="utf-8") + (
+            prompt = flow.brief("pr-summary") + (
                 "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
             reply = session.run("pass", prompt, tree, settings["Pass"][1], project, "summary", agent=settings["Pass"][0])[0]

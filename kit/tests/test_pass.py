@@ -71,6 +71,16 @@ class PassTest(FakeClaudeGh):
     def steps(self, redteam, confirm=None, count=1):
         self.claude({"pass": [NONE, NONE] + [redteam] * count + ([confirm] if confirm else []) + [LESSONS]})
 
+    def test_every_pass_prompt_starts_with_the_preamble_once(self):
+        self.repo(plan())
+        self.steps(FIND, CONFIRM)
+        self.run_pass()
+        preamble = Path(pass_.flow.BRIEFS, "preamble.md").read_text().strip()
+        self.assertEqual(len(self.claude_calls()), 6)
+        for call in self.claude_calls():
+            self.assertTrue(call["prompt"].startswith(preamble + "\n\n"))
+            self.assertEqual(call["prompt"].count(preamble), 1)
+
     def test_smoke_failure_is_a_finding(self):
         self.repo(plan(surfaces=()), "Smoke command: test -f NOSUCH\n")
         seen = self.bodies()
@@ -238,7 +248,7 @@ class PassTest(FakeClaudeGh):
         self.assertIn("Merged in this batch", prompt)
         self.assertIn("git diff origin/main...HEAD", prompt)
         brief = Path(pass_.flow.BRIEFS, "pass-simplify.md").read_text(encoding="utf-8")
-        for text in ("behaviour-preserving", "not exercised", "workarounds", "Edit nothing"):
+        for text in ("behaviour-preserving", "not exercised", "workarounds"):
             self.assertIn(text, brief)
 
     def test_a_red_team_test_that_fails_the_check_command_is_rejected(self):

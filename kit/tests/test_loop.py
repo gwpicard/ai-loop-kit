@@ -217,6 +217,8 @@ class LoopTest(Base):
 
     def test_reply_requeues_a_parked_issue_and_reaches_the_build(self):
         self.world([issue(4, ("needs-user",))], comments=[
+            comment("## Needs you\n\nEarlier question\n\n" + common.MARKER),
+            comment("Earlier answer."),
             comment("## Needs you\n\nWhich port?\n\nRecommended: 80\n\n" + common.MARKER),
             comment("Crashed, trying again.\n\n" + common.MARKER), comment("Use 8080.")])
         with self.fake_build():
@@ -225,6 +227,11 @@ class LoopTest(Base):
         self.assertEqual(edits[:2], ["issue edit 4 --remove-label needs-user",
                                      "issue edit 4 --add-label ready"])
         self.assertEqual(self.built, [(4, ["Use 8080."])])
+        prompt = loop.flow.prompt_for("builder", 4, {"title": "t", "body": "b"},
+                                      "/tmp/tree", common.read_settings(self.work), self.built[0][1])
+        self.assertIn("Use 8080.", prompt)
+        self.assertNotIn("Earlier answer.", prompt)
+        self.assertNotIn("Earlier question", prompt)
 
     PARK = "## Needs you\n\ntests/test_x.py fails the lint check. May I change tests/test_x.py?\n\nRecommended: yes, reformat it\n\n" + common.MARKER
 

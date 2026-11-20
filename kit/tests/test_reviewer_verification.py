@@ -19,12 +19,11 @@ class ReviewerBriefTest(unittest.TestCase):
         self.assertIn("file:line", text)
         self.assertIn("failure scenario", text)
 
-    def test_uncertain_finding_is_an_unverified_follow_up(self):
+    def test_follow_ups_are_rare_and_verified(self):
         text = brief("reviewer.md")
-        self.assertIn("unverified", text)
-        self.assertRegex(text, r"(uncertain|unverified)[^.]*follow-up|follow-up[^.]*(uncertain|unverified)")
-        self.assertRegex(text, r"never a fix|not a fix")
-        self.assertRegex(text, r"no finding is better than a speculative")
+        for phrase in ("drop uncertain or unverified", "at most two verified", "worth an issue"):
+            self.assertIn(phrase, text)
+        self.assertIn("no finding is better than a speculative", text)
 
     def test_tests_the_builder_added_must_be_able_to_fail(self):
         text = brief("reviewer.md")

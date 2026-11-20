@@ -123,7 +123,7 @@ def _pass(project, settings, since, tree, r):
     def ask(name, extra=""):  # at most 9 calls: drift, rubric, four red teams, confirm, lessons, simplify
         r["sessions"] += 1
         try:
-            return session.run("pass", Path(flow.BRIEFS, "pass-%s.md" % name).read_text(encoding="utf-8") + context + extra,
+            return session.run("pass", flow.brief("pass-%s" % name) + context + extra,
                                tree, settings["Pass"][1], project, "pass", agent=settings["Pass"][0])[0]
         except common.LoopError as e:
             r["errors"].append("%s session: %s" % (name, e))

@@ -26,8 +26,8 @@ Three rules follow:
 ## Default posture: a goal, not a conversation
 
 Every session the loop starts behaves as if it had been given a goal: keep
-going until the work is done, without the person. Every brief starts with
-this and every guard exists to make it safe.
+going until the work is done, without the person. Code prepends one shared
+preamble to each role's brief; the guards bound what it can do.
 
 - **Never ask.** No session asks the person anything or waits for an answer.
   A question becomes a decision: take the choice `PLAN.md` implies, or the
@@ -171,8 +171,12 @@ repository. Any run can stop at any moment and the next one carries on.
 - **GitHub errors** are retried with a short back-off by `loop.py` and
   `merge.py`. A rate limit waits for its reset.
 
-A fresh session per issue means no context growth and no compaction, and a
-restart loses nothing.
+A fresh session per issue means no context growth and no compaction. A
+restarted builder reads earlier review rounds and build notes from
+`.loop/history-<issue>.md` in the project folder, outside the worktree; the
+merge removes it. Each fresh issue prompt carries its title, body and only replies
+to the last park. Reviewers receive only the BUILT and DEVIATIONS blocks of
+the builder's report.
 
 ## The files
 
@@ -443,7 +447,8 @@ refusal costs no test run.
 - `Check command` (guardrails, run after every Test command run) and
   `Smoke command` (the real artefact, run by the pass only) are optional.
 - After each merge the issue and the pull request get a `## Built` note, and
-  the reviewer's follow-ups become `inbox` issues.
+  at most two verified reviewer follow-ups become `inbox` issues. Unverified
+  lines and titles under four words are dropped.
 - `PLAN.md` has `## Lessons` and `## Surfaces`; issues may carry a
   `## Failing test`.
 - After new merges the drain runs the end-of-loop pass (smoke, drift, red

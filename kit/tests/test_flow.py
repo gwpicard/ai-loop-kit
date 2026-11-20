@@ -120,6 +120,51 @@ class FlowTest(FakeClaudeGh):
         temp = self.claude_calls()[-1]["env"]["TMPDIR"]
         self.assertFalse(os.path.exists(temp))
         self.assertFalse(Path(self.work, ".loop/passed-sess-builder").exists())
+    def test_fresh_role_prompts_start_with_the_preamble_once(self):
+        self.build_scenario()
+        self.assertEqual(self.build().status, "merged")
+        preamble = Path(flow.BRIEFS, "preamble.md").read_text().strip()
+        for call in self.claude_calls():
+            self.assertTrue(call["prompt"].startswith(preamble + "\n\n"))
+            self.assertEqual(call["prompt"].count(preamble), 1)
+            self.assertIn("# Issue 7: Add it", call["prompt"])
+            self.assertIn("Do the thing.", call["prompt"])
+
+    def test_reviewer_gets_only_the_build_and_deviations_blocks(self):
+        report = ("Private session chatter.\nBUILT:\nAdded app.py.\n\nIt greets the user.\n"
+                  "DEVIATIONS:\nUsed a plain file.\nTESTS:\nUnneeded test transcript.\n")
+        self.build_scenario(builder=[{"files": {"app.py": "1\n"}, "reply": report}])
+        self.assertEqual(self.build().status, "merged")
+        prompt = self.claude_calls()[-1]["prompt"]
+        for text in ("Added app.py.", "It greets the user.", "Used a plain file."):
+            self.assertIn(text, prompt)
+        for text in ("Private session chatter.", "Unneeded test transcript."):
+            self.assertNotIn(text, prompt)
+
+    def test_restart_reads_history_and_keeps_it_until_merge(self):
+        notes = ["## Review, round 1\n\nHandle empty input.",
+                 "## Review, round 2\n\nCheck missing files.", "## Built\n\nEarlier work."]
+        self.issue_view([{"body": n} for n in notes] + [{"body": "Unrelated conversation."}])
+        self.build_scenario(builder=[{"reply": "PARK: Need credentials | Supply them."}])
+        self.assertEqual(self.build().status, "parked")
+        history = Path(self.work, ".loop", "history-7.md")
+        self.assertEqual(history.read_text(), "\n\n".join(notes) + "\n")
+        builder = next(c for c in self.claude_calls() if c["role"] == "builder")
+        self.assertIn(str(history), builder["prompt"])
+        self.assertNotIn("Handle empty input.", builder["prompt"])
+        self.assertFalse(str(history).startswith(builder["cwd"]))
+        self.build_scenario()
+        self.assertEqual(self.build().status, "merged")
+        self.assertFalse(history.exists())
+
+    def test_follow_ups_drop_unverified_and_short_lines_before_capping_at_two(self):
+        sent = self.spy_gh()
+        review = ("FOLLOW-UPS:\nUnverified: parser loses blank lines\n"
+                  "Parser loses blank lines (UNVERIFIED)\nToo short\n"
+                  "Log all skipped lines\nCheck missing input files\nHandle empty input values\n")
+        flow.after_merge(7, "", review, "abc", [], None, post=False)
+        created = [a[a.index("--title") + 1] for a, _ in sent if a[:2] == ["issue", "create"]]
+        self.assertEqual(created, ["Log all skipped lines", "Check missing input files"])
 
     def test_build_events_pair_steps_and_record_provenance(self):
         self.merge.side_effect = REAL_MERGE
@@ -419,7 +464,7 @@ class FlowTest(FakeClaudeGh):
                 {"title": "t", "body": "b", "comments": comments, "state": "OPEN"})}]},
             {"match": "pr list", "responses": [{"stdout": json.dumps(merged)}]},
             {"match": "pr view 9", "responses": [{"stdout": json.dumps(
-                {"comments": [{"body": "VERDICT: APPROVE\nHEAD: abc1234\n\nFOLLOW-UPS:\n- Do more\n"}]})}]},
+                {"comments": [{"body": "VERDICT: APPROVE\nHEAD: abc1234\n\nFOLLOW-UPS:\n- Check more empty inputs\n"}]})}]},
             {"match": "issue list", "responses": [{"stdout": "[]"}]},
             {"match": "issue", "responses": [{}]}, {"match": "pr edit", "responses": [{}]}])
         self.assertEqual(self.build().status, "merged")
@@ -494,21 +539,21 @@ class FlowTest(FakeClaudeGh):
 
     def test_follow_ups_become_inbox_issues_once(self):
         sent = self.spy_gh()
-        self.issue_view(listed=["Tidy the parser"])
-        review = APPROVE["reply"] + "\n\nFOLLOW-UPS:\n- Tidy the parser\n- Log skipped lines\n"
+        self.issue_view(listed=["Tidy the input parser"])
+        review = APPROVE["reply"] + "\n\nFOLLOW-UPS:\n- Tidy the input parser\n- Log all skipped lines\n"
         self.build_scenario(reviewer=[{"reply": review}])
         self.assertEqual(self.build().status, "merged")
         created = [(a, i) for a, i in sent if a[:2] == ["issue", "create"]]
         self.assertEqual(len(created), 1)
         args, body = created[0]
-        self.assertEqual(args[args.index("--title") + 1], "Log skipped lines")
+        self.assertEqual(args[args.index("--title") + 1], "Log all skipped lines")
         self.assertEqual(args[args.index("--label") + 1], "inbox")
         self.assertIn("Follow-up from #7.", body)
         self.assertIn(common.MARKER, body)
 
     def test_follow_ups_already_open_are_not_created_again(self):
-        self.issue_view(listed=["Log skipped lines"])
-        flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log skipped lines\n", "abc", [], None)
+        self.issue_view(listed=["Log all skipped lines"])
+        flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log all skipped lines\n", "abc", [], None)
         self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
 
     def test_follow_ups_starting_with_the_same_backticked_name_keep_their_text(self):
@@ -542,8 +587,8 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual([p.splitlines()[0] for p in posts], ["## Review, round 5"])
 
     def test_follow_up_titles_match_ignoring_case_and_punctuation(self):
-        self.issue_view(listed=["log skipped lines!"])
-        flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log   skipped, lines.\n", "abc", [], None)
+        self.issue_view(listed=["log all skipped lines!"])
+        flow.after_merge(7, "", "FOLLOW-UPS:\n1. Log all   skipped, lines.\n", "abc", [], None)
         self.assertFalse(any(c[:2] == ["issue", "create"] for c in self.calls()))
         self.assertEqual(flow.same("Don't  Panic!"), flow.same("dont panic"))
 
