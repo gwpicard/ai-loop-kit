@@ -9,7 +9,7 @@ branch yourself.
 The loop never asks for input. It parks an issue only for a decision that the
 project's `PLAN.md` reserves for a person, and it carries on with the rest.
 
-Version 2.1.2. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
+Version 2.2.0. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
 The full settings reference is in [kit/README.md](kit/README.md).
 
 ## Install
