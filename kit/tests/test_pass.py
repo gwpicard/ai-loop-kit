@@ -71,6 +71,16 @@ class PassTest(FakeClaudeGh):
     def steps(self, redteam, confirm=None, count=1):
         self.claude({"pass": [NONE, NONE] + [redteam] * count + ([confirm] if confirm else []) + [LESSONS]})
 
+    def test_every_pass_prompt_starts_with_the_preamble_once(self):
+        self.repo(plan())
+        self.steps(FIND, CONFIRM)
+        self.run_pass()
+        preamble = Path(pass_.flow.BRIEFS, "preamble.md").read_text().strip()
+        self.assertEqual(len(self.claude_calls()), 6)
+        for call in self.claude_calls():
+            self.assertTrue(call["prompt"].startswith(preamble + "\n\n"))
+            self.assertEqual(call["prompt"].count(preamble), 1)
+
     def test_smoke_failure_is_a_finding(self):
         self.repo(plan(surfaces=()), "Smoke command: test -f NOSUCH\n")
         seen = self.bodies()
@@ -89,16 +99,27 @@ class PassTest(FakeClaudeGh):
         self.assertEqual(r["confirmed"], [])
         self.assertNotIn("Weak claim", [t for t, _ in self.created()])
 
-    def test_confirmed_finding_is_ready_under_standing_approval(self):
+    def test_confirmed_finding_is_inbox_even_under_standing_approval(self):
         self.repo(plan())
         self.steps(FIND, CONFIRM)
         r, md = self.run_pass()
-        self.assertIn(("Broken input", "ready"), self.created())
+        self.assertIn(("Broken input", "inbox"), self.created())
         create = [c for c in self.calls() if c[:2] == ["issue", "create"]][0]
         self.assertEqual(r["confirmed"][0][2], "tests/test_x.py")
-        self.assertEqual(sorted(l for _, l in self.created()), ["inbox", "ready"])  # one findings issue
-        self.assertIn("41 Broken input (ready)", md)
+        self.assertEqual(sorted(l for _, l in self.created()), ["inbox", "inbox"])  # one findings issue
+        self.assertIn("41 Broken input (inbox)", md)
         self.assertNotIn("test_x.py", " ".join(create))  # body goes through stdin
+
+    def test_a_candidate_is_judged_with_the_test_files_command(self):
+        marker = os.path.join(self.tmp, "candidate-runs")
+        self.repo(plan(), "Test command: echo full >> %s\n"
+                  "Test files command: echo {files} >> %s; test ! -f {files}\n"
+                  "Check command: echo check >> %s\n" % (marker, marker, marker))
+        self.steps(FIND, CONFIRM)
+        r, _ = self.run_pass()
+        self.assertEqual(len(r["confirmed"]), 1, r["rejected"])
+        self.assertEqual(r["confirmed"][0][2], "tests/test_x.py")
+        self.assertEqual(Path(marker).read_text().splitlines(), ["tests/test_x.py", "check"])
 
     def test_failing_test_is_in_the_issue_body(self):
         self.repo(plan())
@@ -127,7 +148,7 @@ class PassTest(FakeClaudeGh):
         confirm = self.claude_calls()[3]["prompt"]
         self.assertIn("#%d Decide how a byte-order mark is counted: Choose." % 14, confirm)
         self.assertNotIn("More.", confirm)
-        self.assertNotIn(("Broken input", "ready"), self.created())
+        self.assertNotIn(("Broken input", "inbox"), self.created())
         self.assertEqual(r["confirmed"], [])
         body = [i for a, i in seen if a[:2] == ["issue", "create"]][0]
         self.assertIn("**Broken input**", body)
@@ -149,7 +170,7 @@ class PassTest(FakeClaudeGh):
     def readable(self, held):
         r = self.held_run("CONFIRMED:\nBroken input\n\n" + held)
         self.assertEqual(r["errors"], [])
-        self.assertIn(("Broken input", "ready"), self.created())
+        self.assertIn(("Broken input", "inbox"), self.created())
 
     def test_held_none_on_the_same_line_is_readable(self):
         self.readable("HELD: none")
@@ -227,49 +248,8 @@ class PassTest(FakeClaudeGh):
         self.assertIn("Merged in this batch", prompt)
         self.assertIn("git diff origin/main...HEAD", prompt)
         brief = Path(pass_.flow.BRIEFS, "pass-simplify.md").read_text(encoding="utf-8")
-        for text in ("behaviour-preserving", "not exercised", "workarounds", "Edit nothing"):
+        for text in ("behaviour-preserving", "not exercised", "workarounds"):
             self.assertIn(text, brief)
-
-    def test_a_defect_round_is_one_pass_that_queued_a_ready_defect(self):
-        self.repo(plan())
-        self.steps(FIND, CONFIRM)
-        r, _ = pass_.run_pass(self.work, self.settings, "origin/main", rounds=0)
-        self.assertEqual(r["rounds"], 1)
-        self.assertIn(("Broken input", "ready"), self.created())
-        self.steps(NONE)
-        r, _ = pass_.run_pass(self.work, self.settings, "origin/main", rounds=1)
-        self.assertEqual(r["rounds"], 1)  # nothing queued: not a round
-
-    def test_defects_are_filed_as_inbox_once_the_rounds_limit_is_reached(self):
-        self.repo(plan(), "Defect rounds: 2\n")
-        self.steps(FIND, CONFIRM)
-        seen = self.bodies()
-        r, md = pass_.run_pass(self.work, self.settings, "origin/main", rounds=2)
-        self.assertIn(("Broken input", "inbox"), self.created())
-        self.assertNotIn(("Broken input", "ready"), self.created())
-        body = [i for a, i in seen if a[:2] == ["issue", "create"] and "Broken input" in a][0]
-        self.assertIn("## Failing test", body)
-        self.assertEqual(r["rounds"], 2)
-        self.assertTrue(r["capped"])
-        self.assertIn("Defect rounds limit (2) reached", md)
-
-    def test_an_unreadable_round_count_queues_nothing_as_ready_and_says_so(self):
-        self.repo(plan())
-        self.steps(FIND, CONFIRM)
-        r, md = pass_.run_pass(self.work, self.settings, "origin/main", rounds=None)
-        self.assertIn(("Broken input", "inbox"), self.created())
-        self.assertNotIn(("Broken input", "ready"), self.created())
-        self.assertIn("could not be read", md)
-        self.assertEqual(r["rounds"], 2)
-
-    def test_a_merged_issue_the_person_labelled_resets_the_count(self):
-        self.repo(plan(), "Defect rounds: 2\n")
-        self.gh(built_body="Added by hand.")  # no loop marker: the person queued it
-        self.steps(FIND, CONFIRM)
-        r, _ = pass_.run_pass(self.work, self.settings, "origin/main", rounds=2)
-        self.assertIn(("Broken input", "ready"), self.created())
-        self.assertEqual(r["rounds"], 1)
-        self.assertFalse(r.get("capped"))
 
     def test_a_red_team_test_that_fails_the_check_command_is_rejected(self):
         self.repo(plan(), "Check command: ! grep -rq badlint tests\n")
@@ -355,17 +335,6 @@ class PassTest(FakeClaudeGh):
         r, _ = self.run_pass()
         self.assertEqual(r["confirmed"], [])
         self.assertNotIn("Broken input", [t for t, _ in self.created()])
-
-    def test_approval_fails_closed(self):
-        yes = "A confirmed defect may be queued as ready."
-        self.assertTrue(pass_.approves("## Standing approvals\n\n" + yes + "\n\n## X", "confirmed defect"))
-        for text in ["A confirmed defect may not be queued as ready.", "A confirmed defect can't be queued as ready.",
-                     "A confirmed defect may be queued as ready only after the person agrees.",
-                     "A confirmed defect may be queued as ready unless it touches data.",
-                     "Never: a confirmed defect may be queued as ready.", "A confirmed defect is ready.",
-                     "No standing approvals.", "A confirmed defect\nmay be queued as ready.\nNone otherwise."]:
-            self.assertFalse(pass_.approves("## Standing approvals\n\n" + text + "\n", "confirmed defect"), text)
-        self.assertFalse(pass_.approves("## Decisions\n\n" + yes + "\n", "confirmed defect"))
 
     def test_errors_are_reported_not_raised_and_earlier_issues_are_kept(self):
         self.repo(plan(), "Smoke command: false\n")

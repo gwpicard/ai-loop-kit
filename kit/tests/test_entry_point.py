@@ -19,6 +19,11 @@ def prompt(role):
 
 
 class EntryPointTest(unittest.TestCase):
+    def test_no_brief_repeats_enforced_rules(self):
+        from pathlib import Path
+        for path in Path(flow.BRIEFS).glob("*.md"):
+            self.assertNotIn("Hard rules", path.read_text(), path.name)
+
     def test_template_names_the_entry_point(self):
         text = read("kit", "templates", "issue.md").lower()
         self.assertIn("entry point", text)

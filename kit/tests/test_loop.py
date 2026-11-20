@@ -100,6 +100,20 @@ class Base(unittest.TestCase):
 
 
 class LoopTest(Base):
+    def test_disk_full_waits_without_spending_a_crash_attempt(self):
+        os.makedirs(self.work, exist_ok=True)
+        results = [flow.Result("failed", "No space left on device"),
+                   OSError("No space left on device"), flow.Result("merged", "done")]
+        with mock.patch.object(flow, "build", side_effect=results), \
+                mock.patch.object(common, "sleep") as sleep:
+            self.assertIn("merged", loop.build_attempts(self.work, 7, []))
+        # the first full disk waits without using an attempt; a second in a row counts as a crash
+        self.assertEqual(sleep.call_args_list, [mock.call(60)])
+        with open(common.build_file(self.work, 7, "attempt")) as f:
+            self.assertEqual(f.read(), "2")
+        with open(os.path.join(self.work, ".loop/events.jsonl")) as f:
+            self.assertEqual([json.loads(l)["kind"] for l in f], ["disk-wait", "crashed"])
+
     def setUp(self):
         super().setUp()
         os.makedirs(os.path.join(self.work, ".loop"))
@@ -107,6 +121,16 @@ class LoopTest(Base):
             f.write(AGENTS)
         mock.patch.object(loop, "sync_default").start()
         mock.patch.object(loop, "drain").start()
+
+    def test_unknown_settings_are_named_once_and_the_loop_starts(self):
+        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
+            f.write("Defect rounds: 2\nFuture-key: yes\n## Other\nNot a setting: ignored\n")
+        self.world([issue(8)])
+        with self.fake_build():
+            self.assertEqual(self.run_loop(), 0)
+        self.assertEqual(self.built, [(8, [])])
+        notices = [c.args[0] for c in self.say.call_args_list if "next: run setup" in c.args[0]]
+        self.assertEqual(notices, ["unknown Loop settings: Defect rounds, Future-key; next: run setup"])
 
     def pid_file(self):
         return os.path.join(self.work, ".loop", "loop.pid")
@@ -203,6 +227,8 @@ class LoopTest(Base):
 
     def test_reply_requeues_a_parked_issue_and_reaches_the_build(self):
         self.world([issue(4, ("needs-user",))], comments=[
+            comment("## Needs you\n\nEarlier question\n\n" + common.MARKER),
+            comment("Earlier answer."),
             comment("## Needs you\n\nWhich port?\n\nRecommended: 80\n\n" + common.MARKER),
             comment("Crashed, trying again.\n\n" + common.MARKER), comment("Use 8080.")])
         with self.fake_build():
@@ -211,6 +237,11 @@ class LoopTest(Base):
         self.assertEqual(edits[:2], ["issue edit 4 --remove-label needs-user",
                                      "issue edit 4 --add-label ready"])
         self.assertEqual(self.built, [(4, ["Use 8080."])])
+        prompt = loop.flow.prompt_for("builder", 4, {"title": "t", "body": "b"},
+                                      "/tmp/tree", common.read_settings(self.work), self.built[0][1])
+        self.assertIn("Use 8080.", prompt)
+        self.assertNotIn("Earlier answer.", prompt)
+        self.assertNotIn("Earlier question", prompt)
 
     PARK = "## Needs you\n\ntests/test_x.py fails the lint check. May I change tests/test_x.py?\n\nRecommended: yes, reformat it\n\n" + common.MARKER
 
@@ -346,6 +377,9 @@ class LoopTest(Base):
         self.assertEqual(self.run_loop(), 0)
         said = [c[0][0] for c in self.say.call_args_list]
         self.assertIn("exiting: nothing built for 0 hours", said)
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
+            exits = [e for e in map(json.loads, f) if e["kind"] == "exit"]
+        self.assertEqual([e["reason"] for e in exits], ["nothing built for 0 hours"])
         self.assertTrue(said[-1].startswith("left behind: "))
 
     def test_board_body_renders_every_section(self):
@@ -479,7 +513,7 @@ class GitTest(Base):
         self.world([])
         self.tests = mock.patch.object(merge, "run_tests", return_value=None).start()
         return mock.patch.object(pass_, "run_pass", return_value=(
-            {"confirmed": [1], "issues": ["#5 a (inbox)", "#6 b (ready)"]}, "## End-of-loop pass (1 sessions)\n"))
+            {"confirmed": [1], "issues": ["#5 a (inbox)", "#6 b (inbox)"]}, "## End-of-loop pass (1 sessions)\n"))
 
     def test_drain_runs_the_pass_only_after_new_merges_and_reports_in_the_body(self):
         with self.pass_world() as run_pass:
@@ -496,37 +530,21 @@ class GitTest(Base):
             self.assertEqual(run_pass.call_count, 2)
             self.assertRegex(run_pass.call_args[0][2], "^[0-9a-f]{40}$")
 
-    def test_the_defect_round_count_survives_between_passes_and_reaches_the_pass(self):
+    def test_an_old_pass_file_ignores_rounds_and_keeps_its_report(self):
         with self.pass_world() as run_pass:
-            run_pass.return_value = ({"rounds": 1, "issues": []}, "## End-of-loop pass\n")
             self.run_loop()
-            self.assertEqual(run_pass.call_args[1]["rounds"], 0)
-            self.commit("loop/main", "z.txt", "z\n", "Issue 3")
-            self.run_loop()
-            self.assertEqual(run_pass.call_args[1]["rounds"], 1)
-
-    def test_a_corrupt_pass_file_counts_as_capped_and_a_missing_one_as_zero(self):
-        with self.pass_world() as run_pass:
-            run_pass.return_value = ({"rounds": 1, "issues": []}, "## End-of-loop pass\n")
-            self.run_loop()
-            self.assertEqual(run_pass.call_args[1]["rounds"], 0)  # no file yet
-            for text in ("{not json", "[]", '{"rounds": "two"}'):
-                with open(os.path.join(self.work, ".loop", "pass.json"), "w") as f:
-                    f.write(text)
-                self.commit("loop/main", "z%d.txt" % len(text), "z\n", "Issue 3")
+            path = os.path.join(self.work, ".loop", "pass.json")
+            with open(path) as f:
+                saved = json.load(f)
+            self.assertEqual(set(saved), {"head", "time", "text", "defects", "inbox"})
+            for rounds in (2, "obsolete"):
+                with open(path, "w") as f:
+                    json.dump(dict(saved, rounds=rounds), f)
+                self.world([], prs=[{"number": 9, "url": "https://example/pull/9"}])
                 self.run_loop()
-                self.assertIsNone(run_pass.call_args[1]["rounds"], text)
-                self.assertIsInstance(json.load(open(os.path.join(self.work, ".loop", "pass.json")))["rounds"], int)
-
-    def test_board_says_when_the_defect_rounds_limit_was_reached(self):
-        with self.pass_world() as run_pass:
-            run_pass.return_value = ({"rounds": 2, "capped": True, "confirmed": [1], "issues": []}, "## End-of-loop pass\n")
-            self.run_loop()
-        st = loop.new_state()
-        st["pr"] = "https://example/pull/9"
-        loop.snapshot(st)
-        loop.write_board(self.work, st)
-        self.assertIn("defect rounds limit reached, defects filed as inbox", self.board_inputs()[-1])
+                self.assertEqual(run_pass.call_count, 1)
+                body = [i for c, i in self.inputs if c.startswith("pr edit 9")][-1]
+                self.assertIn(saved["text"], body)
 
     def test_a_pass_that_raises_does_not_block_the_pull_request(self):
         with self.pass_world() as run_pass:

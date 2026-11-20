@@ -80,7 +80,7 @@ class BoardMilestones(unittest.TestCase):
         pass_dir = os.path.join(self.work, ".loop")
         os.makedirs(pass_dir, exist_ok=True)
         with open(os.path.join(pass_dir, "pass.json"), "w") as f:
-            json.dump({"rounds": 1, "time": "2026-11-16 10:00", "defects": 1, "inbox": 1}, f)
+            json.dump({"time": "2026-11-16 10:00", "defects": 1, "inbox": 1}, f)
         body = self.board()
         for text in ("Queue", "To shape", "Landed since", "Last pass", "Pull request into", "Conflict"):
             self.assertNotIn(text, body)
@@ -93,14 +93,11 @@ class BoardMilestones(unittest.TestCase):
         self.assertIn("#2", body)
         self.assertNotIn("Piece 3", body)
 
-    def test_needs_you_holds_the_pull_request_the_conflict_and_the_cap_notice(self):
+    def test_needs_you_holds_the_pull_request_and_the_conflict(self):
         self.world([])
-        os.makedirs(os.path.join(self.work, ".loop"), exist_ok=True)
-        with open(os.path.join(self.work, ".loop", "pass.json"), "w") as f:
-            json.dump({"rounds": 2, "capped": True, "time": "2026-11-16 10:00", "defects": 1, "inbox": 1}, f)
         body = self.board(pr="https://example/pull/9", conflict="clash in x.txt")
         needs = body.split("## Needs you")[1].split("## Progress")[0]
-        for text in ("https://example/pull/9", "clash in x.txt", "defect rounds limit reached"):
+        for text in ("https://example/pull/9", "clash in x.txt"):
             self.assertIn(text, needs)
         self.assertNotIn("Nothing.", needs)
 

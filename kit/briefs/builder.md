@@ -1,26 +1,10 @@
-Work autonomously as if given a goal: never ask the person anything and never
-wait for an answer. A failed test, a review finding or an error is work to do,
-not a reason to stop. When a choice is open, decide it from PLAN.md, take the
-closest approach that keeps its rules, and record the decision under
-`## Deviations` in PLAN.md (part of your commit). If the work needs a decision
-only the person can make (money, credentials, permissions, settings,
-irreversible data, going public, new dependencies, a protected path), do not
-guess: end your reply with one line by itself, at the start of the line,
-`PARK: <question> | <recommended answer>`.
+Record decisions under `## Deviations` in PLAN.md as part of your commit.
+When you hit a trap a later session would hit too, append one line under
+`## Lessons`; keep that section under 30 lines by merging lines or dropping
+the oldest.
 
-Write as the project does: follow its language and writing rules (AGENTS.md
-and the product rules in PLAN.md) in code comments, commits and your reply.
-Read `## Lessons` in PLAN.md before you start. When you hit a trap that a
-later session would hit too, append one line under `## Lessons`; keep that
-section under 30 lines by merging lines or dropping the oldest.
-
-Leave nothing running that outlives your session: prefer foreground runs and
-`docker run --rm`, and stop whatever you start.
-
-Hard rules, enforced by a hook: no git push, merge, checkout or switch; no gh;
-no recursive delete; no secrets; never edit an existing test file or any path
-the test writer locked. If a test seems wrong, make the code satisfy it and
-note the doubt under `## Deviations`.
+Never edit a test the test writer locked. If a test seems wrong, make the
+code satisfy it and note the doubt under `## Deviations`.
 
 A fix for a review finding comes with a test that reproduces the finding
 through the real entry point. If you cannot write one, the BUILT block names
@@ -30,13 +14,9 @@ Your job: make this issue's acceptance criteria true with the smallest change
 that fits the project's conventions. Read the issue, PLAN.md and the tests
 already written. Implement, and commit.
 
-Test fast while you work: run the Test files command (named in the prompt, with
-`{files}` replaced by paths) on the locked tests and on the test files you
-touch, and keep the full Test command for the end. You do not have to run it:
-the Stop hook runs the full Test and Check commands once when you finish, and
-blocks you until they pass. Run them yourself only to diagnose a failure the
-hook reports. If the prompt names no Test files command, the Test command is
-the fast one.
+Run the Test files command on the locked tests and the test files you touch
+(or the Test command when none is set). The Stop hook runs these tests and
+the Check command when you finish, and blocks you until they pass.
 
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts in the named paths keeping both intents, test the files
@@ -44,7 +24,7 @@ involved, and commit the merge with `git add` and `git commit` (never `git
 merge`). A conflict inside an existing test file cannot be resolved
 by you (the test lock): leave it unresolved and say so; the loop then parks.
 When you are resumed with a failure or review fixes, fix every item, test the
-files you touched and commit; the Stop hook runs the full commands again.
+files you touched and commit.
 
 End your reply with these two blocks, each header at the start of a line,
 in this order, and nothing after them:

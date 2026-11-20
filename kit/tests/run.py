@@ -1,6 +1,11 @@
 """Run the test modules in parallel, each in its own process.
 
     python3 kit/tests/run.py
+    python3 kit/tests/run.py kit/tests/test_flow.py [module ...]
+    python3 kit/tests/run.py -h | --help
+
+Arguments select test files under kit/tests or module names (test_flow or
+kit.tests.test_flow). With no arguments, runs every test module.
 
 A module with many tests is split into shards (a shard is a process running a
 share of that module's tests), so one slow module does not set the total time.
@@ -35,13 +40,23 @@ def test_ids(suite):
             yield t.id()
 
 
-def jobs():
+def jobs(args=()):
     """(module, [test ids]) for each process to run, the largest first."""
     sys.path.insert(0, ROOT)
+    sys.path.insert(0, os.path.join(ROOT, "kit", "scripts"))
+    files = sorted(f for f in os.listdir(HERE) if f.startswith("test_") and f.endswith(".py"))
+    if args:
+        selected = set()
+        paths = {os.path.realpath(os.path.join(HERE, f)): f for f in files}
+        names = {name: f for f in files for name in (f[:-3], "kit.tests." + f[:-3])}
+        for arg in args:
+            f = paths.get(os.path.realpath(arg)) if "/" in arg or arg.endswith(".py") else names.get(arg)
+            if not f:
+                raise ValueError("No test module: %r" % arg)
+            selected.add(f)
+        files = sorted(selected)
     out = []
-    for f in sorted(os.listdir(HERE)):
-        if not (f.startswith("test_") and f.endswith(".py")):
-            continue
+    for f in files:
         name = "kit.tests." + f[:-3]
         ids = list(test_ids(unittest.defaultTestLoader.loadTestsFromName(name)))
         shards = max(1, -(-len(ids) // SHARD_SIZE))
@@ -70,7 +85,7 @@ def run_job(job):
     module, ids = job
     # Test modules may import the kit's scripts without importing helpers first.
     # The path is set in the child only, so the hooks the tests start do not inherit it.
-    code = ("import sys, unittest; sys.path.insert(0, %r); "
+    code =("import sys, unittest; sys.path.insert(0, %r); "
             "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
             % os.path.join(ROOT, "kit", "scripts"))
     p = subprocess.Popen([sys.executable, "-c", code] + ids, cwd=ROOT, text=True, start_new_session=True,
@@ -90,18 +105,29 @@ def run_job(job):
 
 
 def main():
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        print(__doc__, end="")
+        return 0
+    try:
+        work = jobs(sys.argv[1:])
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     atexit.register(stop_all)
-    work = jobs()
     # A sysctl that reports normal pressure comes first on the path, so the tests do not wait on this
     # machine's real memory pressure; tests that check the wait put their own sysctl in front of it.
+    # A claude or codex that refuses comes first too: a test that forgets its fake must fail, not start a
+    # real session that spends the person's usage and memory.
     stub_dir = tempfile.TemporaryDirectory(prefix="sysctl-stub-")
     atexit.register(stub_dir.cleanup)
-    stub = os.path.join(stub_dir.name, "sysctl")
-    with open(stub, "w") as f:
-        f.write("#!/bin/sh\necho 1\n")
-    os.chmod(stub, 0o755)
+    for name, body in (("sysctl", "echo 1"), ("claude", "echo 'a test ran the real claude' >&2; exit 97"),
+                       ("codex", "echo 'a test ran the real codex' >&2; exit 97")):
+        stub = os.path.join(stub_dir.name, name)
+        with open(stub, "w") as f:
+            f.write("#!/bin/sh\n%s\n" % body)
+        os.chmod(stub, 0o755)
     QUIET["PATH"] = stub_dir.name + os.pathsep + os.environ.get("PATH", "")
     workers = max(1, min(os.cpu_count() or 1, 8, len(work)))
     start = time.time()

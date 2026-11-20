@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 
 from kit.tests.fake_codex import FakeCodexGh
@@ -20,6 +21,18 @@ class CodexSessionTest(FakeCodexGh):
     def run_session(self, resume=None, **kw):
         return session.run("builder", "do it", self.work, "gpt-6", self.work, 7,
                            resume=resume, agent="codex", **kw)
+
+    def test_build_temp_is_writable_and_in_the_session_environment(self):
+        with common.build_environment(self.work):
+            self.run_session()
+            call = self.codex_calls()[0]
+            temp = call["env"]["TMPDIR"]
+            self.assertTrue(os.path.isdir(temp))
+            self.assertEqual([call["env"][k] for k in ("TMPDIR", "TMP", "TEMP")], [temp] * 3)
+            roots = next(a.split("=", 1)[1] for a in call["argv"]
+                         if a.startswith("sandbox_workspace_write.writable_roots="))
+            self.assertIn(os.path.realpath(temp), json.loads(roots))
+        self.assertFalse(os.path.exists(temp))
 
     def test_start_runs_codex_exec_and_returns_reply_and_session_id(self):
         self.codex([{"reply": "built it", "thread": "t-abc"}])

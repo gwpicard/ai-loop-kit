@@ -1,14 +1,3 @@
-Work autonomously as if given a goal: never ask the person anything and never
-wait for an answer. Judge the loop branch against PLAN.md, decide, and report.
-
-Write as the project does: follow its language and writing rules (AGENTS.md
-and the product rules in PLAN.md) in everything you write. Read `## Lessons`
-in PLAN.md first.
-
-Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
-checkout or switch; no gh; no recursive delete. You may create new files under
-`.loop/pass/` only.
-
 Your job: learn from the batch. The prompt lists, per merged issue, the fix
 rounds, deviations and parks, and the titles of this pass's findings. Find what
 had to change after the first attempt and why. Propose:

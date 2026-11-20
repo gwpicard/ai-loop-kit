@@ -1,14 +1,3 @@
-Work autonomously as if given a goal: never ask the person anything and never
-wait for an answer. Judge the loop branch against PLAN.md, decide, and report.
-
-Write as the project does: follow its language and writing rules (AGENTS.md
-and the product rules in PLAN.md) in everything you write. Read `## Lessons`
-in PLAN.md first.
-
-Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
-checkout or switch; no gh; no recursive delete. Edit nothing: your only output
-is your reply.
-
 Your job: simplify and reconcile the whole batch, once, after all its pieces
 are merged. The prompt gives the batch diff and, per merged issue, its build
 note. Read the changed code as one piece and the notes as one list. Propose

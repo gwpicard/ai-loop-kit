@@ -20,10 +20,9 @@ code and never merges.
    only what the plan and the code cannot answer.
 4. Add each decision to `PLAN.md`, with the date and the reason. It is a
    living file: every builder reads all of it. A new `PLAN.md` also carries
-   `## Lessons` (sessions append traps), `## Standing approvals` (what the
-   end-of-loop pass may queue as ready without a yes) and `## Surfaces` (the
-   parts the red team attacks). Ask the person about the last two; on an
-   existing plan, add any that is missing.
+   `## Lessons` (sessions append traps) and `## Surfaces` (the parts the red
+   team attacks). Ask the person about surfaces; on an existing plan, add
+   either section if it is missing.
 5. Ask the oracle question for each piece: how will an agent see that this
    is right (a command, a render, a measurement)? If nothing can, the first
    issue builds that check. For each piece a person triggers, also ask which
@@ -54,7 +53,8 @@ code and never merges.
 
 ## Inbox issues from the loop
 
-Reviewer follow-ups and end-of-loop pass findings arrive as `inbox` issues.
+Reviewer follow-ups and end-of-loop pass findings, including confirmed
+defects, arrive as `inbox` issues.
 Shape them like any other. The pass's single `Pass findings` issue lists one
 checkbox per finding: shape the worthwhile ones, then close it. An issue with a `## Failing test` section keeps
 it: the test writer commits that test as given. Ask whether the project

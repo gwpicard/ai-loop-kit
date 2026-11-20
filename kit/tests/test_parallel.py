@@ -58,7 +58,7 @@ class ParallelTest(Base):
         self.script = os.path.join(self.work, ".loop", "fake_worker.py")
         with open(self.script, "w") as f:
             f.write(FAKE_WORKER)
-        mock.patch.object(loop, "worker_command", lambda p, n, r: [sys.executable, self.script, p, str(n)]).start()
+        mock.patch.object(loop, "worker_command", lambda p, n, r, previous=0: [sys.executable, self.script, p, str(n)]).start()
         self.issues, self.labels = {}, {}
         self.configure()
 
@@ -147,6 +147,10 @@ class ParallelTest(Base):
         self.assertEqual(len(self.writes("issue comment 3")), 2)  # the retry note, then the park
         self.assertEqual(len(self.writes("issue edit 3 --add-label needs-user")), 1)
         self.assertEqual(self.labels[3], {"needs-user"})
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
+            crashes = [e for e in map(json.loads, f) if e["kind"] == "crashed"]
+        self.assertEqual([(e["issue"], e["attempt"]) for e in crashes], [(3, 1), (3, 2)])
+        self.assertTrue(all("exit code" in e["reason"] for e in crashes))
 
     def test_a_second_build_waits_while_the_machine_is_busy(self):
         self.headroom.return_value = "load average 9.0 is not below the 8 CPUs"

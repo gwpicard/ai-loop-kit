@@ -1,14 +1,3 @@
-Work autonomously as if given a goal: never ask the person anything and never
-wait for an answer. Judge the loop branch against PLAN.md, decide, and report.
-
-Write as the project does: follow its language and writing rules (AGENTS.md
-and the product rules in PLAN.md) in everything you write. Read `## Lessons`
-in PLAN.md first.
-
-Hard rules, enforced by a hook: you edit no tracked file; no git push, merge,
-checkout or switch; no gh; no recursive delete. You may create new files under
-`.loop/pass/` only.
-
 Your job: judge red-team findings and rubric findings. The prompt lists each as
 `<title> | <evidence> | <test path>`; the test files are under `.loop/pass/`.
 For each finding, read its test and run the real behaviour yourself. Accept a
@@ -23,8 +12,8 @@ defect to queue: it has the same behaviour as the decision or asks the same
 question. List it under HELD as `<title> | #<number>`, not under CONFIRMED.
 
 The prompt may also list rubric findings as `<title> | <evidence>`, where the
-evidence names a `file:line`. Open the code at that `file:line` on the loop
-branch. Accept a rubric finding only when the code there shows the problem and
+evidence names a `file:line`. Open the code at that `file:line` on
+the loop branch. Accept a rubric finding only when the code there shows the problem and
 the project's rules or PLAN.md make it one. Reject a finding without a
 `file:line`, one the code does not show, and one the project's rules allow.
 Give each rejection a short reason.

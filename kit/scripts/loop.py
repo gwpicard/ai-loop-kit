@@ -14,18 +14,19 @@ import common
 import flow
 import merge
 import pass_
+import report
 import session
 import setup
-from common import GitError, gh, git
+import status
+from common import GitError, gh, git, say
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
 HERE = os.path.dirname(os.path.abspath(__file__))
-say = lambda text: print(text, flush=True)
 
 
 def new_state():
-    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, deferred=None, started={}, pr=None, prs=[],
+    return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, attempts={}, deferred=None, started={}, pr=None, prs=[],
                 conflict="", last="loop started", next="after the current step")
 
 
@@ -44,18 +45,16 @@ def take_lock(project):
 
 
 def last_pass(project):
-    """The last pass report; {} when there is none, {"unreadable": True} when the file is there but cannot be read."""
+    """The last pass report, or {} when missing or unreadable."""
     path = os.path.join(project, ".loop", "pass.json")
-    if not os.path.exists(path):
-        return {}
     try:
         with open(path) as f:
             last = json.load(f)
-        if isinstance(last, dict) and isinstance(last.get("rounds", 0), int) and not isinstance(last.get("rounds"), bool):
+        if isinstance(last, dict):
             return last
     except (OSError, ValueError):
         pass
-    return {"unreadable": True}
+    return {}
 
 
 def board_body(sections, last, next_check):
@@ -109,18 +108,39 @@ def progress_rows(st):
             for m in sorted(found if isinstance(found, list) else [], key=lambda m: m["number"]) if m.get("number") in active]
 
 
-def write_board(project, st):
+def write_board(project, st, doing=None):
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
     row = lambda i, text: "- #%d %s: %s" % (i["number"], i["title"], text)
-    b, p = st["building"], last_pass(project)
+    b = st["building"]
+    _, ended, recorded = status.activity(status.read_events(project))
+    doing = doing or recorded
+    parked = {i["number"] for i in of("needs-user")}
+    building = []
+    for n, (since, _) in sorted(b.items()):
+        if n in parked or n in ended:
+            continue
+        try:
+            minutes = max(0, int(time.time() - os.path.getmtime(common.build_file(project, n, "step"))) // 60)
+        except OSError:
+            minutes = 0
+        building.append("#%d, %s, since %s (%d min in step)" % (n, step_of(project, n), since, minutes))
+    if not building and doing != "idle":
+        building = [doing]
+    why = []
+    if not building and of("ready"):
+        held = {d for i in of("ready") for d in common.depends_on(i["body"]) if d not in st["closed"]}
+        why = ["dependencies held by needs-user: " + ", ".join("#%d %s" % (i["number"], i["title"])
+               for i in of("needs-user") if i["number"] in held)] if held & parked else []
+        if st["deferred"]:
+            why.append("deferred for " + st["deferred"])
+    last = st["last"] + ("\nWhy idle: " + "; ".join(why) if why else "")
     body = board_body([
-        ("Building now", ["#%d, %s, since %s" % (n, step_of(project, n), since) for n, (since, _) in sorted(b.items())]),
+        ("Building now", building),
         ("Needs you", [row(i, st["questions"].get(i["number"], "") + " (reply on the issue)")
                        for i in of("needs-user")] + blocked_rows(st) + ([st["pr"]] if st["pr"] else [])
-                      + ([st["conflict"]] if st["conflict"] else [])
-                      + (["Notice: defect rounds limit reached, defects filed as inbox issues."] if p.get("capped") else [])),
-        ("Progress", progress_rows(st))], st["last"], st["next"])
+                      + ([st["conflict"]] if st["conflict"] else [])),
+        ("Progress", progress_rows(st))], last, st["next"])
     if st["factory"] and st["factory"]["body"].strip() != body.strip():
         gh(["issue", "edit", str(st["factory"]["number"]), "--body-file", "-"], input=body)
         st["factory"]["body"] = body
@@ -226,22 +246,32 @@ def claim(st, number):
             i["labels"] = (i["labels"] - {"ready"}) | {"building"}
 
 
-def build_attempts(project, number, replies):
+def build_attempts(project, number, replies, previous=0):
     """Build one issue, a second time after a crash, and park it after two. Return a line for the board.
     This runs in the loop when `Parallel` is 1 and in a worker process otherwise."""
+    common.wait_for_disk(project)
     for attempt in (1, 2):
-        say("building #%d, attempt %d" % (number, attempt))
-        try:
-            r = flow.build(number, project, replies)
-            if r.status != "failed":
-                return "#%d %s: %s" % (number, r.status, r.reason)
-            reason = r.reason
-        except common.GitHubError as e:  # GitHub trouble is not a crash: no attempt used
-            say("GitHub problem on #%d, will try again: %s" % (number, e))
-            time.sleep(POLL)
-            return "#%d: GitHub problem, will try again" % number
-        except Exception as e:  # a crash must not stop the loop
-            reason = "%s: %s" % (type(e).__name__, e)
+        path = common.build_file(project, number, "attempt")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(str(previous + attempt))
+        say("building #%d, attempt %d" % (number, previous + attempt))
+        for disk_retry in (False, True):  # a full disk waits and retries once without using an attempt
+            try:
+                r = flow.build(number, project, replies)
+                if r.status != "failed":
+                    return "#%d %s: %s" % (number, r.status, r.reason)
+                reason = r.reason
+            except common.GitHubError as e:  # GitHub trouble is not a crash: no attempt used
+                say("GitHub problem on #%d, will try again: %s" % (number, e))
+                time.sleep(POLL)
+                return "#%d: GitHub problem, will try again" % number
+            except Exception as e:  # a crash must not stop the loop
+                reason = "%s: %s" % (type(e).__name__, e)
+            if disk_retry or "no space left on device" not in reason.lower():
+                break
+            common.wait_for_disk(project, reason=reason, issue=number)
+        common.event("crashed", project, issue=number, reason=reason, attempt=previous + attempt)
         say("crash on #%d: %s" % (number, reason))
         if attempt == 1:
             try:
@@ -250,7 +280,7 @@ def build_attempts(project, number, replies):
             except common.GitHubError as e:  # the comment is a report: a failed post must not strand the claimed issue
                 say("the crash comment on #%d was not posted: %s" % (number, e))
     common.park(number, "The build crashed twice: " + reason,
-                "Read .loop/logs, then reply to try again or close the issue.")
+                "Read .loop/logs, then reply to try again or close the issue.", project=project)
     return "#%d parked after two crashes" % number
 
 
@@ -262,8 +292,9 @@ def build_once(project, st, number):
     except common.GitHubError as e:  # the board is a report: a failed edit must not strand the claimed issue
         say("the board was not updated for #%d: %s" % (number, e))
     st["last"] = build_attempts(project, number, st["replies"].get(number, []))
-    with contextlib.suppress(OSError):
-        os.remove(common.build_file(project, number, "step"))
+    for kind in ("step", "attempt"):
+        with contextlib.suppress(OSError):
+            os.remove(common.build_file(project, number, kind))
 
 
 def headroom():
@@ -281,8 +312,8 @@ def headroom():
     return None
 
 
-def worker_command(project, number, replies):
-    return [sys.executable, os.path.join(HERE, "worker.py"), project, str(number), json.dumps(replies)]
+def worker_command(project, number, replies, previous=0):
+    return [sys.executable, os.path.join(HERE, "worker.py"), project, str(number), json.dumps(replies), str(previous)]
 
 
 def start_builds(project, settings, st):
@@ -299,7 +330,7 @@ def start_builds(project, settings, st):
         claim(st, number)
         os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
         with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
-            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, [])), cwd=project,
+            proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, []), st["attempts"].get(number, st["deaths"].get(number, 0))), cwd=project,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
         with open(common.build_file(project, number, "pid"), "w") as f:
@@ -350,19 +381,29 @@ def reap(project, st, cap=None):
         try:
             with open(common.build_file(project, number, "result")) as f:
                 st["last"] = json.load(f)["last"]
+            st["attempts"].pop(number, None)
+            st["deaths"].pop(number, None)
         except (OSError, ValueError, KeyError):
             st["deaths"][number] = st["deaths"].get(number, 0) + 1
             reason = "the build process ended with exit code %s and no result" % proc.returncode
+            try:
+                with open(common.build_file(project, number, "attempt")) as f:
+                    attempt = int(f.read())
+            except (OSError, ValueError):
+                attempt = st["deaths"][number]
+            st["attempts"][number] = attempt
+            common.event("crashed", project, issue=number, reason=reason, attempt=attempt)
             say("crash on #%d: %s" % (number, reason))
             if st["deaths"][number] == 1:
                 gh(["issue", "comment", str(number), "--body-file", "-"], retry=False,
                    input="The build crashed (%s). Trying once more.\n\n%s\n" % (reason, common.MARKER))
             else:
                 common.park(number, "The build crashed twice: " + reason,
-                            "Read .loop/logs, then reply to try again or close the issue.")
+                            "Read .loop/logs, then reply to try again or close the issue.", project=project)
                 st["last"] = "#%d parked after two crashes" % number
                 del st["deaths"][number]
-        for kind in ("step", "result", "pid"):
+                st["attempts"].pop(number, None)
+        for kind in ("step", "result", "pid", "attempt"):
             with contextlib.suppress(OSError):
                 os.remove(common.build_file(project, number, kind))
 
@@ -442,7 +483,7 @@ def summary(project, settings, head, landed):
         except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
             pass
         with common.scratch_tree(project, "origin/" + loop) as tree:
-            prompt = Path(flow.BRIEFS, "pr-summary.md").read_text(encoding="utf-8") + (
+            prompt = flow.brief("pr-summary") + (
                 "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
             reply = session.run("pass", prompt, tree, settings["Pass"][1], project, "summary", agent=settings["Pass"][0])[0]
@@ -457,6 +498,15 @@ def summary(project, settings, head, landed):
 
 
 def drain(project, settings, st):
+    with common.timed("drain", project) as end:
+        if st.get("factory"):
+            write_board(project, st)
+        end["outcome"] = "fail"
+        failed = _drain(project, settings, st)
+        end["outcome"] = "fail" if failed else "pass"
+
+
+def _drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
     say("draining: running the Test command on " + loop)
@@ -466,16 +516,16 @@ def drain(project, settings, st):
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
         say("running the end-of-loop pass")
+        if st.get("factory"):
+            st["last"] = "running the end-of-loop pass"
+            write_board(project, st, doing="running the end-of-loop pass")
         try:
-            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base,
-                                          rounds=None if last.get("unreadable") else last.get("rounds", 0))
+            pass_report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
         except Exception as e:  # the pass never blocks the drain or the pull request
-            report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
-        last = dict(head=last.get("head") if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
-                    defects=len(report.get("confirmed", [])), rounds=settings["Defect rounds"] if report.get("rounds", 0) is None else report.get(
-                        "rounds", settings["Defect rounds"] if last.get("unreadable") else last.get("rounds", 0)),
-                    capped=bool(report.get("capped")),
-                    inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
+            pass_report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
+        last = dict(head=last.get("head") if pass_report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
+                    defects=len(pass_report.get("confirmed", [])),
+                    inbox=sum(i.endswith("(inbox)") for i in pass_report.get("issues", [])))
         with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
             json.dump(last, f)
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
@@ -488,7 +538,9 @@ def drain(project, settings, st):
         except (ValueError, common.GitHubError):
             pass
     top = summary(project, settings, head, landed)
-    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n") + hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
+    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
+    body += report.section(report.render(project, settings)) + "\n"
+    body += hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
     body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
         landed or "Nothing.", "fail: " + failed if failed else "pass")
     body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
@@ -499,6 +551,7 @@ def drain(project, settings, st):
             "--body-file", "-"], retry=False, input=body)
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
+    return failed
 
 
 OWN_LOG = re.compile(r"(build-\d+|(\d+|pass)-[a-z]+(-[a-z]+)*-\d+)\.log")  # its own logs only: 1.x left piece-* and run-* logs in .loop/logs
@@ -521,7 +574,10 @@ def clean_up(project, closed):
 
 def run(project):
     project = os.path.abspath(project)
-    settings = common.read_settings(project)
+    unknown = []
+    settings = common.read_settings(project, unknown=unknown)
+    if unknown:
+        say("unknown Loop settings: %s; next: run setup" % ", ".join(unknown))
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
@@ -540,6 +596,7 @@ def run(project):
     stop = os.path.join(project, ".loop", "stop")
     if os.path.exists(stop):
         os.remove(stop)
+    reason = "interrupted"
     try:
         while not os.path.exists(stop):
             try:
@@ -570,15 +627,17 @@ def run(project):
                     drain(project, settings, st)
                     dirty = False
                 if time.time() - built >= settings["Idle hours"] * 3600:
+                    reason = "nothing built for %g hours" % settings["Idle hours"]
                     say("exiting: nothing built for %g hours" % settings["Idle hours"])
                     break
-                st["next"] = time.strftime("%H:%M", time.localtime(time.time() + POLL))
+                st["next"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + POLL))
                 write_board(project, st)
             except Exception as e:  # one line, never a traceback or a silent death
                 say("problem, will check again: %s: %s" % (type(e).__name__, e))
             for _ in range(POLL // 5):
                 os.path.exists(stop) or time.sleep(5)
         else:
+            reason = "stop requested"
             say("exiting: stop requested")
         while st["building"]:  # running builds finish their current issue
             say("waiting for %d running builds" % len(st["building"]))
@@ -587,6 +646,7 @@ def run(project):
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
+        common.event("exit", project, reason=reason)
         for _, proc in st["building"].values():  # only reached with builds left after an error or an interrupt
             if proc and proc.poll() is None:
                 with contextlib.suppress(OSError):
@@ -603,9 +663,33 @@ def run(project):
 
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "report":
+        if len(argv) != 1:
+            print("usage: loop report")
+            return 2
+        try:
+            print(report.render(project, common.read_settings(project)))
+        except (common.LoopError, GitError) as e:
+            print(str(e))
+            return 1
+        return 0
+    if cmd == "status":
+        if len(argv) != 1 and not (len(argv) == 3 and argv[1] == "--since"):
+            print("usage: loop status [--since <time>]")
+            return 2
+        now = time.time()
+        try:
+            since = status.since_time(argv[2] if len(argv) == 3 else None, now)
+        except ValueError as e:
+            print(str(e))
+            return 2
+        running, builds = status.build_state(project, alive)
+        print(status.render(status.read_events(project), now, since, running, builds))
+        return 0
     if cmd == "stop":
         os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
         open(os.path.join(project, ".loop", "stop"), "w").close()
+        common.event("stop", project, reason="stop requested")
         return say("stop requested; the loop ends after its current step") or 0
     if cmd in ("run", "check-version"):
         old = common.kit_version_refusal(project)
@@ -615,7 +699,7 @@ def main(argv):
             return 0
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|check-version")
+        say("usage: loop.py run|stop|check-version|report|status [--since <time>]")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):

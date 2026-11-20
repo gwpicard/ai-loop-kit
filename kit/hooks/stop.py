@@ -64,9 +64,11 @@ def problem(role, cwd, project, session_id=""):
         if session_id and unchanged_since_pass(project, session_id, cwd):
             return None
         timeout = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
-        tails = []
-        for name in ("Test", "Check"):
-            command = settings[name + " command"]
+        test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
+                                                   os.environ.get("LOOP_LOCKED", "").splitlines())
+        tails = [description]
+        for name, command in (("Test files" if settings["Test files command"] else "Test", test),
+                              ("Check", settings["Check command"])):
             code, out = run(command, cwd, timeout) if command else (0, "")
             if code is None:
                 return "The %s command timed out after %d seconds. Make it finish." % (name, timeout)
@@ -91,6 +93,7 @@ def main():
     try:
         role, project = os.environ.get("LOOP_ROLE"), os.environ["LOOP_PROJECT"]
         session_id = json.load(sys.stdin)["session_id"]
+        common.record_session(session_id, os.environ)
         if role in LIMITS:
             why = problem(role, os.getcwd(), project, session_id)
             if why and count_block(project, session_id, LIMITS[role]):

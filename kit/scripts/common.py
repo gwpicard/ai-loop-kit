@@ -1,10 +1,13 @@
 """Shared helpers: settings, GitHub and git calls, events, labels, trust."""
 import contextlib
+import contextvars
+import errno
 import fcntl
 import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -41,7 +44,6 @@ DEFAULTS = {
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
     "Prepare command": "",  # run once in each worktree, before any test run
     "Parallel": "1",  # builds running at once
-    "Defect rounds": "2",  # end-of-loop passes that may queue defects as ready, between merges of issues the person queued
 }
 
 
@@ -62,6 +64,32 @@ class GitError(LoopError):
 
 class SettingsError(LoopError):
     pass
+
+
+def say(text):
+    for line in str(text).splitlines():
+        print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
+
+
+_ACTIVE = contextvars.ContextVar("events", default={})
+
+
+@contextlib.contextmanager
+def timed(kind, root=".", **fields):
+    key = (kind, os.path.abspath(root), fields.get("issue"), fields.get("step"))
+    active = _ACTIVE.get()
+    if key in active:
+        yield active[key]
+        return
+    end = dict(outcome="crashed")
+    token = _ACTIVE.set({**active, key: end})
+    began = time.monotonic()
+    try:
+        event(kind, root, phase="start", **fields)
+        yield end
+    finally:
+        _ACTIVE.reset(token)
+        event(kind, root, phase="end", seconds=int(time.monotonic() - began), **fields, **end)
 
 
 def sleep(seconds):
@@ -91,17 +119,17 @@ def wait_for_memory(patience=None):
     if level is None or level < 2:
         return
     began = last = time.time()
-    print("waiting for memory pressure to ease (level %d)" % level, flush=True)
+    say("waiting for memory pressure to ease (level %d)" % level)
     while level is not None and level >= 2:
         if patience is not None and time.time() - began >= patience:
-            print("memory pressure did not ease in %d minutes; starting anyway" % (patience // 60), flush=True)
+            say("memory pressure did not ease in %d minutes; starting anyway" % (patience // 60))
             return
         sleep(PRESSURE_POLL)
         level = pressure_level()
         if level and level >= 2 and time.time() - last >= PRESSURE_REPEAT:
             last = time.time()
-            print("still waiting for memory pressure to ease (level %d)" % level, flush=True)
-    print("memory pressure eased after %d minutes" % ((time.time() - began) // 60), flush=True)
+            say("still waiting for memory pressure to ease (level %d)" % level)
+    say("memory pressure eased after %d minutes" % ((time.time() - began) // 60))
 
 
 # Settings
@@ -131,7 +159,18 @@ def codex_refusal(settings):
     return None
 
 
-def read_settings(root="."):
+def setting_lines(text):
+    inside = False
+    for line in text.splitlines(keepends=True):
+        if re.match(r"#{1,6}\s", line):
+            inside = line.strip().lower() == "## loop"
+            continue
+        m = re.match(r"\s*([^:]+?):\s*(.*?)\s*$", line)
+        if inside and m:
+            yield line, m.group(1), m.group(2).replace("`", "").strip()
+
+
+def read_settings(root=".", unknown=None):
     """Read the `## Loop` section of AGENTS.md into a dict with defaults."""
     path = os.path.join(root, "AGENTS.md")
     try:
@@ -139,14 +178,9 @@ def read_settings(root="."):
             text = f.read()
     except OSError:
         raise SettingsError("no AGENTS.md in " + os.path.abspath(root))
-    found, inside = {}, False
-    for line in text.splitlines():
-        if re.match(r"#{1,6}\s", line):
-            inside = line.strip().lower() == "## loop"
-            continue
-        m = re.match(r"\s*([A-Za-z ]+?):\s*(.*?)\s*$", line)
-        if inside and m:
-            found[m.group(1)] = m.group(2).replace("`", "").strip()
+    found = {key: value for _, key, value in setting_lines(text)}
+    if unknown is not None:
+        unknown.extend(k for k in found if k not in DEFAULTS and k != "Test command")
     for role, old in (("Builder", "Builder model"), ("Test writer", "Builder model"),
                       ("Reviewer", "Reviewer model"), ("Pass", "Reviewer model")):
         if found.get(old) and not found.get(role):
@@ -173,7 +207,6 @@ def read_settings(root="."):
     settings["Max rounds"] = int(settings["Max rounds"])
     settings["Session minutes"] = float(settings["Session minutes"])
     settings["Parallel"] = max(1, int(settings["Parallel"]))
-    settings["Defect rounds"] = max(0, int(settings["Defect rounds"]))
     return settings
 
 
@@ -306,13 +339,78 @@ def _record(path, pid, add):
         pass
 
 
+MIN_DISK_FREE = 2 * 1024 ** 3
+_BUILD_TEMP = contextvars.ContextVar("build_temp", default="")
+
+
+def build_env():
+    path = _BUILD_TEMP.get()
+    return dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+
+
+def record_session(session_id, env):
+    path = env.get("LOOP_TMPDIR")
+    if path and session_id and os.path.basename(session_id) == session_id:
+        open(os.path.join(path, "session-" + session_id), "a").close()
+
+
+@contextlib.contextmanager
+def build_environment(project):
+    path = tempfile.mkdtemp(prefix="loop-build-", dir=tempfile.gettempdir())
+    created = os.stat(path)
+    token = _BUILD_TEMP.set(path)
+    try:
+        yield
+    finally:
+        _BUILD_TEMP.reset(token)
+        if not os.path.islink(path) and os.path.isdir(path) and os.path.samestat(created, os.stat(path)):
+            for name in os.listdir(path):
+                if name.startswith("session-"):
+                    for prefix in ("passed-", "stop-"):
+                        with contextlib.suppress(FileNotFoundError):
+                            os.remove(os.path.join(project, ".loop", prefix + name[len("session-"):]))
+            shutil.rmtree(path)
+
+
+def wait_for_disk(project, reason="", **fields):
+    reported, recorded = False, False
+    while True:
+        low = [p for p in (project, build_env().get("TMPDIR") or tempfile.gettempdir())
+               if shutil.disk_usage(p).free < MIN_DISK_FREE]
+        if not low and (reported or not reason):
+            if reported and not recorded:
+                event("disk-wait", project, reason=reason, **fields)
+            return
+        if not reported:
+            reason = reason or "less than 2 GB free on: " + ", ".join(low)
+            say("waiting for disk space: " + reason)
+            reported = True
+        if not recorded:
+            try:
+                event("disk-wait", project, reason=reason, **fields)
+                recorded = True
+            except OSError as e:
+                if e.errno != errno.ENOSPC:
+                    raise
+        sleep(60)
+
+
 def run_shell(command, cwd, timeout, record=None, patience=None):
+    code, out = _run_shell(command, cwd, timeout, record, patience)
+    if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
+        wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device")
+        code, out = _run_shell(command, cwd, timeout, record, patience)
+    return code, out
+
+
+def _run_shell(command, cwd, timeout, record=None, patience=None):
     """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
     With `record`, the group id is listed in that file while the command runs, so whoever
     ends the caller can also end the command. Before it starts, the command waits while memory is under
     pressure (at most `patience` seconds when set); the wait does not count against `timeout`."""
     wait_for_memory(patience)
-    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, errors="replace", start_new_session=True,
+    wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
+    p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True)
@@ -336,7 +434,7 @@ def files_command(settings, files):
 
 
 def read_passed(project, session_id):
-    """(commit, output tails) the Stop hook recorded when the full commands last passed for the session."""
+    """(commit, output tails) the Stop hook recorded when its commands last passed for the session."""
     try:
         with open(os.path.join(project, ".loop", "passed-" + str(session_id))) as f:
             head, *tails = f.read().splitlines()
@@ -382,17 +480,19 @@ def event(kind, root=".", **fields):
     """Append one JSON line to .loop/events.jsonl. A step of a build also becomes its step file, for the board."""
     folder = os.path.join(root, ".loop")
     os.makedirs(folder, exist_ok=True)
-    if kind == "step" and "issue" in fields:
+    if kind == "step" and "issue" in fields and fields.get("phase", "start") == "start":
         os.makedirs(os.path.join(folder, "builds"), exist_ok=True)
         with open(build_file(root, fields["issue"], "step"), "w") as f:
             f.write(fields["step"] + (" round %s" % fields["round"] if "round" in fields else ""))
-    record = dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind=kind, **fields)
+    record = dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind=kind, kit=kit_version(),
+                  project=os.path.basename(os.path.abspath(root)), **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
 
-def park(issue, question, recommendation):
+def park(issue, question, recommendation, project="."):
     """Hand an issue to the person: label needs-user, drop building, comment."""
+    event("parked", project, issue=issue, reason=question)
     add_label(issue, "needs-user")
     remove_label(issue, "building")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
