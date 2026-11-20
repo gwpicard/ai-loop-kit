@@ -1,5 +1,7 @@
 import json
 import os
+import shlex
+import subprocess
 import time
 import unittest
 from unittest import mock
@@ -54,17 +56,29 @@ class SessionTest(FakeClaudeGh):
         self.assertEqual(env["LOOP_DEFAULT_BRANCH"], "main")
         self.assertEqual(call["prompt"], "do it")
 
-    def test_test_commands_reach_every_session_role(self):
+    def test_spawned_session_guard_reserves_full_tests_for_merge(self):
         for files in ("", "make unit {files}"):
             with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
                 f.write(AGENTS + "Test files command: " + files + "\n")
             for role in ("builder", "reviewer", "test-writer", "pass"):
                 with self.subTest(role=role, files=files):
                     self.run_session(role=role)
-                    env = self.claude_calls()[-1]["env"]
+                    call = self.claude_calls()[-1]
+                    env = call["env"]
                     self.assertEqual(env["LOOP_ROLE"], role)
                     self.assertEqual(env["LOOP_TEST_COMMAND"], "true")
                     self.assertEqual(env["LOOP_TEST_FILES_COMMAND"], files)
+                    hooks = json.loads(call["argv"][call["argv"].index("--settings") + 1])["hooks"]
+                    command = hooks["PreToolUse"][0]["hooks"][0]["command"]
+                    data = {"tool_name": "Bash", "tool_input": {"command": "true"},
+                            "cwd": call["cwd"]}
+                    result = subprocess.run(shlex.split(command), input=json.dumps(data),
+                                            capture_output=True, text=True,
+                                            env=dict(os.environ, **env), cwd=call["cwd"])
+                    self.assertEqual(result.returncode, 2 if files else 0, result.stderr)
+                    if files:
+                        self.assertIn("rule: full-test", result.stderr.splitlines())
+                        self.assertIn("use the Test files command: " + files, result.stderr)
 
     def test_logs_and_resume(self):
         self.run_session()
