@@ -101,6 +101,16 @@ def stop_reason(path, protected):
     return None
 
 
+def targeted_command(settings, cwd, start, locked):
+    if not settings["Test files command"]:
+        return settings["Test command"], "Test command: full suite"
+    changed = git(["diff", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).splitlines() if start else []
+    files = sorted(set(locked) | {p for p in changed if is_test_file(p)})
+    if not files:  # an empty list would run the whole suite
+        return "", "Test files command: no test files to run"
+    return common.files_command(settings, files), "Test files command: " + ", ".join(files)
+
+
 def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     """Return a park reason for the first stop or test-lock breach, or None. A locked file must equal
     its content at `baseline` (the writer's final commit), else at the commit that first added it."""
@@ -208,9 +218,6 @@ def _merge(issue, branch, verdict_text, project):
     if not head or not sha.startswith(head):
         return _refuse("review-head", "the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
-    if failure := run_tests(project, sha, settings["Test command"],
-                            check=settings["Check command"], prepare=settings["Prepare command"]):
-        return _refuse("test-command", failure)
     info = view("issue", issue, "body,comments")
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
                       allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", [])),
@@ -219,6 +226,9 @@ def _merge(issue, branch, verdict_text, project):
                        "protected-path" if stop.startswith("protected path") else
                        "workflow" if stop.startswith("workflow file") else
                        "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
+    if failure := run_tests(project, sha, settings["Test command"],
+                            check=settings["Check command"], prepare=settings["Prepare command"]):
+        return _refuse("test-command", failure)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):

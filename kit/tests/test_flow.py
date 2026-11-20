@@ -580,7 +580,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(roles(self.claude_calls()), ["test-writer", "test-writer"])
 
     def first_fails(self, command, body="Do the thing.", **more):
-        self.fast(Test_command="true", Test_files_command=command, **more)
+        self.fast(Test_command="true", Test_files_command="test -f app.py || { %s; }" % command, **more)
         common.git(["push", "origin", "--delete", "issue/7"], cwd=self.work, check=False)
         common.git(["branch", "-D", "issue/7"], cwd=self.work, check=False)
         self.claude({})
@@ -629,8 +629,8 @@ class FlowTest(FakeClaudeGh):
 
     def test_the_tests_comment_names_the_writers_final_commit_after_a_resume(self):
         sent = self.spy_gh()
-        self.fast(Test_command="true", Test_files_command="if grep -q y {files}; then echo AssertionError; "
-                  "else echo ValueError; fi; false")
+        self.fast(Test_command="true", Test_files_command="test -f app.py || { if grep -q y {files}; then echo AssertionError; "
+                  "else echo ValueError; fi; false; }")
         rewrite = {"files": {"tests/test_new.py": "y\n"}, "reply": "TESTS:\ntests/test_new.py"}
         self.build_scenario(**{"test-writer": [WRITER, rewrite]})
         self.assertEqual(self.build().status, "merged")
@@ -646,12 +646,33 @@ class FlowTest(FakeClaudeGh):
         r, called = self.first_fails(out, body="Add something else.")
         self.assertEqual((r.status, called), ("parked", ["test-writer"] * 2))
 
-    def test_the_full_command_runs_after_the_builder_only_when_the_stop_hook_did_not_pass_the_head(self):
+    def test_targeted_tests_run_before_review_when_the_hook_did_not_pass_the_head(self):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
-        self.build_scenario(builder=[{"files": {"app.py": "1\n"}}])
+        self.build_scenario(builder=[{"files": {"app.py": "1\n", "tests/test_added.py": "x\n"}}])
+        self.assertEqual(self.build().status, "merged")
+        self.assertEqual(self.runs("full"), [])
+        self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py"])
+        self.assertIn("Test files command: tests/test_added.py, tests/test_new.py", self.claude_calls()[-1]["prompt"])
+        self.assertEqual(roles(self.claude_calls()), ["test-writer", "builder", "reviewer"])
+
+    def test_a_build_with_fix_rounds_runs_the_full_suite_once_at_merge(self):
+        self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
+        self.merge.side_effect = REAL_MERGE
+        self.pr.return_value = {"number": 9, "state": "MERGED", "mergeCommit": {"oid": "abc"}}
+        hook = str(Path(flow.BRIEFS, "..", "hooks", "stop.py").resolve())
+        self.build_scenario(reviewer=[CHANGES, APPROVE], builder=[
+            {"files": {"app.py": "1\n", "tests/test_added.py": "x\n"}, "stop_hook": hook},
+            {"files": {"app.py": "2\n"}, "stop_hook": hook}])
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), ["full"])
-        self.assertEqual(roles(self.claude_calls()), ["test-writer", "builder", "reviewer"])
+        self.assertEqual(self.runs("files"), ["tests/test_new.py"] +
+                         ["tests/test_added.py tests/test_new.py"] * 2)
+        for call in self.claude_calls():
+            self.assertEqual(call["env"]["LOOP_TEST_COMMAND"], self.FULL.replace("TMP", self.tmp))
+            self.assertEqual(call["env"]["LOOP_TEST_FILES_COMMAND"], self.FILES.replace("TMP", self.tmp))
+        for call in self.claude_calls():
+            if call["role"] == "reviewer":
+                self.assertIn("Test files command: tests/test_added.py, tests/test_new.py", call["prompt"])
 
     def fix_pass(self, extra):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
@@ -663,8 +684,9 @@ class FlowTest(FakeClaudeGh):
     def test_a_fix_pass_the_hook_passed_is_not_run_again(self):
         self.assertEqual(self.fix_pass({"passed": True}), [])
 
-    def test_a_fix_pass_the_hook_did_not_pass_runs_the_full_command(self):
-        self.assertEqual(self.fix_pass({}), ["full"])
+    def test_a_fix_pass_the_hook_did_not_pass_runs_targeted_tests(self):
+        self.assertEqual(self.fix_pass({}), [])
+        self.assertEqual(self.runs("files"), ["tests/test_new.py"] * 2)
 
     def test_a_failure_found_by_the_flow_goes_back_to_the_builder_with_its_tail(self):
         self.fast(Test_command="echo full >> TMP/full.log; test -f app.py && test ! -f FAIL || { echo AssertionError; false; }")
@@ -681,23 +703,23 @@ class FlowTest(FakeClaudeGh):
         self.assertIn("all passed", prompt)
         self.assertIn("Test files command: echo {files}", prompt)
         brief = Path(flow.BRIEFS, "reviewer.md").read_text(encoding="utf-8")
-        self.assertIn("do not run the full Test command", brief)
+        self.assertIn("Run the Test files command", brief)
         self.assertNotIn("Run the Test command and your own checks", brief)
 
     def test_the_reviewer_sees_the_tail_when_the_flow_ran_the_tests(self):
-        self.fast(Test_command="echo full >> TMP/full.log; test -f app.py && echo ran-fine", Test_files_command=self.FILES)
+        self.fast(Test_command="echo full >> TMP/full.log; test -f app.py && echo ran-fine", Test_files_command=self.FILES + " && echo targeted-fine")
         self.build_scenario(builder=[{"files": {"app.py": "1\n"}}])
         self.build()
-        self.assertIn("Test command passed: ran-fine", self.claude_calls()[-1]["prompt"])
+        self.assertIn("Test command passed: targeted-fine", self.claude_calls()[-1]["prompt"])
 
-    def test_the_builder_is_told_to_test_the_files_it_touches_and_leave_the_full_run_to_the_hook(self):
+    def test_the_builder_is_told_which_test_command_to_use(self):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
         self.build_scenario(builder=[self.PASSED])
         self.build()
         prompt = self.claude_calls()[1]["prompt"]
         self.assertIn("Test files command: echo {files}", prompt)
         brief = Path(flow.BRIEFS, "builder.md").read_text(encoding="utf-8")
-        for text in ("Test files command", "Stop hook runs the full"):
+        for text in ("Test files command", "Stop hook"):
             self.assertIn(text, brief)
 
     def test_simplify_is_not_a_brief_any_more(self):

@@ -307,8 +307,9 @@ Recommended on the evidence. Each layer catches failures the others miss.
 2. **The test lock.** The builder cannot edit those tests or any existing
    test, except a path the issue names.
 3. **A reviewer after the build, in a fresh session.** It reads the issue,
-   the diff and `PLAN.md`; is given the latest full test result and runs only
-   targeted tests and the oracle (renders, measurements); checks each criterion with evidence; may add a test that
+   the diff and `PLAN.md`; is given the latest test result, naming the tests
+   run, and runs only targeted tests and the oracle (renders, measurements);
+   checks each criterion with evidence; may add a test that
    reproduces a finding; and gives a verdict naming the head commit. Why:
    the contract review caught real defects that frozen tests missed
    (graphwright, docla, the 10 November batch), and marcdown's reviewers
@@ -360,9 +361,10 @@ guard hook.
 
 ### The fast path
 
-A Test command that takes minutes must not run on every step. Per issue it
-runs in full twice: once in the Stop hook when the builder finishes, and once
-in `merge.py` on the exact commit it merges. Everything between is targeted.
+A Test command that takes minutes must not run on every step. With a Test
+files command set, the full suite runs once per issue, at merge, on the exact
+commit `merge.py` merges. Path checks and the test lock run first, so a
+refusal costs no test run.
 
 - `Test files command` runs only some test files (`{files}` stands for their
   paths; the Test command stands in when it is absent). `Prepare command`
@@ -370,12 +372,16 @@ in `merge.py` on the exact commit it merges. Everything between is targeted.
 - The fails-first step runs only the locked files with the Test files command
   and requires a failure by assertion, not a syntax error in the test.
 - The builder runs the Test files command while it works. The Stop hook runs
-  the full Test and Check commands once when it finishes, and records the
-  commit and the output tails in `.loop/passed-<session>`. The flow reuses that
-  pass when it is for the head commit, and otherwise runs the full commands in
-  a fresh checkout.
+  the locked tests and the test files changed since the issue started, then
+  the Check command. It records the commit, which tests ran and the output
+  tails in `.loop/passed-<session>`. The flow reuses that pass when it is for
+  the head commit, and otherwise runs the same targeted set in a fresh checkout.
+  Without a Test files command, these steps use the full Test command.
 - There is no per-issue simplify step. The reviewer gets the latest test
-  result in its prompt and runs only targeted checks.
+  result in its prompt and runs only targeted checks. With a Test files command
+  set, the guard refuses the full Test command in builder and reviewer sessions.
+- The pass judges each red-team candidate with the Test files command on that
+  file, or the Test command when none is set, and then the Check command.
 - A folder that is not a registered worktree is renamed aside, never deleted.
   A Stop hook command lives in its own process group, listed in
   `LOOP_GROUPS`, so the loop kills it with the session.

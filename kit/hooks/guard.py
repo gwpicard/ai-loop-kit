@@ -96,6 +96,10 @@ def check_path(path, role, cwd):
 
 
 def check_role_command(command, role, cwd):
+    files = os.environ.get("LOOP_TEST_FILES_COMMAND")
+    if role in ("builder", "reviewer") and files and os.environ.get("LOOP_TEST_COMMAND") in [
+            s.strip() for s in re.split(r"&&|\|\||[;|\n]", command)]:
+        raise Refuse("full-test", "the full Test command is reserved for merge", "use the Test files command: " + files)
     if ROLE_GIT.search(command) or GH.search(command):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")

@@ -6,7 +6,7 @@ text, "crash": true, "sleep": seconds, "spawn": true (leave a `sleep` running
 holding the session's stdout, its pid in <scenario>.pid), "passed": true (record
 the head as the Stop hook would, with the tail "all passed"), "hooked": true
 (leave a `sleep` in a group of its own, listed in LOOP_GROUPS as a Stop hook's
-command is)}. The nth call of a role uses step n;
+command is), "stop_hook": path (run the real Stop hook)}. The nth call of a role uses step n;
 the last step repeats. Files and removals are committed.
 """
 import json
@@ -49,6 +49,10 @@ if step.get("files") or step.get("remove"):
     subprocess.run(["git", "commit", "-qm", role], capture_output=True)
 head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 sid = step.get("session_id", "sess-" + role)
+if step.get("stop_hook"):
+    stopped = subprocess.run([sys.executable, step["stop_hook"]], input=json.dumps({"session_id": sid}),
+                             capture_output=True, text=True, check=True)
+    assert not stopped.stdout.strip(), stopped.stdout
 if step.get("passed"):
     folder = os.path.join(os.environ["LOOP_PROJECT"], ".loop")
     os.makedirs(folder, exist_ok=True)

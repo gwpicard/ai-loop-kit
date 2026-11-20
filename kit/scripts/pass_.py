@@ -36,7 +36,7 @@ def esc(text):  # a finding cannot start a section of the issue
     return re.sub(r"(?m)^(\s*#)", r"\\\1", text)
 
 
-def failing(project, sha, test, tree, path, prepare="", check=""):
+def failing(project, sha, test, tree, path, prepare="", check="", files=""):
     # (path the Test command finds the file at, None) if it fails there once copied; else (None, why not)
     base, full = os.path.realpath(os.path.join(tree, ".loop", "pass")), os.path.join(tree, path)
     rel = os.path.relpath(os.path.realpath(full), base)
@@ -51,7 +51,8 @@ def failing(project, sha, test, tree, path, prepare="", check=""):
     if bad:
         return None, bad
     try:
-        why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]), prepare=prepare)
+        command = common.files_command({"Test command": test, "Test files command": files}, [rel])
+        why = merge.run_tests(project, sha, command, tail=60, overlay=(base, [rel]), prepare=prepare)
     except OSError as e:
         return None, "the file could not be copied: %s" % e
     if not why:
@@ -156,7 +157,8 @@ def _pass(project, settings, since, tree, r):
     candidates = []
     for surface in surfaces:
         for title, detail, path in findings(ask("redteam", "\nSurface: %s\n" % surface)):
-            rel, why = failing(project, sha, test, tree, path, settings["Prepare command"], settings["Check command"])
+            rel, why = failing(project, sha, test, tree, path, settings["Prepare command"], settings["Check command"],
+                               settings["Test files command"])
             if rel:
                 candidates.append((title, detail, rel, Path(tree, path).read_text(encoding="utf-8")))
             else:

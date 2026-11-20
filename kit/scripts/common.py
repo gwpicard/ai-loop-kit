@@ -363,7 +363,7 @@ def files_command(settings, files):
 
 
 def read_passed(project, session_id):
-    """(commit, output tails) the Stop hook recorded when the full commands last passed for the session."""
+    """(commit, output tails) the Stop hook recorded when its commands last passed for the session."""
     try:
         with open(os.path.join(project, ".loop", "passed-" + str(session_id))) as f:
             head, *tails = f.read().splitlines()

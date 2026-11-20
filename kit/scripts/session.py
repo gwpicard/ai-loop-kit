@@ -200,6 +200,7 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
     """Run `agent` (claude or codex) as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
     env = dict(os.environ, LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
+               LOOP_TEST_COMMAND=settings["Test command"], LOOP_TEST_FILES_COMMAND=settings["Test files command"],
                LOOP_PROTECTED=",".join(settings["Protected paths"]),
                LOOP_LOOP_BRANCH=settings["Loop branch"], LOOP_DEFAULT_BRANCH=common.default_branch(project),
                LOOP_PROJECT=project, LOOP_ISSUE=str(issue), LOOP_START=start)

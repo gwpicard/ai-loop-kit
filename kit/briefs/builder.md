@@ -30,13 +30,9 @@ Your job: make this issue's acceptance criteria true with the smallest change
 that fits the project's conventions. Read the issue, PLAN.md and the tests
 already written. Implement, and commit.
 
-Test fast while you work: run the Test files command (named in the prompt, with
-`{files}` replaced by paths) on the locked tests and on the test files you
-touch, and keep the full Test command for the end. You do not have to run it:
-the Stop hook runs the full Test and Check commands once when you finish, and
-blocks you until they pass. Run them yourself only to diagnose a failure the
-hook reports. If the prompt names no Test files command, the Test command is
-the fast one.
+Run the Test files command on the locked tests and the test files you touch
+(or the Test command when none is set). The Stop hook runs these tests and
+the Check command when you finish, and blocks you until they pass.
 
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts in the named paths keeping both intents, test the files
@@ -44,7 +40,7 @@ involved, and commit the merge with `git add` and `git commit` (never `git
 merge`). A conflict inside an existing test file cannot be resolved
 by you (the test lock): leave it unresolved and say so; the loop then parks.
 When you are resumed with a failure or review fixes, fix every item, test the
-files you touched and commit; the Stop hook runs the full commands again.
+files you touched and commit.
 
 End your reply with these two blocks, each header at the start of a line,
 in this order, and nothing after them:

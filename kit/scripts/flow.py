@@ -276,7 +276,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     if conflicts:
         ask("builder", settings["Builder"], step="conflicts", locked=locked, extra=(
             "\n\nFirst task: the branch is in the middle of merging %s and conflicts in: %s. Resolve the "
-            "conflicts keeping both intents, run the Test command, then commit the merge. Do not run git merge."
+            "conflicts keeping both intents, test the files involved, then commit the merge. Do not run git merge."
             % (settings["Loop branch"], ", ".join(conflicts))))
         marked = git(["grep", "-lE", "^(<{7}|>{7})( |$)", "HEAD", "--"] + list(conflicts), cwd=tree, check=False)
         if marked or git(["rev-parse", "-q", "--verify", "MERGE_HEAD"], cwd=tree, check=False):
@@ -312,19 +312,21 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     for rnd in range(1, settings["Max rounds"] + 1):
         if feedback:
             report, sid = ask("builder", settings["Builder"], step="fix", rnd=rnd, resume=sid,
-                              extra="\n\nFix these, test the files you touch, commit. The Stop hook runs the "
-                              "full commands when you finish:\n" + feedback, locked=locked)
+                              extra="\n\nFix these, test the files you touch, commit. The Stop hook checks them "
+                              "when you finish:\n" + feedback, locked=locked)
         head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
         passed = common.read_passed(project, sid)  # the Stop hook's pass for this very commit stands
         if passed[0] == head:
             tails = passed[1]
         else:
-            feedback = tests("tests", head, settings["Test command"], 80, rnd=rnd, check=settings["Check command"],
+            command, description = merge.targeted_command(settings, tree, start, locked)
+            tails.append(description)
+            feedback = tests("tests", head, command, 80, rnd=rnd, check=settings["Check command"],
                                        prepare=settings["Prepare command"], tails=tails)
             if feedback:
                 continue
         review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
-                        extra="\nLatest test result: passed on this commit.\n" + "\n".join(tails) + "\n")
+                        extra="\nLatest test result: passed on this commit. " + " | ".join(tails) + "\n")
         verdict, _ = merge.parse_verdict(review)
         try:  # the person can follow the fix rounds; a failure to post never stops the build
             post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))

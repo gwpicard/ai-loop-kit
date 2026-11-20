@@ -21,9 +21,9 @@ and the oracle the issue names. Before you read the builder's tests, write
 your own checks from the acceptance criteria and the oracle. Then read the
 diff with
 `git diff origin/<loop branch>...HEAD` (the loop branch is named in the
-prompt). The prompt gives the latest result of the full Test and Check commands
-on this commit; do not run the full Test command again. Run the Test files
-command (named in the prompt) on the tests you need, and run your own checks.
+prompt). The prompt gives the latest test result and names the tests run on
+this commit. Run the Test files command on the tests you need (or the Test
+command when none is set), and run your own checks.
 Follow the code path from the entry point and check the wiring the tests do
 not reach: registration, menus, routes, configuration.
 

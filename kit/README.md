@@ -111,18 +111,22 @@ write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
 
-Per issue, the Test command runs in full twice: once in the Stop hook when
-the builder finishes, and once in `merge.py`'s fresh checkout of the reviewed
-commit. Everything between is targeted.
+With a Test files command set, the full suite runs once per issue, at merge,
+in `merge.py`'s fresh checkout of the reviewed commit. Path checks and the
+test lock run first, so a refusal costs no test run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
-After the builder or a fix pass, the loop reuses the Stop hook's pass if it
-was for the very commit now at the head, and runs the full commands only when
-it was not.
+The Stop hook runs the locked tests and the test files changed since the
+issue started, then the Check command. It records which tests ran. After the
+builder or a fix pass, the loop reuses that result if it was for the head
+commit, and otherwise runs the same targeted set in a fresh checkout. Without
+a Test files command, these steps use the full Test command.
 
-The reviewer is given that result and runs only targeted checks. There is no
-per-issue simplify step: the end-of-loop pass simplifies the whole batch once.
+The reviewer is given that result and runs only targeted checks. With a Test
+files command set, the guard refuses the full Test command in builder and
+reviewer sessions. There is no per-issue simplify step: the end-of-loop pass
+simplifies the whole batch once.
 
 ## Set up with the script
 
@@ -188,9 +192,9 @@ blocks this best-effort.
 - Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
   most). A finding counts only with a test file under `.loop/pass/` at the
   path where it belongs (such as `.loop/pass/tests/test_x.py`). The pass
-  copies it there and it must fail the Test command (Prepare first) and pass
-  the `Check command` (lint, format) with the file in place; a second session
-  must confirm it.
+  copies it there. After Prepare, it must fail the Test files command on that
+  file (or the Test command when none is set) and pass the `Check command`
+  (lint, format) with the file in place; a second session must confirm it.
 - Rubric: readability, error handling, weak tests, fixed sleeps, dead code.
 - Lessons and proposed guardrails.
 - Simplify and reconcile: one session reads the batch's changed code and its

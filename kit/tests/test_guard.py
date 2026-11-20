@@ -35,11 +35,12 @@ class GuardCase(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
-    def call(self, tool, inp, role=None, locked=None, cwd=None, default=None, allowed=None):
+    def call(self, tool, inp, role=None, locked=None, cwd=None, default=None, allowed=None, test="", files=""):
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("LOOP_")}
         if role:
             env["LOOP_ROLE"] = role
+        env.update(LOOP_TEST_COMMAND=test, LOOP_TEST_FILES_COMMAND=files)
         if default:
             env["LOOP_DEFAULT_BRANCH"] = default
         if allowed:
@@ -156,6 +157,18 @@ class TestEveryone(GuardCase):
 
 
 class TestRole(GuardCase):
+    def test_full_test_segments_are_refused_only_with_a_test_files_command(self):
+        for role in ("builder", "reviewer"):
+            for command in ("make test", "  make test  ", "true && make test", "false || make test",
+                            "make test; true", "make test | cat", "true\nmake test"):
+                with self.subTest(role=role, command=command):
+                    self.refused(self.bash(command, role=role, test="make test", files="make unit {files}"),
+                                 "make unit {files}")
+            self.allowed(self.bash("make test", role=role, test="make test"))
+            self.allowed(self.bash("make test-unit", role=role, test="make test", files="make unit {files}"))
+        for role in (None, "test-writer", "pass"):
+            self.allowed(self.bash("make test", role=role, test="make test", files="make unit {files}"))
+
     def test_push_merge_gh_refused(self):
         for role in ["builder", "test-writer", "reviewer"]:
             for cmd in ["git push origin feature", "git merge main", "gh pr list",

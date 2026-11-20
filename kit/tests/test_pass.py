@@ -100,6 +100,17 @@ class PassTest(FakeClaudeGh):
         self.assertIn("41 Broken input (ready)", md)
         self.assertNotIn("test_x.py", " ".join(create))  # body goes through stdin
 
+    def test_a_candidate_is_judged_with_the_test_files_command(self):
+        marker = os.path.join(self.tmp, "candidate-runs")
+        self.repo(plan(), "Test command: echo full >> %s\n"
+                  "Test files command: echo {files} >> %s; test ! -f {files}\n"
+                  "Check command: echo check >> %s\n" % (marker, marker, marker))
+        self.steps(FIND, CONFIRM)
+        r, _ = self.run_pass()
+        self.assertEqual(len(r["confirmed"]), 1, r["rejected"])
+        self.assertEqual(r["confirmed"][0][2], "tests/test_x.py")
+        self.assertEqual(Path(marker).read_text().splitlines(), ["tests/test_x.py", "check"])
+
     def test_failing_test_is_in_the_issue_body(self):
         self.repo(plan())
         self.steps(FIND, CONFIRM)

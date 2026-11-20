@@ -147,6 +147,16 @@ class MergeTest(FakeGh):
         self.assertFalse(r.park)
         self.assertIn("Test command failed", r.reason)
 
+    def test_a_test_lock_refusal_runs_no_tests(self):
+        marker = os.path.join(self.tmp, "tests-ran")
+        sha = self.branch({"tests/test_old.py": "changed\n"})
+        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
+            f.write("Test command: echo ran >> %s\n" % marker)
+        self.rules()
+        result = self.run_merge(sha)
+        self.assertEqual((result.park, result.rule), (True, "test-lock"))
+        self.assertFalse(os.path.exists(marker))
+
     def test_failing_check_command_is_refused_after_the_tests_pass(self):
         sha = self.branch({"BAD": "x\n"})
         self.rules()
@@ -461,6 +471,13 @@ class ParkTest(FakeGh):
         self.assertEqual(calls[0][:5], ["issue", "edit", "5", "--add-label", "needs-user"])
         self.assertEqual(calls[1][-2:], ["--remove-label", "building"])
         self.assertEqual(calls[2][:2], ["issue", "comment"])
+
+
+class TargetedCommandTest(unittest.TestCase):
+    def test_no_test_files_runs_no_tests_rather_than_the_whole_suite(self):
+        settings = dict(common.DEFAULTS, **{"Test command": "make test", "Test files command": "pytest {files}"})
+        self.assertEqual(merge.targeted_command(settings, ".", "", [])[0], "")
+        self.assertEqual(merge.targeted_command(settings, ".", "", ["tests/test_a.py"])[0], "pytest tests/test_a.py")
 
 
 if __name__ == "__main__":
