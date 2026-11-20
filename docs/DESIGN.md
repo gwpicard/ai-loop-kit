@@ -303,8 +303,11 @@ Recommended on the evidence. Each layer catches failures the others miss.
    marking to get wrong. Why: in two earlier projects, builders edited tests
    and turned off a lint rule to pass, and marcdown's tests were written by
    the same agent that wrote the code.
-2. **The test lock.** The builder cannot edit those tests or any existing
-   test, except a path the issue names.
+2. **The test lock.** The builder cannot edit those tests or any test at
+   the loop branch baseline when the build started, except a path the issue
+   names. The guard uses `LOOP_START`, or the merge base with the loop branch
+   when it is absent. Tests the builder adds on the issue branch remain
+   editable.
 3. **A reviewer after the build, in a fresh session.** It reads the issue,
    the diff and `PLAN.md`; is given the latest test result, naming the tests
    run, and runs only targeted tests and the oracle (renders, measurements);
@@ -404,6 +407,15 @@ refusal costs no test run.
   the system's memory-pressure level is above normal, and prints a line
   saying so. A command the Stop hook runs waits at most 10 minutes, then
   starts.
+- Disk: before a build and each test command, the loop checks free space on
+  the project volume and in the temp folder. Below 2 GB it prints one line,
+  records a `disk-wait` event and checks again every minute. A failure reporting
+  "No space left on device" waits without using a crash attempt.
+- Each build creates a folder under the system temp folder and sets `TMPDIR`,
+  `TMP` and `TEMP` to it for all its sessions and test commands. Codex includes
+  it in its writable roots. During worktree cleanup, the build removes that
+  folder after checking its identity, and removes its sessions'
+  `.loop/passed-<session>` and `.loop/stop-<session>` files.
 - Merge queue: `.loop/merge.lock` (an advisory file lock, freed when its
   holder dies) is held while the loop branch is merged into the issue branch
   and `merge.merge` runs. A clean catch-up is pushed and the verdict's HEAD

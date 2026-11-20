@@ -35,12 +35,12 @@ class GuardCase(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
-    def call(self, tool, inp, role=None, locked=None, cwd=None, default=None, allowed=None, test="", files=""):
+    def call(self, tool, inp, role=None, locked=None, cwd=None, default=None, allowed=None, test="", files="", start="", loop=""):
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("LOOP_")}
         if role:
             env["LOOP_ROLE"] = role
-        env.update(LOOP_TEST_COMMAND=test, LOOP_TEST_FILES_COMMAND=files)
+        env.update(LOOP_TEST_COMMAND=test, LOOP_TEST_FILES_COMMAND=files, LOOP_START=start, LOOP_LOOP_BRANCH=loop)
         if default:
             env["LOOP_DEFAULT_BRANCH"] = default
         if allowed:
@@ -157,6 +157,23 @@ class TestEveryone(GuardCase):
 
 
 class TestRole(GuardCase):
+    def test_builder_can_fix_its_new_committed_test_but_not_baseline_or_locked_tests(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work, _ = make_repo(folder, {"tests/test_old.py": "pass\n"})
+            start = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=work, text=True).strip()
+            run_git(["update-ref", "refs/remotes/origin/loop/main", start], work)
+            os.makedirs(os.path.join(work, "tests"), exist_ok=True)
+            with open(os.path.join(work, "tests/test_added.py"), "w") as f:
+                f.write("pass\n")
+            run_git(["add", "."], work)
+            run_git(["commit", "-qm", "new test"], work)
+            for baseline in (start, ""):
+                kw = dict(role="builder", cwd=work, start=baseline, loop="loop/main")
+                self.allowed(self.call("Edit", {"file_path": "tests/test_added.py"}, **kw))
+                self.refused(self.call("Edit", {"file_path": "tests/test_old.py"}, **kw), "existing test")
+                self.refused(self.call("Edit", {"file_path": "tests/test_added.py"},
+                                       locked=["tests/test_added.py"], **kw), "locked test")
+
     def test_full_test_segments_are_refused_only_with_a_test_files_command(self):
         for role in ("builder", "reviewer"):
             for command in ("make test", "  make test  ", "true && make test", "false || make test",

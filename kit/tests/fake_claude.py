@@ -23,7 +23,7 @@ state = json.load(open(path + ".state")) if os.path.exists(path + ".state") else
 n = state.get(role, 0)
 state[role] = n + 1
 json.dump(state, open(path + ".state", "w"))
-env = {k: v for k, v in os.environ.items() if k.startswith("LOOP_")}
+env = {k: v for k, v in os.environ.items() if k.startswith("LOOP_") or k in ("TMPDIR", "TMP", "TEMP")}
 with open(path + ".calls", "a") as f:
     f.write(json.dumps({"role": role, "argv": sys.argv[1:], "env": env,
                         "prompt": prompt, "cwd": os.getcwd()}) + "\\n")

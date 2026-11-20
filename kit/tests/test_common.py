@@ -1,4 +1,5 @@
 import json
+import errno
 import os
 import tempfile
 import time
@@ -270,6 +271,64 @@ class GitEventTest(FakeGh):
             lines = f.read().splitlines()
         self.assertEqual([json.loads(l)["kind"] for l in lines], ["start", "stop"])
         self.assertEqual(json.loads(lines[0])["issue"], 3)
+
+
+class DiskTest(unittest.TestCase):
+    def test_cleanup_keeps_a_replacement_for_the_build_temp_folder(self):
+        with tempfile.TemporaryDirectory() as project:
+            with common.build_environment(project):
+                temp = common.build_env()["TMPDIR"]
+                moved = os.path.join(project, "moved")
+                os.rename(temp, moved)
+                os.mkdir(temp)
+                marker = os.path.join(temp, "keep")
+                with open(marker, "w") as f:
+                    f.write("keep")
+            self.assertTrue(os.path.isfile(marker))
+            os.remove(marker)
+            os.rmdir(temp)
+
+    def test_a_full_volume_defers_the_event_until_space_returns(self):
+        with tempfile.TemporaryDirectory() as project:
+            enough, low = mock.Mock(free=common.MIN_DISK_FREE), mock.Mock(free=0)
+            with mock.patch.object(common.shutil, "disk_usage", side_effect=[low, enough, enough, enough]), \
+                    mock.patch.object(common, "event", side_effect=[OSError(errno.ENOSPC, "No space left on device"), None]) as recorded, \
+                    mock.patch.object(common, "sleep") as sleep, \
+                    mock.patch.object(common, "say") as say:
+                common.wait_for_disk(project)
+            sleep.assert_called_once_with(60)
+            self.assertEqual(say.call_count, 1)
+            self.assertEqual(recorded.call_count, 2)
+            self.assertEqual(recorded.call_args_list[0], recorded.call_args_list[1])
+
+    def test_a_command_waits_for_space_on_each_volume(self):
+        with tempfile.TemporaryDirectory() as project:
+            with common.build_environment(project):
+                temp = common.build_env()["TMPDIR"]
+                for volume in (project, temp):
+                    marker = os.path.join(project, "ran")
+                    ready = []
+                    def usage(path):
+                        return mock.Mock(free=common.MIN_DISK_FREE if ready or path != volume else 0)
+                    def wait(seconds):
+                        self.assertEqual(seconds, 60)
+                        self.assertFalse(os.path.exists(marker))
+                        ready.append(True)
+                    with mock.patch.object(common.shutil, "disk_usage", side_effect=usage), \
+                            mock.patch.object(common, "sleep", side_effect=wait) as sleep:
+                        self.assertEqual(common.run_shell("touch " + marker, project, 60)[0], 0)
+                    sleep.assert_called_once_with(60)
+                    os.remove(marker)
+
+    def test_a_disk_full_command_waits_and_retries(self):
+        with tempfile.TemporaryDirectory() as project:
+            command = ('if test -f retried; then echo passed; else touch retried; '
+                       'echo "No space left on device"; exit 1; fi')
+            with mock.patch.object(common, "sleep") as sleep:
+                self.assertEqual(common.run_shell(command, project, 60), (0, "passed\n"))
+            sleep.assert_called_once_with(60)
+            with open(os.path.join(project, ".loop/events.jsonl")) as f:
+                self.assertEqual(json.loads(f.readline())["kind"], "disk-wait")
 
 
 if __name__ == "__main__":

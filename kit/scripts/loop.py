@@ -248,23 +248,28 @@ def claim(st, number):
 def build_attempts(project, number, replies, previous=0):
     """Build one issue, a second time after a crash, and park it after two. Return a line for the board.
     This runs in the loop when `Parallel` is 1 and in a worker process otherwise."""
+    common.wait_for_disk(project)
     for attempt in (1, 2):
         path = common.build_file(project, number, "attempt")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(str(previous + attempt))
         say("building #%d, attempt %d" % (number, previous + attempt))
-        try:
-            r = flow.build(number, project, replies)
-            if r.status != "failed":
-                return "#%d %s: %s" % (number, r.status, r.reason)
-            reason = r.reason
-        except common.GitHubError as e:  # GitHub trouble is not a crash: no attempt used
-            say("GitHub problem on #%d, will try again: %s" % (number, e))
-            time.sleep(POLL)
-            return "#%d: GitHub problem, will try again" % number
-        except Exception as e:  # a crash must not stop the loop
-            reason = "%s: %s" % (type(e).__name__, e)
+        for disk_retry in (False, True):  # a full disk waits and retries once without using an attempt
+            try:
+                r = flow.build(number, project, replies)
+                if r.status != "failed":
+                    return "#%d %s: %s" % (number, r.status, r.reason)
+                reason = r.reason
+            except common.GitHubError as e:  # GitHub trouble is not a crash: no attempt used
+                say("GitHub problem on #%d, will try again: %s" % (number, e))
+                time.sleep(POLL)
+                return "#%d: GitHub problem, will try again" % number
+            except Exception as e:  # a crash must not stop the loop
+                reason = "%s: %s" % (type(e).__name__, e)
+            if disk_retry or "no space left on device" not in reason.lower():
+                break
+            common.wait_for_disk(project, reason=reason, issue=number)
         common.event("crashed", project, issue=number, reason=reason, attempt=previous + attempt)
         say("crash on #%d: %s" % (number, reason))
         if attempt == 1:

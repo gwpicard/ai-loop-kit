@@ -67,6 +67,60 @@ class FlowTest(FakeClaudeGh):
         base.update(steps)
         self.claude(base)
 
+    def test_low_disk_waits_before_any_build_work_and_records_an_event(self):
+        self.build_scenario()
+        enough = mock.Mock(free=common.MIN_DISK_FREE)
+        low = mock.Mock(free=common.MIN_DISK_FREE - 1)
+        def waiting(seconds):
+            self.assertEqual(seconds, 60)
+            self.assertEqual(self.claude_calls(), [])
+            self.assertFalse(os.path.isdir(os.path.join(os.path.dirname(self.work), ".loop-worktrees")))
+        with mock.patch.object(common.shutil, "disk_usage") as usage, \
+                mock.patch.object(common, "sleep", side_effect=waiting) as sleep:
+            # Subsequent checks have sufficient space.
+            def disk(path):
+                return next(readings, enough)
+            readings = iter([low, enough, enough, low, enough, enough])
+            usage.side_effect = disk
+            self.assertEqual(self.build().status, "merged")
+        self.assertEqual(sleep.call_count, 2)
+        events = [json.loads(l) for l in Path(self.work, ".loop/events.jsonl").read_text().splitlines()]
+        self.assertEqual(len([e for e in events if e["kind"] == "disk-wait"]), 1)
+
+    def test_build_temp_is_shared_by_sessions_and_commands_and_removed_with_markers(self):
+        agents = Path(self.work, "AGENTS.md")
+        agents.write_text(AGENTS.replace("seq 1 99;", 'echo "$TMPDIR|$TMP|$TEMP" >> ' + self.tmp + '/temps; seq 1 99;'))
+        run_git(["add", "AGENTS.md"], self.work)
+        run_git(["commit", "-qm", "record temp"], self.work)
+        run_git(["push", "origin", "HEAD:loop/main"], self.work)
+        self.build_scenario(builder=[{"files": {"app.py": "1\n"}, "passed": True}])
+        real_run = flow.session.run
+        def run(*args, **kwargs):
+            text, sid = real_run(*args, **kwargs)
+            Path(self.work, ".loop", "stop-" + sid).write_text("1")
+            return text, sid
+        Path(self.work, ".loop").mkdir(exist_ok=True)
+        unrelated = Path(self.work, ".loop/passed-unrelated")
+        unrelated.write_text("keep")
+        with mock.patch.object(flow.session, "run", side_effect=run):
+            self.assertEqual(self.build().status, "merged")
+        calls = self.claude_calls()
+        temp = calls[0]["env"]["TMPDIR"]
+        for call in calls:
+            self.assertEqual([call["env"][k] for k in ("TMPDIR", "TMP", "TEMP")], [temp] * 3)
+            self.assertFalse(Path(self.work, ".loop/passed-" + "sess-" + call["role"]).exists())
+            self.assertFalse(Path(self.work, ".loop/stop-" + "sess-" + call["role"]).exists())
+        self.assertEqual(Path(self.tmp, "temps").read_text().splitlines(), ["|".join([temp] * 3)])
+        self.assertFalse(os.path.exists(temp))
+        self.assertEqual(unrelated.read_text(), "keep")
+
+    def test_a_failed_session_also_removes_its_temp_and_pass_marker(self):
+        self.build_scenario(builder=[{"error": "session failed", "passed": True}])
+        self.assertEqual(self.build().status, "failed")
+        temp = self.claude_calls()[-1]["env"]["TMPDIR"]
+        self.assertFalse(os.path.exists(temp))
+        self.assertFalse(Path(self.work, ".loop/passed-sess-builder").exists())
+
     def test_build_events_pair_steps_and_record_provenance(self):
         self.merge.side_effect = REAL_MERGE
         self.pr.return_value = {"number": 9, "state": "MERGED", "mergeCommit": {"oid": "abc"}}

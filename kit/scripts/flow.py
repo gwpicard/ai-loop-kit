@@ -190,7 +190,14 @@ def prompt_for(role, number, info, tree, settings, replies, report=None):
 
 def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
-    project, result = os.path.abspath(project), None
+    project = os.path.abspath(project)
+    common.wait_for_disk(project)
+    with common.build_environment(project):
+        return _build_tree(issue, project, replies)
+
+
+def _build_tree(issue, project, replies):
+    result = None
     settings = common.read_settings(project)
     loop, branch = settings["Loop branch"], "issue/%s" % issue
     tree = os.path.join(os.path.dirname(project), ".loop-worktrees",
@@ -233,6 +240,7 @@ def build(issue, project, replies=()):
 
 def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     start = git(["rev-parse", "HEAD"], cwd=tree)
+    baseline = git(["merge-base", "HEAD", "origin/" + settings["Loop branch"]], cwd=tree)
 
     # paths the issue lets the builder change, except those the stops list covers
     allowed = [p for p in sorted(merge.allowed_paths(info.get("body") or "")) if not merge.stop_reason(p, settings["Protected paths"])]
@@ -249,7 +257,8 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         common.say("#%s: %s (%s %s)" % (issue, fields["step"], who[0], who[1]))
         with common.timed("step", project, **fields) as end:
             text, sid = session.run(role, prompt, tree, who[1], project, issue,
-                                    agent=who[0], resume=resume, locked=locked, start=start,
+                                    agent=who[0], resume=resume, locked=locked,
+                                    start=baseline if role == "builder" else start,
                                     allowed=allowed if role == "builder" else ())
             stop = re.search(r"^[\s*`]*PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
             if stop:

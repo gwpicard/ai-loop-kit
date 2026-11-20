@@ -1,11 +1,13 @@
 """Shared helpers: settings, GitHub and git calls, events, labels, trust."""
 import contextlib
 import contextvars
+import errno
 import fcntl
 import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -331,13 +333,78 @@ def _record(path, pid, add):
         pass
 
 
+MIN_DISK_FREE = 2 * 1024 ** 3
+_BUILD_TEMP = contextvars.ContextVar("build_temp", default="")
+
+
+def build_env():
+    path = _BUILD_TEMP.get()
+    return dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+
+
+def record_session(session_id, env):
+    path = env.get("LOOP_TMPDIR")
+    if path and session_id and os.path.basename(session_id) == session_id:
+        open(os.path.join(path, "session-" + session_id), "a").close()
+
+
+@contextlib.contextmanager
+def build_environment(project):
+    path = tempfile.mkdtemp(prefix="loop-build-", dir=tempfile.gettempdir())
+    created = os.stat(path)
+    token = _BUILD_TEMP.set(path)
+    try:
+        yield
+    finally:
+        _BUILD_TEMP.reset(token)
+        if not os.path.islink(path) and os.path.isdir(path) and os.path.samestat(created, os.stat(path)):
+            for name in os.listdir(path):
+                if name.startswith("session-"):
+                    for prefix in ("passed-", "stop-"):
+                        with contextlib.suppress(FileNotFoundError):
+                            os.remove(os.path.join(project, ".loop", prefix + name[len("session-"):]))
+            shutil.rmtree(path)
+
+
+def wait_for_disk(project, reason="", **fields):
+    reported, recorded = False, False
+    while True:
+        low = [p for p in (project, build_env().get("TMPDIR") or tempfile.gettempdir())
+               if shutil.disk_usage(p).free < MIN_DISK_FREE]
+        if not low and (reported or not reason):
+            if reported and not recorded:
+                event("disk-wait", project, reason=reason, **fields)
+            return
+        if not reported:
+            reason = reason or "less than 2 GB free on: " + ", ".join(low)
+            say("waiting for disk space: " + reason)
+            reported = True
+        if not recorded:
+            try:
+                event("disk-wait", project, reason=reason, **fields)
+                recorded = True
+            except OSError as e:
+                if e.errno != errno.ENOSPC:
+                    raise
+        sleep(60)
+
+
 def run_shell(command, cwd, timeout, record=None, patience=None):
+    code, out = _run_shell(command, cwd, timeout, record, patience)
+    if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
+        wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device")
+        code, out = _run_shell(command, cwd, timeout, record, patience)
+    return code, out
+
+
+def _run_shell(command, cwd, timeout, record=None, patience=None):
     """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
     With `record`, the group id is listed in that file while the command runs, so whoever
     ends the caller can also end the command. Before it starts, the command waits while memory is under
     pressure (at most `patience` seconds when set); the wait does not count against `timeout`."""
     wait_for_memory(patience)
-    p = subprocess.Popen(command, shell=True, cwd=cwd, text=True, errors="replace", start_new_session=True,
+    wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
+    p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True)

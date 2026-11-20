@@ -93,6 +93,7 @@ def main():
     try:
         role, project = os.environ.get("LOOP_ROLE"), os.environ["LOOP_PROJECT"]
         session_id = json.load(sys.stdin)["session_id"]
+        common.record_session(session_id, os.environ)
         if role in LIMITS:
             why = problem(role, os.getcwd(), project, session_id)
             if why and count_block(project, session_id, LIMITS[role]):

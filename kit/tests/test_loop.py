@@ -100,6 +100,20 @@ class Base(unittest.TestCase):
 
 
 class LoopTest(Base):
+    def test_disk_full_waits_without_spending_a_crash_attempt(self):
+        os.makedirs(self.work, exist_ok=True)
+        results = [flow.Result("failed", "No space left on device"),
+                   OSError("No space left on device"), flow.Result("merged", "done")]
+        with mock.patch.object(flow, "build", side_effect=results), \
+                mock.patch.object(common, "sleep") as sleep:
+            self.assertIn("merged", loop.build_attempts(self.work, 7, []))
+        # the first full disk waits without using an attempt; a second in a row counts as a crash
+        self.assertEqual(sleep.call_args_list, [mock.call(60)])
+        with open(common.build_file(self.work, 7, "attempt")) as f:
+            self.assertEqual(f.read(), "2")
+        with open(os.path.join(self.work, ".loop/events.jsonl")) as f:
+            self.assertEqual([json.loads(l)["kind"] for l in f], ["disk-wait", "crashed"])
+
     def setUp(self):
         super().setUp()
         os.makedirs(os.path.join(self.work, ".loop"))

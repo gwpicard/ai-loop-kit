@@ -82,6 +82,11 @@ machine has headroom: load average below the CPU count and, on macOS, normal
 memory pressure. It says why when it waits. Every session and test command
 also waits, on macOS, while memory pressure is above normal.
 
+Before a build or a test command starts, the loop checks free space on the
+project volume and in the temp folder. With less than 2 GB free, it prints a
+line, records a `disk-wait` event and checks again every minute. A failure
+reporting "No space left on device" waits without using a crash attempt.
+
 Merges into the loop branch queue behind one lock (`.loop/merge.lock`): an
 issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
@@ -221,8 +226,14 @@ After each session the loop kills what is left in its process group and
 logs it; a process that detaches itself can survive. If Docker answers, a new
 container is removed only when its compose working directory or a bind mount
 lies in the session's worktree. Everything else new (containers, networks,
-volumes, images) is listed in the log and the build note, never removed. At
-exit the loop prunes worktrees, deletes logs older than 14 days and prints
+volumes, images) is listed in the log and the build note, never removed.
+
+At the end of each build, its sessions' `.loop/passed-<session>` and
+`.loop/stop-<session>` files are removed. Each build has its own folder under
+the system temp folder: its sessions and test commands receive that path as
+`TMPDIR`, `TMP` and `TEMP`, and Codex can write there. The loop removes that
+folder with the build's worktree, after checking it is the folder it created.
+At exit the loop prunes worktrees, deletes logs older than 14 days and prints
 the worktrees and issue branches left. Outside services are on the stops list.
 
 ## What is guaranteed by code
@@ -249,7 +260,10 @@ can be routed around. It is registered for the loop's own sessions (through
   recursive deletes.
 - In the loop's sessions only: it also refuses `gh`, `git push`, `git merge`,
   branch switches and checkouts, and writes to the test writer's locked
-  tests or to tracked test files.
+  tests or to existing test files. For builders, an existing test is one at
+  `LOOP_START`, the loop branch baseline at the start of the build, or at the
+  merge base with the loop branch when `LOOP_START` is absent. Builders may
+  edit tests they added on their issue branch; the writer's tests stay locked.
 - Secrets are checked in content a session writes with its file tools, not in
   diffs or shell commands.
 

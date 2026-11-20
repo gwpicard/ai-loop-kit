@@ -90,7 +90,16 @@ def check_path(path, role, cwd):
         if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
             raise Refuse("test-lock", "%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
-    if merge.is_test_file(rel) and common.git(["ls-files", "--", full], cwd, check=False):
+    command = ["ls-files", "--", full]
+    if role == "builder":
+        start = os.environ.get("LOOP_START")
+        if not start:
+            loop = os.environ.get("LOOP_LOOP_BRANCH", "loop/main")
+            start = common.git(["merge-base", "HEAD", "origin/" + loop], cwd, check=False)
+        if start:
+            command = ["ls-tree", "--name-only", start, "--", rel]
+            cwd = top
+    if merge.is_test_file(rel) and common.git(command, cwd, check=False):
         raise Refuse("test-lock", "%s is an existing test file" % rel,
                      "leave existing tests alone; add a new test file if needed")
 

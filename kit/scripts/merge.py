@@ -177,6 +177,8 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
         for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
+            if cmd:
+                common.wait_for_disk(project)
             if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log)):
                 return failure
         return None
