@@ -184,10 +184,11 @@ def answer(st, protected=None):
                             if common.MARKER not in c["body"]
                             and common.has_write((c.get("author") or {}).get("login", ""))]
         if st["replies"][n]:
-            path = parked_test_path(comments[parks[-1]]["body"])
+            paths = parked_test_paths(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
-            if path and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
-                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"].split(", "))
+            if paths and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
+                for path in paths:
+                    grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"].split(", "))
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -197,12 +198,12 @@ AGREES = re.compile(r"^\W*(yes|yep|yeah|agreed|approved|go ahead|ok|okay|sure|pl
 DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|wait|also)\b", re.I)
 
 
-def parked_test_path(park):
-    """The one test path a park asks whether to change, or None."""
-    text = park.split("Reply on this issue")[0]
+def parked_test_paths(park):
+    """The test paths a park's question asks whether to change; paths only in its recommendation do not count."""
+    text = park.split("Reply on this issue")[0].split("\nRecommended:")[0]
     paths = {t for t in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(t)}
     asks = "?" in text and re.search(r"\b(change|edit|modify|update|reformat|adjust|relax)\b", text, re.I)
-    return paths.pop() if len(paths) == 1 and asks else None
+    return sorted(paths) if asks else []
 
 
 def grant_path(i, path, protected):

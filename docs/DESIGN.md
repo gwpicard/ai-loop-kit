@@ -69,7 +69,7 @@ This is the marcdown run, written down, with guards where marcdown was weak.
 | --- | --- | --- |
 | The coordinator merged to `main` itself | The hook refuses a push to `main`, `master` or the default branch in every session, and `git merge`, `gh` and branch switches in the loop's sessions; branch protection is the line that holds | Code (`guard.py`) |
 | About 20 of 41 fixes merged with no re-check; coordinator edits merged untested | The loop merges only through `merge.py`, which runs the Test command on the exact commit and merges with `--match-head-commit`. In the loop's sessions the hook refuses `gh` and `git merge`; branch protection stops other routes | Code and settings |
-| A builder can weaken the tests that judge it | The hook refuses writes to existing test files in the loop's sessions, and `merge.py` refuses a diff that changes one unless the issue names its path. New tests are allowed | Code |
+| A builder can weaken the tests that judge it | The hook refuses writes to existing test modules in the loop's sessions, and `merge.py` refuses a diff that changes one unless the issue names its path. New tests are allowed | Code |
 | Agents shared one checkout and switched each other's branches | Every builder and reviewer gets its own worktree, created by the supervisor | Code |
 | Reviews lived only in agent hand-backs | `merge.py` refuses unless the review verdict is posted on the pull request | Code |
 | The only park happened by accident (a classifier refusal) | A written stops list: money, credentials, permissions, settings, irreversible data, going public, new dependencies. Anything on it parks as `needs-user` | Words, checked by the reviewer |
@@ -129,8 +129,9 @@ steps completed in the window; merged issue totals use their recorded history.
 `loop report` summarises issues merged on the loop branch since the default
 branch, from local git refs, `.loop/` events and one read-only GitHub call per
 issue for its build note. It shows changed folders, separate test counts,
-risk flags, reasons, deviations and build timings, without a session or
-GitHub writes. The drain includes the same text under `What changed` near
+risk flags (including every test support file changed), reasons, deviations
+and build timings, without a session or GitHub writes. The drain includes
+the same text under `What changed` near
 the top of the final pull request body.
 
 ### Shaping while it runs
@@ -230,8 +231,13 @@ is then a choice made in the open, not a default.
   12 idle hours or a stop file.
 - **Unattended sessions run in Claude Code's auto mode, guarded by hooks.**
   No builder sandbox.
-- **The test lock's escape hatch:** an existing test may change or be
-  deleted only when the issue names its path.
+- **The test lock's escape hatch:** an existing test module may change or be
+  deleted only when the issue names its path. A collaborator's clear yes to
+  a park asking to change several test paths grants each path the stops list
+  permits. Protected paths are never granted by a reply. Test modules are
+  recognised by name, including `conftest.py`.
+  Other files under test folders are test support files: they are not locked
+  or passed to the Test files command, and changes appear in the report's risk flags.
 - **A release needs a smoke run** in an empty repository: one small issue
   built end to end.
 
@@ -250,7 +256,7 @@ Each comes from a failure seen in a real run.
   early warning, and `merge.py` and branch protection are the lines that hold.
 - **Stops in code, not only words.** `merge.py` parks an issue whose diff
   touches a protected path, a workflow file, a lockfile or manifest, or a
-  settings file or an existing test, unless the issue names that path.
+  settings file or an existing test module, unless the issue names that path.
 - **Setup.** `scripts/setup.py` creates the missing labels, the loop branch
   (from the default branch), a pinned `Factory` issue and a `.loop/` line in
   `.gitignore`. It runs the Test command, after the Prepare command, on a fresh

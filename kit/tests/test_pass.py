@@ -121,6 +121,15 @@ class PassTest(FakeClaudeGh):
         self.assertEqual(r["confirmed"][0][2], "tests/test_x.py")
         self.assertEqual(Path(marker).read_text().splitlines(), ["tests/test_x.py", "check"])
 
+    def test_support_file_is_never_passed_to_the_test_files_command(self):
+        marker = os.path.join(self.tmp, "candidate-runs")
+        self.repo(plan(), "Test files command: echo {files} >> %s; false\n" % marker)
+        self.steps({"files": {".loop/pass/tests/helpers.py": "support\n"},
+                    "reply": "FINDINGS:\nBroken input | crashes | .loop/pass/tests/helpers.py"}, CONFIRM)
+        result, _ = self.run_pass()
+        self.assertFalse(Path(marker).exists())
+        self.assertEqual(result["confirmed"], [])
+
     def test_failing_test_is_in_the_issue_body(self):
         self.repo(plan())
         self.steps(FIND, CONFIRM)
@@ -395,11 +404,11 @@ class PassTest(FakeClaudeGh):
         tree = os.path.join(self.tmp, "tree")
         for d in ("tests", ".loop/pass/tests"):
             os.makedirs(os.path.join(tree, d))
-        for name in (".loop/pass/tests/a.py", ".loop/pass/tests/dup.py", "tests/dup.py", "outside.py"):
+        for name in (".loop/pass/tests/test_a.py", ".loop/pass/tests/dup.py", "tests/dup.py", "outside.py"):
             with open(os.path.join(tree, name), "w") as f:
                 f.write("x\n")
         os.symlink("/etc/hosts", os.path.join(tree, ".loop/pass/tests/link.py"))
-        os.symlink(os.path.join(tree, ".loop/pass/tests/a.py"), os.path.join(tree, ".loop/pass/tests/alias.py"))
+        os.symlink(os.path.join(tree, ".loop/pass/tests/test_a.py"), os.path.join(tree, ".loop/pass/tests/alias.py"))
         os.makedirs(os.path.join(tree, ".loop/pass/README.md"))
         os.makedirs(os.path.join(tree, ".loop/pass/.git"))
         for name in (".loop/pass/README.md/x.py", ".loop/pass/.git/x.py"):
@@ -424,13 +433,13 @@ class PassTest(FakeClaudeGh):
         for name in ("README.md", ".git"):
             self.assertIn("a parent of %s/x.py is a file or a symlink" % name, ask(".loop/pass/%s/x.py" % name)[1])
         self.assertEqual(calls, [])  # refused before any test run
-        self.assertIn("errors (syntax or import)", ask(".loop/pass/tests/a.py")[1])
-        self.assertIn("times out", ask(".loop/pass/tests/a.py")[1])
-        self.assertEqual(ask(".loop/pass/tests/a.py"), (None, "the test passes under the Test command"))
-        self.assertEqual(ask(".loop/pass/tests/a.py"), ("tests/a.py", None))
-        self.assertEqual(calls[-1], (os.path.realpath(os.path.join(tree, ".loop/pass")), ["tests/a.py"]))
+        self.assertIn("errors (syntax or import)", ask(".loop/pass/tests/test_a.py")[1])
+        self.assertIn("times out", ask(".loop/pass/tests/test_a.py")[1])
+        self.assertEqual(ask(".loop/pass/tests/test_a.py"), (None, "the test passes under the Test command"))
+        self.assertEqual(ask(".loop/pass/tests/test_a.py"), ("tests/test_a.py", None))
+        self.assertEqual(calls[-1], (os.path.realpath(os.path.join(tree, ".loop/pass")), ["tests/test_a.py"]))
         pass_.merge.run_tests = mock.Mock(side_effect=OSError("disk full"))
-        self.assertEqual(ask(".loop/pass/tests/a.py"), (None, "the file could not be copied: disk full"))
+        self.assertEqual(ask(".loop/pass/tests/test_a.py"), (None, "the file could not be copied: disk full"))
 
     def test_findings_go_in_one_inbox_issue_with_checkboxes(self):
         self.repo(plan(surfaces=()), "Smoke command: false\n")

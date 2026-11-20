@@ -359,7 +359,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         text, writer = ask("test-writer", settings["Test writer"])
         locked = parse_block(text)
         for attempt in (1, 2):
-            if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_file(p)
+            if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_module(p)
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
             elif not (failed := tests("fails-first", start, common.files_command(settings, locked), 60, rnd=attempt,

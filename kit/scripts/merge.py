@@ -100,10 +100,16 @@ def allowed_paths(body):
             if p.lower() not in ("", "none")}
 
 
+def is_test_module(path):
+    name = path.lower().split("/")[-1]
+    return not ARTEFACT.search(path.lower()) and (
+        any(fnmatch.fnmatch(name, n) for n in TEST_NAMES) or bool(TEST_CLASS.search(path)))
+
+
 def is_test_file(path):
     parts = path.lower().split("/")
-    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES) or bool(TEST_CLASS.search(path))
-    return not ARTEFACT.search(path.lower()) and (named or any(p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower()))
+    return is_test_module(path) or not ARTEFACT.search(path.lower()) and any(
+        p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower())
 
 
 def stop_reason(path, protected):
@@ -127,7 +133,7 @@ def targeted_command(settings, cwd, start, locked):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
     changed = git(["diff", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).splitlines() if start else []
-    files = sorted(set(locked) | {p for p in changed if is_test_file(p)})
+    files = sorted({p for p in list(locked) + changed if is_test_module(p)})
     if not files:  # an empty list would run the whole suite
         return "", "Test files command: no test files to run"
     return common.files_command(settings, files), "Test files command: " + ", ".join(files)
@@ -142,12 +148,12 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
         if path in allowed:
             continue
         why = stop_reason(path, protected)
-        if why is None and status[0] in "MDT" and is_test_file(path):
+        if why is None and status[0] in "MDT" and is_test_module(path):
             why = "existing test file changed"
         if why:
             return "%s: %s" % (why, path)
     for path in locked:
-        if path in allowed:
+        if path in allowed or not is_test_module(path):
             continue
         first = baseline or git(["log", "--diff-filter=A", "--reverse", "--format=%H",
                                  base + ".." + sha, "--", path], cwd=project).split("\n")[0]

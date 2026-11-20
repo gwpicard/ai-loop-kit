@@ -241,13 +241,13 @@ class TestRole(GuardCase):
                                role="builder", allowed=["tests/test_*.py"]), "existing test")
 
     def test_an_allowed_protected_path_is_still_refused(self):
-        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py", "tests/package.json"):
+        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py"):
             with self.subTest(path=path):
                 self.refused(self.call("Write", {"file_path": path, "content": "a"}, role="builder",
                                        locked=[path], allowed=[path]))
 
     def test_locked_folder_refused(self):
-        self.refused(self.call("Write", {"file_path": "spec/a.py", "content": "a"},
+        self.refused(self.call("Write", {"file_path": "spec/test_a.py", "content": "a"},
                                role="builder", locked=["spec"]), "locked")
 
     def test_existing_test_refused_for_builder_and_writer(self):

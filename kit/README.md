@@ -124,14 +124,16 @@ total minutes and review rounds use its full recorded history.
 `<plugin>/bin/loop report` summarises issues merged on the loop branch since
 `origin/<default>`, using local git refs, `.loop/` events and one read-only
 GitHub call per issue for its build note. It lists changed folders, test
-counts, risk flags, reasons, deviations and build timings without a session
-or GitHub writes. The drain includes the same text under `What changed` near
+counts, risk flags (including every test support file changed), reasons,
+deviations and build timings without a session or GitHub writes. The drain
+includes the same text under `What changed` near
 the top of the final pull request body.
 
-A park that names exactly one test path and asks whether to change it needs
-only a reply of "yes" from a collaborator: the loop adds that path to the
-issue's `## Paths the builder may change` and requeues it. A reply that does
-not clearly agree, or the loop's own comment, grants nothing. The reviewer may
+A park that names test paths and asks whether to change them needs
+only a reply of "yes" from a collaborator: the loop adds each path the stops
+list permits to the issue's `## Paths the builder may change` and requeues it.
+Protected paths are never granted by a reply. A reply that does not clearly
+agree, or the loop's own comment, grants nothing. The reviewer may
 write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
@@ -142,7 +144,7 @@ test lock run first, so a refusal costs no test run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
-The Stop hook runs the locked tests and the test files changed since the
+The Stop hook runs the locked tests and the test modules changed since the
 issue started, then the Check command. It records which tests ran. After the
 builder or a fix pass, the loop reuses that result if it was for the head
 commit, and otherwise runs the same targeted set in a fresh checkout. Without
@@ -271,9 +273,13 @@ the worktrees and issue branches left. Outside services are on the stops list.
   loop branch, tested in full on that exact commit (Prepare, Test, Check on a
   fresh checkout). Conflicts go back to the builder and a fresh review.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
-  package manifest, a settings file, or an existing test, unless the issue
+  package manifest, a settings file, or an existing test module, unless the issue
   lists it in its `## Paths the builder may change` section; a path named
   elsewhere grants nothing. The test writer's tests are locked the same way.
+  The test lock covers test modules, recognised by their names, including
+  `conftest.py`. Other files under test folders, such as helpers, runners,
+  fakes and fixtures, are test support files. They are not locked or passed
+  to the Test files command; changes to them appear in the report's risk flags.
 - An issue is built only if a collaborator with write access added `ready`.
 - The loop never merges into the default branch; it only opens a pull
   request. Branch protection is what stops any other path.
@@ -286,7 +292,7 @@ can be routed around. It is registered for the loop's own sessions (through
   recursive deletes.
 - In the loop's sessions only: it also refuses `gh`, `git push`, `git merge`,
   branch switches and checkouts, and writes to the test writer's locked
-  tests or to existing test files. For builders, an existing test is one at
+  test modules or to existing test modules. For builders, an existing test is one at
   `LOOP_START`, the loop branch baseline at the start of the build, or at the
   merge base with the loop branch when `LOOP_START` is absent. Builders may
   edit tests they added on their issue branch; the writer's tests stay locked.

@@ -747,7 +747,8 @@ class FlowTest(FakeClaudeGh):
 
     def test_targeted_tests_run_before_review_when_the_hook_did_not_pass_the_head(self):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
-        self.build_scenario(builder=[{"files": {"app.py": "1\n", "tests/test_added.py": "x\n"}}])
+        self.build_scenario(builder=[{"files": {"app.py": "1\n", "tests/test_added.py": "x\n",
+                                               "tests/helpers.py": "support\n"}}])
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), [])
         self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py"])

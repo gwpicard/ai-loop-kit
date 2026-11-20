@@ -129,7 +129,7 @@ class StopHookTest(unittest.TestCase):
         self.start = common.git(["rev-parse", "HEAD"], cwd=self.work)
         with open(os.path.join(self.work, "tests/test_changed.py"), "a") as f:
             f.write("changed\n")
-        for name in ("tests/test_added.py", "app.py"):
+        for name in ("tests/test_added.py", "tests/helpers.py", "tests/run.py", "app.py"):
             self.touch(name, commit=True)
         self.assertIsNone(self.stop("builder", LOOP_LOCKED="tests/test_locked.py"))
         with open(marker) as f:
