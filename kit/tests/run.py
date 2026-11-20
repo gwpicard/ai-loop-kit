@@ -118,12 +118,16 @@ def main():
     atexit.register(stop_all)
     # A sysctl that reports normal pressure comes first on the path, so the tests do not wait on this
     # machine's real memory pressure; tests that check the wait put their own sysctl in front of it.
+    # A claude or codex that refuses comes first too: a test that forgets its fake must fail, not start a
+    # real session that spends the person's usage and memory.
     stub_dir = tempfile.TemporaryDirectory(prefix="sysctl-stub-")
     atexit.register(stub_dir.cleanup)
-    stub = os.path.join(stub_dir.name, "sysctl")
-    with open(stub, "w") as f:
-        f.write("#!/bin/sh\necho 1\n")
-    os.chmod(stub, 0o755)
+    for name, body in (("sysctl", "echo 1"), ("claude", "echo 'a test ran the real claude' >&2; exit 97"),
+                       ("codex", "echo 'a test ran the real codex' >&2; exit 97")):
+        stub = os.path.join(stub_dir.name, name)
+        with open(stub, "w") as f:
+            f.write("#!/bin/sh\n%s\n" % body)
+        os.chmod(stub, 0o755)
     QUIET["PATH"] = stub_dir.name + os.pathsep + os.environ.get("PATH", "")
     workers = max(1, min(os.cpu_count() or 1, 8, len(work)))
     start = time.time()
