@@ -117,6 +117,13 @@ models from the last 12 hours, without GitHub or a session. `--since` accepts
 Stage totals and medians use steps completed in the window; a merged issue's
 total minutes and review rounds use its full recorded history.
 
+`<plugin>/bin/loop report` summarises issues merged on the loop branch since
+`origin/<default>`, using local git refs, `.loop/` events and one read-only
+GitHub call per issue for its build note. It lists changed folders, test
+counts, risk flags, reasons, deviations and build timings without a session
+or GitHub writes. The drain includes the same text under `What changed` near
+the top of the final pull request body.
+
 A park that names exactly one test path and asks whether to change it needs
 only a reply of "yes" from a collaborator: the loop adds that path to the
 issue's `## Paths the builder may change` and requeues it. A reply that does

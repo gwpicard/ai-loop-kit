@@ -58,6 +58,12 @@ queues the issue again and passes the reply to the next build.
 
 ## After a drain
 
+Run `<plugin>/bin/loop report` for a compact view of what changed and why
+before merging the loop branch. It reads local git refs and events, plus
+each issue's build note through a read-only GitHub call, without a session
+or GitHub writes. The same text appears under `What changed` in the final
+pull request body.
+
 When merges are new and the Test and Check commands pass on the loop
 branch, the loop runs the end-of-loop pass and puts its report in the pull
 request body. Read it with `gh pr view`. Its simplify and reconcile session

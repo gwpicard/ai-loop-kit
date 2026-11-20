@@ -14,6 +14,7 @@ import common
 import flow
 import merge
 import pass_
+import report
 import session
 import setup
 import status
@@ -519,12 +520,12 @@ def _drain(project, settings, st):
             st["last"] = "running the end-of-loop pass"
             write_board(project, st, doing="running the end-of-loop pass")
         try:
-            report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
+            pass_report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
         except Exception as e:  # the pass never blocks the drain or the pull request
-            report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
-        last = dict(head=last.get("head") if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
-                    defects=len(report.get("confirmed", [])),
-                    inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
+            pass_report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
+        last = dict(head=last.get("head") if pass_report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
+                    defects=len(pass_report.get("confirmed", [])),
+                    inbox=sum(i.endswith("(inbox)") for i in pass_report.get("issues", [])))
         with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
             json.dump(last, f)
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
@@ -537,7 +538,9 @@ def _drain(project, settings, st):
         except (ValueError, common.GitHubError):
             pass
     top = summary(project, settings, head, landed)
-    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n") + hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
+    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
+    body += report.section(report.render(project, settings)) + "\n"
+    body += hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
     body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
         landed or "Nothing.", "fail: " + failed if failed else "pass")
     body += "\n" + last.get("text", "")  # a refresh keeps the report of the last pass
@@ -660,6 +663,16 @@ def run(project):
 
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "report":
+        if len(argv) != 1:
+            print("usage: loop report")
+            return 2
+        try:
+            print(report.render(project, common.read_settings(project)))
+        except (common.LoopError, GitError) as e:
+            print(str(e))
+            return 1
+        return 0
     if cmd == "status":
         if len(argv) != 1 and not (len(argv) == 3 and argv[1] == "--since"):
             print("usage: loop status [--since <time>]")
@@ -686,7 +699,7 @@ def main(argv):
             return 0
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|check-version|status [--since <time>]")
+        say("usage: loop.py run|stop|check-version|report|status [--since <time>]")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):

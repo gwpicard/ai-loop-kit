@@ -126,6 +126,13 @@ parks, crashes, rule counts, stage timings, agents and models. `--since`
 accepts a date and time, today's time, or a duration. Stage timings count
 steps completed in the window; merged issue totals use their recorded history.
 
+`loop report` summarises issues merged on the loop branch since the default
+branch, from local git refs, `.loop/` events and one read-only GitHub call per
+issue for its build note. It shows changed folders, separate test counts,
+risk flags, reasons, deviations and build timings, without a session or
+GitHub writes. The drain includes the same text under `What changed` near
+the top of the final pull request body.
+
 ### Shaping while it runs
 
 You run the shape skill in any session, at any time. It turns `inbox`

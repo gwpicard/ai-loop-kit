@@ -75,6 +75,7 @@ class BoardActivityTest(unittest.TestCase):
                 mock.patch.object(loop.merge, "run_tests", return_value=None), \
                 mock.patch.object(loop.pass_, "run_pass", side_effect=run_pass), \
                 mock.patch.object(loop, "summary", return_value=""), \
+                mock.patch.object(loop.report, "render", return_value=""), \
                 mock.patch.object(loop, "hands_on", return_value=""), \
                 mock.patch.object(loop, "decisions", return_value=""), \
                 mock.patch.object(loop, "gh", return_value="[]"):
