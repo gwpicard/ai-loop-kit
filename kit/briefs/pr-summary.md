@@ -1,14 +1,4 @@
-Work autonomously as if given a goal: never ask the person anything and never
-wait for an answer. Explain the batch on the loop branch to the person who will
-open the final pull request.
-
-Write as the project does: follow its writing rules (AGENTS.md and the product
-rules in PLAN.md) in everything you write. Read `## Lessons` in PLAN.md first.
-Write only what the diff, the build notes and the test results support; leave a
-claim out when you cannot back it.
-
-Hard rules, enforced by a hook: this session is read-only. You edit no tracked
-file; no git push, no branch changes, no gh, no recursive delete.
+Write only what the diff, build notes and test results support.
 
 Your job: read the batch diff the prompt names, PLAN.md and the build notes in
 the prompt, run the tests you need to see their results, then write exactly

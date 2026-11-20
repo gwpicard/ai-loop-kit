@@ -32,7 +32,7 @@ result = {}
 if scenario in ("reap", "reap-plain"):
     import loop
     proc = subprocess.Popen(["sh", "-c", touch + "sleep 30"], start_new_session=True)
-    st = dict(building={7: (None, proc)}, started={7: time.time()}, deaths={}, last="")
+    st = dict(building={7: (None, proc)}, started={7: time.time()}, deaths={}, attempts={}, last="")
     buf = io.StringIO()
     cap = 4 if scenario == "reap" else 2
     end = None
@@ -76,7 +76,7 @@ elif scenario in ("stop", "stop-plain"):
     import common, stop
     stop.TIMEOUT = 3 if scenario == "stop" else 2
     command = touch + ("sleep 2" if scenario == "stop" else "sleep 30")
-    settings = {"Session minutes": 0.01, "Test command": command, "Check command": ""}
+    settings = {"Session minutes": 0.01, "Test command": command, "Test files command": "", "Check command": ""}
     common.read_settings = lambda p: settings
     result = dict(problem=stop.problem("builder", project, project), seconds=time.time() - begin)
 with open(out, "w") as f:

@@ -1,5 +1,5 @@
-"""Set up a project for the loop. Safe to run again: it only adds what is missing."""
-import contextlib, json, os, pathlib, sys
+"""Set up a project for the loop and migrate older settings. Safe to run again."""
+import argparse, json, os, pathlib, re, sys, time
 import common, merge
 from common import LoopError, gh, git
 
@@ -10,7 +10,7 @@ SECTION = "## Loop\nTest command: <the command that runs your tests>\n"
 
 V1 = {"run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json", "summary.md",
       "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}  # files only kit 1.x kept in .loop/
-OURS = {"loop.out", "loop.pid", "pass.json", "builds", "merge.lock", "stop"}  # never moved into .loop/v1/
+OURS = {"loop.out", "loop.pid", "pass.json", "builds", "merge.lock", "stop", "kit-version", "migrations.log"}  # never moved into .loop/v1/
 
 
 def alive(path):
@@ -23,50 +23,89 @@ def alive(path):
         return None
 
 
-def tidy(project):
-    """Bring the runtime files into .loop/: kit 1.x files move into .loop/v1/, and the
-    .lite/ folder of kit 2.0.0 moves into .loop/. Nothing is deleted except an emptied .lite/.
-    Return (what moved, a refusal or None)."""
+def change(project, what, undo, apply, dry_run=False):
+    print(("would change: " if dry_run else "change: ") + what, flush=True)
+    if dry_run:
+        return
+    result = apply()
+    os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+    with open(os.path.join(project, ".loop", "migrations.log"), "a", encoding="utf-8") as f:
+        f.write(json.dumps(dict(time=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                               kit=common.kit_version(), change=what, undo=undo)) + "\n")
+    return result
+
+
+def tidy(project, dry_run=False):
+    """Move older runtime files without overwriting or deleting anything."""
     loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
-    if alive(os.path.join(loop, "loop.pid")):  # a running loop's files are never moved
+    if alive(os.path.join(loop, "loop.pid")):
         return [], None
     pid = alive(os.path.join(lite, "loop.pid"))
     if pid:
         return [], "refused: a loop of kit 2.0.0 is running from .lite/ (pid %d)\nnext: stop it, then start again" % pid
-    moved, kept = [], []
+    moved, sources = [], set()
+
+    def exists(path):
+        return os.path.exists(path) and path not in sources
+
+    def move(old, new, what):
+        def apply():
+            os.makedirs(os.path.dirname(new), exist_ok=True)
+            os.rename(old, new)
+        change(project, what, "move %s to %s" % (os.path.relpath(new, project), os.path.relpath(old, project)),
+               apply, dry_run)
+        sources.add(old)
+        moved.append(what)
+
     try:
         names = sorted(os.listdir(loop)) if os.path.isdir(loop) else []
         if V1 & set(names):
-            os.makedirs(os.path.join(loop, "v1"), exist_ok=True)
             for name in names:
                 if name != "v1" and name not in OURS and not name.startswith(("passed-", "stop-")) \
                         and not os.path.exists(os.path.join(loop, "v1", name)):
-                    os.rename(os.path.join(loop, name), os.path.join(loop, "v1", name))
-                    moved.append(".loop/%s to .loop/v1/" % name)
-        if os.path.isdir(lite):
-            os.makedirs(loop, exist_ok=True)
-            for name in sorted(os.listdir(lite)):
-                old, new = os.path.join(lite, name), os.path.join(loop, name)
-                if os.path.isfile(old) and os.path.isfile(new) and not os.path.exists(new + ".lite"):
-                    new += ".lite"  # such as loop.out, which the start command creates first
-                if not os.path.exists(new):
-                    os.rename(old, new)
-                    moved.append(".lite/%s to .loop/%s" % (name, os.path.basename(new) if new.endswith(".lite") else ""))
-                elif os.path.isdir(old) and os.path.isdir(new):  # such as logs/: merge one level
-                    for child in sorted(os.listdir(old)):
-                        if not os.path.exists(os.path.join(new, child)):
-                            os.rename(os.path.join(old, child), os.path.join(new, child))
-                    with contextlib.suppress(OSError):
-                        os.rmdir(old)  # only when emptied
-                    moved.append(".lite/%s/ merged into .loop/%s/" % (name, name))
-            kept = sorted(os.listdir(lite))
-            if not kept:
-                os.rmdir(lite)
+                    move(os.path.join(loop, name), os.path.join(loop, "v1", name),
+                         ".loop/%s to .loop/v1/" % name)
+        for name in sorted(os.listdir(lite)) if os.path.isdir(lite) else ():
+            old, new = os.path.join(lite, name), os.path.join(loop, name)
+            if os.path.isfile(old) and exists(new) and not exists(new + ".lite"):
+                new += ".lite"
+            if not exists(new):
+                move(old, new, ".lite/%s to .loop/%s" % (name, os.path.basename(new) if new.endswith(".lite") else ""))
+            elif os.path.isdir(old) and os.path.isdir(new):
+                for child in sorted(os.listdir(old)):
+                    if not exists(os.path.join(new, child)):
+                        move(os.path.join(old, child), os.path.join(new, child),
+                             ".lite/%s/%s to .loop/%s/%s" % (name, child, name, child))
     except OSError as e:
         return moved, "refused: the runtime files could not be moved into .loop/: %s\nnext: move them by hand, then start again" % e
-    if kept:
-        moved.append(".lite/ kept, as .loop/ already has: " + ", ".join(kept))
     return moved, None
+
+
+def migrate_220(project, dry_run):
+    path = pathlib.Path(project, "AGENTS.md")
+    with path.open(encoding="utf-8", newline="") as f:
+        text = f.read()
+    removed = [line for line, key, _ in common.setting_lines(text) if key == "Defect rounds"]
+    if removed:
+        kept = []
+        inside = False
+        for line in text.splitlines(keepends=True):
+            if re.match(r"#{1,6}\s", line):
+                inside = line.strip().lower() == "## loop"
+            if not (inside and line in removed):
+                kept.append(line)
+        def apply():
+            with path.open("w", encoding="utf-8", newline="") as f:
+                f.write("".join(kept))
+        change(project, "removed Defect rounds from AGENTS.md: confirmed defects now arrive as inbox issues",
+               "restore under ## Loop in AGENTS.md: " + "".join(removed), apply, dry_run)
+    plan = pathlib.Path(project, "PLAN.md")
+    if plan.exists() and any(line.strip().lower() == "## standing approvals" for line in plan.read_text(encoding="utf-8").splitlines()):
+        print("notice: the kit no longer reads ## Standing approvals in PLAN.md; confirmed defects now arrive as inbox issues", flush=True)
+    return bool(removed)
+
+
+MIGRATIONS = (("2.2.0", migrate_220),)
 
 
 def labels_present():
@@ -91,26 +130,36 @@ def missing(project, settings):
     return None if factory_exists() else "there is no Factory issue"
 
 
-def setup(project="."):
+def setup(project=".", dry_run=False):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
     old = common.kit_version_refusal(project)
     if old:
         say(old)
         return 1
-    common.record_kit_version(project)
     try:
         settings = common.read_settings(project)
     except common.SettingsError as e:
         say("refused: %s\nnext: add these lines to AGENTS.md, then run setup again:\n%s"
             % (e, SECTION))
         return 1
-    moved, refusal = tidy(project)
+    moved, refusal = tidy(project, dry_run)
     if refusal:
         say(refusal)
         return 1
     if moved:
-        say("runtime folder: moved " + "; ".join(moved))
+        say("runtime folder: " + ("would move " if dry_run else "moved ") + "; ".join(moved))
+    changes.extend(moved)
+    for version, migrate in MIGRATIONS:
+        if migrate(project, dry_run):
+            changes.append("migration " + version)
+    path = pathlib.Path(project, ".loop", "kit-version")
+    previous = path.read_text(encoding="utf-8") if path.exists() else None
+    if previous != common.kit_version() + "\n":
+        change(project, ".loop/kit-version: " + common.kit_version(),
+               "restore .loop/kit-version to " + repr(previous),
+               lambda: common.record_kit_version(project), dry_run)
+        changes.append("kit version " + common.kit_version())
     problem = common.codex_refusal(settings)
     if problem:
         say("refused: %s\nnext: install a current Codex or choose claude for that role, then run setup again" % problem)
@@ -119,25 +168,35 @@ def setup(project="."):
         say("%s: %s" % (role, " ".join(settings[role])))
     branch, command = settings["Loop branch"], settings["Test command"]
     for name in sorted(set(LABELS) - labels_present()):
-        gh(["label", "create", name, "--color", LABELS[name]])
+        change(project, "label " + name, "remove label " + name,
+               lambda: gh(["label", "create", name, "--color", LABELS[name]]), dry_run)
         changes.append("label " + name)
-    git(["fetch", "origin"], cwd=project)
+    if not dry_run:
+        git(["fetch", "origin"], cwd=project)
     base = common.default_branch(project)
     if not git(["ls-remote", "--heads", "origin", branch], cwd=project):
-        git(["push", "origin", "origin/%s:refs/heads/%s" % (base, branch)], cwd=project)
+        change(project, "loop branch %s from %s" % (branch, base), "remove remote branch " + branch,
+               lambda: git(["push", "origin", "origin/%s:refs/heads/%s" % (base, branch)], cwd=project), dry_run)
         changes.append("loop branch %s from %s" % (branch, base))
     if not factory_exists():
-        url = gh(["issue", "create", "--title", "Factory", "--body", "The loop writes the board here."])
-        gh(["issue", "pin", url.strip().rsplit("/", 1)[-1]])
+        url = change(project, "Factory issue", "close the newly created Factory issue",
+                     lambda: gh(["issue", "create", "--title", "Factory", "--body", "The loop writes the board here."]), dry_run)
+        change(project, "pin Factory issue", "unpin the Factory issue",
+               lambda: gh(["issue", "pin", url.strip().rsplit("/", 1)[-1]]), dry_run)
         changes.append("Factory issue, pinned")
-    os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
     path = os.path.join(project, ".gitignore")
     text = pathlib.Path(path).read_text(encoding="utf-8") if os.path.exists(path) else ""
     if ".loop/" not in text.split():
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(("" if not text or text.endswith("\n") else "\n") + ".loop/\n")
+        def ignore():
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(("" if not text or text.endswith("\n") else "\n") + ".loop/\n")
+        change(project, ".gitignore now lists .loop/ (commit it yourself)",
+               "remove the appended .loop/ line from .gitignore" + (" and its preceding newline" if text and not text.endswith("\n") else ""), ignore, dry_run)
         changes.append(".gitignore now lists .loop/ (commit it yourself)")
-    say("%s: %s" % ("changed" if changes else "ok", "; ".join(changes) or "nothing to add"))
+    say("%s: %s" % (("preview" if dry_run else "changed") if changes else "ok", "; ".join(changes) or "nothing to add"))
+    if dry_run:
+        say("dry-run: no changes made; preflight skipped")
+        return 0
     log, where = os.path.join(project, ".loop", "logs", "preflight.log"), []
     failure = merge.run_tests(project, git(["rev-parse", "origin/" + branch], cwd=project), command, tail=20,
                                check=settings["Check command"], prepare=settings["Prepare command"], log=log, where=where)
@@ -145,7 +204,7 @@ def setup(project="."):
     if failure:
         say("log: %s (the checkout ran in %s, removed afterwards)" % (log, where[0]))
         say("hint: a test that passes in the project folder but fails here usually depends on where the checkout lives or on files git does not track")
-    say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Test files command", "Prepare command", "Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set") + "; Session minutes: %g; Parallel: %d; Defect rounds: %d" % (settings["Session minutes"], settings["Parallel"], settings["Defect rounds"]))
+    say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Test files command", "Prepare command", "Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set") + "; Session minutes: %g; Parallel: %d" % (settings["Session minutes"], settings["Parallel"]))
     say("advice: protect %s on GitHub (Settings, Branches) so only a pull request changes it" % base)
     say("summary: %d change(s), preflight %s" % (len(changes), "failed" if failure else "passed"))
     return 1 if failure else 0
@@ -153,7 +212,11 @@ def setup(project="."):
 
 if __name__ == "__main__":
     try:
-        sys.exit(setup(sys.argv[1] if len(sys.argv) > 1 else "."))
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("project", nargs="?", default=".")
+        parser.add_argument("--dry-run", action="store_true")
+        args = parser.parse_args()
+        sys.exit(setup(args.project, dry_run=args.dry_run))
     except LoopError as e:
         print("refused: %s\nnext: fix that, then run setup again" % e)
         sys.exit(1)

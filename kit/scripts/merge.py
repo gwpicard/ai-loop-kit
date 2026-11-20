@@ -11,7 +11,7 @@ import subprocess
 import common
 from common import gh, git
 
-Result = collections.namedtuple("Result", "ok park reason commit")
+Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
 TEST_TIMEOUT = 1800
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
@@ -44,8 +44,8 @@ def squash_body(project, loop, sha):
     return "\n\n".join(messages)
 
 
-def _refuse(reason, park=False):
-    return Result(False, park, reason, None)
+def _refuse(rule, reason, park=False):
+    return Result(False, park, reason, None, rule)
 
 
 def parse_verdict(text):
@@ -123,6 +123,16 @@ def stop_reason(path, protected):
     return None
 
 
+def targeted_command(settings, cwd, start, locked):
+    if not settings["Test files command"]:
+        return settings["Test command"], "Test command: full suite"
+    changed = git(["diff", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).splitlines() if start else []
+    files = sorted(set(locked) | {p for p in changed if is_test_file(p)})
+    if not files:  # an empty list would run the whole suite
+        return "", "Test files command: no test files to run"
+    return common.files_command(settings, files), "Test files command: " + ", ".join(files)
+
+
 def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     """Return a park reason for the first stop or test-lock breach, or None. A locked file must equal
     its content at `baseline` (the writer's final commit), else at the commit that first added it."""
@@ -189,6 +199,8 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
         for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
+            if cmd:
+                common.wait_for_disk(project)
             if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log)):
                 return failure
         return None
@@ -207,10 +219,16 @@ def view(kind, number, field):
 
 
 def merge(issue, branch, verdict_text, project="."):
-    try:
-        return _merge(issue, branch, verdict_text, project)
-    except Exception as e:  # fail closed: a refusal, never a traceback
-        return _refuse(str(e) or type(e).__name__)
+    with common.timed("step", project, issue=issue, step="merge") as end:
+        try:
+            result = _merge(issue, branch, verdict_text, project)
+        except Exception as e:  # fail closed: a refusal, never a traceback
+            result = _refuse("merge-error", str(e) or type(e).__name__)
+        end["outcome"] = "merged" if result.ok else "refused"
+        if not result.ok:
+            end.update(rule=result.rule, reason=result.reason)
+            common.event("rule", project, issue=issue, role="merge", rule=result.rule, reason=result.reason)
+        return result
 
 
 def _merge(issue, branch, verdict_text, project):
@@ -218,20 +236,23 @@ def _merge(issue, branch, verdict_text, project):
     loop = settings["Loop branch"]
     verdict, head = parse_verdict(verdict_text)
     if verdict != "APPROVE":
-        return _refuse("the review verdict is %s, not APPROVE" % (verdict or "missing"))
+        return _refuse("review-verdict", "the review verdict is %s, not APPROVE" % (verdict or "missing"))
     git(["fetch", "--no-prune", "origin"], cwd=project)
     sha = git(["rev-parse", "--verify", "origin/" + branch], cwd=project)
     if not head or not sha.startswith(head):
-        return _refuse("the branch head %s is not the reviewed commit %s"
+        return _refuse("review-head", "the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
-    if failure := run_tests(project, sha, settings["Test command"],
-                            check=settings["Check command"], prepare=settings["Prepare command"]):
-        return _refuse(failure)
     info = view("issue", issue, "body,comments")
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
                       allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", [])),
                       locked_baseline(info.get("comments", []))):
-        return _refuse(stop, park=True)
+        return _refuse("test-lock" if stop.startswith(("existing test", "locked test")) else
+                       "protected-path" if stop.startswith("protected path") else
+                       "workflow" if stop.startswith("workflow file") else
+                       "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
+    if failure := run_tests(project, sha, settings["Test command"],
+                            check=settings["Check command"], prepare=settings["Prepare command"]):
+        return _refuse("test-command", failure)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):
@@ -239,7 +260,7 @@ def _merge(issue, branch, verdict_text, project):
                 "--title", "Issue %s" % issue, "--body", "Built by the loop."], retry=False)
         pr = find_pr(branch, loop, sha)
         if pr is None:
-            return _refuse("the pull request could not be created")
+            return _refuse("pull-request", "the pull request could not be created")
     if pr["state"] == "OPEN":
         number, err = pr["number"], None
         comments = view("pr", number, "comments").get("comments", [])
@@ -256,14 +277,14 @@ def _merge(issue, branch, verdict_text, project):
             err = e
         pr = find_pr(branch, loop, sha)
         if pr is None or pr["state"] != "MERGED":
-            return _refuse(str(err or "the pull request is not merged"))
+            return _refuse("merge-refused", str(err or "the pull request is not merged"))
     commit = (pr.get("mergeCommit") or {}).get("oid") or "unknown"
     try:
         gh(["issue", "close", str(issue), "--comment",
             "Merged into %s as %s.\n\n%s" % (loop, commit, common.MARKER)], retry=False)
     except common.GitHubError:
         if view("issue", issue, "state").get("state") != "CLOSED":
-            return _refuse("merged as %s but the issue did not close" % commit)
+            return _refuse("issue-close", "merged as %s but the issue did not close" % commit)
     common.remove_label(issue, "building")
     common.event("merged", project, issue=issue, branch=branch, commit=commit)
     return Result(True, False, "merged as " + commit, commit)

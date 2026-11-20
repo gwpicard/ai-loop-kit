@@ -48,6 +48,8 @@ class SessionTest(FakeClaudeGh):
         self.assertEqual(env["LOOP_ROLE"], "builder")
         self.assertEqual(env["LOOP_LOCKED"], "a/test_x.py\nb/test_y.py")
         self.assertEqual(env["LOOP_START"], "abc123")
+        self.assertEqual(env["LOOP_TEST_COMMAND"], common.read_settings(self.work)["Test command"])
+        self.assertEqual(env["LOOP_TEST_FILES_COMMAND"], "")
         self.assertEqual(env["LOOP_LOOP_BRANCH"], "loop/main")
         self.assertEqual(env["LOOP_DEFAULT_BRANCH"], "main")
         self.assertEqual(call["prompt"], "do it")

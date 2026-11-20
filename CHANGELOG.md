@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.0 (20 November 2026)
+
+The full test suite runs once per issue, at merge. The loop records each
+step's duration, outcome and model, `loop status` and `loop report` show what
+happened and what changed, and confirmed end-of-loop defects arrive as inbox
+issues. See [the 2.2.0 release notes](docs/release-notes/v2.2.0.md).
+
+## 2.1.2 (18 November 2026)
+
+A Codex session may write to the temp and cache folders that build tools use,
+and a new `Codex writable roots` setting names further folders, such as
+SwiftPM's cache. See [the 2.1.2 release notes](docs/release-notes/v2.1.2.md).
+
 ## 2.1.1 (17 November 2026)
 
 The start check for Codex roles accepts the comma form of short flags in

@@ -98,12 +98,14 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
-    handle, groups = tempfile.mkstemp(prefix="loop-groups-")
+    handle, groups = tempfile.mkstemp(prefix="loop-groups-", dir=env.get("TMPDIR"))
     os.close(handle)
     env = dict(env, LOOP_GROUPS=groups)
     project_of_cwd = env.get("LOOP_PROJECT") or common.project_of(cwd)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
-    with tempfile.TemporaryFile("w+") as fin, tempfile.TemporaryFile("w+") as fout, tempfile.TemporaryFile("w+") as ferr:
+    with tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as fin, \
+            tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as fout, \
+            tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as ferr:
         fin.write(prompt)
         fin.seek(0)
         p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
@@ -143,7 +145,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
                                 capture_output=True, text=True).stdout.strip()
     # a worktree's .git points into the main checkout, so its commits need that folder writable;
     # build tools also write to the temp and cache folders, and to any the project names
-    candidates = [common_dir, os.environ.get("TMPDIR", "")]
+    candidates = [common_dir, env.get("TMPDIR", "")]
     if sys.platform == "darwin":
         for name in ("DARWIN_USER_TEMP_DIR", "DARWIN_USER_CACHE_DIR"):
             with contextlib.suppress(OSError):
@@ -156,7 +158,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
         if os.path.isdir(path) and path not in folders:
             folders.append(path)
     roots = "sandbox_workspace_write.writable_roots=" + json.dumps(folders)
-    handle, last = tempfile.mkstemp(prefix="loop-codex-")
+    handle, last = tempfile.mkstemp(prefix="loop-codex-", dir=env.get("TMPDIR"))
     os.close(handle)
     def argv(resume):
         return (["codex", "exec"] + (["resume", resume] if resume else ["-s", "workspace-write"])
@@ -173,6 +175,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
                     if isinstance(event, dict):
                         events.append(event)
             thread = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None) or resume
+            common.record_session(thread, env)
             with open(last, encoding="utf-8") as f:
                 text = f.read()
             if not text:
@@ -182,8 +185,8 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
             problem = "\n".join(str(e.get("message") or "") for e in events if e.get("type") == "error") or err
             if code and LIMIT.search(problem + text):
                 wait = _wait_seconds(problem + text)
-                print("%s session hit the Codex usage limit; waiting %d minutes, "
-                      "then resuming" % (role, wait // 60), flush=True)
+                common.say("%s session hit the Codex usage limit; waiting %d minutes, "
+                      "then resuming" % (role, wait // 60))
                 common.sleep(wait)
                 resume = thread or resume
                 continue
@@ -200,10 +203,11 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
 def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=(), agent="claude"):
     """Run `agent` (claude or codex) as `role` in `cwd`. Return (reply text, session id)."""
     settings = common.read_settings(project)
-    env = dict(os.environ, LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
+    env = dict(common.build_env(), LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
+               LOOP_TEST_COMMAND=settings["Test command"], LOOP_TEST_FILES_COMMAND=settings["Test files command"],
                LOOP_PROTECTED=",".join(settings["Protected paths"]),
                LOOP_LOOP_BRANCH=settings["Loop branch"], LOOP_DEFAULT_BRANCH=common.default_branch(project),
-               LOOP_PROJECT=project, LOOP_START=start)
+               LOOP_PROJECT=project, LOOP_ISSUE=str(issue), LOOP_START=start)
 
     logs = os.path.join(project, ".loop", "logs")
     os.makedirs(logs, exist_ok=True)
@@ -231,11 +235,12 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
         except ValueError:
             data = None
         data = data if isinstance(data, dict) else None
+        common.record_session((data or {}).get("session_id"), env)
         text = str(data.get("result") or "") if data else out + err
         if LIMIT.search(text) and (not data or data.get("is_error") or code):
             wait = _wait_seconds(text)
-            print("%s session hit the Claude usage limit; waiting %d minutes, "
-                  "then resuming" % (role, wait // 60), flush=True)
+            common.say("%s session hit the Claude usage limit; waiting %d minutes, "
+                  "then resuming" % (role, wait // 60))
             common.sleep(wait)
             resume = (data or {}).get("session_id") or resume
             continue

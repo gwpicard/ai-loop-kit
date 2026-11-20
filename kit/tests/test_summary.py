@@ -6,6 +6,7 @@ from unittest import mock
 from kit.tests import test_loop
 from kit.tests.helpers import copy_repo
 import common
+import flow
 import loop
 import merge
 import pass_
@@ -37,9 +38,8 @@ class Brief(unittest.TestCase):
             self.assertIn(word, text)
         self.assertIn("unsure", text)
 
-    def test_it_is_read_only_follows_the_writing_rules_and_claims_only_what_is_supported(self):
-        text = brief().lower()
-        self.assertIn("read-only", text)
+    def test_it_follows_the_writing_rules_and_claims_only_what_is_supported(self):
+        text = flow.brief("pr-summary").lower()
         self.assertIn("writing rules", text)
         self.assertIn("build notes", text)
         self.assertIn("test results", text)
@@ -85,6 +85,15 @@ class Drain(test_loop.Base):
         self.assertLess(body.index("## Summary"), body.index("## Evidence"))
         self.assertLess(body.index("## Evidence"), body.index("## Merge danger"))
         self.assertTrue(body.lstrip().startswith("## Summary") or body.index("## Summary") < body.index("## Hands-on checks"))
+
+    def test_summary_prompt_starts_with_the_preamble_once(self):
+        self.land()
+        self.drain()
+        prompt = self.summary_calls()[0].args[1]
+        with open(os.path.join(flow.BRIEFS, "preamble.md")) as f:
+            preamble = f.read().strip()
+        self.assertTrue(prompt.startswith(preamble + "\n\n"))
+        self.assertEqual(prompt.count(preamble), 1)
 
     def test_one_session_runs_on_the_reviewer_model(self):
         self.land()

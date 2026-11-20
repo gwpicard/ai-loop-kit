@@ -128,6 +128,9 @@ def states(pids):
     return {p: rows[p][1] for p in pids if p in rows}
 
 
+STAMP = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", re.M)
+
+
 class PauseBase(FakeClaudeGh):
     PARALLEL = 1
 
@@ -162,7 +165,9 @@ class PauseBase(FakeClaudeGh):
                         pass
 
     def loop_cmd(self, *args, **kw):
-        return subprocess.run([LOOP, *args], cwd=self.work, capture_output=True, text=True, timeout=60, **kw)
+        p = subprocess.run([LOOP, *args], cwd=self.work, capture_output=True, text=True, timeout=60, **kw)
+        p.stdout = STAMP.sub("", p.stdout)
+        return p
 
     def start(self):
         out = open(os.path.join(self.work, ".loop", "loop.out"), "a") if os.path.isdir(
@@ -199,7 +204,7 @@ class PauseBase(FakeClaudeGh):
 
     def out_lines(self):
         with open(os.path.join(self.work, ".loop", "loop.out")) as f:
-            return f.read().splitlines()
+            return [STAMP.sub("", l) for l in f.read().splitlines()]
 
     def finish(self):
         """Let the build reach its review, ask the loop to stop and return what the run did."""

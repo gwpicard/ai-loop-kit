@@ -116,6 +116,34 @@ class StopHookTest(unittest.TestCase):
             head, *tail = f.read().splitlines()
         self.assertEqual(head, self.start)
         self.assertIn("Test command passed: 100", tail)
+        self.assertIn("Test command: full suite", tail)
+
+    def test_only_locked_and_changed_test_files_run_before_the_check(self):
+        marker = os.path.join(self._tmp.name, "runs")
+        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
+            f.write("## Loop\nTest command: echo full >> %s\n"
+                    "Test files command: echo {files} >> %s\nCheck command: echo check >> %s\n"
+                    % (marker, marker, marker))
+        for name in ("tests/test_old.py", "tests/test_locked.py", "tests/test_changed.py"):
+            self.touch(name, commit=True)
+        self.start = common.git(["rev-parse", "HEAD"], cwd=self.work)
+        with open(os.path.join(self.work, "tests/test_changed.py"), "a") as f:
+            f.write("changed\n")
+        for name in ("tests/test_added.py", "app.py"):
+            self.touch(name, commit=True)
+        self.assertIsNone(self.stop("builder", LOOP_LOCKED="tests/test_locked.py"))
+        with open(marker) as f:
+            self.assertEqual(f.read().splitlines(), ["tests/test_added.py tests/test_changed.py tests/test_locked.py", "check"])
+        head, tails = common.read_passed(self.work, "s1")
+        self.assertEqual(head, common.git(["rev-parse", "HEAD"], cwd=self.work))
+        self.assertIn("Test files command: tests/test_added.py, tests/test_changed.py, tests/test_locked.py", tails)
+
+    def test_targeted_tests_still_block_a_failing_check(self):
+        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
+            f.write("Test files command: true {files}\n")
+        self.touch("FAIL")
+        self.touch("BAD")
+        self.assertIn("Check command fails", self.stop("builder")["reason"])
 
     def test_a_command_is_recorded_while_it_runs_so_the_session_can_kill_it(self):
         sys.path.insert(0, os.path.dirname(STOP))

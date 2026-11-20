@@ -103,11 +103,11 @@ class ReviewRoundsTest(FakeClaudeGh):
 
     def test_follow_ups_of_every_round_become_inbox_issues(self):
         sent = self.run_build([
-            "VERDICT: CHANGES\nHEAD: {HEAD}\n1. fix it\n\nFOLLOW-UPS:\n- Probe follow-up one\n",
-            "VERDICT: APPROVE\nHEAD: {HEAD}\n\nFOLLOW-UPS:\n- Probe follow-up two\n"])
+            "VERDICT: CHANGES\nHEAD: {HEAD}\n1. fix it\n\nFOLLOW-UPS:\n- Probe follow-up number one\n",
+            "VERDICT: APPROVE\nHEAD: {HEAD}\n\nFOLLOW-UPS:\n- Probe follow-up number two\n"])
         titles = [a[a.index("--title") + 1] for a, _ in sent
                   if a[:2] == ["issue", "create"] and "inbox" in a]
-        self.assertEqual(sorted(titles), ["Probe follow-up one", "Probe follow-up two"])
+        self.assertEqual(sorted(titles), ["Probe follow-up number one", "Probe follow-up number two"])
 
 
 if __name__ == "__main__":

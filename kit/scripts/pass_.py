@@ -25,18 +25,11 @@ def section(plan, name):
     return (re.search(r"^## %s\s*\n(.*?)(?=^## |\Z)" % name, plan, re.S | re.M) or [0, ""])[1]
 
 
-def approves(plan, word):
-    # fails closed: a paragraph must name `word`, say it may be queued as ready, and hold no negation
-    return any(word in p and re.search(r"\b(may|can) be (queued as |marked |labelled )?ready\b", p)
-               and not re.search(r"n't|\b(not|never|no|none|nothing|unless|until|only after)\b", p)
-               for p in section(plan, "Standing approvals").lower().split("\n\n"))
-
-
 def esc(text):  # a finding cannot start a section of the issue
     return re.sub(r"(?m)^(\s*#)", r"\\\1", text)
 
 
-def failing(project, sha, test, tree, path, prepare="", check=""):
+def failing(project, sha, test, tree, path, prepare="", check="", files=""):
     # (path the Test command finds the file at, None) if it fails there once copied; else (None, why not)
     base, full = os.path.realpath(os.path.join(tree, ".loop", "pass")), os.path.join(tree, path)
     rel = os.path.relpath(os.path.realpath(full), base)
@@ -51,7 +44,8 @@ def failing(project, sha, test, tree, path, prepare="", check=""):
     if bad:
         return None, bad
     try:
-        why = merge.run_tests(project, sha, test, tail=60, overlay=(base, [rel]), prepare=prepare)
+        command = common.files_command({"Test command": test, "Test files command": files}, [rel])
+        why = merge.run_tests(project, sha, command, tail=60, overlay=(base, [rel]), prepare=prepare)
     except OSError as e:
         return None, "the file could not be copied: %s" % e
     if not why:
@@ -74,9 +68,9 @@ def fix_rounds(texts):
     return max(0, len({n for t in texts for n in re.findall(r"^## Review, round (\d+)", t, re.M)}) - 1)
 
 
-def batch_lines(project, since, loop, notes=None, queued_by_person=None):
+def batch_lines(project, since, loop, notes=None):
     # one line per issue merged since `since`: build note title, fix rounds, parks, deviations;
-    # `notes` collects each build note whole; `queued_by_person` the numbers of issues without the loop marker
+    # `notes` collects each build note whole
     log = git(["log", "--format=%s", "%s..origin/%s" % (since, loop)], cwd=project, check=False)
     lines = []
     for n in sorted({int(m) for m in re.findall(r"^Issue (\d+)", log, re.M)}):
@@ -84,8 +78,6 @@ def batch_lines(project, since, loop, notes=None, queued_by_person=None):
         prs = json.loads(gh(["pr", "list", "--head", "issue/%d" % n, "--state", "all", "--json", "comments"]))
         texts = [c.get("body") or "" for c in info["comments"] + [c for p in prs for c in p["comments"]]]
         built = next((t for t in texts if t.startswith("## Built")), "\nno build note")
-        if queued_by_person is not None and common.MARKER not in (info.get("body") or ""):
-            queued_by_person.append(n)
         if notes is not None:
             notes.append("#%d %s\n%s" % (n, info["title"], built.strip()[:2000]))
         lines.append("#%d %s: %s (fix rounds %d, parks %d, deviations: %s)" % (
@@ -104,15 +96,20 @@ def create(title, body, label):
     return (re.findall(r"\d+", out[0]) or ["?"])[-1] if out else None
 
 
-def run_pass(project, settings, since_ref, rounds=0):
+def run_pass(project, settings, since_ref):
     # run the pass on origin/<loop branch>; return (report dict, Markdown report)
     project = os.path.abspath(project)
-    r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0, rounds=rounds, capped="")
-    try:
-        with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
-            _pass(project, settings, since_ref, tree, r)
-    except Exception as e:  # the pass never raises; it reports
-        r["errors"].append("pass stopped: %s" % e)
+    r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0)
+    with common.timed("pass", project) as end:
+        try:
+            with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
+                _pass(project, settings, since_ref, tree, r)
+        except Exception as e:  # the pass never raises; it reports
+            r["errors"].append("pass stopped: %s" % e)
+        end.update(outcome="failed" if r["errors"] else "done", sessions=r["sessions"],
+                   confirmed=len(r["confirmed"]),
+                   rejected=len(r["rejected"]),
+                   issues=sum("finding(s) added" not in i for i in r["issues"]))
     return r, markdown(r)
 
 
@@ -126,7 +123,7 @@ def _pass(project, settings, since, tree, r):
     def ask(name, extra=""):  # at most 9 calls: drift, rubric, four red teams, confirm, lessons, simplify
         r["sessions"] += 1
         try:
-            return session.run("pass", Path(flow.BRIEFS, "pass-%s.md" % name).read_text(encoding="utf-8") + context + extra,
+            return session.run("pass", flow.brief("pass-%s" % name) + context + extra,
                                tree, settings["Pass"][1], project, "pass", agent=settings["Pass"][0])[0]
         except common.LoopError as e:
             r["errors"].append("%s session: %s" % (name, e))
@@ -135,10 +132,9 @@ def _pass(project, settings, since, tree, r):
         bad = merge.run_tests(project, sha, settings["Smoke command"], tail=5, prepare=settings["Prepare command"])
         r["smoke"] = bad.replace("the Test command", "the Smoke command") if bad else "passed"
         r["drift"] += [("Smoke command failed on the loop branch", r["smoke"], "")] if bad else []
-    notes, people = [], []
+    notes = []
     try:
-        r["batch"] = batch_lines(project, since, settings["Loop branch"], notes, people)
-        r["rounds"] = r["rounds"] if r["rounds"] is None else 0 if people else r["rounds"]  # an issue the person queued merged: a new batch
+        r["batch"] = batch_lines(project, since, settings["Loop branch"], notes)
     except Exception as e:
         r["errors"].append("batch notes: %s" % e)
     drift = ask("drift")
@@ -151,7 +147,8 @@ def _pass(project, settings, since, tree, r):
     candidates = []
     for surface in surfaces:
         for title, detail, path in findings(ask("redteam", "\nSurface: %s\n" % surface)):
-            rel, why = failing(project, sha, test, tree, path, settings["Prepare command"], settings["Check command"])
+            rel, why = failing(project, sha, test, tree, path, settings["Prepare command"], settings["Check command"],
+                               settings["Test files command"])
             if rel:
                 candidates.append((title, detail, rel, Path(tree, path).read_text(encoding="utf-8")))
             else:
@@ -196,17 +193,9 @@ def _pass(project, settings, since, tree, r):
     if blocked:  # open decisions cannot be checked: queue only the rubric findings
         r["errors"].append("nothing queued: " + blocked)
     queued = lambda items: [] if blocked else items
-    ready = "ready" if approves(plan, "confirmed defect") else "inbox"
-    if ready == "ready" and queued(r["confirmed"]):
-        if r["rounds"] is None or r["rounds"] >= settings["Defect rounds"]:  # an unreadable count fails closed
-            ready, r["capped"] = "inbox", "Defect rounds limit (%d) reached%s: confirmed defects are filed as inbox, with their failing tests" % (
-                settings["Defect rounds"], " (the saved count could not be read)" * (r["rounds"] is None))
-            r["rounds"] = settings["Defect rounds"]
-        else:
-            r["rounds"] += 1
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])
     jobs = [(t, "%s\n\n## Failing test\n\nPath: %s\n\n%s\n%s\n%s\n" % (esc(d), p, fence(c), c.rstrip("\n"), fence(c)),
-             ready) for t, d, p, c in queued(r["confirmed"])]
+             "inbox") for t, d, p, c in queued(r["confirmed"])]
     found = queued(r["drift"]) + r["rubric"] + queued(r["held"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]])
     line = lambda t, d: "- [ ] **%s**: %s" % (t, esc(d).replace("\n", "\n  "))
     def file(prefix, items):  # one open inbox issue per kind: add only what it does not list yet
@@ -230,5 +219,4 @@ def _pass(project, settings, since, tree, r):
 def markdown(r):
     show = lambda v: "\n".join("- " + (": ".join(x[:2]) if isinstance(x, tuple) else x) for x in v) or "none"
     return "## End-of-loop pass (%d sessions)\n\n### Smoke\n\n%s\n\n" % (r["sessions"], r["smoke"]) + "\n\n".join(
-        "### %s\n\n%s" % (title, show(r[key])) for key, title in TITLES) + (
-        "\n\n### Defect rounds\n\n" + r["capped"] if r.get("capped") else "")
+        "### %s\n\n%s" % (title, show(r[key])) for key, title in TITLES)

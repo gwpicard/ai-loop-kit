@@ -27,6 +27,15 @@ older than the one the project was set up with (recorded in
 
 `<plugin>` below is the installed plugin folder (holding `bin/`).
 
+## Upgrading
+
+Every release that changes what a project holds ships its migration in setup.
+Run `python3 <plugin>/scripts/setup.py --dry-run` to preview every change without
+writing files or GitHub data, or running preflight. Without the flag, setup
+prints each change before applying it and logs the time, kit version and undo
+instructions in `.loop/migrations.log`. Migrations are safe to run twice and
+delete nothing.
+
 ## Set up a project
 
 Put this in the project's `AGENTS.md`:
@@ -40,14 +49,14 @@ default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
-`Check command`, `Smoke command`, `Parallel` (default 1) and `Defect rounds`
-(default 2). `Codex writable roots` is a comma-separated list of folders,
-written like `Protected paths`, that a Codex session may write besides the
+`Check command`, `Smoke command` and `Parallel` (default 1).
+`Codex writable roots` lists further folders, comma-separated
+like `Protected paths`, that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
-tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM. The older `Builder model: <m>` line still sets the builder and
-test writer to `claude <m>`, and `Reviewer model: <m>` the reviewer and the
-pass, unless the new line for that role is set.
+tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM. The
+older `Builder model: <m>` line still sets the builder and test writer to
+`claude <m>`, and `Reviewer model: <m>` the reviewer and the pass, unless the new line for that role is set.
 
 Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
 runs under the same rules as a Claude one: the guard and the stop check are
@@ -82,12 +91,38 @@ machine has headroom: load average below the CPU count and, on macOS, normal
 memory pressure. It says why when it waits. Every session and test command
 also waits, on macOS, while memory pressure is above normal.
 
+Before a build or a test command starts, the loop checks free space on the
+project volume and in the temp folder. With less than 2 GB free, it prints a
+line, records a `disk-wait` event and checks again every minute. A failure
+reporting "No space left on device" waits without using a crash attempt.
+
 Merges into the loop branch queue behind one lock (`.loop/merge.lock`): an
 issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
-its step. A stop request starts no new build and lets running builds finish
+its step and elapsed minutes in that step, or says when the drain or pass is
+running. A stop request starts no new build and lets running builds finish
 their issue. Each build process writes its log to
-`.loop/logs/build-<issue>.log`.
+`.loop/logs/build-<issue>.log`. Lines in these logs and `loop.out` start with a
+local timestamp (`YYYY-MM-DD HH:MM:SS`).
+
+`.loop/events.jsonl` records step starts and ends, durations in whole seconds,
+session agents and models, merges, parks, crashes, drains, passes and stop or
+exit reasons. Refusals carry stable rule ids, such as `test-lock`. Every record
+names the running kit version and the project folder’s base name.
+
+`<plugin>/bin/loop status` reads only `.loop/` and checks local pids. It shows
+current activity, merges, parks, crashes, rule counts, stage times, agents and
+models from the last 12 hours, without GitHub or a session. `--since` accepts
+`YYYY-MM-DD HH:MM`, `HH:MM` (today), or a duration such as `4h` or `90m`.
+Stage totals and medians use steps completed in the window; a merged issue's
+total minutes and review rounds use its full recorded history.
+
+`<plugin>/bin/loop report` summarises issues merged on the loop branch since
+`origin/<default>`, using local git refs, `.loop/` events and one read-only
+GitHub call per issue for its build note. It lists changed folders, test
+counts, risk flags, reasons, deviations and build timings without a session
+or GitHub writes. The drain includes the same text under `What changed` near
+the top of the final pull request body.
 
 A park that names exactly one test path and asks whether to change it needs
 only a reply of "yes" from a collaborator: the loop adds that path to the
@@ -97,18 +132,22 @@ write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
 
-Per issue, the Test command runs in full twice: once in the Stop hook when
-the builder finishes, and once in `merge.py`'s fresh checkout of the reviewed
-commit. Everything between is targeted.
+With a Test files command set, the full suite runs once per issue, at merge,
+in `merge.py`'s fresh checkout of the reviewed commit. Path checks and the
+test lock run first, so a refusal costs no test run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
-After the builder or a fix pass, the loop reuses the Stop hook's pass if it
-was for the very commit now at the head, and runs the full commands only when
-it was not.
+The Stop hook runs the locked tests and the test files changed since the
+issue started, then the Check command. It records which tests ran. After the
+builder or a fix pass, the loop reuses that result if it was for the head
+commit, and otherwise runs the same targeted set in a fresh checkout. Without
+a Test files command, these steps use the full Test command.
 
-The reviewer is given that result and runs only targeted checks. There is no
-per-issue simplify step: the end-of-loop pass simplifies the whole batch once.
+The reviewer is given that result and runs only targeted checks. With a Test
+files command set, the guard refuses the full Test command in builder and
+reviewer sessions. There is no per-issue simplify step: the end-of-loop pass
+simplifies the whole batch once.
 
 ## Set up with the script
 
@@ -135,12 +174,13 @@ Use the loop skill, or run from the project root
 
 The pinned `Factory` issue is the board, in three sections: `Building now`;
 `Needs you`, with parked issues, unbuilt dependencies, the open pull request
-into the default branch, a conflict and the notice that the defect rounds
-limit was reached; and `Progress`, one line for each open milestone that
-has an open `ready`, `building` or `needs-user` issue, with its closed and
+into the default branch and a conflict; and `Progress`, one line for each
+open milestone that has an open `ready`, `building` or `needs-user` issue, with its closed and
 total issue counts and a link to its milestone page. Read the full
 progress on GitHub's milestones page. To answer a parked issue, reply on it;
 the loop queues it again and gives your reply to the next build.
+The next check includes its date. When ready issues are waiting and nothing
+is building, `Why idle` names parked dependencies or a load or memory deferral.
 
 ## What each issue gets
 
@@ -153,9 +193,15 @@ the loop queues it again and gives your reply to the next build.
   without a new test file (two at most).
 - **Build note.** After the merge, the issue and the pull request get a
   `## Built` note: what changed and why, deviations, the merge and files.
+- **Restart history.** A restarted builder reads earlier review rounds and
+  build notes from `.loop/history-<issue>.md` in the project folder, outside
+  the worktree. The file is removed after the merge. Prompts carry only
+  replies to the last park; reviewers get only BUILT and DEVIATIONS from
+  the builder's report.
 - **Merge conflicts.** A reused issue branch that conflicts with the loop
   branch is left mid-merge; the builder resolves it first, else the issue parks.
-- **Follow-ups.** Non-blocking work the reviewer names becomes an `inbox` issue.
+- **Follow-ups.** At most two verified non-blocking findings become `inbox`
+  issues per issue. Unverified findings and titles under four words are dropped.
 - **Lessons and failing tests.** Sessions append traps to `## Lessons`. A
   `## Failing test` section is committed as given by the test writer.
 
@@ -172,9 +218,9 @@ blocks this best-effort.
 - Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
   most). A finding counts only with a test file under `.loop/pass/` at the
   path where it belongs (such as `.loop/pass/tests/test_x.py`). The pass
-  copies it there and it must fail the Test command (Prepare first) and pass
-  the `Check command` (lint, format) with the file in place; a second session
-  must confirm it.
+  copies it there. After Prepare, it must fail the Test files command on that
+  file (or the Test command when none is set) and pass the `Check command`
+  (lint, format) with the file in place; a second session must confirm it.
 - Rubric: readability, error handling, weak tests, fixed sleeps, dead code.
 - Lessons and proposed guardrails.
 - Simplify and reconcile: one session reads the batch's changed code and its
@@ -184,17 +230,8 @@ blocks this best-effort.
   one such issue is open, later passes add to it as a comment, as for
   `Pass findings`.
 
-A confirmed defect becomes an issue with a `## Failing test` section. It is
-labelled `ready` only if a paragraph under `## Standing approvals` in
-`PLAN.md` says positively that a confirmed defect may be queued as ready,
-with no negation such as not, never, no or unless; anything unclear fails
-closed to `inbox`.
-
-`Defect rounds` caps how often this happens: a round is one pass that queued
-at least one confirmed defect as `ready`, counted since the last merge of an
-issue the person queued (the loop's own issues carry its marker in the body).
-At the limit, confirmed defects are filed as `inbox`, still with their
-failing tests, and the report and the board say so.
+A confirmed defect becomes an `inbox` issue with a `## Failing test`
+section. Shape and approve it like any other issue.
 
 A finding that touches an open `inbox` or `needs-user` decision is held,
 never queued. Every other finding, guardrail and lesson goes into one `inbox`
@@ -211,8 +248,14 @@ After each session the loop kills what is left in its process group and
 logs it; a process that detaches itself can survive. If Docker answers, a new
 container is removed only when its compose working directory or a bind mount
 lies in the session's worktree. Everything else new (containers, networks,
-volumes, images) is listed in the log and the build note, never removed. At
-exit the loop prunes worktrees, deletes logs older than 14 days and prints
+volumes, images) is listed in the log and the build note, never removed.
+
+At the end of each build, its sessions' `.loop/passed-<session>` and
+`.loop/stop-<session>` files are removed. Each build has its own folder under
+the system temp folder: its sessions and test commands receive that path as
+`TMPDIR`, `TMP` and `TEMP`, and Codex can write there. The loop removes that
+folder with the build's worktree, after checking it is the folder it created.
+At exit the loop prunes worktrees, deletes logs older than 14 days and prints
 the worktrees and issue branches left. Outside services are on the stops list.
 
 ## What is guaranteed by code
@@ -239,15 +282,18 @@ can be routed around. It is registered for the loop's own sessions (through
   recursive deletes.
 - In the loop's sessions only: it also refuses `gh`, `git push`, `git merge`,
   branch switches and checkouts, and writes to the test writer's locked
-  tests or to tracked test files.
+  tests or to existing test files. For builders, an existing test is one at
+  `LOOP_START`, the loop branch baseline at the start of the build, or at the
+  merge base with the loop branch when `LOOP_START` is absent. Builders may
+  edit tests they added on their issue branch; the writer's tests stay locked.
 - Secrets are checked in content a session writes with its file tools, not in
   diffs or shell commands.
 
 ## What is guaranteed by instruction to the model
 
-The briefs tell sessions never to ask, to record deviations and to park on
-the stops list, and the reviewer to check every criterion with evidence.
-Code does not enforce these.
+The shared preamble tells sessions never to ask and to park on the stops
+list. Role briefs require recorded deviations and a review of every criterion
+with evidence. Code does not enforce these.
 
 ## What is not guaranteed
 
@@ -263,3 +309,8 @@ Code does not enforce these.
 ## Tests
 
 Run `python3 kit/tests/run.py` from the repository root: it runs each test module in its own process, in parallel, and exits non-zero on any failure.
+
+Pass test file paths or module names to run only those modules, for example
+`python3 kit/tests/run.py kit/tests/test_flow.py` or
+`python3 kit/tests/run.py kit.tests.test_flow`. `-h` or `--help` prints the usage;
+an argument that names no test module exits non-zero.

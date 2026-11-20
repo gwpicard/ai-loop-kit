@@ -39,15 +39,14 @@ and hide the reminder. -->
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
 
-## Standing approvals
-
-A confirmed defect with a failing test, found by the end-of-loop pass, may be queued as ready without the person's yes. Everything else goes to the inbox.
-
 ## Surfaces
 
 The parts of the project the end-of-loop red team attacks, one bullet per line (for
 example a command, an input format, a screen). When this is empty, the pass
 proposes some.
+
+Confirmed defects arrive as `inbox` issues with their failing tests. Shape
+and approve them like any other issue.
 
 ## Deviations
 
