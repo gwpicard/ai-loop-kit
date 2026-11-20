@@ -750,7 +750,8 @@ class FlowTest(FakeClaudeGh):
         self.build_scenario(builder=[{"files": {"app.py": "1\n", "tests/test_added.py": "x\n"}}])
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), [])
-        self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py"])
+        self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py",
+                                            "tests/test_added.py"])
         self.assertIn("Test files command: tests/test_added.py, tests/test_new.py", self.claude_calls()[-1]["prompt"])
         self.assertEqual(roles(self.claude_calls()), ["test-writer", "builder", "reviewer"])
 
@@ -765,7 +766,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), ["full"])
         self.assertEqual(self.runs("files"), ["tests/test_new.py"] +
-                         ["tests/test_added.py tests/test_new.py"] * 2)
+                         ["tests/test_added.py tests/test_new.py", "tests/test_added.py"] * 2)
         for call in self.claude_calls():
             self.assertEqual(call["env"]["LOOP_TEST_COMMAND"], self.FULL.replace("TMP", self.tmp))
             self.assertEqual(call["env"]["LOOP_TEST_FILES_COMMAND"], self.FILES.replace("TMP", self.tmp))
