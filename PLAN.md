@@ -107,6 +107,7 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
 - The test-lock hook refuses edits to existing tests even when the issue allows them; write judging tests in a new file when instructed to continue.
 - The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
+- A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
 
 ## Standing approvals
 
@@ -123,6 +124,13 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Protected paths heading tests: add a new test module because existing tests
+  stay locked. Exercise setup through its command with a fake GitHub that
+  records edited bodies, including section order and line-ending variants.
+  Check the saved originals and undo commands without prescribing backup
+  filenames. Existing park messages name no section, so that criterion
+  already holds on this branch and needs no failing test.
 
 - Squash settings: use the build's validated settings snapshot for both
   trailer options. Remove existing copies of the project's sign-off before
