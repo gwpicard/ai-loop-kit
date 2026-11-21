@@ -98,7 +98,8 @@ def check_path(path, role, cwd):
                          "park the issue if this change is needed")
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
-        if locked.strip() and merge.is_test_module(rel) and (full == lfull or full.startswith(lfull + "/")):
+        if (locked.strip() and (merge.is_test_module(rel) or merge.is_test_module(locked.strip()))
+                and (full == lfull or full.startswith(lfull + "/"))):
             raise Refuse("test-lock", "%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
     command = ["ls-files", "--", full]
