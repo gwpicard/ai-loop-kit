@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Stop hook for loop sessions. A builder that stops while the Test or Check
-command fails, or a test writer that stops without a new test file, is told
-to continue. Blocks are limited and counted in .loop/stop-<session>. Any
-error allows the stop."""
+command fails or test selection fails, or a test writer that stops without
+a new test file, is told to continue. Blocks are limited and counted in
+.loop/stop-<session>. Other errors allow the stop."""
 import json
 import os
 import sys
@@ -63,8 +63,11 @@ def problem(role, cwd, project, session_id=""):
         if session_id and unchanged_since_pass(project, session_id, cwd):
             return None
         timeout = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
-        test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
-                                                   os.environ.get("LOOP_LOCKED", "").splitlines())
+        try:
+            test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
+                                                       os.environ.get("LOOP_LOCKED", "").splitlines())
+        except common.GitError as e:
+            return "Cannot select test files. Restore the session's start commit before finishing: %s" % e
         tails = [description]
         for name, command in (("Test files" if settings["Test files command"] else "Test", test),
                               ("Check", settings["Check command"])):
