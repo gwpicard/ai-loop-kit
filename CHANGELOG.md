@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.2 (21 November 2026)
+
+The loop holds the drain while a chain of issues waits on a recent park, a yes
+approves the test files a park's question names whatever its wording, quoted
+text and heredoc bodies no longer trigger the git and `gh` rule in loop
+sessions, and a builder's edit to a stop path through a file tool or patch is
+refused at once instead of at merge. `setup.py` counts as a
+manifest only at a package root. See [the 2.2.2 release notes](docs/release-notes/v2.2.2.md).
+
 ## 2.2.1 (21 November 2026)
 
 On macOS the loop waits for memory only at critical pressure. Test helper
