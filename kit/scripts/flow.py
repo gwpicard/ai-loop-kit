@@ -305,8 +305,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         with open(history, "w", encoding="utf-8") as f:
             f.write("\n\n".join(notes) + "\n")
 
-    # paths the issue lets the builder change, except those the stops list covers
-    allowed = [p for p in sorted(merge.allowed_paths(info.get("body") or "")) if not merge.stop_reason(p, settings["Protected paths"])]
+    allowed = sorted(merge.allowed_paths(info.get("body") or ""))
 
     def ask(role, who, report=None, resume=None, extra="", locked=(), step=None, rnd=None):
         if role == "builder":

@@ -11,7 +11,9 @@ Everywhere: no push to main, master or the default branch (LOOP_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
 content. When LOOP_ROLE is set, also: no git push, merge, checkout, switch,
 restore, apply or branch -f, no gh, no write to a path in LOOP_LOCKED (newline
-separated) or to a tracked test file (except an exact path in LOOP_ALLOWED, for the builder only, that the stops list does not cover), and the reviewer role writes nothing in the project (scratch files in the system
+separated) or to a tracked test file (except an exact path in LOOP_ALLOWED,
+for the builder only). Builders cannot write paths on the stops list unless
+the issue allows them. The reviewer role writes nothing in the project (scratch files in the system
 temp folder are fine; the pass role writes only under .loop/pass/).
 
 Known limits: this is a regular-expression check on the raw command, so it can
@@ -45,6 +47,10 @@ FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\
 ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 QUOTED = re.compile(r"'[^']*'")
+SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[^']*'|"(?:\\.|[^"\\])*"|\n''')
+SHELLS = ("sh", "bash", "zsh", "dash")
+RUNNER = re.compile(r"(?:^|[;&|(`\n])\s*(?:\w+=\S+\s+)*(?:(?:\S*/)?env\s+(?:-\S+\s+|\w+=\S+\s+)*)?(?:\S*/)?(?:"
+                    + "|".join(SHELLS) + r"|eval|xargs)(?=\s|$)")
 REDIRECT = re.compile(r"\d*>>?(&)?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
 
 
@@ -83,8 +89,13 @@ def check_path(path, role, cwd):
     allowed = {os.path.relpath(os.path.realpath(os.path.join(top, a.strip())), top)
                for a in os.environ.get("LOOP_ALLOWED", "").splitlines() if a.strip()}
     protected = [x for x in os.environ.get("LOOP_PROTECTED", "").split(",") if x] or common.DEFAULTS["Protected paths"].split(", ")
-    if role == "builder" and rel in allowed and not merge.stop_reason(rel, protected):
-        return  # the issue names this path as one the builder may change
+    if role == "builder":
+        if rel in allowed:
+            return  # the issue names this path as one the builder may change
+        why = merge.stop_reason(rel, protected, top)
+        if why:
+            raise Refuse("stop", "%s: %s" % (why, rel),
+                         "park the issue if this change is needed")
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
         if locked.strip() and merge.is_test_module(rel) and (full == lfull or full.startswith(lfull + "/")):
@@ -104,12 +115,40 @@ def check_path(path, role, cwd):
                      "leave existing tests alone; add a new test file if needed")
 
 
+def role_commands(command):
+    command = command.replace("\\\n", "")
+    parts, pending, pos = [], [], 0
+    while pos < len(command):
+        m = SHELL_DATA.search(command, pos)
+        if not m:
+            break
+        parts.append(command[pos:m.start()])
+        pos = m.end()
+        if m.group(3):
+            pending.append((m.group(1), m.group(3)))
+            parts.append("<<_ ")
+        elif m.group() == "\n":
+            parts.append("\n")
+            for strip, word in pending:
+                end = re.search(r"(?m)^" + (r"\t*" if strip else "") + re.escape(word) + r"(?:\n|$)", command[pos:])
+                pos = pos + end.end() if end else len(command)
+            pending.clear()
+        elif m.group().startswith('"') and ("$(" in m.group() or "`" in m.group()):
+            parts.append(m.group())  # a command substitution inside double quotes still runs
+        else:
+            parts.append("_")
+    parts.append(command[pos:])
+    text = "".join(parts)
+    return command if RUNNER.search(text) else text
+
+
 def check_role_command(command, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
     if role in ("builder", "reviewer", "test-writer", "pass") and files and os.environ.get("LOOP_TEST_COMMAND") in [
             s.strip() for s in re.split(r"&&|\|\||[;|\n]", command)]:
         raise Refuse("full-test", "the full Test command is reserved for merge", "use the Test files command: " + files)
-    if ROLE_GIT.search(command) or GH.search(command):
+    executable = role_commands(command)
+    if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
     for m in REDIRECT.finditer(QUOTED.sub(lambda q: q.group(0).replace(">", "_"), command)):  # a quoted > is text, but a quoted target stays
@@ -133,7 +172,10 @@ def check_codex(data, role, cwd):
     if tool == "Bash":
         command = inp.get("command") if isinstance(inp, dict) else None
         if isinstance(command, list) and command and all(isinstance(a, str) for a in command):
-            command = " ".join(command)
+            if len(command) == 3 and os.path.basename(command[0]) in SHELLS and re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", command[1]):
+                command = command[2]
+            else:
+                command = " ".join(command)
         if not isinstance(command, str) or not command.strip():
             raise unparsed("this shell command")
         check_everyone(command)

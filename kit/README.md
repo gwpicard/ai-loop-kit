@@ -130,11 +130,13 @@ deviations and build timings without a session or GitHub writes. The drain
 includes the same text under `What changed` near
 the top of the final pull request body.
 
-A park that names test paths and asks whether to change them needs
-only a reply of "yes" from a collaborator: the loop adds each path the stops
-list permits to the issue's `## Paths the builder may change` and requeues it.
-Protected paths are never granted by a reply. A reply that does not clearly
-agree, or the loop's own comment, grants nothing. The reviewer may
+When a park's permission question ends with `?` and names test paths, a
+collaborator can reply "yes", whatever verb the question uses. The loop adds
+each path the stops list permits to the issue's
+`## Paths the builder may change` and requeues it.
+Paths named only in the recommendation and protected paths are never granted
+by a reply. A reply that does not clearly agree or contains a doubt word,
+or the loop's own comment, grants nothing. The reviewer may
 write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
@@ -184,7 +186,8 @@ and return their issues to `ready`. The idle limit also stops the loop.
 When every `ready` issue waits on an open `needs-user` dependency and no
 build is running, the loop keeps reading replies before draining. It waits
 until 60 minutes after the latest park comment on those dependencies, then
-runs the usual drain. With nothing `ready` or parked, it drains as usual.
+runs the usual drain. This wait applies in the cycle that collects the parked
+build's result. With nothing `ready` or parked, it drains as usual.
 
 The pinned `Factory` issue is the board, in three sections: `Building now`;
 `Needs you`, with parked issues, unbuilt dependencies, the open pull request
@@ -284,7 +287,12 @@ the worktrees and issue branches left. Outside services are on the stops list.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test module, unless the issue
   lists it in its `## Paths the builder may change` section; a path named
-  elsewhere grants nothing. The test writer's tests are locked the same way.
+  elsewhere grants nothing. The guard refuses a builder's write or edit to
+  a path on the stops list at once, unless the issue lists it, and tells the
+  builder to park if the change is needed. `setup.py` is a manifest only at
+  the repository root or beside `pyproject.toml` or `setup.cfg`.
+
+  The test writer's tests are locked the same way.
   The test lock covers test modules, recognised by their names, including
   `conftest.py`. Other files under test folders, such as helpers, runners,
   fakes and fixtures, are test support files. They are not locked or passed
@@ -296,6 +304,10 @@ the worktrees and issue branches left. Outside services are on the stops list.
 The guard hook is an early warning that matches the text of a command, so it
 can be routed around. It is registered for the loop's own sessions (through
 `--settings`) and wherever the plugin is enabled.
+For `gh` and the loop's git restrictions, it ignores quoted text and heredoc
+bodies. If the command invokes `sh`, `bash`, `zsh`, `dash`, `eval` or `xargs`,
+directly or through `env`, it checks the whole command, including quoted and
+piped input.
 
 - Everywhere: it refuses pushes to the default branch, force pushes and
   recursive deletes.

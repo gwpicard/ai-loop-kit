@@ -280,6 +280,18 @@ class LoopTest(Base):
         edits = self.agree("yes", body="## Paths the builder may change\n\nnone\n")
         self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py"})
 
+    def test_a_yes_grants_test_paths_whatever_the_permission_verb(self):
+        for question in ("Allow updating the obsolete heading in tests/test_x.py?",
+                         "May I replace tests/test_x.py?", "May I rewrite tests/test_x.py?",
+                         "Will you allow tests/test_x.py?", "May the builder touch tests/test_x.py?"):
+            for reply in ("Yes.", "yes"):
+                with self.subTest(question=question, reply=reply):
+                    self.inputs.clear()
+                    park = "## Needs you\n\n%s\n\nRecommended: yes\n\n%s" % (question, common.MARKER)
+                    edits = self.agree(reply, park=park)
+                    self.assertEqual(len(edits), 1)
+                    self.assertEqual(merge.allowed_paths(edits[0]), {"tests/test_x.py"})
+
     def test_a_reply_that_does_not_clearly_agree_adds_nothing(self):
         for reply in ("No, leave it.", "Yes, but not that file.", "Which one do you mean?", "Maybe", "yes and also no"):
             with self.subTest(reply=reply):

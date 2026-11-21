@@ -1,6 +1,6 @@
 # AI Loop Kit: design
 
-Version 2.2.1. This is the one description of what the kit is, how it works
+Version 2.2.2. This is the one description of what the kit is, how it works
 and why. It describes the kit in `kit/`.
 
 ## The goal
@@ -153,6 +153,7 @@ batch adds its decisions, and every builder reads all of them.
   build is running, it keeps reading replies until 60 minutes after the
   latest park comment on those dependencies, then drains. The board's
   `Why idle` line names the parked dependencies and the minutes left.
+  This wait applies in the cycle that collects the parked build's result.
 - After you merge that pull request, it merges `main` into the loop branch
   and carries on.
 - It ends after 12 hours with nothing to build, or when you create a stop
@@ -249,8 +250,10 @@ is then a choice made in the open, not a default.
   No builder sandbox.
 - **The test lock's escape hatch:** an existing test module may change or be
   deleted only when the issue names its path. A collaborator's clear yes to
-  a park asking to change several test paths grants each path the stops list
-  permits. Protected paths are never granted by a reply. Test modules are
+  a park's permission question ending with `?` grants each named test path
+  the stops list permits, whatever verb the question uses. Protected paths
+  and paths named only in the recommendation are never granted. A reply
+  containing a doubt word grants nothing. Test modules are
   recognised by name, including `conftest.py`.
   Other files under test folders are test support files: they are not locked
   or passed to the Test files command, and changes appear in the report's risk flags.
@@ -268,11 +271,18 @@ Each comes from a failure seen in a real run.
   branch, after a full test run on that exact commit.
 - **Early warnings in the guard.** In the loop's own sessions the guard hook
   also refuses `gh`, `git push`, `git merge`, branch switches and checkouts.
-  It matches the text of the command, so it can be routed around. It is an
-  early warning, and `merge.py` and branch protection are the lines that hold.
+  For these restrictions it ignores quoted text and heredoc bodies. If the
+  command invokes `sh`, `bash`, `zsh`, `dash`, `eval` or `xargs`, directly or
+  through `env`, it checks the whole command, including quoted and piped input.
+  It matches command text, so it can be routed around. It is an early warning,
+  and `merge.py` and branch protection are the lines that hold.
 - **Stops in code, not only words.** `merge.py` parks an issue whose diff
   touches a protected path, a workflow file, a lockfile or manifest, or a
   settings file or an existing test module, unless the issue names that path.
+  The guard refuses a builder's write or edit to an unnamed stop path at
+  once and tells the builder to park if the change is needed. The diff check
+  remains the final gate. `setup.py` is a manifest only at the repository
+  root or beside `pyproject.toml` or `setup.cfg`.
 - **Setup.** `scripts/setup.py` creates the missing labels, the loop branch
   (from the default branch), a pinned `Factory` issue and a `.loop/` line in
   `.gitignore`. It runs the Test command, after the Prepare command, on a fresh
