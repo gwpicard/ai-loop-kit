@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def new_state():
     return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, attempts={}, deferred=None, started={}, pr=None, prs=[],
-                parks={}, conflict="", last="loop started", next="after the current step")
+                parks={}, reaped=set(), conflict="", last="loop started", next="after the current step")
 
 
 def take_lock(project):
@@ -425,11 +425,12 @@ def reap(project, st, cap=None, stopped=False):
                 continue
             with open(common.build_file(project, number, "result")) as f:
                 st["last"] = json.load(f)["last"]
-            for i in st["issues"]:  # the list may predate the result: a parked or finished build is no longer building
-                if i["number"] == number:
-                    i["labels"] = (i["labels"] - {"building"}) | ({"needs-user"} if st["last"].startswith("#%d parked" % number) else set())
-                    if "needs-user" in i["labels"]:
-                        st["parks"].setdefault(number, time.time())
+            st["reaped"].add(number)  # a build that left a result: this cycle's labels predate it
+            if st["last"].startswith("#%d parked" % number):  # the list may predate the park
+                for i in st["issues"]:
+                    if i["number"] == number:
+                        i["labels"] = (i["labels"] - {"building", "ready"}) | {"needs-user"}
+                st["parks"].setdefault(number, time.time())
             st["attempts"].pop(number, None)
             st["deaths"].pop(number, None)
         except (OSError, ValueError, KeyError):
@@ -453,6 +454,7 @@ def reap(project, st, cap=None, stopped=False):
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .loop/logs, then reply to try again or close the issue.", project=project)
                 st["last"] = "#%d parked after two crashes" % number
+                st["reaped"].add(number)
                 del st["deaths"][number]
                 st["attempts"].pop(number, None)
         finally:
@@ -765,8 +767,10 @@ def run(project):
         while not os.path.exists(stop):
             try:
                 snapshot(st)
+                st["reaped"] = set()
                 reap(project, st, cap)
-                for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
+                for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]
+                          and i["number"] not in st["reaped"]]:
                     # only this loop builds, so a building label without a running build is stale
                     say("#%d was left building, queued again" % i["number"])
                     common.add_label(i["number"], "ready")
