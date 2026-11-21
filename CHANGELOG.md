@@ -5,7 +5,12 @@
 On macOS the loop waits for memory only at critical pressure. Test helper
 files are no longer locked like tests, a yes to a park approves every test file
 its question names, and the loop keeps reading replies instead of draining
-while a recent park blocks the queue. `loop stop --now` ends running builds without counting a crash. See
+while a recent park blocks the queue. `loop stop --now` ends running builds
+without counting a crash, and `loop pause` and `loop resume` freeze and
+continue a running loop. Reviews block only on findings that meet the
+criteria; the rest become follow-ups. The final pull request shows the build
+and how to try it, and the loop's squash commit drops agent co-author lines.
+See
 [the 2.2.1 release notes](docs/release-notes/v2.2.1.md).
 
 ## 2.2.0 (20 November 2026)
