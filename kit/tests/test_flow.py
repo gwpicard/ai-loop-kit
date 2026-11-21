@@ -489,12 +489,12 @@ class FlowTest(FakeClaudeGh):
         for text in ("Check command", "formatter", "behaviour"):
             self.assertIn(text, brief)
 
-    def test_the_builder_may_change_the_test_paths_the_issue_names_but_never_protected_ones(self):
-        self.issue_view(body="Do it.\n\n## Protected paths this issue may change\n\ntests/test_new.py\n.claude/tests/test_z.py\n")
+    def test_the_builder_may_change_the_paths_the_issue_names_including_stops(self):
+        self.issue_view(body="Do it.\n\n## Protected paths this issue may change\n\ntests/test_new.py\n.claude/tests/test_z.py\npackage-lock.json\n")
         self.build_scenario()
         self.build()
         env = self.claude_calls()[1]["env"]
-        self.assertEqual(env["LOOP_ALLOWED"], "tests/test_new.py")
+        self.assertEqual(env["LOOP_ALLOWED"], ".claude/tests/test_z.py\npackage-lock.json\ntests/test_new.py")
         self.assertEqual(env["LOOP_LOCKED"], "")
         self.assertEqual(self.claude_calls()[0]["env"]["LOOP_ALLOWED"], "")  # the test writer gets none
         self.assertEqual(self.claude_calls()[2]["env"]["LOOP_ALLOWED"], "")  # nor the reviewer
@@ -747,7 +747,8 @@ class FlowTest(FakeClaudeGh):
 
     def test_targeted_tests_run_before_review_when_the_hook_did_not_pass_the_head(self):
         self.fast(Test_command=self.FULL, Test_files_command=self.FILES)
-        self.build_scenario(builder=[{"files": {"app.py": "1\n", "tests/test_added.py": "x\n"}}])
+        self.build_scenario(builder=[{"files": {"app.py": "1\n", "tests/test_added.py": "x\n",
+                                               "tests/helpers.py": "support\n"}}])
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), [])
         self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py",

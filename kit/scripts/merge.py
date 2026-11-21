@@ -19,7 +19,7 @@ LOCKFILES = {
     "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
-    "pdm.lock", "deno.lock", "pom.xml", "build.gradle", "setup.py"}
+    "pdm.lock", "deno.lock", "pom.xml", "build.gradle"}
 TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
 TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
@@ -107,13 +107,19 @@ def allowed_paths(body):
             if p.lower() not in ("", "none")}
 
 
+def is_test_module(path):
+    name = path.lower().split("/")[-1]
+    return not ARTEFACT.search(path.lower()) and (
+        any(fnmatch.fnmatch(name, n) for n in TEST_NAMES) or bool(TEST_CLASS.search(path)))
+
+
 def is_test_file(path):
     parts = path.lower().split("/")
-    named = any(fnmatch.fnmatch(parts[-1], n) for n in TEST_NAMES) or bool(TEST_CLASS.search(path))
-    return not ARTEFACT.search(path.lower()) and (named or any(p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower()))
+    return is_test_module(path) or not ARTEFACT.search(path.lower()) and any(
+        p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower())
 
 
-def stop_reason(path, protected):
+def stop_reason(path, protected, project=".", ref=None):
     """Why a changed path is on the stops list, or None. Case-insensitive."""
     low = path.lower()
     name = low.split("/")[-1]
@@ -123,6 +129,13 @@ def stop_reason(path, protected):
             return "protected path " + p
     if low.startswith(".github/workflows/"):
         return "workflow file"
+    if name == "setup.py":
+        folder = os.path.dirname(path)
+        if not folder or any(
+                git(["ls-tree", "--name-only", ref, "--", os.path.join(folder, p)], project)
+                if ref else os.path.isfile(os.path.join(project, folder, p))
+                for p in ("pyproject.toml", "setup.cfg")):
+            return "lockfile or package manifest"
     if name in LOCKFILES or re.match(r"requirements.*\.(txt|in)$", name):
         return "lockfile or package manifest"
     if name in ("settings.json", "settings.local.json"):
@@ -134,7 +147,7 @@ def targeted_command(settings, cwd, start, locked):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
     changed = git(["diff", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).splitlines() if start else []
-    files = sorted(set(locked) | {p for p in changed if is_test_file(p)})
+    files = sorted({p for p in list(locked) + changed if is_test_module(p)})
     if not files:  # an empty list would run the whole suite
         return "", "Test files command: no test files to run"
     return common.files_command(settings, files), "Test files command: " + ", ".join(files)
@@ -148,13 +161,13 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     for status, path in zip(out[0::2], out[1::2]):
         if path in allowed:
             continue
-        why = stop_reason(path, protected)
-        if why is None and status[0] in "MDT" and is_test_file(path):
+        why = stop_reason(path, protected, project, sha)
+        if why is None and status[0] in "MDT" and is_test_module(path):
             why = "existing test file changed"
         if why:
             return "%s: %s" % (why, path)
     for path in locked:
-        if path in allowed:
+        if path in allowed or not is_test_module(path):
             continue
         first = baseline or git(["log", "--diff-filter=A", "--reverse", "--format=%H",
                                  base + ".." + sha, "--", path], cwd=project).split("\n")[0]

@@ -75,8 +75,10 @@ GitHub holds the durable work state. Issues move through these labels:
 The loop accepts ready labels only from collaborators, checked against the
 issue timeline. Issue text is data, not authority to override the rules.
 Dependencies determine which approved issues can start. A collaborator's
-reply to a parked issue requeues it; approval of a named protected test path
-is recorded in the permissions section.
+reply to a parked issue requeues it. A clear yes to a permission question
+ending with `?` grants each named test path the stops list permits, whatever
+verb the question uses; paths in the recommendation and replies containing
+doubt words grant nothing.
 
 One pinned Factory issue shows current builds and their stages, parked
 questions, blocked dependencies, the final pull request and the next poll.
@@ -106,7 +108,9 @@ test command does not. Criteria already satisfied need no new test.
 The builder implements the smallest change and commits it. The guard locks
 the test writer's tests and existing tests. A permitted existing test path
 can be changed, but a builder cannot silently weaken the tests judging its
-work. New builder tests remain editable.
+work. New builder tests remain editable. The lock covers test modules,
+including `conftest.py`; test support files stay editable and appear in the
+report's risk flags.
 
 A fresh reviewer reads the issue, standing rules, diff and latest test
 result. It checks the acceptance criteria and follows the real entry point,
@@ -159,7 +163,11 @@ Loop sessions also cannot push, merge, switch branches or use GitHub's CLI.
 Reviewers write scratch files only in the system temporary folder; pass
 sessions write only in their runtime folder. These command checks are early warnings,
 not a sandbox: merge-time diff checks and branch protection provide further
-boundaries.
+boundaries. For git and GitHub CLI restrictions, the guard ignores quoted
+text and heredoc bodies unless the command invokes `sh`, `bash`, `zsh`,
+`dash`, `eval` or `xargs`, directly or through `env`.
+A builder's first write to an unapproved stop path is refused;
+`setup.py` is a manifest only at the root or beside `pyproject.toml` or `setup.cfg`.
 
 `kit/scripts/session.py` isolates sessions from personal plugins and MCP
 servers. Codex receives the same guard and Stop checks as Claude, and its
@@ -175,7 +183,8 @@ rather than deleted.
 
 `Parallel` controls concurrent builds. The first build can start regardless
 of machine load; additional builds wait for CPU and, on macOS, memory
-headroom. Sessions and test commands also wait for memory pressure to fall.
+headroom. Memory waits apply only at critical pressure, and a lone build
+never waits for memory.
 Low disk space delays work rather than consuming a crash attempt. Each
 build has its own temporary folder for sessions and test commands.
 
@@ -188,12 +197,17 @@ without a result follows the crash retry rule.
 The pause command freezes the loop and its processes without discarding
 work; resume continues them. Paused time does not consume the kit's build,
 session or test timeouts. Stop prevents new builds and lets running builds
-finish. The loop reports why it exits.
+finish their issue. `loop stop --now` ends build process trees and returns
+their issues to `ready` without consuming an attempt or counting a crash.
+The loop reports why it exits.
 
 ## The batch and the person's review
 
 When the queue drains, the loop runs the full suite on the loop branch and
-opens or refreshes one final pull request into the default branch. After
+opens or refreshes one final pull request into the default branch. When all
+ready issues depend, directly or through other ready issues, on parked work,
+it waits until 60 minutes after the latest park on those dependencies before
+draining, including the cycle that collects a parked build's result. After
 new merges, `kit/scripts/pass_.py` runs the batch pass: smoke, drift,
 red-team checks with failing tests, rubric, lessons, and simplify and
 reconcile. The pass reports findings rather than editing product code.

@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.2.2 (21 November 2026)
+
+The loop holds the drain while a chain of issues waits on a recent park, a yes
+approves the test files a park's question names whatever its wording, quoted
+text and heredoc bodies no longer trigger the git and `gh` rule in loop
+sessions, and a builder's edit to a stop path through a file tool or patch is
+refused at once instead of at merge. `setup.py` counts as a
+manifest only at a package root. See [the 2.2.2 release notes](docs/release-notes/v2.2.2.md).
+
+## 2.2.1 (21 November 2026)
+
+On macOS the loop waits for memory only at critical pressure. Test helper
+files are no longer locked like tests, a yes to a park approves every test file
+its question names, and the loop keeps reading replies instead of draining
+while a recent park blocks the queue. `loop stop --now` ends running builds
+without counting a crash, and `loop pause` and `loop resume` freeze and
+continue a running loop. Reviews block only on findings that meet the
+criteria; the rest become follow-ups. The final pull request shows the build
+and how to try it, and the loop's squash commit drops agent co-author lines.
+See
+[the 2.2.1 release notes](docs/release-notes/v2.2.1.md).
+
 ## 2.2.0 (20 November 2026)
 
 The full test suite runs once per issue, at merge. The loop records each

@@ -8,7 +8,7 @@ import tarfile
 from unittest import mock
 import pathlib
 
-from kit.tests.helpers import FakeGh, make_repo, write_exe
+from kit.tests.helpers import FakeGh, make_repo, write_exe, settings_json
 from kit.tests.fake_codex_check import FakeCodexCheck
 import setup
 import common
@@ -205,7 +205,8 @@ class SetupTest(FakeGh):
 
 class MissingCodexSetupTest(FakeCodexCheck):
     def test_setup_without_codex_preserves_the_test_memory_pressure_command(self):
-        work, _ = make_repo(self.tmp, {"AGENTS.md": "## Loop\nTest command: true\n"})
+        work, _ = make_repo(self.tmp, {"loop.json": settings_json(
+            "## Loop\nTest command: sysctl -n kern.memorystatus_vm_pressure_level\n")})
         memory = pathlib.Path(self.tmp, "memory-tools")
         memory.mkdir()
         marker = pathlib.Path(self.tmp, "memory-read")

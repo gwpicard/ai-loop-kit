@@ -47,6 +47,7 @@ json.dump({"last": "#%%d merged: done" %% number}, open(common.build_file(projec
 class ParallelTest(Base):
     def setUp(self):
         super().setUp()
+        self.starts.stop()
         loop.time.sleep.side_effect = REAL_SLEEP
         for name in ("sync_default", "drain"):
             mock.patch.object(loop, name).start()
@@ -135,6 +136,25 @@ class ParallelTest(Base):
         self.assertIn("exiting: stop requested", [c[0][0] for c in self.say.call_args_list])
         self.assertFalse(os.path.exists(os.path.join(self.work, ".loop", "stop")))
 
+    def test_stopping_two_builds_keeps_their_attempt_and_crash_counts(self):
+        self.configure(sleep=30)
+        self.world_of(issue(2), issue(3))
+        st = loop.new_state()
+        loop.snapshot(st)
+        st["attempts"], st["deaths"] = {2: 4, 3: 2}, {2: 1, 3: 1}
+        with mock.patch.object(common, "ready_is_trusted", return_value=True):
+            loop.start_builds(self.work, {"Parallel": 2}, st)
+        processes = [p for _, p in st["building"].values()]
+        loop.reap(self.work, st, stopped=True)
+        self.assertEqual(st["building"], {})
+        self.assertTrue(all(p.poll() is not None for p in processes))
+        self.assertEqual((st["attempts"], st["deaths"]), ({2: 4, 3: 2}, {2: 1, 3: 1}))
+        self.assertEqual(self.labels, {2: {"ready"}, 3: {"ready"}})
+        with open(os.path.join(self.work, ".loop", "events.jsonl")) as f:
+            events = [e for e in map(json.loads, f) if e["kind"] != "step"]
+        self.assertEqual([(e["kind"], e["issue"], e["reason"]) for e in events],
+                         [("exit", 2, "stopped"), ("exit", 3, "stopped")])
+
     def test_one_crash_leaves_the_others_running_and_is_retried_then_parked(self):
         self.configure(crash=[3], sleep=0.3)
         self.world_of(issue(2), issue(3), issue(4))
@@ -160,13 +180,12 @@ class ParallelTest(Base):
         self.assertTrue(said and "load average 9.0" in said[0])
         self.assertEqual(len(said), len(set(said)))  # said once per reason, not at every poll
 
-    def test_parallel_one_builds_in_the_loop_process(self):
+    def test_parallel_one_builds_in_a_worker_process(self):
         write_settings(os.path.join(self.work, "loop.json"), AGENTS)
         self.world_of(issue(2))
-        with self.fake_build() as build, mock.patch.object(loop, "worker_command") as command:
-            self.run_it()
-        self.assertEqual(build.call_count, 1)
-        command.assert_not_called()
+        self.run_it()
+        self.assertEqual(self.merged(), {2})
+        self.assertEqual([w for _, w, _ in self.events()], ["start", "end"])
 
     def test_a_worker_process_leaves_a_result_the_loop_reads(self):
         cmd = [sys.executable, "-c", (

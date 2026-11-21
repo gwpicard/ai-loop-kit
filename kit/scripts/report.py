@@ -56,10 +56,11 @@ def render(project, settings):
         totals = groups.setdefault(folder(path), [0, 0, 0])
         for i, value in enumerate((1, added, removed)):
             totals[i] += value
-    tests = Counter(state for path, _, _, state in rows if merge.is_test_file(path))
+    tests = Counter(state for path, _, _, state in rows if merge.is_test_module(path))
+    support = [p for p, _, _, _ in rows if merge.is_test_file(p) and not merge.is_test_module(p)]
     source = [r for r in rows if not merge.is_test_file(r[0])]
     manifests = [p for p, _, _, _ in rows if merge.stop_reason(p, []) == "lockfile or package manifest"]
-    deleted = [p for p, _, _, s in rows if s == "D" and merge.is_test_file(p)]
+    deleted = [p for p, _, _, s in rows if s == "D" and merge.is_test_module(p)]
     churn = sorted(rows, key=lambda r: (-(r[1] + r[2]), r[0]))[:3]
     lines = ["Issues: %d" % len(commits),
              "Files: " + listed(("%s: %d files +%d -%d" % (p, *v) for p, v in sorted(groups.items())), 6),
@@ -93,13 +94,14 @@ def render(project, settings):
         lines += ["Issue %d: %s" % (number, short(info.get("title") or "title unavailable")),
                   "  Why: " + (short(why) or "unavailable"),
                   "  Folders: " + listed(sorted({folder(r[0]) for r in touched})) +
-                  "; tests added: " + listed(p for p, _, _, s in touched if s == "A" and merge.is_test_file(p)) +
-                  "; tests changed: " + listed(p for p, _, _, s in touched if s in ("M", "T") and merge.is_test_file(p)),
+                  "; tests added: " + listed(p for p, _, _, s in touched if s == "A" and merge.is_test_module(p)) +
+                  "; tests changed: " + listed(p for p, _, _, s in touched if s in ("M", "T") and merge.is_test_module(p)),
                   "  Deviations: " + (short(deviation[1]) if deviation else "unavailable"),
                   "  %d review rounds; %d parks; rules: %s; %s" % (
                       rounds, sum(e["kind"] == "parked" for e in history),
                       listed("%s=%d" % pair for pair in sorted(rules.items())), minutes)]
     lines[5] += listed(sorted(allowed))
+    lines.insert(7, "test support files changed: " + (", ".join(support) or "none"))
     return "\n".join(lines)
 
 

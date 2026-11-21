@@ -54,7 +54,22 @@ class Base(unittest.TestCase):
         self.say = mock.patch.object(loop, "say", return_value=None).start()
         mock.patch.object(loop.time, "sleep").start()
         mock.patch.object(common, "_run_gh", self.fake_gh).start()
+        self.starts = mock.patch.object(loop, "start_builds", self.start_build)
+        self.starts.start()
         self.rules, self.calls, self.inputs, self.built = [], [], [], []
+
+    def start_build(self, project, settings, st):
+        number = loop.pick(st)
+        if number is None:
+            return
+        loop.claim(st, number)
+        st["building"][number] = ("10:00", None)
+        try:
+            loop.write_board(project, st)
+        except common.GitHubError:
+            pass
+        st["last"] = loop.build_attempts(project, number, st["replies"].get(number, []))
+        st["building"] = {}
 
     def fake_gh(self, args, input=None):
         text = " ".join(args)
@@ -303,6 +318,18 @@ class LoopTest(Base):
         edits = self.agree("yes", body="## Protected paths this issue may change\n\nnone\n")
         self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py"})
 
+    def test_a_yes_grants_test_paths_whatever_the_permission_verb(self):
+        for question in ("Allow updating the obsolete heading in tests/test_x.py?",
+                         "May I replace tests/test_x.py?", "May I rewrite tests/test_x.py?",
+                         "Will you allow tests/test_x.py?", "May the builder touch tests/test_x.py?"):
+            for reply in ("Yes.", "yes"):
+                with self.subTest(question=question, reply=reply):
+                    self.inputs.clear()
+                    park = "## Needs you\n\n%s\n\nRecommended: yes\n\n%s" % (question, common.MARKER)
+                    edits = self.agree(reply, park=park)
+                    self.assertEqual(len(edits), 1)
+                    self.assertEqual(merge.allowed_paths(edits[0]), {"tests/test_x.py"})
+
     def test_a_reply_that_does_not_clearly_agree_adds_nothing(self):
         for reply in ("No, leave it.", "Yes, but not that file.", "Which one do you mean?", "Maybe", "yes and also no"):
             with self.subTest(reply=reply):
@@ -327,9 +354,20 @@ class LoopTest(Base):
         self.assertEqual(self.agree("yes", park=park), [])
         self.assertEqual(self.writes("issue edit 4"), [])  # not even requeued
 
-    def test_only_a_park_naming_exactly_one_test_path_and_asking_to_change_it_counts(self):
+    def test_a_yes_grants_every_test_path_except_protected_paths(self):
+        park = "## Needs you\n\nMay I change tests/test_x.py, tests/test_y.py and .claude/tests/test_z.py?\n\n" + common.MARKER
+        edits = self.agree("Yes, go ahead.", park=park)
+        self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py", "tests/test_y.py"})
+        self.assertEqual(self.built, [(4, ["Yes, go ahead."])])
+
+    def test_a_path_named_only_in_the_recommendation_is_not_granted(self):
+        park = ("## Needs you\n\nMay I change tests/helpers.py and tests/test_x.py?\n\n"
+                "Recommended: yes, and keep tests/test_y.py locked\n\n" + common.MARKER)
+        edits = self.agree("Yes, go ahead.", park=park)
+        self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/helpers.py", "tests/test_x.py"})
+
+    def test_only_a_park_naming_test_paths_and_asking_to_change_them_counts(self):
         for park in ("## Needs you\n\nWhich port?\n\nRecommended: 80",
-                     "## Needs you\n\nMay I change tests/test_x.py and tests/test_y.py?\n\nRecommended: yes\n\n" + common.MARKER,
                      "## Needs you\n\nMay I change src/app.py?\n\nRecommended: yes\n\n" + common.MARKER,
                      "## Needs you\n\ntests/test_x.py is slow.\n\nRecommended: wait\n\n" + common.MARKER):
             with self.subTest(park=park):

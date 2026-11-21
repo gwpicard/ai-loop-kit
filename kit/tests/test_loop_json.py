@@ -240,14 +240,10 @@ class JsonLoopTest(unittest.TestCase):
                 (root / ".loop").mkdir()
                 counts, processes, sleeps = [], [], []
 
-                def wait(seconds):
+                def wait(stop, seconds):
                     sleeps.append(seconds)
                     if len(sleeps) > 100:
                         (root / ".loop/stop").touch()
-
-                def unexpected_serial_build(*args):
-                    counts.append(1)
-                    (root / ".loop/stop").touch()
 
                 def spawn(*args, **kwargs):
                     proc = mock.Mock(pid=900000 + len(processes))
@@ -292,11 +288,10 @@ class JsonLoopTest(unittest.TestCase):
                         ("loop.clean_up", {"return_value": None}),
                         ("loop.sync_default", {"return_value": False}),
                         ("loop.drain", {"return_value": None}),
-                        ("loop.build_once", {"side_effect": unexpected_serial_build}),
                         ("common.ready_is_trusted", {"return_value": True}),
                         ("common.add_label", {"return_value": None}),
                         ("common.remove_label", {"return_value": None}),
-                        ("loop.time.sleep", {"side_effect": wait}),
+                        ("loop.wait_stop", {"side_effect": wait}),
                         ("loop.subprocess.Popen", {"side_effect": spawn})):
                         stack.enter_context(mock.patch(target, **options))
                     with (root / ".loop/loop.out").open("w") as log, contextlib.redirect_stdout(log):

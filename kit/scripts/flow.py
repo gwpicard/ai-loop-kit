@@ -140,7 +140,7 @@ def revert_check(issue, project, tree, head, settings, locked, body):
         changes = git(["diff", "--no-renames", "--name-status", "-z", base, head], cwd=tree).split("\0")
         entries = list(zip(changes[0::2], changes[1::2]))
         code = [p for _, p in entries if not merge.is_test_file(p)]
-        tests = sorted(p for status, p in entries if status != "D" and merge.is_test_file(p) and p not in locked)
+        tests = sorted(p for status, p in entries if status != "D" and merge.is_test_module(p) and p not in locked)
         if code and tests:
             with common.scratch_tree(project, head) as scratch:
                 git(["restore", "--source=" + base, "--staged", "--worktree", "--"] + code, cwd=scratch)
@@ -187,6 +187,7 @@ def land(issue, branch, review, project, tree, settings):
 def _land(issue, branch, review, project, tree, settings):
     loop = settings["Loop branch"]
     for attempt in (1, 2):
+        common.wait_for_memory(project=project, issue=issue)
         with common.merge_lock(project):
             git(["fetch", "--no-prune", "origin"], cwd=project)
             based, old = git(["rev-parse", "origin/" + loop], cwd=project), git(["rev-parse", "HEAD"], cwd=tree)
@@ -244,7 +245,7 @@ def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
     project = os.path.abspath(project)
     common.wait_for_disk(project)
-    with common.settings_environment(common.build_settings(project)), common.build_environment(project):
+    with common.settings_environment(common.build_settings(project)), common.build_environment(project, issue):
         return _build_tree(issue, project, replies)
 
 
@@ -305,8 +306,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         with open(history, "w", encoding="utf-8") as f:
             f.write("\n\n".join(notes) + "\n")
 
-    # Read ## Protected paths this issue may change, excluding the stops list.
-    allowed = [p for p in sorted(merge.allowed_paths(info.get("body") or "")) if not merge.stop_reason(p, settings["Protected paths"])]
+    allowed = sorted(merge.allowed_paths(info.get("body") or ""))
 
     def ask(role, who, report=None, resume=None, extra="", locked=(), step=None, rnd=None):
         if role == "builder":
@@ -359,7 +359,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         text, writer = ask("test-writer", settings["Test writer"])
         locked = parse_block(text)
         for attempt in (1, 2):
-            if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_file(p)
+            if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_module(p)
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
             elif not (failed := tests("fails-first", start, common.files_command(settings, locked), 60, rnd=attempt,

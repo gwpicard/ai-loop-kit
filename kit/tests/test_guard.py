@@ -239,14 +239,38 @@ class TestRole(GuardCase):
         self.refused(self.call("Edit", {"file_path": "tests/test_app.py", "old_string": "pass", "new_string": "x"},
                                role="builder", allowed=["tests/test_*.py"]), "existing test")
 
-    def test_an_allowed_protected_path_is_still_refused(self):
-        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py", "tests/package.json"):
+    def test_an_allowed_protected_path_can_be_edited(self):
+        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py"):
             with self.subTest(path=path):
-                self.refused(self.call("Write", {"file_path": path, "content": "a"}, role="builder",
+                self.allowed(self.call("Write", {"file_path": path, "content": "a"}, role="builder",
                                        locked=[path], allowed=[path]))
 
+    def test_builder_stops_at_unnamed_paths_but_may_edit_named_paths(self):
+        for path, reason in (("package-lock.json", "lockfile or package manifest"),
+                             ("loop.json", "protected path"),
+                             ("loop.local.json", "protected path"),
+                             (".claude/config.json", "protected path"),
+                             (".github/workflows/ci.yml", "protected path"),
+                             ("config/settings.json", "settings file")):
+            for tool in ("Write", "Edit"):
+                with self.subTest(path=path, tool=tool):
+                    inp = {"file_path": os.path.join(self.work, path), "content": "{}"}
+                    r = self.call(tool, inp, role="builder")
+                    self.refused(r, reason)
+                    self.assertIn(path, r.stderr)
+                    self.assertIn("rule: stop\n", r.stderr)
+                    self.assertIn("park", r.stderr)
+                    self.allowed(self.call(tool, inp, role="builder", allowed=[path]))
+
+    def test_builder_stops_at_packaging_setup_but_allows_a_script(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work, _ = make_repo(folder, {"pkg/pyproject.toml": "", "other/setup.cfg": ""})
+            for path in ("setup.py", "pkg/setup.py", "other/setup.py"):
+                self.refused(self.call("Edit", {"file_path": path}, role="builder", cwd=work), "lockfile")
+            self.allowed(self.call("Edit", {"file_path": "kit/scripts/setup.py"}, role="builder", cwd=work))
+
     def test_locked_folder_refused(self):
-        self.refused(self.call("Write", {"file_path": "spec/a.py", "content": "a"},
+        self.refused(self.call("Write", {"file_path": "spec/test_a.py", "content": "a"},
                                role="builder", locked=["spec"]), "locked")
 
     def test_existing_test_refused_for_builder_and_writer(self):

@@ -181,8 +181,31 @@ class MergeTest(FakeGh):
         self.assert_parked(sha, "workflow")
 
     def test_lockfile(self):
-        sha = self.branch({"sub/package.json": "{}\n"})
+        sha = self.branch({"package-lock.json": "{}\n", "sub/package.json": "{}\n"})
         self.assert_parked(sha, "lockfile")
+
+    def test_setup_script_merges_but_packaging_setup_stops(self):
+        sha = self.branch({"kit/scripts/setup.py": "pass\n"})
+        self.rules(sha, [None, "OPEN", "MERGED"])
+        r = self.run_merge(sha)
+        self.assertTrue(r.ok, r.reason)
+        for path, companion in (("setup.py", None), ("pkg/setup.py", "pkg/pyproject.toml"),
+                                ("other/setup.py", "other/setup.cfg")):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as folder:
+                files = {path: "pass\n"}
+                work, _ = make_repo(folder, files)
+                base = common.git(["rev-parse", "HEAD"], cwd=work)
+                if companion:
+                    with open(os.path.join(work, companion), "w") as f:
+                        f.write("")
+                with open(os.path.join(work, path), "a") as f:
+                    f.write("x = 1\n")
+                run_git(["add", "."], work)
+                run_git(["commit", "-m", "change setup"], work)
+                sha = common.git(["rev-parse", "HEAD"], cwd=work)
+                run_git(["checkout", "--detach", base], work)
+                self.assertEqual(merge.check_diff(work, base, sha, [], {companion} if companion else set(), []),
+                                 "lockfile or package manifest: " + path)
 
     def test_settings_file(self):
         sha = self.branch({"config/settings.json": "{}\n"})

@@ -1,6 +1,7 @@
 """The supervisor: pick, build, answer, drain, keep the board, stop when idle."""
 import contextlib
 import json
+import math
 import os
 import re
 import shutil
@@ -8,6 +9,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import common
@@ -27,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def new_state():
     return dict(issues=[], closed=set(), factory=None, questions={}, trust={}, replies={}, building={}, deaths={}, attempts={}, deferred=None, started={}, pr=None, prs=[],
-                conflict="", last="loop started", next="after the current step")
+                parks={}, reaped=set(), conflict="", last="loop started", next="after the current step")
 
 
 def take_lock(project):
@@ -134,6 +136,9 @@ def write_board(project, st, doing=None):
                for i in of("needs-user") if i["number"] in held)] if held & parked else []
         if st["deferred"]:
             why.append("deferred for " + st["deferred"])
+        waiting = park_wait(st)
+        if waiting:
+            why.append("drain in %d min" % math.ceil(waiting / 60))
     last = st["last"] + ("\nWhy idle: " + "; ".join(why) if why else "")
     body = board_body([
         ("Building now", building),
@@ -179,15 +184,20 @@ def answer(st, protected=None):
         parks = [k for k, c in enumerate(comments) if c["body"].startswith("## Needs you") and common.MARKER in c["body"]]
         if not parks:
             continue
+        try:
+            st["parks"][n] = datetime.fromisoformat(comments[parks[-1]]["createdAt"].replace("Z", "+00:00")).timestamp()
+        except (KeyError, ValueError):
+            st["parks"].pop(n, None)
         st["questions"][n] = (comments[parks[-1]]["body"].splitlines() + ["", ""])[2]
         st["replies"][n] = [c["body"] for c in comments[parks[-1] + 1:]
                             if common.MARKER not in c["body"]
                             and common.has_write((c.get("author") or {}).get("login", ""))]
         if st["replies"][n]:
-            path = parked_test_path(comments[parks[-1]]["body"])
+            paths = parked_test_paths(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
-            if path and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
-                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])
+            if paths and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
+                for path in paths:
+                    grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -197,12 +207,11 @@ AGREES = re.compile(r"^\W*(yes|yep|yeah|agreed|approved|go ahead|ok|okay|sure|pl
 DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|wait|also)\b", re.I)
 
 
-def parked_test_path(park):
-    """The one test path a park asks whether to change, or None."""
-    text = park.split("Reply on this issue")[0]
+def parked_test_paths(park):
+    """The test paths named in a park's question, never just its recommendation."""
+    text = park.split("Reply on this issue")[0].split("\nRecommended:")[0].split(common.MARKER)[0].strip()
     paths = {t for t in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(t)}
-    asks = "?" in text and re.search(r"\b(change|edit|modify|update|reformat|adjust|relax)\b", text, re.I)
-    return paths.pop() if len(paths) == 1 and asks else None
+    return sorted(paths) if text.endswith("?") else []
 
 
 def grant_path(i, path, protected):
@@ -237,6 +246,28 @@ def pick(st):
             return i["number"]
 
 
+def park_wait(st):
+    """Seconds to hold the drain: while nothing builds and every ready issue is blocked, directly or
+    through other ready issues, by an issue parked less than an hour ago."""
+    if st["building"]:
+        return 0
+    open_ = {i["number"]: i for i in st["issues"]}
+    parked = {n for n, i in open_.items() if "needs-user" in i["labels"]}
+    ready = [n for n, i in open_.items() if "ready" in i["labels"]]
+    def roots(n, seen=()):
+        found = set()
+        for d in set(common.depends_on(open_[n]["body"])) - st["closed"]:
+            if d in parked:
+                found.add(d)
+            elif d in open_ and d not in seen and "ready" in open_[d]["labels"]:
+                found |= roots(d, seen + (n,))
+        return found
+    blocking = [roots(n) for n in ready]
+    if not blocking or not all(blocking):
+        return 0
+    return max([0] + [st["parks"][n] + 3600 - time.time() for r in blocking for n in r if n in st["parks"]])
+
+
 def claim(st, number):
     """Label the issue `building` before any work starts."""
     common.add_label(number, "building")
@@ -248,7 +279,7 @@ def claim(st, number):
 
 def build_attempts(project, number, replies, previous=0):
     """Build one issue, a second time after a crash, and park it after two. Return a line for the board.
-    This runs in the loop when `Parallel` is 1 and in a worker process otherwise."""
+    This runs in a worker process."""
     common.wait_for_disk(project)
     for attempt in (1, 2):
         path = common.build_file(project, number, "attempt")
@@ -284,22 +315,9 @@ def build_attempts(project, number, replies, previous=0):
     return "#%d parked after two crashes" % number
 
 
-def build_once(project, st, number):
-    claim(st, number)
-    st["building"][number] = (time.strftime("%H:%M"), None)
-    try:
-        write_board(project, st)
-    except common.GitHubError as e:  # the board is a report: a failed edit must not strand the claimed issue
-        say("the board was not updated for #%d: %s" % (number, e))
-    st["last"] = build_attempts(project, number, st["replies"].get(number, []))
-    for kind in ("step", "attempt"):
-        with contextlib.suppress(OSError):
-            os.remove(common.build_file(project, number, kind))
-
-
 def headroom():
     """None when the machine can take another build, else why not: load average at or above the CPU
-    count, or (on macOS) memory pressure at warning or critical."""
+    count, or (on macOS) critical memory pressure."""
     try:
         load, cpus = os.getloadavg()[0], os.cpu_count() or 1
         if load >= cpus:
@@ -307,8 +325,8 @@ def headroom():
     except (OSError, AttributeError, ValueError):
         pass  # no way to tell: do not hold builds back
     level = common.pressure_level()
-    if level and level >= 2:
-        return "memory pressure is %s" % ("critical" if level >= 4 else "warning")
+    if level == 4:
+        return "memory pressure is critical"
     return None
 
 
@@ -320,6 +338,8 @@ def start_builds(project, settings, st):
     """Claim and start eligible issues, each in its own process, up to `Parallel` and while the machine has
     headroom. The first build always starts: only a second one waits on load."""
     while len(st["building"]) < settings["Parallel"] and (number := pick(st)):
+        if os.path.exists(os.path.join(project, ".loop", "stop")):
+            return
         why = headroom() if st["building"] else None
         if why:
             if st["deferred"] != why.split()[0]:  # said when the kind of reason changes: load, or free memory
@@ -365,14 +385,29 @@ def stray_workers(project):
     return pids
 
 
-def reap(project, st, cap=None):
+def reap(project, st, cap=None, stopped=False):
     """Collect the builds whose process has ended. One that left no result died: its issue is queued
     again once (the stale building label does it), and parked the second time."""
     for number, (_, proc) in list(st["building"].items()):
         if proc is None:
             continue
+        stopping = stopped and proc.poll() is None
+        if stopping:
+            while True:
+                rows = process_table()
+                running = [p for p in live_tree(proc.pid, rows) if not rows[p][1].startswith("T")]
+                if not running:
+                    break
+                signal_all(running, signal.SIGSTOP)
+                time.sleep(0.05)
+            pids = live_tree(proc.pid, process_table())
+            for pid in reversed(pids):
+                with contextlib.suppress(OSError):
+                    os.killpg(pid, signal.SIGKILL)
+            signal_all(reversed(pids), signal.SIGKILL)
+            proc.wait()
         began = st["started"].get(number, time.time())
-        if proc.poll() is None and cap and time.time() - began > cap and time.time() - began - common.paused_seconds(project, began) > cap:
+        if proc.poll() is None and cap and time.time() - began > cap and time.time() - began - common.paused_seconds(project, began, number) > cap:
             say("#%d: the build process ran over %d minutes, killing it" % (number, cap // 60))
             with contextlib.suppress(OSError):
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -381,8 +416,22 @@ def reap(project, st, cap=None):
             continue
         del st["building"][number]
         try:
+            if stopping:
+                common.add_label(number, "ready")
+                common.remove_label(number, "building")
+                for i in st["issues"]:
+                    if i["number"] == number:
+                        i["labels"] = (i["labels"] - {"building"}) | {"ready"}
+                common.event("exit", project, issue=number, reason="stopped")
+                continue
             with open(common.build_file(project, number, "result")) as f:
                 st["last"] = json.load(f)["last"]
+            st["reaped"].add(number)  # a build that left a result: this cycle's labels predate it
+            if st["last"].startswith("#%d parked" % number):  # the list may predate the park
+                for i in st["issues"]:
+                    if i["number"] == number:
+                        i["labels"] = (i["labels"] - {"building", "ready"}) | {"needs-user"}
+                st["parks"].setdefault(number, time.time())
             st["attempts"].pop(number, None)
             st["deaths"].pop(number, None)
         except (OSError, ValueError, KeyError):
@@ -406,11 +455,13 @@ def reap(project, st, cap=None):
                 common.park(number, "The build crashed twice: " + reason,
                             "Read .loop/logs, then reply to try again or close the issue.", project=project)
                 st["last"] = "#%d parked after two crashes" % number
+                st["reaped"].add(number)
                 del st["deaths"][number]
                 st["attempts"].pop(number, None)
-        for kind in ("step", "result", "pid", "attempt"):
-            with contextlib.suppress(OSError):
-                os.remove(common.build_file(project, number, kind))
+        finally:
+            for kind in ("step", "result", "pid", "attempt", "memory"):
+                with contextlib.suppress(OSError):
+                    os.remove(common.build_file(project, number, kind))
 
 
 def sync_default(project, loop, st):
@@ -719,34 +770,29 @@ def run(project):
                         say("keeping previous settings: %s" % e)
                         settings_error = str(e)
                 cap = (3 * settings["Session minutes"] + 30) * 60
-                reap(project, st, cap)
                 snapshot(st)
-                for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
+                st["reaped"] = set()
+                reap(project, st, cap)
+                for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]
+                          and i["number"] not in st["reaped"]]:
                     # only this loop builds, so a building label without a running build is stale
                     say("#%d was left building, queued again" % i["number"])
                     common.add_label(i["number"], "ready")
                     common.remove_label(i["number"], "building")
                     i["labels"] = (i["labels"] - {"building"}) | {"ready"}
                 answer(st, settings["Protected paths"])
-                if settings["Parallel"] == 1 and not st["building"]:  # one build at a time, in this process
-                    number = pick(st)
-                    if number:
+                start_builds(project, settings, st)
+                if st["building"]:
+                    dirty, built = True, time.time()
+                    write_board(project, st)
+                    wait_stop(stop, BUSY_POLL)
+                    continue
+                if not park_wait(st) and not os.path.exists(stop):
+                    dirty = sync_default(project, settings["Loop branch"], st) or dirty
+                    if dirty:
                         with common.settings_environment(settings):
-                            build_once(project, st, number)
-                        st["building"], dirty, built = {}, True, time.time()
-                        continue
-                else:  # each build is a process of its own; see worker.py
-                    start_builds(project, settings, st)
-                    if st["building"]:
-                        write_board(project, st)
-                        dirty, built = True, time.time()
-                        time.sleep(BUSY_POLL)
-                        continue
-                dirty = sync_default(project, settings["Loop branch"], st) or dirty
-                if dirty:
-                    with common.settings_environment(settings):
-                        drain(project, settings, st)
-                    dirty = False
+                            drain(project, settings, st)
+                        dirty = False
                 if time.time() - built >= settings["Idle hours"] * 3600:
                     reason = "nothing built for %g hours" % settings["Idle hours"]
                     say("exiting: nothing built for %g hours" % settings["Idle hours"])
@@ -755,14 +801,19 @@ def run(project):
                 write_board(project, st)
             except Exception as e:  # one line, never a traceback or a silent death
                 say("problem, will check again: %s: %s" % (type(e).__name__, e))
-            for _ in range(POLL // 5):
-                os.path.exists(stop) or time.sleep(5)
+            wait_stop(stop, POLL)
         else:
             reason = "stop requested"
             say("exiting: stop requested")
-        while st["building"]:  # running builds finish their current issue
-            say("waiting for %d running builds" % len(st["building"]))
-            time.sleep(BUSY_POLL)
+        said = 0
+        while st["building"]:  # running builds finish their current issue, unless `loop stop --now`
+            if stop_now(stop):
+                reap(project, st, stopped=True)
+                break
+            if time.time() - said >= BUSY_POLL:
+                say("waiting for %d running builds" % len(st["building"]))
+                said = time.time()
+            time.sleep(0.2)
             reap(project, st, cap)
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
@@ -780,6 +831,20 @@ def run(project):
         except OSError as e:
             say("clean-up problem: %s" % e)
     return 0
+
+
+def stop_now(path):
+    with contextlib.suppress(OSError):
+        with open(path) as f:
+            return f.read().strip() == "now"
+    return False
+
+
+def wait_stop(path, seconds):
+    for _ in range(math.ceil(seconds / 0.2)):
+        if os.path.exists(path):
+            break
+        time.sleep(0.2)
 
 
 def main(argv):
@@ -812,12 +877,16 @@ def main(argv):
         print(status.render(status.read_events(project), now, since, running, builds))
         return 0
     if cmd == "stop":
+        if argv not in (["stop"], ["stop", "--now"]):
+            return say("usage: loop stop [--now]") or 2
+        os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+        with open(os.path.join(project, ".loop", "stop"), "w") as f:
+            f.write("now" if "--now" in argv else "")
         if live_pid(project) and os.path.exists(os.path.join(project, ".loop", "paused")):
             resume(project)
-        os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
-        open(os.path.join(project, ".loop", "stop"), "w").close()
         common.event("stop", project, reason="stop requested")
-        return say("stop requested; the loop ends after its current step") or 0
+        return say("stop requested; " + ("running builds end at once and their issues return to ready" if "--now" in argv else
+                   "the loop starts nothing new and ends after its running builds finish their issue")) or 0
     if cmd in ("run", "check-version"):
         old = common.kit_version_refusal(project)
         if old:

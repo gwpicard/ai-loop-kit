@@ -112,6 +112,9 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
 - When hiding Codex, preserve the test runner's sysctl stub; replacing it with the host command can make setup preflight wait on real memory pressure.
 - Released kit 2.2.0 leaves `.lite/` behind, sometimes with colliding files; preserve the whole residual folder outside the project after migration rather than deleting it.
+- Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
+- Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
+- A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
 
 ## Standing approvals
 
@@ -283,6 +286,8 @@ plan did not make: the issue, what they chose, and why.
 - Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.
 - Settings in JSON: judging tests live in a new file because the test-lock hook refused an existing test edit and the follow-up instructed the writer to continue with new tests. Fixture conversion stays with the builder. Live reload uses the run command handler with fake workers and bounded waits; setup and the legacy refusal use subprocess commands.
 
+- Full Test command restriction: retain the shared session environment code, which already passes both test commands to every role. Replace the environment-only test with a check that invokes the configured guard using the spawned session's environment, with and without a Test files command. It fails on the loop branch for test-writer and pass refusals and passes with the fix.
+- Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.
 - Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
 - Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
 - Issue 575: `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.

@@ -36,7 +36,8 @@ def failing(project, sha, test, tree, path, prepare="", check="", files=""):
            else "the path is outside .loop/pass/: " + path if rel.split(os.sep)[0] == ".."
            else "no test file at " + path if not os.path.isfile(full)
            else "a file already exists at " + rel if os.path.lexists(os.path.join(tree, rel))
-           else "a parent of %s is a file or a symlink: %s" % (rel, parent) if parent else "")
+           else "a parent of %s is a file or a symlink: %s" % (rel, parent) if parent
+           else "no test module at " + path if not merge.is_test_module(rel) else "")
     if bad:
         return None, bad
     try:

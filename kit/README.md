@@ -91,15 +91,18 @@ such as the CLI on real input; only the end-of-loop pass runs it. Setup
 reports those that are set; none is required.
 
 `Parallel: N` lets the loop run up to N builds at once. The default, 1,
-builds one issue at a time inside the loop process. With more, each build is a
-separate process in its own worktree, so a crash or a hang in one cannot stop
-the loop or the others.
+builds one issue at a time. Each build is a separate process in its own
+worktree, so a crash or a hang in one cannot stop the loop or the others.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
-machine has headroom: load average below the CPU count and, on macOS, normal
-memory pressure. It says why when it waits. Every session and test command
-also waits, on macOS, while memory pressure is above normal.
+machine has headroom: load average below the CPU count and, on macOS, memory
+pressure below critical (level 4). It says why when it waits. With more than
+one build running, sessions and test commands wait at critical pressure for
+at most 10 minutes, then start anyway and log a line. A build running alone
+never waits for memory. Memory waits happen before the merge lock is taken
+and do not count against the build cap; each records a `memory-wait` event
+with its level and seconds waited.
 
 On a Mac, Spotlight indexes every new worktree, log and test repository the
 loop creates, competing with builds for the processor. Add the folder that
@@ -118,7 +121,9 @@ issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
 its step and elapsed minutes in that step, or says when the drain or pass is
 running. A stop request starts no new build and lets running builds finish
-their issue. Each build process writes its log to
+their issue. `loop stop --now` ends running builds, their agent sessions and
+test commands at once and returns their issues to `ready`, without counting
+a crash or using an attempt. Each build process writes its log to
 `.loop/logs/build-<issue>.log`. Lines in these logs and `loop.out` start with a
 local timestamp (`YYYY-MM-DD HH:MM:SS`).
 
@@ -137,14 +142,18 @@ total minutes and review rounds use its full recorded history.
 `<plugin>/bin/loop report` summarises issues merged on the loop branch since
 `origin/<default>`, using local git refs, `.loop/` events and one read-only
 GitHub call per issue for its build note. It lists changed folders, test
-counts, risk flags, reasons, deviations and build timings without a session
-or GitHub writes. The drain includes the same text under `What changed` near
+counts, risk flags (including every test support file changed), reasons,
+deviations and build timings without a session or GitHub writes. The drain
+includes the same text under `What changed` near
 the top of the final pull request body.
 
-A park that names exactly one test path and asks whether to change it needs
-only a reply of "yes" from a collaborator: the loop adds that path to the
-issue's `## Protected paths this issue may change` and requeues it. A reply that does
-not clearly agree, or the loop's own comment, grants nothing. The reviewer may
+When a park's permission question ends with `?` and names test paths, a
+collaborator can reply "yes", whatever verb the question uses. The loop adds
+each path the stops list permits to the issue's
+`## Protected paths this issue may change` and requeues it.
+Paths named only in the recommendation and protected paths are never granted
+by a reply. A reply that does not clearly agree or contains a doubt word,
+or the loop's own comment, grants nothing. The reviewer may
 write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
@@ -155,7 +164,7 @@ test lock run first, so a refusal costs no test run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
-The Stop hook runs the locked tests and the test files changed since the
+The Stop hook runs the locked tests and the test modules changed since the
 issue started, then the Check command. It records which tests ran. After the
 builder or a fix pass, the loop reuses that result if it was for the head
 commit, and otherwise runs the same targeted set in a fresh checkout. Without
@@ -170,14 +179,17 @@ the end-of-loop pass simplifies the whole batch once.
 
 Ask Claude to set up the loop (the setup skill writes `loop.json`
 with you), or run `python3 <plugin>/scripts/setup.py` from the project root.
-It first moves the runtime files of kit 1.x (into `.loop/v1/`) and of kit
-2.0.0 (the `.lite/` folder) into `.loop/`, then creates the labels, the loop
-branch, a pinned `Factory` issue, a `.loop/` line in `.gitignore` (commit it
+Setup refuses legacy kit 1.x and `.lite/` layouts with upgrade advice.
+Otherwise it creates the labels, the loop branch, a pinned `Factory` issue,
+a `.loop/` line in `.gitignore` (commit it
 yourself) and runs your Test command on a fresh copy of the loop branch.
 Setup also migrates an existing `## Loop` section from `AGENTS.md` into
 `loop.json`, removes the section and ignores `loop.local.json`. It records
 each change and its undo in `.loop/migrations.log`; `--dry-run` previews
 the changes without applying them. Running it again is safe.
+
+Setup warns when the root standing instructions exceed 1,500 words,
+excluding the standalone import of `AGENTS.md` in `CLAUDE.md`.
 
 Setup also renames the protected-paths section in open issues. It saves each
 original body under `.loop/migrations/` and records the rename and an undo
@@ -202,7 +214,16 @@ prerequisites first. On your single yes it labels the issues `ready`.
 
 Use the loop skill, or run from the project root
 `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`.
-`<plugin>/bin/loop stop` stops it; so does the idle limit.
+`<plugin>/bin/loop stop` starts nothing new and ends after running builds
+finish their issue. Use `<plugin>/bin/loop stop --now` to end them at once
+and return their issues to `ready`. The idle limit also stops the loop.
+
+When every `ready` issue waits, directly or through other ready issues, on an
+open `needs-user` dependency and no build is running, the loop keeps reading
+replies before draining. It waits
+until 60 minutes after the latest park comment on those dependencies, then
+runs the usual drain. This wait applies in the cycle that collects the parked
+build's result. With nothing `ready` or parked, it drains as usual.
 
 The pinned `Factory` issue is the board, in three sections: `Building now`;
 `Needs you`, with parked issues, unbuilt dependencies, the open pull request
@@ -212,7 +233,8 @@ total issue counts and a link to its milestone page. Read the full
 progress on GitHub's milestones page. To answer a parked issue, reply on it;
 the loop queues it again and gives your reply to the next build.
 The next check includes its date. When ready issues are waiting and nothing
-is building, `Why idle` names parked dependencies or a load or memory deferral.
+is building, `Why idle` names parked dependencies and the minutes until the
+drain, or a load or memory deferral.
 
 ## What each issue gets
 
@@ -300,9 +322,18 @@ the worktrees and issue branches left. Outside services are on the stops list.
   loop branch, tested in full on that exact commit (Prepare, Test, Check on a
   fresh checkout). Conflicts go back to the builder and a fresh review.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
-  package manifest, a settings file, or an existing test, unless the issue
+  package manifest, a settings file, or an existing test module, unless the issue
   lists it in its `## Protected paths this issue may change` section; a path named
-  elsewhere grants nothing. The test writer's tests are locked the same way.
+  elsewhere grants nothing. The guard refuses a builder's write or edit to
+  a path on the stops list at once, unless the issue lists it, and tells the
+  builder to park if the change is needed. `setup.py` is a manifest only at
+  the repository root or beside `pyproject.toml` or `setup.cfg`.
+
+  The test writer's tests are locked the same way.
+  The test lock covers test modules, recognised by their names, including
+  `conftest.py`. Other files under test folders, such as helpers, runners,
+  fakes and fixtures, are test support files. They are not locked or passed
+  to the Test files command; changes to them appear in the report's risk flags.
 - An issue is built only if a collaborator with write access added `ready`.
 - The loop never merges into the default branch; it only opens a pull
   request. Branch protection is what stops any other path.
@@ -310,12 +341,16 @@ the worktrees and issue branches left. Outside services are on the stops list.
 The guard hook is an early warning that matches the text of a command, so it
 can be routed around. It is registered for the loop's own sessions (through
 `--settings`) and wherever the plugin is enabled.
+For `gh` and the loop's git restrictions, it ignores quoted text and heredoc
+bodies. If the command invokes `sh`, `bash`, `zsh`, `dash`, `eval` or `xargs`,
+directly or through `env`, it checks the whole command, including quoted and
+piped input.
 
 - Everywhere: it refuses pushes to the default branch, force pushes and
   recursive deletes.
 - In the loop's sessions only: it also refuses `gh`, `git push`, `git merge`,
   branch switches and checkouts, and writes to the test writer's locked
-  tests or to existing test files. For builders, an existing test is one at
+  test modules or to existing test modules. For builders, an existing test is one at
   `LOOP_START`, the loop branch baseline at the start of the build, or at the
   merge base with the loop branch when `LOOP_START` is absent. Builders may
   edit tests they added on their issue branch; the writer's tests stay locked.
