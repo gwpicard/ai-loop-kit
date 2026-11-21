@@ -153,6 +153,7 @@ batch adds its decisions, and every builder reads all of them.
   build is running, it keeps reading replies until 60 minutes after the
   latest park comment on those dependencies, then drains. The board's
   `Why idle` line names the parked dependencies and the minutes left.
+  This wait applies in the cycle that collects the parked build's result.
 - After you merge that pull request, it merges `main` into the loop branch
   and carries on.
 - It ends after 12 hours with nothing to build, or when you create a stop
@@ -249,8 +250,10 @@ is then a choice made in the open, not a default.
   No builder sandbox.
 - **The test lock's escape hatch:** an existing test module may change or be
   deleted only when the issue names its path. A collaborator's clear yes to
-  a park asking to change several test paths grants each path the stops list
-  permits. Protected paths are never granted by a reply. Test modules are
+  a park's permission question ending with `?` grants each named test path
+  the stops list permits, whatever verb the question uses. Protected paths
+  and paths named only in the recommendation are never granted. A reply
+  containing a doubt word grants nothing. Test modules are
   recognised by name, including `conftest.py`.
   Other files under test folders are test support files: they are not locked
   or passed to the Test files command, and changes appear in the report's risk flags.

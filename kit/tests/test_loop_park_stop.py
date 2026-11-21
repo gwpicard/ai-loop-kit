@@ -40,6 +40,54 @@ class ParkDrainTest(Base):
         self.assertEqual(len(self.writes("--json comments")), 2)
         self.drain.assert_not_called()
 
+    def test_a_chain_behind_a_parked_issue_holds_the_drain(self):
+        st = loop.new_state()
+        st["issues"] = [issue(2, ("needs-user",)), issue(3, ("ready",), body="Depends on: #2"),
+                        issue(4, ("ready",), body="Depends on: #3"), issue(5, ("ready",), body="Depends on: #3, #4")]
+        for i in st["issues"]:
+            i["labels"] = {l["name"] for l in i["labels"]}
+        st["parks"][2] = time.time()
+        self.assertGreater(loop.park_wait(st), 3500)
+        st["issues"].append(dict(issue(6), labels={"ready"}))  # an issue nothing blocks can build
+        self.assertEqual(loop.park_wait(st), 0)
+
+    def test_a_build_reaped_as_parked_holds_the_drain_in_that_cycle(self):
+        self.starts.stop()
+        self.world([issue(2), issue(3, body="Depends on: #2"), issue(4, body="Depends on: #2")])
+        proc = mock.Mock(pid=12345, returncode=0)
+        proc.poll.return_value = None
+        waits = []
+
+        def start(project, settings, st):
+            if not waits:
+                loop.claim(st, 2)
+                st["building"][2] = ("10:00", proc)
+
+        def park(*args):
+            waits.append(1)
+            if len(waits) == 1:
+                common.park(2, "Which port?", "Use 8080.", project=self.work)
+                result = common.build_file(self.work, 2, "result")
+                os.makedirs(os.path.dirname(result), exist_ok=True)
+                with open(result, "w") as f:
+                    json.dump({"last": "#2 parked: Which port?"}, f)
+                proc.poll.return_value = 0
+                self.world([issue(2, ("building",)), issue(3, body="Depends on: #2"),
+                            issue(4, body="Depends on: #2")], comments=[dict(
+                                comment("## Needs you\n\nWhich port?\n\n" + common.MARKER),
+                                createdAt=datetime.now(timezone.utc).isoformat())])
+            else:
+                self.stop_after()
+
+        with mock.patch.object(loop, "start_builds", side_effect=start), \
+                mock.patch.object(loop, "wait_stop", side_effect=park), \
+                mock.patch.object(loop, "clean_up"):
+            self.assertEqual(self.run_loop(), 0)
+        self.assertEqual(len(waits), 2)
+        self.drain.assert_not_called()
+        self.assertTrue(any("Why idle: dependencies held by needs-user: #2 Piece 2; drain in 60 min" in b
+                            for b in self.board_inputs()))
+
     def test_park_older_than_an_hour_allows_the_drain(self):
         self.parked(61)
         with mock.patch.object(loop, "wait_stop", side_effect=lambda *a: self.stop_after()):

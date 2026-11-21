@@ -208,11 +208,10 @@ DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|w
 
 
 def parked_test_paths(park):
-    """The test paths a park's question asks whether to change; paths only in its recommendation do not count."""
-    text = park.split("Reply on this issue")[0].split("\nRecommended:")[0]
+    """The test paths named in a park's question, never just its recommendation."""
+    text = park.split("Reply on this issue")[0].split("\nRecommended:")[0].split(common.MARKER)[0].strip()
     paths = {t for t in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(t)}
-    asks = "?" in text and re.search(r"\b(change|edit|modify|update|reformat|adjust|relax)\b", text, re.I)
-    return sorted(paths) if asks else []
+    return sorted(paths) if text.endswith("?") else []
 
 
 def grant_path(i, path, protected):
@@ -248,13 +247,25 @@ def pick(st):
 
 
 def park_wait(st):
-    ready = [i for i in st["issues"] if "ready" in i["labels"]]
-    parked = {i["number"] for i in st["issues"] if "needs-user" in i["labels"]}
-    held = [set(common.depends_on(i["body"])) - st["closed"] for i in ready]
-    if st["building"] or not held or not all(deps & parked for deps in held):
+    """Seconds to hold the drain: while nothing builds and every ready issue is blocked, directly or
+    through other ready issues, by an issue parked less than an hour ago."""
+    if st["building"]:
         return 0
-    return max([0] + [st["parks"][n] + 3600 - time.time()
-                     for deps in held for n in deps & parked if n in st["parks"]])
+    open_ = {i["number"]: i for i in st["issues"]}
+    parked = {n for n, i in open_.items() if "needs-user" in i["labels"]}
+    ready = [n for n, i in open_.items() if "ready" in i["labels"]]
+    def roots(n, seen=()):
+        found = set()
+        for d in set(common.depends_on(open_[n]["body"])) - st["closed"]:
+            if d in parked:
+                found.add(d)
+            elif d in open_ and d not in seen and "ready" in open_[d]["labels"]:
+                found |= roots(d, seen + (n,))
+        return found
+    blocking = [roots(n) for n in ready]
+    if not blocking or not all(blocking):
+        return 0
+    return max([0] + [st["parks"][n] + 3600 - time.time() for r in blocking for n in r if n in st["parks"]])
 
 
 def claim(st, number):
@@ -414,6 +425,11 @@ def reap(project, st, cap=None, stopped=False):
                 continue
             with open(common.build_file(project, number, "result")) as f:
                 st["last"] = json.load(f)["last"]
+            for i in st["issues"]:  # the list may predate the result: a parked or finished build is no longer building
+                if i["number"] == number:
+                    i["labels"] = (i["labels"] - {"building"}) | ({"needs-user"} if st["last"].startswith("#%d parked" % number) else set())
+                    if "needs-user" in i["labels"]:
+                        st["parks"].setdefault(number, time.time())
             st["attempts"].pop(number, None)
             st["deaths"].pop(number, None)
         except (OSError, ValueError, KeyError):
@@ -748,8 +764,8 @@ def run(project):
     try:
         while not os.path.exists(stop):
             try:
-                reap(project, st, cap)
                 snapshot(st)
+                reap(project, st, cap)
                 for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
                     # only this loop builds, so a building label without a running build is stale
                     say("#%d was left building, queued again" % i["number"])
