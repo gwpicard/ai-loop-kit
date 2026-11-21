@@ -91,6 +91,13 @@ machine has headroom: load average below the CPU count and, on macOS, normal
 memory pressure. It says why when it waits. Every session and test command
 also waits, on macOS, while memory pressure is above normal.
 
+On a Mac, Spotlight indexes every new worktree, log and test repository the
+loop creates, competing with builds for the processor. Add the folder that
+holds your projects and `.loop-worktrees` (by default the parent folder of
+the project) to System Settings, Spotlight, Search Privacy. Without this
+exclusion, you may see `mds_stores` and `mds` near the top of Activity Monitor
+and a high load average, which also holds back a second build.
+
 Before a build or a test command starts, the loop checks free space on the
 project volume and in the temp folder. With less than 2 GB free, it prints a
 line, records a `disk-wait` event and checks again every minute. A failure

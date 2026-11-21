@@ -120,6 +120,10 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Spotlight README: run the locked README tests and house rules here; the
+  current fast-path rule reserves the full Test command for merge, despite
+  the issue's full-suite checking instruction.
+
 - Spotlight README tests: check the paragraph's required terms and its position
   beside the load and memory explanation, allowing line wrapping and Markdown
   code spans. The issue's reading oracle still judges whether the prose explains
