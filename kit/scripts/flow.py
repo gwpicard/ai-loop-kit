@@ -1,11 +1,8 @@
 """Build one issue end to end: tests, code, review, merge."""
 import collections
-import difflib
 import json
 import os
 import re
-import subprocess
-import tempfile
 import time
 
 import common
@@ -166,30 +163,6 @@ def revert_check(issue, project, tree, head, settings, locked, body):
     return "\n".join(listed) + "\n" if listed else ""
 
 
-def keep_added_plan_lines(tree):
-    """Finish a merge open in the tree when PLAN.md is the only conflict and both sides only added
-    lines to it: keep both, the loop branch's lines first, and commit. Return True when it did."""
-    if git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines() != ["PLAN.md"]:
-        return False
-    base, mine, theirs = ((git(["show", ":%d:PLAN.md" % n], cwd=tree, check=False) + "\n").splitlines(True) for n in (1, 2, 3))
-    for side in (mine, theirs):
-        if any(op not in ("insert", "equal") for op, *_ in difflib.SequenceMatcher(None, base, side, autojunk=False).get_opcodes()):
-            return False
-    with tempfile.TemporaryDirectory() as d:
-        paths = []
-        for name, lines in (("loop", theirs), ("base", base), ("issue", mine)):
-            paths.append(os.path.join(d, name))
-            with open(paths[-1], "w", encoding="utf-8", newline="") as f:
-                f.writelines(lines)
-        out = subprocess.run(["git", "merge-file", "-p", "--union"] + paths, cwd=tree,
-                             capture_output=True, text=True, timeout=common.TIMEOUT).stdout
-    with open(os.path.join(tree, "PLAN.md"), "w", encoding="utf-8", newline="") as f:
-        f.write(out)
-    git(["add", "PLAN.md"], cwd=tree)
-    git(["commit", "--no-edit"], cwd=tree)
-    return True
-
-
 Landed = collections.namedtuple("Landed", "result conflicts head review files")
 
 
@@ -223,8 +196,7 @@ def _land(issue, branch, review, project, tree, settings):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
-                if not keep_added_plan_lines(tree):
-                    return Landed(None, conflicts, old, review, [])
+                return Landed(None, conflicts, old, review, [])
             head = git(["rev-parse", "HEAD"], cwd=tree)
             if head != old:
                 git(["push", "origin", branch], cwd=tree)
@@ -249,8 +221,8 @@ def brief(role):
 
 def prompt_for(role, number, info, tree, settings, replies, report=None, history=None):
     text = brief(role)
-    text += ("\n\n# Issue %s: %s\n\n%s\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n"
-             % (number, info["title"], info.get("body") or "", os.path.join(tree, "PLAN.md"),
+    text += ("\n\n# Issue %s: %s\n\n%s\n\nLoop branch: %s\nTest command: %s\n"
+             % (number, info["title"], info.get("body") or "",
                 settings["Loop branch"], settings["Test command"]))
     if settings["Test files command"]:
         text += "Test files command: %s\n" % settings["Test files command"]
@@ -304,8 +276,6 @@ def _build_tree(issue, project, replies):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
-                if keep_added_plan_lines(tree):
-                    conflicts = []
         return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
         common.park(issue, *p.args, project=project)

@@ -454,29 +454,26 @@ def hands_on(project, base, loop, old_body):
     if not blocks:
         return "## Hands-on checks\n\nnone\n"
     head = git(["rev-parse", "--short", "origin/" + loop], cwd=project, check=False).strip()
-    plan = git(["show", "origin/%s:PLAN.md" % loop], cwd=project, check=False)
-    found = re.search(r"^## Try it[ \t]*\n(.*?)(?=^## |\Z)", plan, re.M | re.S)
-    steps = re.sub(r"<!--.*?-->", "", found.group(1) if found else "", flags=re.S).strip()
-    if steps.lower().rstrip(".") == "none":
-        intro = ""
-    else:
-        intro = "Build: `%s` at `%s`.\n\n" % (loop, head)
-        intro += (steps if steps else "No steps to run it are written. Add them under `## Try it` in `PLAN.md`.") + "\n\n"
+    intro = "Build: `%s` at `%s`.\n\n" % (loop, head)
     return "## Hands-on checks\n\n" + intro + "\n\n".join(blocks) + "\n"
 
 
 def decisions(project, base, loop):
-    """The `## Decisions to confirm` section: the lines added under `## Deviations` in PLAN.md since the default branch."""
-    def lines(ref):
-        text = git(["show", "origin/%s:PLAN.md" % ref], cwd=project, check=False)
-        found = re.search(r"^## Deviations[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-        return [l for l in found.group(1).splitlines() if l.strip()] if found else []
-    old, added = lines(base), []
-    for line in lines(loop):
-        if line in old:
-            old.remove(line)
-        else:
-            added.append(line)
+    """List each merged issue's recorded builder deviations, without shortening them."""
+    log = git(["log", "--format=%s", "origin/%s..origin/%s" % (base, loop)], cwd=project, check=False)
+    added = []
+    for number in sorted({int(n) for n in re.findall(r"^Issue (\d+)\b", log, re.M)}):
+        try:
+            info = json.loads(gh(["issue", "view", str(number), "--json", "title,body,comments"]))
+        except (ValueError, common.GitHubError):
+            continue
+        note = next((c.get("body") or "" for c in reversed(info.get("comments") or [])
+                     if (c.get("body") or "").startswith("## Built")), "")
+        found = re.search(r"^Deviations:[ \t]*(.*?)(?=\n\s*\nMerged as |\Z)", note, re.M | re.S)
+        for item in found[1].strip().splitlines() if found else []:
+            item = re.sub(r"^\s*[-*]\s+", "", item).strip()
+            if item and item.lower() != "none":
+                added.append("- #%d: %s" % (number, item))
     return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
 
 
@@ -501,8 +498,8 @@ def summary(project, settings, head, landed):
             pass
         with common.scratch_tree(project, "origin/" + loop) as tree:
             prompt = flow.brief("pr-summary") + (
-                "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
-                    os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
+                "\n\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
+                    loop, settings["Test command"], base, "\n\n".join(notes)))
             reply = session.run("pass", prompt, tree, settings["Pass"][1], project, "summary", agent=settings["Pass"][0])[0]
         found = re.search(r"^## Summary\b.*?^## Evidence\b.*?^## Merge danger\b.*", reply, re.M | re.S)
         text = found.group(0).strip() + "\n" if found else ""

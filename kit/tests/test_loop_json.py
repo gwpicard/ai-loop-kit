@@ -40,6 +40,7 @@ class JsonSettingsTest(unittest.TestCase):
             "Smoke command": "make smoke", "Loop branch": "loop/custom",
             "Protected paths": ["folder, with comma/", "private/"],
             "Codex writable roots": ["~/cache, one", "/tmp/cache two"],
+            "Red-team surfaces": ["imports, including CSV", "exports"],
             "Parallel": 3, "Idle hours": 1.5, "Max rounds": 4,
             "Session minutes": 12.5, "Builder": "codex gpt-6",
             "Test writer": "claude opus", "Reviewer": "codex gpt-6",
@@ -68,7 +69,7 @@ class JsonSettingsTest(unittest.TestCase):
         invalid = [(key, value) for key in strings for value in (7, None, [], True)]
         invalid += [(key, value) for key in ("Parallel", "Idle hours", "Max rounds", "Session minutes")
                     for value in ("2", None, [], True)]
-        invalid += [(key, value) for key in ("Protected paths", "Codex writable roots")
+        invalid += [(key, value) for key in ("Protected paths", "Codex writable roots", "Red-team surfaces")
                     for value in ("one/, two/", ["one/", 2], None, {})]
         for key, value in invalid:
             with self.subTest(key=key, value=value):

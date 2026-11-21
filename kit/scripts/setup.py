@@ -101,13 +101,52 @@ def migrate_220(project, dry_run):
                 f.write("".join(kept))
         change(project, "removed Defect rounds from AGENTS.md: confirmed defects now arrive as inbox issues",
                "restore under ## Loop in AGENTS.md: " + "".join(removed), apply, dry_run)
-    plan = pathlib.Path(project, "PLAN.md")
-    if plan.exists() and any(line.strip().lower() == "## standing approvals" for line in plan.read_text(encoding="utf-8").splitlines()):
-        print("notice: the kit no longer reads ## Standing approvals in PLAN.md; confirmed defects now arrive as inbox issues", flush=True)
     return bool(removed)
 
 
 MIGRATIONS = (("2.2.0", migrate_220),)
+
+
+def migrate_plan(project, dry_run=False):
+    """Preserve every non-empty section of PLAN.md in one inbox issue."""
+    path = pathlib.Path(project, "PLAN.md")
+    log = pathlib.Path(project, ".loop/migrations.log")
+    title = "Find a home for the contents of PLAN.md"
+    if not path.exists() or log.exists() and title in log.read_text(encoding="utf-8"):
+        return False
+    homes = {
+        "decisions": "Move to AGENTS.md when every agent needs the decision and no check can enforce it.",
+        "product rules": "Move to AGENTS.md when every agent needs the rule and no check can enforce it.",
+        "stops": "Move the project's own stops to AGENTS.md; the kit's stops are in its preamble.",
+        "surfaces": "Move to the Red-team surfaces list in loop.json.",
+        "lessons": "Turn each lesson into a check or an AGENTS.md line, or drop it.",
+        "deviations": "Drop these notes; git keeps them.",
+        "try it": "Move the steps to README.md and include them in each issue's hands-on check when needed.",
+    }
+    text = path.read_text(encoding="utf-8")
+    sections = re.split(r"^##[ \t]+(.+?)[ \t]*$", text, flags=re.M)
+    body = "Decide where these contents belong. PLAN.md is unchanged.\n"
+    intro = re.sub(r"\A\s*# [^\n]*\n", "", sections[0]).strip()
+    parts = [("Introduction", intro)] + list(zip(sections[1::2], sections[2::2]))
+    for name, content in parts:
+        if content.strip():
+            home = homes.get(name.lower(), "Keep useful context in README.md, or in docs/ if it earns its place; otherwise drop it.")
+            body += "\n## %s\n\n%s\n\nProposed home: %s\n" % (name, content.strip(), home)
+    print(title + "\n\n" + body, flush=True)
+    if dry_run:
+        change(project, title, "close the migration's inbox issue", lambda: None, True)
+    else:
+        # Recover an issue created before a failed log write without filing it twice.
+        issues = json.loads(gh(["issue", "list", "--state", "all", "--search", title + " in:title",
+                               "--limit", "500", "--json", "title,number"]) or "[]")
+        number = next((str(i["number"]) for i in issues if i["title"] == title), None)
+        if number is None:
+            url = gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
+                     input=body, retry=False)
+            number = url.strip().rsplit("/", 1)[-1]
+        change(project, title, "close inbox issue " + number + "; PLAN.md was left unchanged",
+               lambda: None)
+    return True
 
 
 def migrate_settings(project, dry_run=False):
@@ -220,6 +259,8 @@ def setup(project=".", dry_run=False):
         change(project, "label " + name, "remove label " + name,
                lambda: gh(["label", "create", name, "--color", LABELS[name]]), dry_run)
         changes.append("label " + name)
+    if migrate_plan(project, dry_run):
+        changes.append("plan contents inbox issue")
     if not dry_run:
         git(["fetch", "origin"], cwd=project)
     base = common.default_branch(project)

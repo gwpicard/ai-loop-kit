@@ -5,7 +5,7 @@ concrete, behaviour-preserving changes:
 
 - simplifications: duplicated logic across the pieces, dead code, needless
   nesting, names that differ for one idea, helpers that grew twice;
-- reconciliations: deviations that contradict each other or PLAN.md,
+- reconciliations: deviations that contradict each other or AGENTS.md,
   workarounds that can now be removed, follow-ups that overlap, and
   "not exercised" notes that should become a test or a manual check.
 

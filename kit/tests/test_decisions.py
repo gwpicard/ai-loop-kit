@@ -12,8 +12,8 @@ setUpModule, tearDownModule = test_loop.setUpModule, test_loop.tearDownModule
 
 HEAD = "# Plan\n\n## Lessons\n\nnone\n\n## Deviations\n\nBuilders append here.\n"
 OLD = "- Issue 1: kept the old name, the plan did not say.\n"
-NEW = "- Issue 2: chose a flat list, the closest approach to the plan.\n"
-NEWER = "- Issue 3: used the default port, the plan named none.\n"
+NEW = "Issue 2: chose a flat list, the closest approach to the issue.\n"
+NEWER = "Issue 3: used the default port, the issue named none.\n"
 TAIL = "\n## Surfaces\n\n- Something else\n"
 
 
@@ -25,6 +25,13 @@ class Decisions(test_loop.Base):
         self.work, self.origin = copy_repo(test_loop.TEMPLATE.name, self._tmp.name)
         mock.patch.object(merge, "run_tests", return_value=None).start()
         mock.patch.object(loop.pass_, "run_pass", return_value=({}, "")).start()
+        self.notes = {}
+
+    def recorded_notes(self):
+        self.rules = [{"match": "issue view %d " % number, **test_loop.out({
+            "title": "Piece", "body": "", "comments": [{"body":
+                "## Built\n\nFinished.\n\nDeviations: %s\n\nMerged as abc.\n" % text}]})}
+                      for number, text in self.notes.items()] + self.rules
 
     def plan(self, text):
         """Put PLAN.md on main and the loop branch, as a project that already has one."""
@@ -33,6 +40,7 @@ class Decisions(test_loop.Base):
 
     def drain_body(self, prs=()):
         self.world([], prs=prs)
+        self.recorded_notes()
         self.run_loop()
         found = [i for c, i in self.inputs if c.startswith(("pr create", "pr edit"))]
         self.assertTrue(found)
@@ -46,6 +54,7 @@ class Decisions(test_loop.Base):
         self.plan(HEAD + "\n" + OLD + TAIL)
         self.land()
         self.commit("loop/main", "PLAN.md", HEAD + "\n" + OLD + NEW + TAIL, "Issue 2")
+        self.notes[2] = NEW
         section = self.section(self.drain_body())
         self.assertIn(NEW.strip(), section)
         self.assertNotIn(OLD.strip(), section)
@@ -82,6 +91,8 @@ class Decisions(test_loop.Base):
         self.extra = [{"match": "pr view 9", **test_loop.out({"body": old})}]
         self.world([], prs=[pr])
         self.rules = self.extra + self.rules
+        self.notes[2], self.notes[3] = NEW, NEWER
+        self.recorded_notes()
         self.run_loop()
         body = [i for c, i in self.inputs if c.startswith("pr edit")][-1]
         section = self.section(body)
