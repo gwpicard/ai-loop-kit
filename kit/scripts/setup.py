@@ -8,11 +8,6 @@ LABELS = {"inbox": "ededed", "shaping": "fbca04", "ready": "0e8a16",
 SECTION = '{"Test command": "<the command that runs your tests>"}'
 
 
-RUNTIME = {"loop.out", "loop.pid", "pass.json", "builds", "merge.lock", "stop", "kit-version",
-           "migrations.log", "migrations", "logs", "events.jsonl", "summary.json", "pass",
-           "paused", "pauses", "v1"}
-
-
 def change(project, what, undo, apply, dry_run=False):
     print(("would change: " if dry_run else "change: ") + what, flush=True)
     if dry_run:
@@ -29,9 +24,9 @@ def tidy(project, dry_run=False):
     """Refuse legacy runtime layouts and explain the intermediate upgrade."""
     loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
     names = os.listdir(loop) if os.path.isdir(loop) else []
-    if os.path.exists(lite) or any(name.removesuffix(".lite") not in RUNTIME and not name.startswith(
-            ("passed-", "stop-", "session-", "history-")) for name in names):
-        return [], ("refused: this project has a .lite/ folder or unrecognised runtime files in .loop/\n"
+    if os.path.exists(lite) or set(names) & {"run.lock", "heartbeat", "dashboard.html", "dashboard.json",
+            "preferences.json", "summary.md", "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}:
+        return [], ("refused: this project has a .lite/ folder or kit 1.x files in .loop/\n"
                     "next: install kit 2.2.0, run its setup, then update to this version.\n"
                     "After kit 2.2.0 setup succeeds, stop any running loop and move any remaining .lite/ folder, "
                     "with all its contents, to an unused backup path outside this project before updating.")

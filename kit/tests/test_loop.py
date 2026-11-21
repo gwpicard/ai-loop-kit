@@ -100,6 +100,26 @@ class Base(unittest.TestCase):
 
 
 class LoopTest(Base):
+    def test_command_allows_unknown_runtime_files_before_reading_settings(self):
+        from pathlib import Path
+        from kit.tests.test_setup_legacy_refusal import KIT, snapshot
+        work, _ = make_repo(self._tmp.name, {"README.md": "Project\n"})
+        for name in ("notes.md", "fake.json", "fake.log", "merged/result",
+                     "history-piece.md", "passed-session", "stop-session", "heartbeat.notes"):
+            path = Path(work, ".loop", name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name + "\n")
+        before = snapshot(work)
+        result = subprocess.run([str(KIT / "bin/loop"), "run"], cwd=work,
+                                capture_output=True, text=True, timeout=30)
+        text = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, text)
+        self.assertIn("loop.json: missing file", text)
+        self.assertNotIn("install kit 2.2.0", text)
+        after = snapshot(work)
+        for name, content in before.items():
+            self.assertEqual(after[name], content)
+
     def test_command_refuses_legacy_layouts_before_reading_json_or_checking_codex(self):
         from kit.tests.test_setup_legacy_refusal import KIT, LITE, V1, snapshot
         for files in (*LITE, *V1):

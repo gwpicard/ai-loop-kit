@@ -187,6 +187,21 @@ class SetupTest(FakeGh):
                 self.assertEqual(self.snapshot(self.work), before)
                 path.unlink()
 
+    def test_setup_preserves_unknown_runtime_files_and_folders(self):
+        self.repo()
+        self.fresh()
+        files = ("notes.md", "fake.json", "fake.log", "merged/result",
+                 "history-piece.md", "passed-session", "stop-session", "heartbeat.notes")
+        for name in files:
+            path = pathlib.Path(self.work, ".loop", name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name + "\n")
+        result = subprocess.run([sys.executable, setup.__file__, self.work],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for name in files:
+            self.assertEqual(pathlib.Path(self.work, ".loop", name).read_text(), name + "\n")
+
 
 class MissingCodexSetupTest(FakeCodexCheck):
     def test_setup_without_codex_preserves_the_test_memory_pressure_command(self):

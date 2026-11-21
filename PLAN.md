@@ -96,6 +96,7 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- Unknown `.loop/` names are not legacy markers: projects and test fixtures keep their own files there. Refuse only the explicit kit 1.x names or `.lite/`.
 - A reload test that replaces builds with fake workers cannot prove retention reaches sessions, hooks and merge checks. Exercise a real build after damaging each settings file, both serially and in a worker.
 - JSON accepts whole numbers such as 3.0; normalise count settings to integers before passing Max rounds to range.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
@@ -127,6 +128,15 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Legacy refusal correction: the person's latest instruction supersedes the
+  earlier decision to refuse unknown `.loop/` names. Recognise only the
+  former kit 1.x names and `.lite/`, removing the current-runtime allowlist.
+  Retain those names solely as refusal markers, without restoring their
+  migrations. Command regressions cover setup preserving unknown files and
+  folders, and `loop run` reaching settings validation with those files intact.
+  All 120 targeted tests pass with process inspection available. Keep the
+  full Test command reserved for merge, as the earlier builder notes require.
 
 - Legacy migration merge failure: the log retains only the final failure
   line, so the exact failing assertion is unknown. Reproduced a setup
