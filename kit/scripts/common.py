@@ -368,6 +368,12 @@ def has_write(user):
     return perm.get("permission") in ("write", "admin")
 
 
+def issue_kind(body):
+    """Read the issue's Kind line; missing or unknown kinds mean build."""
+    match = re.search(r"^[ \t]*Kind:[ \t]*([^\r\n]*)", body or "", re.I | re.M)
+    return "parallel" if match and match.group(1).strip().lower() == "parallel" else "build"
+
+
 def depends_on(body):
     """Issue numbers named on `Depends on: #a, #b` lines."""
     numbers = []
