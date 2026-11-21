@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.0 (21 November 2026)
+
+Loop settings move from `## Loop` in `AGENTS.md` into a committed `loop.json`
+with an optional git-ignored `loop.local.json`, and `PLAN.md` is no longer
+part of the kit. Setup moves the settings, keeps the contents of `PLAN.md` in
+an inbox issue for you to place, renames the permissions section of open
+issues, and refuses kit 1.x and `.lite/` layouts with upgrade advice. With a
+`Test files command` set, builder test changes are checked with the non-test
+changes reverted before review, the squash commit
+can carry a sign-off or agent co-author lines, and setup warns when standing
+instructions exceed 1,500 words. Every project needs one setup run. See
+[the 3.0.0 release notes](docs/release-notes/v3.0.0.md).
+
 ## 2.2.2 (21 November 2026)
 
 The loop holds the drain while a chain of issues waits on a recent park, a yes

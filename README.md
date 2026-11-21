@@ -10,7 +10,7 @@ The loop never asks for input. It parks an issue for a product choice or a
 decision reserved for a person by the kit's stops or `AGENTS.md`, and carries
 on with the rest.
 
-Version 2.2.2. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
+Version 3.0.0. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
 The full settings reference is in [kit/README.md](kit/README.md).
 
 ## Install
@@ -23,18 +23,18 @@ You need `git`, `gh` signed in to GitHub, Claude Code and `python3`
 
 ## Set up a project
 
-Put this in the project's `AGENTS.md`:
+Put this in `loop.json` at the project root, and commit it:
 
-    ## Loop
-    Test command: <the command that runs your tests>
+    {"Test command": "<the command that runs your tests>"}
 
-Then ask Claude to set up the loop. The setup skill proposes these lines from
-your project if they are missing, and asks you to confirm. Setup creates the
+Then ask Claude to set up the loop. The setup skill proposes the file from
+your project if it is missing, and asks you to confirm. Setup creates the
 labels, the loop branch (`loop/main` by default), a pinned `Factory` issue
 that serves as the board, and a `.loop/` line in `.gitignore` for you to
 commit. It runs your Test command on a fresh copy of the loop branch. Running
-it again is safe. Optional keys, such as `Parallel`, `Protected paths` and
-`Check command`, are listed in the reference.
+it again is safe. Optional keys, such as `Protected paths` and `Check command`, are listed in
+the reference; `Parallel` and `Idle hours` for one machine go in the
+git-ignored `loop.local.json`.
 
 ## Shape
 
