@@ -194,6 +194,15 @@ def missing(project, settings):
 def setup(project=".", dry_run=False):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
+    counts = {}
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        path = pathlib.Path(project, name)
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        counts[name] = sum(len(line.split()) for line in lines
+                           if not (name == "CLAUDE.md" and line.strip() == "@AGENTS.md"))
+    if sum(counts.values()) > 1500:
+        say("warning: standing instructions exceed the 1,500-word budget: " +
+            "; ".join("%s: %s words" % (name, format(count, ",")) for name, count in counts.items()))
     old = common.kit_version_refusal(project)
     if old:
         say(old)
