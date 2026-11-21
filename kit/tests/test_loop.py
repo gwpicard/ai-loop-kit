@@ -100,6 +100,48 @@ class Base(unittest.TestCase):
 
 
 class LoopTest(Base):
+    def test_command_allows_unknown_runtime_files_before_reading_settings(self):
+        from pathlib import Path
+        from kit.tests.test_setup_legacy_refusal import KIT, snapshot
+        work, _ = make_repo(self._tmp.name, {"README.md": "Project\n"})
+        for name in ("notes.md", "fake.json", "fake.log", "merged/result",
+                     "history-piece.md", "passed-session", "stop-session", "heartbeat.notes"):
+            path = Path(work, ".loop", name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name + "\n")
+        before = snapshot(work)
+        result = subprocess.run([str(KIT / "bin/loop"), "run"], cwd=work,
+                                capture_output=True, text=True, timeout=30)
+        text = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, text)
+        self.assertIn("loop.json: missing file", text)
+        self.assertNotIn("install kit 2.2.0", text)
+        after = snapshot(work)
+        for name, content in before.items():
+            self.assertEqual(after[name], content)
+
+    def test_command_refuses_legacy_layouts_before_reading_json_or_checking_codex(self):
+        from kit.tests.test_setup_legacy_refusal import KIT, LITE, V1, snapshot
+        for files in (*LITE, *V1):
+            with self.subTest(files=files):
+                work, _ = make_repo(self._tmp.name, {"AGENTS.md": AGENTS + "Builder: codex missing-model\n"})
+                for name, content in files.items():
+                    path = os.path.join(work, name)
+                    if content is None:
+                        os.makedirs(path, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        with open(path, "w") as f:
+                            f.write(content)
+                before = snapshot(work)
+                result = subprocess.run([str(KIT / "bin/loop"), "run"], cwd=work,
+                                        capture_output=True, text=True, timeout=30)
+                text = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 1, text)
+                self.assertIn("install kit 2.2.0, run its setup, then update to this version", text)
+                self.assertNotIn("loop.json: missing file", text)
+                self.assertEqual(snapshot(work), before)
+
     def test_disk_full_waits_without_spending_a_crash_attempt(self):
         os.makedirs(self.work, exist_ok=True)
         results = [flow.Result("failed", "No space left on device"),
@@ -157,7 +199,7 @@ class LoopTest(Base):
         with open(os.path.join(self.work, ".lite", "loop.pid"), "w") as f:
             f.write(str(os.getppid()))
         self.assertEqual(self.run_loop(), 1)
-        self.assertIn("running from .lite/", self.say.call_args[0][0])
+        self.assertIn("install kit 2.2.0, run its setup, then update to this version", self.say.call_args[0][0])
         self.assertFalse(os.path.exists(self.pid_file()))
         self.assertEqual(self.calls, [])
 

@@ -52,7 +52,10 @@ class FakeCodexCheck(FakeCodexGh):
         """Hide every `codex` on the machine: PATH holds only the fakes and the tools the kit needs."""
         tools = os.path.join(self.tmp, "tools")
         os.makedirs(tools, exist_ok=True)
-        found = [("python3", sys.executable)] + [(n, shutil.which(n, path=os.defpath + ":/usr/sbin:/sbin")) for n in TOOLS]
+        # Keep the test runner's memory-pressure stub when hiding Codex.
+        found = [("python3", sys.executable)] + [
+            (n, shutil.which(n, path=None if n == "sysctl" else os.defpath + ":/usr/sbin:/sbin"))
+            for n in TOOLS]
         for name, path in found:
             if path and not os.path.exists(os.path.join(tools, name)):
                 os.symlink(path, os.path.join(tools, name))

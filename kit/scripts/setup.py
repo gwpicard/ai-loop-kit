@@ -8,21 +8,6 @@ LABELS = {"inbox": "ededed", "shaping": "fbca04", "ready": "0e8a16",
 SECTION = '{"Test command": "<the command that runs your tests>"}'
 
 
-V1 = {"run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json", "summary.md",
-      "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}  # files only kit 1.x kept in .loop/
-OURS = {"loop.out", "loop.pid", "pass.json", "builds", "merge.lock", "stop", "kit-version", "migrations.log"}  # never moved into .loop/v1/
-
-
-def alive(path):
-    try:
-        with open(path) as f:
-            pid = int(f.read().strip())
-        os.kill(pid, 0)
-        return pid
-    except (OSError, ValueError):
-        return None
-
-
 def change(project, what, undo, apply, dry_run=False):
     print(("would change: " if dry_run else "change: ") + what, flush=True)
     if dry_run:
@@ -36,49 +21,16 @@ def change(project, what, undo, apply, dry_run=False):
 
 
 def tidy(project, dry_run=False):
-    """Move older runtime files without overwriting or deleting anything."""
+    """Refuse legacy runtime layouts and explain the intermediate upgrade."""
     loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
-    if alive(os.path.join(loop, "loop.pid")):
-        return [], None
-    pid = alive(os.path.join(lite, "loop.pid"))
-    if pid:
-        return [], "refused: a loop of kit 2.0.0 is running from .lite/ (pid %d)\nnext: stop it, then start again" % pid
-    moved, sources = [], set()
-
-    def exists(path):
-        return os.path.exists(path) and path not in sources
-
-    def move(old, new, what):
-        def apply():
-            os.makedirs(os.path.dirname(new), exist_ok=True)
-            os.rename(old, new)
-        change(project, what, "move %s to %s" % (os.path.relpath(new, project), os.path.relpath(old, project)),
-               apply, dry_run)
-        sources.add(old)
-        moved.append(what)
-
-    try:
-        names = sorted(os.listdir(loop)) if os.path.isdir(loop) else []
-        if V1 & set(names):
-            for name in names:
-                if name != "v1" and name not in OURS and not name.startswith(("passed-", "stop-")) \
-                        and not os.path.exists(os.path.join(loop, "v1", name)):
-                    move(os.path.join(loop, name), os.path.join(loop, "v1", name),
-                         ".loop/%s to .loop/v1/" % name)
-        for name in sorted(os.listdir(lite)) if os.path.isdir(lite) else ():
-            old, new = os.path.join(lite, name), os.path.join(loop, name)
-            if os.path.isfile(old) and exists(new) and not exists(new + ".lite"):
-                new += ".lite"
-            if not exists(new):
-                move(old, new, ".lite/%s to .loop/%s" % (name, os.path.basename(new) if new.endswith(".lite") else ""))
-            elif os.path.isdir(old) and os.path.isdir(new):
-                for child in sorted(os.listdir(old)):
-                    if not exists(os.path.join(new, child)):
-                        move(os.path.join(old, child), os.path.join(new, child),
-                             ".lite/%s/%s to .loop/%s/%s" % (name, child, name, child))
-    except OSError as e:
-        return moved, "refused: the runtime files could not be moved into .loop/: %s\nnext: move them by hand, then start again" % e
-    return moved, None
+    names = os.listdir(loop) if os.path.isdir(loop) else []
+    if os.path.exists(lite) or set(names) & {"run.lock", "heartbeat", "dashboard.html", "dashboard.json",
+            "preferences.json", "summary.md", "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}:
+        return [], ("refused: this project has a .lite/ folder or kit 1.x files in .loop/\n"
+                    "next: install kit 2.2.0, run its setup, then update to this version.\n"
+                    "After kit 2.2.0 setup succeeds, stop any running loop and move any remaining .lite/ folder, "
+                    "with all its contents, to an unused backup path outside this project before updating.")
+    return [], None
 
 
 def migrate_220(project, dry_run):
@@ -246,13 +198,10 @@ def setup(project=".", dry_run=False):
     if old:
         say(old)
         return 1
-    moved, refusal = tidy(project, dry_run)
+    _, refusal = tidy(project, dry_run)
     if refusal:
         say(refusal)
         return 1
-    if moved:
-        say("runtime folder: " + ("would move " if dry_run else "moved ") + "; ".join(moved))
-    changes.extend(moved)
     for version, migrate in MIGRATIONS:
         if migrate(project, dry_run):
             changes.append("migration " + version)

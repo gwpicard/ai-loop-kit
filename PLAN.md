@@ -96,6 +96,7 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- Unknown `.loop/` names are not legacy markers: projects and test fixtures keep their own files there. Refuse only the explicit kit 1.x names or `.lite/`.
 - A reload test that replaces builds with fake workers cannot prove retention reaches sessions, hooks and merge checks. Exercise a real build after damaging each settings file, both serially and in a worker.
 - JSON accepts whole numbers such as 3.0; normalise count settings to integers before passing Max rounds to range.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
@@ -109,6 +110,8 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
 - A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
 - The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
+- When hiding Codex, preserve the test runner's sysctl stub; replacing it with the host command can make setup preflight wait on real memory pressure.
+- Released kit 2.2.0 leaves `.lite/` behind, sometimes with colliding files; preserve the whole residual folder outside the project after migration rather than deleting it.
 
 ## Standing approvals
 
@@ -125,6 +128,51 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Legacy refusal correction: the person's latest instruction supersedes the
+  earlier decision to refuse unknown `.loop/` names. Recognise only the
+  former kit 1.x names and `.lite/`, removing the current-runtime allowlist.
+  Retain those names solely as refusal markers, without restoring their
+  migrations. Command regressions cover setup preserving unknown files and
+  folders, and `loop run` reaching settings validation with those files intact.
+  All 120 targeted tests pass with process inspection available. Keep the
+  full Test command reserved for merge, as the earlier builder notes require.
+
+- Legacy migration merge failure: the log retains only the final failure
+  line, so the exact failing assertion is unknown. Reproduced a setup
+  timeout through the command with the missing-Codex fixture: it discarded
+  the runner's memory-pressure stub when rebuilding PATH. Preserve the
+  selected sysctl command while keeping Codex hidden. Add a setup-command
+  regression that records the stub being read. Run the affected fixture,
+  setup and loop tests; the full suite remains reserved for merge.
+
+- Legacy upgrade review: retain the required `.lite/` refusal and explain
+  that, after kit 2.2.0 setup succeeds and its loop is stopped, the person
+  moves the whole residual folder to an unused backup path outside the
+  project before updating. Test the released migration from the local
+  `v2.2.0` tag, including colliding logs, then run current setup after that
+  move and check the backup. Check legacy layouts at the `loop run` entry
+  point before settings, Codex checks or version recording. Cover both
+  legacy layouts with settings still in `AGENTS.md` and no `loop.json`.
+
+- Legacy migration removal: recognise current runtime names and session or
+  history prefixes instead of retaining the kit 1.x file list. Unknown names
+  directly under `.loop/` also require the intermediate upgrade; archived
+  files under `.loop/v1/` and `.lite` copies of current files left by the
+  intermediate migration remain valid. Keep `tidy`'s return shape for its
+  existing callers and check it before `loop run` reads settings, so it
+  refuses before reporting missing settings or a missing branch. Remove obsolete move tests and
+  retain coverage of the 2.2.0 and 3.0.0 migrations. The full Test command is
+  reserved for merge by the builder guard; run targeted checks here.
+  Stop the broader Codex fixture check when it waits on host memory pressure;
+  leave that unrelated fixture unchanged and run the migration checks separately.
+
+- Legacy migration tests: add a separate acceptance module because existing
+  tests stay locked for the test writer. Exercise setup and `loop run` as
+  commands, with empty and populated `.lite/` folders and varied kit 1.x
+  markers. Require the intermediate-upgrade advice before the ordinary
+  missing-loop-branch advice. Existing tests cover the retained migrations;
+  the builder must remove the obsolete move assertions and the old file list.
 
 - Protected paths heading: update the loop's park-reply writer as well as
   the named consumers, so an approval uses the section merge reads. Rename
