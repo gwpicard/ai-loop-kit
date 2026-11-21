@@ -42,6 +42,11 @@ code and never merges.
    criteria, how an agent checks it, a `## Protected paths this issue may change`
    section (normally `none`), `Depends on: #a, #b`, and a milestone. A path
    named anywhere else in the issue body grants nothing.
+   Add `Kind: build` for implementation, or `Kind: parallel` for work that
+   cannot conflict with builds, such as documentation or research. The loop
+   runs at most one parallel issue beside the builds, without taking a
+   `Parallel` slot. Both kinds wait for dependencies, and additional workers
+   wait for load and memory headroom. A missing or unknown kind means `build`.
 8. Create each issue with `gh issue create --label shaping --milestone
    <name>`, dependencies first. Then write `Depends on: #n` with the real
    numbers into the dependants. Show every issue in full. Ask for one yes
