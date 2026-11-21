@@ -26,15 +26,17 @@ project root.
 2. Tell the person what setup changes on GitHub (the loop labels, the loop
    branch, a pinned `Factory` issue) and ask the person to confirm before you
    run it.
-3. Run `python3 <plugin>/scripts/setup.py`. It also moves old runtime files
-   into `.loop/`: the files of kit 1.x into `.loop/v1/`, and the `.lite/`
-   folder of kit 2.0.0. It refuses while a loop of kit 2.0.0 is still running
-   from `.lite/`.
+3. Run `python3 <plugin>/scripts/setup.py`, with `--dry-run` first on a
+   project set up by an older kit. On such a project it moves the `## Loop`
+   settings from `AGENTS.md` into `loop.json`, files one inbox issue that
+   proposes a home for each section of the old plan file, renames the path section in
+   open issues, and records each change and its undo in
+   `.loop/migrations.log`. It refuses a kit 1.x or `.lite/` layout and prints
+   the upgrade steps.
 4. Report each line it prints. On `refused:`, do the `next:` step and run it
    again. If the preflight fails, report the failure and stop. If it added
    settings or ignore lines, tell the person to commit `loop.json`, any
-   migrated removal from `AGENTS.md`, and the added `.gitignore` lines. A
-   leftover `.lite/` line can be removed in the same commit.
+   migrated removal from `AGENTS.md`, and the added `.gitignore` lines.
 5. Suggest the optional settings that fit: `"Parallel": 3` in the git-ignored
    `loop.local.json` on a machine with
    spare CPU and memory and a queue of independent issues; a `Smoke command`
