@@ -206,18 +206,18 @@ def parked_test_path(park):
 
 
 def grant_path(i, path, protected):
-    """Add `path` to the issue's `## Paths the builder may change`."""
+    """Add `path` to the issue's `## Protected paths this issue may change`."""
     body = i.get("body") or ""
     if merge.stop_reason(path, protected) or ".." in path.split("/") or path.startswith("/"):
         return  # a protected path is never granted by a reply
     if path in merge.allowed_paths(body):
         return
-    m = re.search(r"^(## Paths the builder may change[^\n]*\n)(.*?)(?=^## |\Z)", body, re.S | re.M | re.I)
+    m = re.search(r"^(## Protected paths this issue may change[^\n]*\n)(.*?)(?=^## |\Z)", body, re.S | re.M | re.I)
     if m:
         keep = [l for l in m.group(2).splitlines() if l.strip().strip("-* `").lower() not in ("", "none")]
         body = body[:m.start()] + m.group(1) + "\n" + "\n".join(keep + [path]) + "\n\n" + body[m.end():]
     else:
-        body = body.rstrip("\n") + "\n\n## Paths the builder may change\n\n" + path + "\n"
+        body = body.rstrip("\n") + "\n\n## Protected paths this issue may change\n\n" + path + "\n"
     gh(["issue", "edit", str(i["number"]), "--body-file", "-"], input=body)
     i["body"] = body
 

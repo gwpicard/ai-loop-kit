@@ -66,7 +66,7 @@ The optional, git-ignored `loop.local.json` accepts only `Parallel` and
 at the start of every cycle. If either cannot be read or validated, it keeps
 the previous settings and logs the error without repeating an unchanged
 error. Both settings files are protected paths by default; changing them in
-a piece requires naming the file under `## Paths the builder may change`.
+a piece requires naming the file under `## Protected paths this issue may change`.
 
 Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
 runs under the same rules as a Claude one: the guard and the stop check are
@@ -143,7 +143,7 @@ the top of the final pull request body.
 
 A park that names exactly one test path and asks whether to change it needs
 only a reply of "yes" from a collaborator: the loop adds that path to the
-issue's `## Paths the builder may change` and requeues it. A reply that does
+issue's `## Protected paths this issue may change` and requeues it. A reply that does
 not clearly agree, or the loop's own comment, grants nothing. The reviewer may
 write scratch files in the system temp folder, never inside the project.
 
@@ -178,6 +178,11 @@ Setup also migrates an existing `## Loop` section from `AGENTS.md` into
 `loop.json`, removes the section and ignores `loop.local.json`. It records
 each change and its undo in `.loop/migrations.log`; `--dry-run` previews
 the changes without applying them. Running it again is safe.
+
+Setup also renames the protected-paths section in open issues. It saves each
+original body under `.loop/migrations/` and records the rename and an undo
+command in `.loop/migrations.log`. A dry run lists the issues without editing
+them.
 
 When the project has a `PLAN.md`, setup files one inbox issue titled
 "Find a home for the contents of PLAN.md". It preserves each non-empty
@@ -296,7 +301,7 @@ the worktrees and issue branches left. Outside services are on the stops list.
   fresh checkout). Conflicts go back to the builder and a fresh review.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test, unless the issue
-  lists it in its `## Paths the builder may change` section; a path named
+  lists it in its `## Protected paths this issue may change` section; a path named
   elsewhere grants nothing. The test writer's tests are locked the same way.
 - An issue is built only if a collaborator with write access added `ready`.
 - The loop never merges into the default branch; it only opens a pull

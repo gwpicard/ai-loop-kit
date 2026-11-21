@@ -255,10 +255,10 @@ class LoopTest(Base):
         self.assertEqual(self.built, [(4, ["Yes, go ahead."])])
 
     def test_the_path_joins_an_existing_paths_section(self):
-        edits = self.agree("yes", body="Do it.\n\n## Paths the builder may change\n\nsrc/a.py\n\n## Notes\n\nx\n")
+        edits = self.agree("yes", body="Do it.\n\n## Protected paths this issue may change\n\nsrc/a.py\n\n## Notes\n\nx\n")
         self.assertEqual(merge.allowed_paths(edits[0]), {"src/a.py", "tests/test_x.py"})
         self.assertIn("## Notes", edits[0])
-        edits = self.agree("yes", body="## Paths the builder may change\n\nnone\n")
+        edits = self.agree("yes", body="## Protected paths this issue may change\n\nnone\n")
         self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py"})
 
     def test_a_reply_that_does_not_clearly_agree_adds_nothing(self):

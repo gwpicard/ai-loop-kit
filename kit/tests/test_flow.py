@@ -490,7 +490,7 @@ class FlowTest(FakeClaudeGh):
             self.assertIn(text, brief)
 
     def test_the_builder_may_change_the_test_paths_the_issue_names_but_never_protected_ones(self):
-        self.issue_view(body="Do it.\n\n## Paths the builder may change\n\ntests/test_new.py\n.claude/tests/test_z.py\n")
+        self.issue_view(body="Do it.\n\n## Protected paths this issue may change\n\ntests/test_new.py\n.claude/tests/test_z.py\n")
         self.build_scenario()
         self.build()
         env = self.claude_calls()[1]["env"]

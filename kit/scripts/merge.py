@@ -97,11 +97,11 @@ def locked_baseline(comments):
 
 
 def allowed_paths(body):
-    """Paths listed under the issue's `## Paths the builder may change`."""
+    """Paths listed under the issue's `## Protected paths this issue may change`."""
     body = body.replace("\r\n", "\n")
     body = re.sub(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", "", body,
                   flags=re.S | re.M)  # fenced content grants nothing
-    m = re.search(r"^## Paths the builder may change[^\n]*\n(.*?)(?=^## |\Z)",
+    m = re.search(r"^## Protected paths this issue may change[^\n]*\n(.*?)(?=^## |\Z)",
                   body, re.S | re.M | re.I)
     return {p.removeprefix("./") for p in _items(m.group(1) if m else "")
             if p.lower() not in ("", "none")}

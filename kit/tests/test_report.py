@@ -29,7 +29,7 @@ class ReportTest(FakeGh):
         self.folder = Path(self.work, '.loop')
         self.folder.mkdir()
         self.scenario([{'match': 'issue view 8', 'responses': [{'stdout': json.dumps({
-            'title': 'Load the list', 'body': '## Paths the builder may change\n\n`tests/test_old.py`\n',
+            'title': 'Load the list', 'body': '## Protected paths this issue may change\n\n`tests/test_old.py`\n',
             'comments': [{'body': '## Built\n\nLoad without waiting. More detail.\n\nDeviations: Kept the cache.\n\nMerged as abc.\n'}]})}]},
             {'match': 'issue view 9', 'responses': [{'code': 1, 'stderr': 'unavailable'}]}])
 

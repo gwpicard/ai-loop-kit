@@ -102,12 +102,13 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
 - The test runner drops inherited `LOOP_PROJECT` before starting test processes, so disk checks and events use each fixture. Unsetting it only in a manual command leaves the Stop hook exposed to the same failure.
 - Reviewer prompts include the whole brief; keep the literal revert result prefix out of its explanatory prose so a skipped check has no result line.
-- Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
+- Protected paths this issue may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
 - Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
 - A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
 - The test-lock hook refuses edits to existing tests even when the issue allows them; write judging tests in a new file when instructed to continue.
 - The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
 - A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
+- The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
 
 ## Standing approvals
 
@@ -124,6 +125,15 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Protected paths heading: update the loop's park-reply writer as well as
+  the named consumers, so an approval uses the section merge reads. Rename
+  only heading lines in setup and save each original body before editing,
+  retaining line endings and a separate backup for each attempt. Refuse a
+  possibly truncated open-issue list before editing any body. Update the
+  authorised existing test fixtures to use the new heading; leave the test
+  writer's locked acceptance module unchanged. Use targeted checks here;
+  the builder guard reserves the full Test command for merge.
 
 - Protected paths heading tests: add a new test module because existing tests
   stay locked. Exercise setup through its command with a fake GitHub that

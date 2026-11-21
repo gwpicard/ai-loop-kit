@@ -328,7 +328,7 @@ class JsonMergeTest(FakeGh):
                     sha = common.git(["rev-parse", "HEAD"], cwd=work)
                     body = "Change concurrency.\n"
                     if allowed:
-                        body += "\n## Paths the builder may change\n\n" + filename + "\n"
+                        body += "\n## Protected paths this issue may change\n\n" + filename + "\n"
                     self.scenario([
                         rule("issue view 1 --json body", json.dumps({"body": body, "comments": []})),
                         rule("pr list", json.dumps([{"number": 7, "state": "MERGED", "headRefOid": sha,

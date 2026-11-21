@@ -265,7 +265,7 @@ class MergeTest(FakeGh):
     def test_named_path_allowed(self):
         sha = self.branch({".github/workflows/ci.yml": "x\n",
                            "tests/test_old.py": "changed\n"})
-        issue = {"body": "Why.\n\n## Paths the builder may change\n"
+        issue = {"body": "Why.\n\n## Protected paths this issue may change\n"
                  "- `.github/workflows/ci.yml`\ntests/test_old.py\n\n## Notes\n",
                  "comments": []}
         self.rules(sha, [None, "OPEN", "MERGED"], issue=issue)
@@ -275,18 +275,18 @@ class MergeTest(FakeGh):
     def test_path_named_elsewhere_grants_nothing(self):
         sha = self.branch({".github/workflows/ci.yml": "x\n"})
         issue = {"body": "Change .github/workflows/ci.yml please.\n\n"
-                 "## Paths the builder may change\nnone\n", "comments": []}
+                 "## Protected paths this issue may change\nnone\n", "comments": []}
         self.assert_parked(sha, "workflow", issue)
 
     def test_allowed_paths_parsing(self):
-        self.assertEqual(merge.allowed_paths("a\n## Paths the builder may change\n"
+        self.assertEqual(merge.allowed_paths("a\n## Protected paths this issue may change\n"
                                              "`x/y`\n* z\n## Next\nq\n"), {"x/y", "z"})
-        self.assertEqual(merge.allowed_paths("## Paths the builder may change\nNone"), set())
+        self.assertEqual(merge.allowed_paths("## Protected paths this issue may change\nNone"), set())
         self.assertEqual(merge.allowed_paths("x.py in the text"), set())
         for fence in ("```", "````", "~~~"):
-            body = "## Paths the builder may change\nok.py\n\n%s\n## Paths the builder may change\nevil.py\n%s\n" % (fence, fence)
+            body = "## Protected paths this issue may change\nok.py\n\n%s\n## Protected paths this issue may change\nevil.py\n%s\n" % (fence, fence)
             self.assertEqual(merge.allowed_paths(body), {"ok.py"})
-            self.assertEqual(merge.allowed_paths("x\n%s\n## Paths the builder may change\nevil.py\n" % fence), set())
+            self.assertEqual(merge.allowed_paths("x\n%s\n## Protected paths this issue may change\nevil.py\n" % fence), set())
 
     def test_pr_exists_no_second_create(self):
         sha = self.good()
