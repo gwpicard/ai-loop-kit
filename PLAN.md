@@ -124,6 +124,26 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Squash settings: use the build's validated settings snapshot for both
+  trailer options. Remove existing copies of the project's sign-off before
+  appending it once at the end, keeping other contributors' sign-offs.
+  Compare sign-offs case-insensitively and ignore surrounding whitespace,
+  so differences in the trailer label's capitalisation do not leave
+  duplicates. Both settings default to false and remain excluded from local
+  overrides.
+- Squash settings validation: add a separate test module for invalid boolean
+  values and both options enabled together, leaving the locked tests intact.
+  Run the relevant test modules and house rules in the builder; the full
+  Test command is reserved for merge by the builder guard.
+
+- Squash settings tests: add a new module beside the squash-message tests,
+  reusing their fake GitHub merge fixture because existing tests stay locked.
+  Check both boolean values through `merge.merge` and its recorded `--body`,
+  with varied trailer order and project git identities. Local-file validation
+  already refuses both keys; the existing JSON test checks every key added to
+  the defaults and requires the file and key in the diagnostic. Default
+  attribution removal already passes.
+
 - Settings in JSON, resumed validation: retain the implementation approved by the latest review, with no further runtime changes. All 478 tests in the 31 changed test modules, including the locked acceptance tests and build-retention regressions, pass with process inspection available. House rules pass too.
 
 - Settings in JSON, merge resolution: keep both the settings decisions and the incoming Spotlight README notes. Their additions to Deviations are independent; the README paragraph and its tests remain intact.
