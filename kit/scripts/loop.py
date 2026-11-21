@@ -340,7 +340,7 @@ def worker_command(project, number, replies, previous=0):
 def start_builds(project, settings, st):
     """Fill `Parallel` build slots and one extra parallel slot while the machine has headroom.
     The first worker always starts; further workers wait on load and memory."""
-    kinds = {i["number"]: common.issue_kind(i["body"]) for i in st["issues"]}
+    kinds = {i["number"]: common.issue_kind(i.get("body")) for i in st["issues"]}
     while True:
         running = [kinds.get(n, "build") for n in st["building"]]
         available = {kind for kind, cap in (("build", settings["Parallel"]), ("parallel", 1))
