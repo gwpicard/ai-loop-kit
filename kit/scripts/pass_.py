@@ -100,7 +100,7 @@ def run_pass(project, settings, since_ref):
     # run the pass on origin/<loop branch>; return (report dict, Markdown report)
     project = os.path.abspath(project)
     r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0)
-    with common.timed("pass", project) as end:
+    with common.settings_environment(settings), common.timed("pass", project) as end:
         try:
             with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
                 _pass(project, settings, since_ref, tree, r)

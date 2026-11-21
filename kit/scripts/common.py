@@ -171,6 +171,26 @@ def setting_lines(text):
 
 NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots"}
+_BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
+
+
+@contextlib.contextmanager
+def settings_environment(settings):
+    """Keep one validated configuration for a build and its subprocesses."""
+    token = _BUILD_SETTINGS.set(settings)
+    try:
+        yield
+    finally:
+        _BUILD_SETTINGS.reset(token)
+
+
+def build_settings(root="."):
+    settings = _BUILD_SETTINGS.get()
+    if settings is None and os.environ.get("LOOP_BUILD_SETTINGS"):
+        settings = json.loads(os.environ["LOOP_BUILD_SETTINGS"])
+        for role in ROLES:
+            settings[role] = tuple(settings[role])
+    return settings if settings is not None else read_settings(root)
 
 
 def validate_settings(found, filename, local=False):
@@ -404,7 +424,10 @@ _BUILD_TEMP = contextvars.ContextVar("build_temp", default="")
 
 def build_env():
     path = _BUILD_TEMP.get()
-    return dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+    env = dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+    if _BUILD_SETTINGS.get() is not None:
+        env["LOOP_BUILD_SETTINGS"] = json.dumps(_BUILD_SETTINGS.get())
+    return env
 
 
 def record_session(session_id, env):

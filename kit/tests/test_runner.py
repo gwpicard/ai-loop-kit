@@ -28,7 +28,7 @@ class RunnerTest(unittest.TestCase):
     def test_an_enclosing_loop_does_not_redirect_fixture_disk_checks_or_events(self):
         with tempfile.TemporaryDirectory() as project:
             with mock.patch.dict(os.environ, {"LOOP_PROJECT": project}):
-                result = self.run_tests("kit/tests/test_common.py")
+                result = self.run_tests("kit/tests/test_runner_disk_isolation.py")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(Path(project, ".loop").exists())
 

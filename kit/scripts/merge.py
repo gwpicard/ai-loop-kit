@@ -232,7 +232,7 @@ def merge(issue, branch, verdict_text, project="."):
 
 
 def _merge(issue, branch, verdict_text, project):
-    settings = common.read_settings(project)
+    settings = common.build_settings(project)
     loop = settings["Loop branch"]
     verdict, head = parse_verdict(verdict_text)
     if verdict != "APPROVE":
