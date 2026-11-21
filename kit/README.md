@@ -84,6 +84,13 @@ needs (for example `npm ci`); the loop runs it once in each worktree and in
 every fresh checkout, before any test run, so the Test command need not
 embed it.
 
+In a build tree, `<plugin>/bin/loop check` selects the issue's locked tests
+and test files changed since the session's start commit, then runs the Check
+command. It prints one pass line, or the failing command and at most 60 lines
+of its output. Without a Test files command it runs the Test command. With
+a Test files command and no selected files, it skips tests and still runs
+the Check command.
+
 `Check command` is the project's guardrails (lint baseline, size budgets,
 architecture tests). It runs after every Test command run, and a failure
 counts like a test failure. `Smoke command` uses the real built artefact,

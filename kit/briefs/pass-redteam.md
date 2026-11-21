@@ -11,7 +11,7 @@ command (the Test command when none is set), so the file must be one that
 command finds at that path. It must fail now, for the reason you name (an
 assertion, not a syntax or import error), and pass once the defect is fixed.
 
-Run your new tests with the Test files command, replacing `{files}` with
+Run only your candidate tests with the Test files command, replacing `{files}` with
 their paths; use the Test command when none is set. The hook may stop you
 copying them into the project, in which case run them from `.loop/pass/`.
 

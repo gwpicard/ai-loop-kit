@@ -151,7 +151,9 @@ The fails-first step runs the locked tests. The builder's Stop hook runs
 the locked tests and changed test files, then the Check command, and refuses
 completion on failure. Its record identifies the commit and tests run; the
 flow reuses it only for that head, otherwise repeating the targeted checks
-in a fresh checkout. Reviewers run targeted checks and the issue's oracle.
+in a fresh checkout. Builders use `loop check` for the same selection and
+the Check command, with bounded failure output. Reviewers read the Stop
+hook's result and run checks only when a finding needs verification.
 The pass validates candidate failing tests with targeted checks and the
 Check command.
 

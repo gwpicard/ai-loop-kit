@@ -147,7 +147,8 @@ def check_role_command(command, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
     if role in ("builder", "reviewer", "test-writer", "pass") and files and os.environ.get("LOOP_TEST_COMMAND") in [
             s.strip() for s in re.split(r"&&|\|\||[;|\n]", command)]:
-        raise Refuse("full-test", "the full Test command is reserved for merge", "use the Test files command: " + files)
+        raise Refuse("full-test", "the full Test command is reserved for merge",
+                     "use <plugin>/bin/loop check; for selected files, use the Test files command: " + files)
     executable = role_commands(command)
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,

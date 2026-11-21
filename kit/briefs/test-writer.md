@@ -14,7 +14,9 @@ criterion that does not already hold, write one test that fails now and passes
 when the criterion is met. Run the Test files command (named in the prompt, `{files}` replaced by the
 paths of your tests; the Test command when none is named) on them to confirm each
 new test fails by assertion, for the right reason, not by a syntax or import
-error in the test itself. Write no production code. Commit the tests in one commit.
+error in the test itself. Run only your new tests at this step. The builder
+will use `<plugin>/bin/loop check` after implementation; merge runs the full
+suite once. Write no production code. Commit the tests in one commit.
 
 End your reply with this block and nothing after it, one path per line:
 
