@@ -38,4 +38,4 @@ Depends on: #a, #b
 
 ## Notes
 
-Decisions that bind this issue, links to PLAN.md sections, files to start from.
+Decisions that bind this issue, links to standing rules, files to start from.

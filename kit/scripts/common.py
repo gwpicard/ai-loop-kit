@@ -35,6 +35,7 @@ DEFAULTS = {
     "Pass": "claude sonnet",
     "Protected paths": [".github/", ".claude/", ".githooks/", "loop.json", "loop.local.json"],
     "Codex writable roots": [],
+    "Red-team surfaces": [],
     "Idle hours": 12,
     "Max rounds": 3,
     "Session minutes": 45,
@@ -170,7 +171,7 @@ def setting_lines(text):
 
 
 NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes"}
-LIST_SETTINGS = {"Protected paths", "Codex writable roots"}
+LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
 
 

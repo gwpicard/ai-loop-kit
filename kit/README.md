@@ -8,8 +8,8 @@ away. You shape and approve work with Claude. A loop on your computer builds
 each approved issue, has a second session review it and merges it into a
 loop branch. You merge that branch into your default branch yourself.
 
-The loop never asks for input. It parks an issue only for a decision that
-`PLAN.md` reserves for a person.
+The loop never asks for input. It parks an issue for a product choice or a
+decision reserved for a person by the kit's stops or `AGENTS.md`.
 
 ## Install
 
@@ -49,13 +49,17 @@ default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command` and `Parallel` (default 1).
-`Protected paths` and `Codex writable roots` are lists of strings. The four
+`Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings. The four
 numeric settings take JSON numbers; all other settings take strings. Unknown
 keys and values of the wrong type are refused. `Codex writable roots` lists
 further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
 tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM.
+
+`Red-team surfaces` names the parts of the project the end-of-loop pass
+attacks, such as a command, an input format or a screen. The pass uses at
+most four surfaces. With an empty list, it proposes surfaces in an inbox issue.
 
 The optional, git-ignored `loop.local.json` accepts only `Parallel` and
 `Idle hours`, which override `loop.json`. The running loop reloads both files
@@ -175,11 +179,18 @@ Setup also migrates an existing `## Loop` section from `AGENTS.md` into
 each change and its undo in `.loop/migrations.log`; `--dry-run` previews
 the changes without applying them. Running it again is safe.
 
+When the project has a `PLAN.md`, setup files one inbox issue titled
+"Find a home for the contents of PLAN.md". It preserves each non-empty
+section and proposes where it belongs, leaves the file unchanged and
+records the issue in `.loop/migrations.log`. A dry run prints the issue
+without filing it. The kit uses the issue and `AGENTS.md` for instructions;
+it does not read the old plan outside this migration.
+
 ## Shape
 
 Use the shape skill in any session, at any time. It turns inbox issues or an
 idea into issues with acceptance criteria and dependencies, asks one batch
-of questions, records decisions in `PLAN.md` and clears person-only
+of questions, records decisions in the issues and clears person-only
 prerequisites first. On your single yes it labels the issues `ready`.
 
 ## Run
@@ -230,8 +241,8 @@ a temporary worktree and is told not to edit tracked files; the guard hook
 blocks this best-effort.
 
 - Smoke: the `Smoke command`, if set.
-- Drift: the batch diff against `PLAN.md` (decisions, budgets, duplication).
-- Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
+- Drift: the batch diff against `AGENTS.md` (rules, budgets, duplication).
+- Red team: one session per entry in `Red-team surfaces` in `loop.json` (four at
   most). A finding counts only with a test file under `.loop/pass/` at the
   path where it belongs (such as `.loop/pass/tests/test_x.py`). The pass
   copies it there. After Prepare, it must fail the Test files command on that
@@ -250,9 +261,10 @@ A confirmed defect becomes an `inbox` issue with a `## Failing test`
 section. Shape and approve it like any other issue.
 
 A finding that touches an open `inbox` or `needs-user` decision is held,
-never queued. Every other finding, guardrail and lesson goes into one `inbox`
+never queued. Every other finding and guardrail goes into one `inbox`
 issue, a checkbox each; an open `Pass findings` issue gets only what it lacks,
-as a comment. Lessons reach `PLAN.md` through an issue, never a direct commit.
+as a comment. Each lesson becomes a separate inbox issue naming the check or
+`AGENTS.md` line that would prevent it. No lesson is appended to a project file.
 
 The report goes into the pull request body. A pass that fails is noted there
 and never blocks it. `.loop/pass.json` remembers it. After a pass without errors nothing reruns

@@ -144,7 +144,7 @@ class SkillStepTest(unittest.TestCase):
         self.assertLess(text.index("check-version"), text.index(first_marker))
 
     def test_shape_checks_the_version_first(self):
-        self.check("shape", "Read `PLAN.md`")
+        self.check("shape", "Read `AGENTS.md`")
 
     def test_loop_checks_the_version_first(self):
         self.check("loop", "use the setup skill")

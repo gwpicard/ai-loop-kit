@@ -30,7 +30,7 @@ going until the work is done, without the person. Code prepends one shared
 preamble to each role's brief; the guards bound what it can do.
 
 - **Never ask.** No session asks the person anything or waits for an answer.
-  A question becomes a decision: take the choice `PLAN.md` implies, or the
+  A question becomes a decision: take the choice the issue and `AGENTS.md` imply, or the
   closest approach that keeps its rules, record it under Deviations, and
   continue.
 - **Never stop early.** A failed test, a review finding, a crash or a GitHub
@@ -54,7 +54,7 @@ This is the marcdown run, written down, with guards where marcdown was weak.
 
 | Marcdown did | The kit keeps it as |
 | --- | --- |
-| A plan file with binding decisions | `PLAN.md` in the repository, read by every agent |
+| A plan file with binding decisions | Decisions in each issue; standing rules in `AGENTS.md` when every agent needs them and no check can enforce them |
 | Issues with acceptance criteria and `Depends on` | The same, from a template |
 | A coordinator session dispatching builders and reviewers | The same, restarted per issue by a supervisor (see "Stateless") |
 | Sonnet builder, then Sonnet reviewer in its own worktree | The same; every agent works in its own worktree |
@@ -136,10 +136,10 @@ the top of the final pull request body.
 ### Shaping while it runs
 
 You run the shape skill in any session, at any time. It turns `inbox`
-issues or a new idea into shaped issues, adds decisions to `PLAN.md`, asks
+issues or a new idea into shaped issues, records decisions in those issues, asks
 you one batch of questions, and labels the issues `ready` on your yes. The
-loop picks them up at its next poll. `PLAN.md` is a living file: every
-batch adds its decisions, and every builder reads all of them.
+loop picks them up at its next poll. Enforceable rules become checks;
+standing rules needed by every agent belong in `AGENTS.md`.
 
 ### The loop never finishes on its own work
 
@@ -161,8 +161,9 @@ repository. Any run can stop at any moment and the next one carries on.
 - **State is GitHub.** An issue is open (to do), labelled `building` (claimed),
   labelled `needs-user` (parked), or closed (merged into the loop branch).
   `Depends on` lines give the order.
-- **Decisions are `PLAN.md`.** Deviations are appended there by the
-  builder's pull request, so they merge with the code.
+- **Decisions are in issues.** The loop records the builder's DEVIATIONS
+  block in the issue's build note. The final pull request lists those items
+  under `## Decisions to confirm`, with their issue numbers.
 - **The supervisor is `scripts/loop.py`.** It repeats:
   1. Pick the next `ready` issue whose dependencies are closed.
   2. Label it `building` and create a worktree for it.
@@ -189,10 +190,10 @@ the builder's report.
 
 | File | What it is |
 | --- | --- |
-| `kit/skills/shape/SKILL.md` | Turns an idea into `PLAN.md` plus issues; asks one batch of questions; lists the person-only prerequisites; one approval |
+| `kit/skills/shape/SKILL.md` | Turns an idea into issues; asks one batch of questions; lists the person-only prerequisites; one approval |
 | `kit/skills/setup/SKILL.md` | Writes `loop.json` with the person, then runs `scripts/setup.py` |
 | `kit/skills/loop/SKILL.md` | Starts and watches the loop |
-| `kit/templates/PLAN.md`, `kit/templates/issue.md` | The plan and issue shapes |
+| `kit/templates/issue.md` | The issue shape |
 | `kit/briefs/` | The instructions for the test writer, the builder, the reviewer and the end-of-loop passes |
 | `kit/scripts/loop.py` | The supervisor: picks issues, starts builds, rewrites the board |
 | `kit/scripts/flow.py`, `session.py`, `worker.py` | One issue from tests to review; one Claude session; one parallel build |
@@ -331,7 +332,7 @@ Recommended on the evidence. Each layer catches failures the others miss.
    when it is absent. Tests the builder adds on the issue branch remain
    editable.
 3. **A reviewer after the build, in a fresh session.** It reads the issue,
-   the diff and `PLAN.md`; is given the latest test result, naming the tests
+   the diff and `AGENTS.md`; is given the latest test result, naming the tests
    run, and runs only targeted tests and the oracle (renders, measurements);
    checks each criterion with evidence; may add a test that
    reproduces a finding; and gives a verdict naming the head commit. Why:
@@ -467,8 +468,9 @@ refusal costs no test run.
 - After each merge the issue and the pull request get a `## Built` note, and
   at most two verified reviewer follow-ups become `inbox` issues. Unverified
   lines and titles under four words are dropped.
-- `PLAN.md` has `## Lessons` and `## Surfaces`; issues may carry a
-  `## Failing test`.
+- The `Red-team surfaces` list in `loop.json` selects the pass's surfaces.
+  Each lesson becomes an inbox issue naming a preventive check or `AGENTS.md`
+  line. Issues may carry a `## Failing test`.
 - After new merges the drain runs the end-of-loop pass (smoke, drift, red
   team with failing tests, rubric, lessons, simplify and reconcile), puts its
   report in the pull request body.

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -19,7 +20,7 @@ FIND = {"files": {".loop/pass/tests/test_x.py": "fails\n"},
 CONFIRM = {"reply": "CONFIRMED:\nBroken input\n\nHELD:\nnone\n\nREJECTED:\nnone"}
 REJECT = {"reply": "CONFIRMED:\nnone\n\nHELD:\nnone\n\nREJECTED:\nBroken input"}
 NONE = {"reply": "FINDINGS:\nnone"}
-LESSONS = {"reply": "LESSONS:\nCheck empty input first.\n\nGUARDRAILS:\nBudget on input size | add a size budget |"}
+LESSONS = {"reply": "LESSONS:\nCheck empty input first | check tests/test_input.py rejects empty input |\n\nGUARDRAILS:\nBudget on input size | add a size budget |"}
 
 
 def plan(approval=True, surfaces=("the CLI",)):
@@ -40,6 +41,7 @@ class PassTest(FakeClaudeGh):
         run_git(["commit", "-m", "Issue 3"], self.work)
         run_git(["push", "origin", "loop/main"], self.work)
         self.settings = common.read_settings(self.work)
+        self.settings["Red-team surfaces"] = re.findall(r"^[-*] (.+)$", plan_text.split("## Surfaces", 1)[-1], re.M)
         self.gh()
 
     def gh(self, listed=(), built_body="Built by the loop.\n\n" + common.MARKER):
@@ -106,7 +108,7 @@ class PassTest(FakeClaudeGh):
         self.assertIn(("Broken input", "inbox"), self.created())
         create = [c for c in self.calls() if c[:2] == ["issue", "create"]][0]
         self.assertEqual(r["confirmed"][0][2], "tests/test_x.py")
-        self.assertEqual(sorted(l for _, l in self.created()), ["inbox", "inbox"])  # one findings issue
+        self.assertEqual(sorted(l for _, l in self.created()), ["inbox"] * 3)  # defect, lesson, guardrail
         self.assertIn("41 Broken input (inbox)", md)
         self.assertNotIn("test_x.py", " ".join(create))  # body goes through stdin
 
@@ -150,7 +152,7 @@ class PassTest(FakeClaudeGh):
         self.assertNotIn("More.", confirm)
         self.assertNotIn(("Broken input", "inbox"), self.created())
         self.assertEqual(r["confirmed"], [])
-        body = [i for a, i in seen if a[:2] == ["issue", "create"]][0]
+        body = next(i for a, i in seen if a[:2] == ["issue", "create"] and "**Broken input**" in i)
         self.assertIn("**Broken input**", body)
         self.assertIn("Held for an open decision: #%d" % 14, body)
         self.assertIn("### Held for an open decision\n\n- Broken input", md)
@@ -196,18 +198,14 @@ class PassTest(FakeClaudeGh):
         self.steps(NONE)
         seen = self.bodies()
         r, _ = self.run_pass()
-        self.assertEqual(self.created(), [])
+        self.assertEqual(self.created(), [("Check empty input first", "inbox")])
         comments = [(a, i) for a, i in seen if a[:2] == ["issue", "comment"]]
-        self.assertEqual(len(comments), 1)
-        self.assertEqual(comments[0][0][2], "29")
-        self.assertNotIn("Budget on input size", comments[0][1])
-        self.assertIn("Add to PLAN.md ## Lessons", comments[0][1])
-        self.assertIn(common.MARKER, comments[0][1])
-        self.assertIn("#%d 1 finding(s) added" % 29, r["issues"])
+        self.assertEqual(comments, [])
+        self.assertIn("#%d Check empty input first (inbox)" % 41, r["issues"])
 
     def test_nothing_is_added_when_the_open_findings_issue_lists_it_all(self):
         self.repo(plan())
-        self.gh(listed=[dict(self.OPEN, body=self.OPEN["body"] + "\n- [ ] **Add to PLAN.md ## Lessons**: z")])
+        self.gh(listed=[self.OPEN, {"title": "Check empty input first"}])
         self.steps(NONE)
         self.run_pass()
         self.assertFalse(any(c[:2] == ["issue", "comment"] for c in self.calls()))
@@ -384,6 +382,7 @@ class PassTest(FakeClaudeGh):
         self.settings = common.read_settings(self.work)
         self.gh()
         bad = "import unittest\n\nclass T(unittest.TestCase):\n    def test_bom(self):\n        self.assertEqual(1, 2)\n"
+        self.settings["Red-team surfaces"] = ["the CLI"]
         self.steps({"files": {".loop/pass/tests/test_bom.py": bad},
                     "reply": "FINDINGS:\nBOM | counted | .loop/pass/tests/test_bom.py"},
                     {"reply": "CONFIRMED:\nBOM"})
@@ -441,15 +440,14 @@ class PassTest(FakeClaudeGh):
         seen = self.bodies()
         r, _ = self.run_pass()
         made = [(a, i) for a, i in seen if a[:2] == ["issue", "create"]]
-        self.assertEqual(len(made), 1)
-        args, body = made[0]
+        self.assertEqual(len(made), 2)
+        args, body = next((a, b) for a, b in made if a[a.index("--title") + 1].startswith("Pass findings"))
         self.assertRegex(args[args.index("--title") + 1], r"^Pass findings, \d{4}-\d\d-\d\d, [0-9a-f]{7}$")
         self.assertEqual(args[args.index("--label") + 1], "inbox")
         for line in ("- [ ] **Smoke command failed on the loop branch**: ", "- [ ] **One**: a", "- [ ] **Two**: b",
-                     "- [ ] **Three**: kit/scripts/a.py:3 c", "- [ ] **Budget on input size**: add a size budget",
-                     "- [ ] **Add to PLAN.md ## Lessons**: Check empty input first."):
+                     "- [ ] **Three**: kit/scripts/a.py:3 c", "- [ ] **Budget on input size**: add a size budget"):
             self.assertIn(line, body)
-        self.assertEqual(len(r["issues"]), 1)
+        self.assertEqual(len(r["issues"]), 2)
 
     def test_no_findings_creates_no_inbox_issue(self):
         self.repo(plan(surfaces=()))

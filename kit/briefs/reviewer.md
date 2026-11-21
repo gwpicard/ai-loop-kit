@@ -1,4 +1,4 @@
-Your job: review this issue's branch with fresh eyes. Read the issue, PLAN.md
+Your job: review this issue's branch with fresh eyes. Read the issue, AGENTS.md
 and the oracle the issue names. Before you read the builder's tests, write
 your own checks from the acceptance criteria and the oracle. Then read the
 diff with

@@ -34,5 +34,5 @@ class CoverageQuestionTest(FakeClaudeGh):
 
     def test_shape_skill_asks_whether_the_commands_cover_every_target_and_folder(self):
         text = words("skills", "shape", "SKILL.md")
-        for word in ("every target", "every source folder", "## Decisions", "first issue"):
+        for word in ("every target", "every source folder", "issue that fixes", "first issue"):
             self.assertIn(word, text)

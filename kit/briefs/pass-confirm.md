@@ -1,8 +1,9 @@
 Your job: judge red-team findings and rubric findings. The prompt lists each as
 `<title> | <evidence> | <test path>`; the test files are under `.loop/pass/`.
 For each finding, read its test and run the real behaviour yourself. Accept a
-finding only when the defect is real, the project's own rules or PLAN.md say it
-is wrong, and the test fails for that reason and not for a mistake in the test.
+finding only when the defect is real, the project's rules or a relevant
+issue's acceptance criteria establish that it is wrong, and the test fails
+for that reason and not for a mistake in the test.
 Reject a test that asserts something the project never promised, fails by
 accident, or restates a constant.
 
@@ -13,9 +14,10 @@ question. List it under HELD as `<title> | #<number>`, not under CONFIRMED.
 
 The prompt may also list rubric findings as `<title> | <evidence>`, where the
 evidence names a `file:line`. Open the code at that `file:line` on
-the loop branch. Accept a rubric finding only when the code there shows the problem and
-the project's rules or PLAN.md make it one. Reject a finding without a
-`file:line`, one the code does not show, and one the project's rules allow.
+the loop branch. Accept a rubric finding only when the code there shows the
+problem and the project's rules or a relevant issue's acceptance criteria
+establish that it is a defect. Reject a finding without a `file:line`, one
+the code does not show, and one the project's rules allow.
 Give each rejection a short reason.
 
 End your reply with these blocks and nothing after them, one title per line,
