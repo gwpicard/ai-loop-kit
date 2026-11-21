@@ -124,6 +124,8 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Settings in JSON, resumed validation: retain the implementation approved by the latest review, with no further runtime changes. All 478 tests in the 31 changed test modules, including the locked acceptance tests and build-retention regressions, pass with process inspection available. House rules pass too.
+
 - Settings in JSON, merge resolution: keep both the settings decisions and the incoming Spotlight README notes. Their additions to Deviations are independent; the README paragraph and its tests remain intact.
 
 - Settings in JSON: retain legacy parsing only for setup migration and fixture conversion. Existing alias assertions now check role values, and the old unknown-key warning assertion now requires refusal, because the new criteria supersede those behaviours. Migration fixtures stay in AGENTS.md to exercise the real setup command.
