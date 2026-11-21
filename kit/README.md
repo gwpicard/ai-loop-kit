@@ -81,9 +81,8 @@ such as the CLI on real input; only the end-of-loop pass runs it. Setup
 reports those that are set; none is required.
 
 `Parallel: N` lets the loop run up to N builds at once. The default, 1,
-builds one issue at a time inside the loop process. With more, each build is a
-separate process in its own worktree, so a crash or a hang in one cannot stop
-the loop or the others.
+builds one issue at a time. Each build is a separate process in its own
+worktree, so a crash or a hang in one cannot stop the loop or the others.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
@@ -105,7 +104,9 @@ issue catches up with the loop branch, then merges, and a branch that
 conflicts goes back to its builder. The board lists every running build with
 its step and elapsed minutes in that step, or says when the drain or pass is
 running. A stop request starts no new build and lets running builds finish
-their issue. Each build process writes its log to
+their issue. `loop stop --now` ends running builds, their agent sessions and
+test commands at once and returns their issues to `ready`, without counting
+a crash or using an attempt. Each build process writes its log to
 `.loop/logs/build-<issue>.log`. Lines in these logs and `loop.out` start with a
 local timestamp (`YYYY-MM-DD HH:MM:SS`).
 
@@ -176,7 +177,14 @@ prerequisites first. On your single yes it labels the issues `ready`.
 
 Use the loop skill, or run from the project root
 `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`.
-`<plugin>/bin/loop stop` stops it; so does the idle limit.
+`<plugin>/bin/loop stop` starts nothing new and ends after running builds
+finish their issue. Use `<plugin>/bin/loop stop --now` to end them at once
+and return their issues to `ready`. The idle limit also stops the loop.
+
+When every `ready` issue waits on an open `needs-user` dependency and no
+build is running, the loop keeps reading replies before draining. It waits
+until 60 minutes after the latest park comment on those dependencies, then
+runs the usual drain. With nothing `ready` or parked, it drains as usual.
 
 The pinned `Factory` issue is the board, in three sections: `Building now`;
 `Needs you`, with parked issues, unbuilt dependencies, the open pull request
@@ -186,7 +194,8 @@ total issue counts and a link to its milestone page. Read the full
 progress on GitHub's milestones page. To answer a parked issue, reply on it;
 the loop queues it again and gives your reply to the next build.
 The next check includes its date. When ready issues are waiting and nothing
-is building, `Why idle` names parked dependencies or a load or memory deferral.
+is building, `Why idle` names parked dependencies and the minutes until the
+drain, or a load or memory deferral.
 
 ## What each issue gets
 

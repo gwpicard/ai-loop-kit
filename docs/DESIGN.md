@@ -149,10 +149,20 @@ batch adds its decisions, and every builder reads all of them.
   suite on the loop branch, opens or refreshes one pull request from the
   loop branch into `main`, posts a summary on the board and keeps
   waiting.
+- When every `ready` issue waits on an open `needs-user` dependency and no
+  build is running, it keeps reading replies until 60 minutes after the
+  latest park comment on those dependencies, then drains. The board's
+  `Why idle` line names the parked dependencies and the minutes left.
 - After you merge that pull request, it merges `main` into the loop branch
   and carries on.
 - It ends after 12 hours with nothing to build, or when you create a stop
   file, and says why. Starting it again is one command.
+
+`loop stop` starts nothing new and ends after running builds finish their
+issue. `loop stop --now` ends their process trees, including agent sessions
+and test commands, at once and returns their issues to `ready`. Their attempt
+and crash counts stay unchanged; each build records an `exit` event with
+reason `stopped`, rather than a crash.
 
 ## Stateless
 

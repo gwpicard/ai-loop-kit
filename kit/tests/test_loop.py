@@ -54,7 +54,22 @@ class Base(unittest.TestCase):
         self.say = mock.patch.object(loop, "say", return_value=None).start()
         mock.patch.object(loop.time, "sleep").start()
         mock.patch.object(common, "_run_gh", self.fake_gh).start()
+        self.starts = mock.patch.object(loop, "start_builds", self.start_build)
+        self.starts.start()
         self.rules, self.calls, self.inputs, self.built = [], [], [], []
+
+    def start_build(self, project, settings, st):
+        number = loop.pick(st)
+        if number is None:
+            return
+        loop.claim(st, number)
+        st["building"][number] = ("10:00", None)
+        try:
+            loop.write_board(project, st)
+        except common.GitHubError:
+            pass
+        st["last"] = loop.build_attempts(project, number, st["replies"].get(number, []))
+        st["building"] = {}
 
     def fake_gh(self, args, input=None):
         text = " ".join(args)
