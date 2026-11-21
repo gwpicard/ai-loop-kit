@@ -7,7 +7,7 @@ from pathlib import Path
 
 from kit.tests import test_flow, test_pass, test_setup
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import make_repo
+from kit.tests.helpers import make_repo, settings_json
 import common
 import session
 
@@ -17,7 +17,7 @@ SKILL = Path(__file__).resolve().parents[1] / "skills" / "loop" / "SKILL.md"
 
 def read(extra):
     with tempfile.TemporaryDirectory() as d:
-        Path(d, "AGENTS.md").write_text("## Loop\nTest command: t\n" + extra, encoding="utf-8")
+        Path(d, "loop.json").write_text(settings_json("## Loop\nTest command: t\n" + extra), encoding="utf-8")
         return common.read_settings(d)
 
 
@@ -67,7 +67,7 @@ class SettingsTest(unittest.TestCase):
 
 class FlowAgentsTest(test_flow.FlowTest):
     def agents(self, extra):
-        (Path(self.work) / "AGENTS.md").write_text(test_flow.AGENTS + extra)
+        (Path(self.work) / "loop.json").write_text(settings_json(test_flow.AGENTS + extra))
         common.git(["commit", "-qam", "agents"], cwd=self.work)
 
     def test_each_role_starts_with_its_own_model(self):
@@ -122,7 +122,7 @@ class SkillTest(unittest.TestCase):
         text = SKILL.read_text(encoding="utf-8")
         for line in ("Builder:", "Test writer:", "Reviewer:", "Pass:"):
             self.assertIn(line, text)
-        self.assertIn("AGENTS.md", text)
+        self.assertIn("loop.json", text)
 
 
 if __name__ == "__main__":

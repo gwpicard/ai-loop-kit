@@ -187,7 +187,7 @@ def answer(st, protected=None):
             path = parked_test_path(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
             if path and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
-                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"].split(", "))
+                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -331,6 +331,7 @@ def start_builds(project, settings, st):
         os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
         with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
             proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, []), st["attempts"].get(number, st["deaths"].get(number, 0))), cwd=project,
+                                    env=dict(common.build_env(), LOOP_BUILD_SETTINGS=json.dumps(settings)),
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
         with open(common.build_file(project, number, "pid"), "w") as f:
@@ -689,10 +690,8 @@ def resume(project):
 
 def run(project):
     project = os.path.abspath(project)
-    unknown = []
-    settings = common.read_settings(project, unknown=unknown)
-    if unknown:
-        say("unknown Loop settings: %s; next: run setup" % ", ".join(unknown))
+    settings = common.read_settings(project)
+    settings_error = None
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
@@ -715,6 +714,14 @@ def run(project):
     try:
         while not os.path.exists(stop):
             try:
+                try:
+                    settings = common.read_settings(project)
+                    settings_error = None
+                except common.SettingsError as e:
+                    if str(e) != settings_error:
+                        say("keeping previous settings: %s" % e)
+                        settings_error = str(e)
+                cap = (3 * settings["Session minutes"] + 30) * 60
                 reap(project, st, cap)
                 snapshot(st)
                 for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
@@ -724,10 +731,11 @@ def run(project):
                     common.remove_label(i["number"], "building")
                     i["labels"] = (i["labels"] - {"building"}) | {"ready"}
                 answer(st, settings["Protected paths"])
-                if settings["Parallel"] == 1:  # one build at a time, in this process
+                if settings["Parallel"] == 1 and not st["building"]:  # one build at a time, in this process
                     number = pick(st)
                     if number:
-                        build_once(project, st, number)
+                        with common.settings_environment(settings):
+                            build_once(project, st, number)
                         st["building"], dirty, built = {}, True, time.time()
                         continue
                 else:  # each build is a process of its own; see worker.py
@@ -739,7 +747,8 @@ def run(project):
                         continue
                 dirty = sync_default(project, settings["Loop branch"], st) or dirty
                 if dirty:
-                    drain(project, settings, st)
+                    with common.settings_environment(settings):
+                        drain(project, settings, st)
                     dirty = False
                 if time.time() - built >= settings["Idle hours"] * 3600:
                     reason = "nothing built for %g hours" % settings["Idle hours"]

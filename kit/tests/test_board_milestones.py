@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import make_repo
+from kit.tests.helpers import make_repo, settings_json
 import common
 import loop
 
@@ -33,7 +33,7 @@ class BoardMilestones(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.addCleanup(mock.patch.stopall)
-        self.work, _ = make_repo(self._tmp.name, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self._tmp.name, {"loop.json": settings_json(AGENTS)})
         mock.patch.object(loop, "say", return_value=None).start()
         mock.patch.object(common, "_run_gh", self.fake_gh).start()
         self.calls, self.inputs, self.rules = [], [], []

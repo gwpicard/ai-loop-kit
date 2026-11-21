@@ -96,13 +96,17 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- A reload test that replaces builds with fake workers cannot prove retention reaches sessions, hooks and merge checks. Exercise a real build after damaging each settings file, both serially and in a worker.
+- JSON accepts whole numbers such as 3.0; normalise count settings to integers before passing Max rounds to range.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 - Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
-- When running the suite inside a loop session, unset `LOOP_PROJECT`; otherwise the disk tests write events to the enclosing project instead of their fixture.
+- The test runner drops inherited `LOOP_PROJECT` before starting test processes, so disk checks and events use each fixture. Unsetting it only in a manual command leaves the Stop hook exposed to the same failure.
 - Reviewer prompts include the whole brief; keep the literal revert result prefix out of its explanatory prose so a skipped check has no result line.
 - Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
 - Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
 - A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
+- The test-lock hook refuses edits to existing tests even when the issue allows them; write judging tests in a new file when instructed to continue.
+- The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
 
 ## Standing approvals
 
@@ -119,6 +123,16 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Settings in JSON, resumed validation: retain the implementation approved by the latest review, with no further runtime changes. All 478 tests in the 31 changed test modules, including the locked acceptance tests and build-retention regressions, pass with process inspection available. House rules pass too.
+
+- Settings in JSON, merge resolution: keep both the settings decisions and the incoming Spotlight README notes. Their additions to Deviations are independent; the README paragraph and its tests remain intact.
+
+- Settings in JSON: retain legacy parsing only for setup migration and fixture conversion. Existing alias assertions now check role values, and the old unknown-key warning assertion now requires refusal, because the new criteria supersede those behaviours. Migration fixtures stay in AGENTS.md to exercise the real setup command.
+- Settings in JSON, Stop hook fix: isolate inherited LOOP_PROJECT in the test runner rather than changing runtime disk checks or requiring callers to unset it. A regression invokes the runner with an enclosing project and checks both the disk tests and the absence of events outside their fixtures.
+- Settings in JSON, build retention: scope a validated snapshot to each build, carry it into workers and agent hooks through the subprocess environment, and use it for sessions and merge checks. The supervisor alone reloads files between cycles. The drain and end-of-loop pass use their supplied snapshot too. Test subprocesses discard inherited snapshots so they retain fixture isolation.
+- Settings in JSON, runner regression: invoke only the two disk checks that reproduce project leakage, through a test module that selects them. Running every common test inside this regression also ran an unrelated short GitHub timeout check, which failed under concurrent suite load.
+- Settings in JSON: require finite, non-negative numbers, with positive whole numbers for Parallel and Max rounds. Normalise those counts to integers, including JSON values written with a decimal point. Reload failures keep the whole previous configuration and report each unchanged error once; recovery clears the warning. When concurrency falls to one, existing worker builds finish before an in-process build starts.
 
 - Spotlight README: the locked tests and house rules passed. After a merge
   refusal reported only "Some checks failed", reran the full Test command
@@ -139,6 +153,8 @@ plan did not make: the issue, what they chose, and why.
 
 - Full Test command restriction: retain the shared session environment code, which already passes both test commands to every role. Replace the environment-only test with a check that invokes the configured guard using the spawned session's environment, with and without a Test files command. It fails on the loop branch for test-writer and pass refusals and passes with the fix.
 - Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.
+- Settings in JSON: judging tests live in a new file because the test-lock hook refused an existing test edit and the follow-up instructed the writer to continue with new tests. Fixture conversion stays with the builder. Live reload uses the run command handler with fake workers and bounded waits; setup and the legacy refusal use subprocess commands.
+
 - Issue 575: the issue names `.loop/logs/preflight.log`, but the kit keeps its logs and ignores only `.lite/`. The tests expect `.lite/logs/preflight.log`, beside the session logs.
 - Issue 575: setup's preflight now also runs the Check command (the criterion says each Prepare, Test and Check command that ran is logged).
 - Issue 575: `copy_repo` in `kit/tests/helpers.py` gives a second repository in the same folder its own subfolder, because a locked test builds two repositories in one folder.

@@ -4,7 +4,7 @@ import sys
 import unittest
 
 from kit.tests.fake_codex import FakeCodexGh
-from kit.tests.helpers import make_repo, write_exe
+from kit.tests.helpers import make_repo, write_exe, settings_json, write_settings
 import session
 
 AGENTS = "## Loop\nTest command: true\nLoop branch: loop/main\n"
@@ -15,7 +15,7 @@ class CodexWritableRootsTest(FakeCodexGh):
     def setUp(self):
         super().setUp()
         session.SWEPT.clear()
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS)})
         self.temp = self.folder("tmpdir")
         os.environ["TMPDIR"] = self.temp
         self.addCleanup(self.restore_env, "TMPDIR", os.environ.get("TMPDIR"))
@@ -34,8 +34,7 @@ class CodexWritableRootsTest(FakeCodexGh):
         return path
 
     def settings(self, body):
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + body)
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + body)
 
     def fake_getconf(self, answers):
         """A `getconf` on PATH: prints the folder for a known name, fails otherwise."""

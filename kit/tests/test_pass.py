@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import make_repo, run_git
+from kit.tests.helpers import make_repo, run_git, settings_json
 import common
 import pass_
 
@@ -32,7 +32,7 @@ class PassTest(FakeClaudeGh):
         super().setUp()
 
     def repo(self, plan_text, extra=""):
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS + extra, "PLAN.md": plan_text})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS + extra), "PLAN.md": plan_text})
         run_git(["checkout", "-b", "loop/main"], self.work)
         with open(os.path.join(self.work, "a.txt"), "w") as f:
             f.write("a\n")
@@ -376,7 +376,7 @@ class PassTest(FakeClaudeGh):
 
     def test_the_red_team_file_runs_under_a_discovery_command_in_tests(self):
         self.work, _ = make_repo(self.tmp, {
-            "AGENTS.md": "## Loop\nTest command: python3 -m unittest discover -s tests -q\n", "PLAN.md": plan(),
+            "loop.json": settings_json("## Loop\nTest command: python3 -m unittest discover -s tests -q\n"), "PLAN.md": plan(),
             "tests/test_base.py": "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n"})
         run_git(["checkout", "-b", "loop/main"], self.work)
         run_git(["commit", "--allow-empty", "-m", "Issue 3"], self.work)

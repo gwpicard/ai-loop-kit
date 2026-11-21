@@ -151,7 +151,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
             with contextlib.suppress(OSError):
                 candidates.append(subprocess.run(["getconf", name], capture_output=True, text=True).stdout.strip())
     with contextlib.suppress(common.SettingsError):
-        candidates += [os.path.expanduser(p) for p in common.read_settings(cwd)["Codex writable roots"]]
+        candidates += [os.path.expanduser(p) for p in common.build_settings(cwd)["Codex writable roots"]]
     folders = []
     for path in candidates:
         path = os.path.realpath(path) if path else ""
@@ -202,7 +202,7 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
 
 def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start="", allowed=(), agent="claude"):
     """Run `agent` (claude or codex) as `role` in `cwd`. Return (reply text, session id)."""
-    settings = common.read_settings(project)
+    settings = common.build_settings(project)
     env = dict(common.build_env(), LOOP_ROLE=role, LOOP_LOCKED="\n".join(locked), LOOP_ALLOWED="\n".join(allowed),
                LOOP_TEST_COMMAND=settings["Test command"], LOOP_TEST_FILES_COMMAND=settings["Test files command"],
                LOOP_PROTECTED=",".join(settings["Protected paths"]),

@@ -5,7 +5,7 @@ from common import LoopError, gh, git
 
 LABELS = {"inbox": "ededed", "shaping": "fbca04", "ready": "0e8a16",
           "building": "1d76db", "needs-user": "d93f0b"}
-SECTION = "## Loop\nTest command: <the command that runs your tests>\n"
+SECTION = '{"Test command": "<the command that runs your tests>"}'
 
 
 V1 = {"run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json", "summary.md",
@@ -83,6 +83,8 @@ def tidy(project, dry_run=False):
 
 def migrate_220(project, dry_run):
     path = pathlib.Path(project, "AGENTS.md")
+    if not path.exists():
+        return False
     with path.open(encoding="utf-8", newline="") as f:
         text = f.read()
     removed = [line for line, key, _ in common.setting_lines(text) if key == "Defect rounds"]
@@ -106,6 +108,46 @@ def migrate_220(project, dry_run):
 
 
 MIGRATIONS = (("2.2.0", migrate_220),)
+
+
+def migrate_settings(project, dry_run=False):
+    """Move the old section into JSON, retaining the original text for undo."""
+    path, config = pathlib.Path(project, "AGENTS.md"), pathlib.Path(project, "loop.json")
+    if config.exists() or not path.exists():
+        return None
+    with path.open(encoding="utf-8", newline="") as f:
+        text = f.read()
+    if not any(line.strip().lower() == "## loop" for line in text.splitlines()):
+        return None
+    found = {key: value for _, key, value in common.setting_lines(text) if key != "Defect rounds"}
+    for role, prefix in (("Builder", "Builder"), ("Test writer", "Builder"),
+                         ("Reviewer", "Reviewer"), ("Pass", "Reviewer")):
+        old = prefix + " model"
+        if found.get(old) and not found.get(role):
+            found[role] = "claude " + found[old]
+    for prefix in ("Builder", "Reviewer"):
+        found.pop(prefix + " model", None)
+    for key in common.LIST_SETTINGS & found.keys():
+        found[key] = [p.strip() for p in found[key].split(",") if p.strip()]
+    for key in common.NUMERIC_SETTINGS & found.keys():
+        try:
+            found[key] = float(found[key])
+        except ValueError:
+            raise common.SettingsError("AGENTS.md: invalid number for '%s'" % key)
+    common.validate_settings(found, "loop.json")
+    change(project, "created loop.json from AGENTS.md", "remove loop.json",
+           lambda: config.write_text(json.dumps(found, indent=2) + "\n", encoding="utf-8"), dry_run)
+    kept, removed, inside = [], [], False
+    for line in text.splitlines(keepends=True):
+        if re.match(r"#{1,6}\s", line):
+            inside = line.strip().lower() == "## loop"
+        (removed if inside else kept).append(line)
+    def apply():
+        with path.open("w", encoding="utf-8", newline="") as f:
+            f.write("".join(kept))
+    change(project, "removed ## Loop from AGENTS.md", "restore in AGENTS.md: " + "".join(removed),
+           apply, dry_run)
+    return found
 
 
 def labels_present():
@@ -137,12 +179,6 @@ def setup(project=".", dry_run=False):
     if old:
         say(old)
         return 1
-    try:
-        settings = common.read_settings(project)
-    except common.SettingsError as e:
-        say("refused: %s\nnext: add these lines to AGENTS.md, then run setup again:\n%s"
-            % (e, SECTION))
-        return 1
     moved, refusal = tidy(project, dry_run)
     if refusal:
         say(refusal)
@@ -153,6 +189,19 @@ def setup(project=".", dry_run=False):
     for version, migrate in MIGRATIONS:
         if migrate(project, dry_run):
             changes.append("migration " + version)
+    try:
+        migrated = migrate_settings(project, dry_run)
+        if migrated is not None:
+            changes.extend(["loop.json", "AGENTS.md"])
+        if dry_run and migrated is not None:
+            settings = dict(common.DEFAULTS, **migrated)
+            for role in common.ROLES:
+                settings[role] = tuple(settings[role].split())
+        else:
+            settings = common.read_settings(project)
+    except common.SettingsError as e:
+        say("refused: %s\nnext: set Test command: in loop.json, then run setup again:\n%s" % (e, SECTION))
+        return 1
     path = pathlib.Path(project, ".loop", "kit-version")
     previous = path.read_text(encoding="utf-8") if path.exists() else None
     if previous != common.kit_version() + "\n":
@@ -186,6 +235,13 @@ def setup(project=".", dry_run=False):
         changes.append("Factory issue, pinned")
     path = os.path.join(project, ".gitignore")
     text = pathlib.Path(path).read_text(encoding="utf-8") if os.path.exists(path) else ""
+    if "loop.local.json" not in text.splitlines():
+        def ignore_local():
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(("" if not text or text.endswith("\n") else "\n") + "loop.local.json\n")
+        change(project, ".gitignore now lists loop.local.json", "remove the appended loop.local.json line from .gitignore",
+               ignore_local, dry_run)
+        changes.append(".gitignore now lists loop.local.json")
     if ".loop/" not in text.split():
         def ignore():
             with open(path, "a", encoding="utf-8") as f:

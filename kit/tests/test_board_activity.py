@@ -7,6 +7,7 @@ from unittest import mock
 
 import common
 import loop
+from kit.tests.helpers import settings_json
 
 
 class BoardActivityTest(unittest.TestCase):
@@ -83,7 +84,7 @@ class BoardActivityTest(unittest.TestCase):
                         "Check command": "", "Prepare command": ""}, self.st)
 
     def test_next_check_has_a_date(self):
-        Path(self.project, "AGENTS.md").write_text("## Loop\nTest command: true\nIdle hours: 12\n")
+        Path(self.project, "loop.json").write_text(settings_json("## Loop\nTest command: true\nIdle hours: 12\n"))
         Path(self.project, ".loop").mkdir()
         def snapshot(st):
             st["factory"] = self.st["factory"]

@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import make_repo, run_git
+from kit.tests.helpers import make_repo, run_git, settings_json, write_settings
 import common
 import session
 
@@ -18,7 +18,7 @@ class SessionTest(FakeClaudeGh):
     def setUp(self):
         super().setUp()
         session.SWEPT.clear()
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS)})
 
     def run_session(self, role="builder", **kw):
         return session.run(role, "do it", self.work, "sonnet", self.work, 7, **kw)
@@ -58,8 +58,7 @@ class SessionTest(FakeClaudeGh):
 
     def test_spawned_session_guard_reserves_full_tests_for_merge(self):
         for files in ("", "make unit {files}"):
-            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-                f.write(AGENTS + "Test files command: " + files + "\n")
+            write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Test files command: " + files + "\n")
             for role in ("builder", "reviewer", "test-writer", "pass"):
                 with self.subTest(role=role, files=files):
                     self.run_session(role=role)
@@ -123,8 +122,7 @@ class SessionTest(FakeClaudeGh):
     def test_timeout_kills_the_session(self):
         self.claude({"builder": [{"sleep": 30}]})
         started = time.time()
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + "Session minutes: 0.02\n")
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Session minutes: 0.02\n")
         with self.assertRaises(session.SessionError) as cm:
             self.run_session()
         self.assertIn("timed out", str(cm.exception))
@@ -132,8 +130,7 @@ class SessionTest(FakeClaudeGh):
 
     def test_session_minutes_sets_the_limit(self):
         self.claude({"builder": [{"sleep": 30}]})
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + "Session minutes: 0.02\n")
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Session minutes: 0.02\n")
         with self.assertRaises(session.SessionError) as cm:
             self.run_session()
         self.assertIn("timed out after 0.02 minutes", str(cm.exception))

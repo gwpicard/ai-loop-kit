@@ -190,7 +190,7 @@ the builder's report.
 | File | What it is |
 | --- | --- |
 | `kit/skills/shape/SKILL.md` | Turns an idea into `PLAN.md` plus issues; asks one batch of questions; lists the person-only prerequisites; one approval |
-| `kit/skills/setup/SKILL.md` | Writes the `## Loop` settings with the person, then runs `scripts/setup.py` |
+| `kit/skills/setup/SKILL.md` | Writes `loop.json` with the person, then runs `scripts/setup.py` |
 | `kit/skills/loop/SKILL.md` | Starts and watches the loop |
 | `kit/templates/PLAN.md`, `kit/templates/issue.md` | The plan and issue shapes |
 | `kit/briefs/` | The instructions for the test writer, the builder, the reviewer and the end-of-loop passes |
@@ -206,14 +206,19 @@ parallel in about 100 seconds. File paths or module names select only those
 modules, with the same sharding and output; `-h` or `--help` prints the usage.
 An argument that names no test module exits non-zero.
 
-## Settings, in `AGENTS.md`
+## Settings, in `loop.json`
 
 `Test command` is the only required key. The others are listed in the README.
-Four lines choose the agent and model of each role: `Builder`, `Test writer`,
+Four keys choose the agent and model of each role: `Builder`, `Test writer`,
 `Reviewer` and `Pass`, each `<agent> <model>` (default `claude sonnet`).
-Only `claude` is accepted so far. The loop skill shows the four lines before
-every start and writes any change to `AGENTS.md`; the person's Claude usage
-is then a choice made in the open, not a default.
+The agent is `claude` or `codex`. The loop skill shows the four roles before
+every start and writes any change to `loop.json`.
+
+The committed JSON object holds validated settings; `AGENTS.md` holds agent
+guidance. A git-ignored `loop.local.json` may override only `Parallel` and
+`Idle hours`. The supervisor reads both files at each cycle and keeps the
+previous settings if either fails validation. Setup migrates an older
+`## Loop` section, with an undo record in `.loop/migrations.log`.
 
 ## Simplification as a step
 

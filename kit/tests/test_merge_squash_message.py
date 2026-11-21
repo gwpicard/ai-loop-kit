@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from kit.tests.helpers import FakeGh, copy_repo, make_repo, run_git
+from kit.tests.helpers import FakeGh, copy_repo, make_repo, run_git, settings_json
 import common
 import merge
 
@@ -39,7 +39,7 @@ class SquashMessageTest(FakeGh):
     @classmethod
     def setUpClass(cls):
         cls._dir = tempfile.TemporaryDirectory()
-        work, _ = make_repo(cls._dir.name, {"AGENTS.md": AGENTS, "app.py": "x = 1\n"})
+        work, _ = make_repo(cls._dir.name, {"loop.json": settings_json(AGENTS), "app.py": "x = 1\n"})
         run_git(["push", "origin", "main:loop/main"], work)
 
     @classmethod

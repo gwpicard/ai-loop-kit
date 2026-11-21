@@ -272,13 +272,13 @@ def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
     project = os.path.abspath(project)
     common.wait_for_disk(project)
-    with common.build_environment(project):
+    with common.settings_environment(common.build_settings(project)), common.build_environment(project):
         return _build_tree(issue, project, replies)
 
 
 def _build_tree(issue, project, replies):
     result = None
-    settings = common.read_settings(project)
+    settings = common.build_settings(project)
     loop, branch = settings["Loop branch"], "issue/%s" % issue
     tree = os.path.join(os.path.dirname(project), ".loop-worktrees",
                         "%s-%s" % (os.path.basename(project), issue))
