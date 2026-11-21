@@ -155,7 +155,7 @@ def targeted_command(settings, cwd, start, locked):
 
 def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     """Return a park reason for the first stop or test-lock breach, or None. A locked file must equal
-    its content at `baseline` (the writer's final commit), else at the commit that first added it."""
+    its content and mode at `baseline` (the writer's final commit), else at the commit that first added it."""
     out = git(["diff", "-z", "--no-renames", "--name-status", base + "..." + sha],
               cwd=project).split("\0")
     for status, path in zip(out[0::2], out[1::2]):
@@ -179,7 +179,9 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
                                capture_output=True) for ref in (first, sha)]
         if b.returncode != 0:
             return "locked test deleted: " + path
-        if a.stdout != b.stdout:
+        modes = [git(["ls-tree", ref, "--", path], cwd=project).split()[:1]
+                 for ref in (first, sha)]
+        if a.stdout != b.stdout or modes[0] != modes[1]:
             return "locked test modified: " + path
     return None
 
