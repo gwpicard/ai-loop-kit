@@ -129,6 +129,14 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Standing-instruction budget: count the root files before migrations, so
+  normal setup and dry-run report the same input. Missing files count as zero.
+  The check only reads the files; existing settings migrations remain separate.
+  Use whitespace-separated words and exclude only a standalone `@AGENTS.md`
+  line in `CLAUDE.md`, as the locked acceptance tests require.
+  All 16 setup tests and house rules pass. Leave the full suite to merge,
+  as the repository's fast-path rule requires.
+
 - Standing-instruction budget tests: add a separate module because existing
   tests stay locked. Invoke setup from the project root with settings already
   in JSON, so settings migration cannot obscure whether the check edits the
