@@ -118,6 +118,7 @@ def write_board(project, st, doing=None):
     _, ended, recorded = status.activity(status.read_events(project))
     doing = doing or recorded
     parked = {i["number"] for i in of("needs-user")}
+    parallel = {i["number"] for i in st["issues"] if common.issue_kind(i["body"]) == "parallel"}
     building = []
     for n, (since, _) in sorted(b.items()):
         if n in parked or n in ended:
@@ -126,7 +127,8 @@ def write_board(project, st, doing=None):
             minutes = max(0, int(time.time() - os.path.getmtime(common.build_file(project, n, "step"))) // 60)
         except OSError:
             minutes = 0
-        building.append("#%d, %s, since %s (%d min in step)" % (n, step_of(project, n), since, minutes))
+        building.append("#%d%s, %s, since %s (%d min in step)" %
+                        (n, " (parallel)" if n in parallel else "", step_of(project, n), since, minutes))
     if not building and doing != "idle":
         building = [doing]
     why = []
@@ -238,9 +240,10 @@ def trusted(st, i):
     return st["trust"][key]
 
 
-def pick(st):
+def pick(st, kinds=None):
     for i in sorted(st["issues"], key=lambda x: x["number"]):
         if ("ready" in i["labels"] and "building" not in i["labels"] and i["number"] not in st["building"]
+                and (kinds is None or common.issue_kind(i["body"]) in kinds)
                 and all(d in st["closed"] for d in common.depends_on(i["body"]))
                 and trusted(st, i)):
             return i["number"]
@@ -335,9 +338,16 @@ def worker_command(project, number, replies, previous=0):
 
 
 def start_builds(project, settings, st):
-    """Claim and start eligible issues, each in its own process, up to `Parallel` and while the machine has
-    headroom. The first build always starts: only a second one waits on load."""
-    while len(st["building"]) < settings["Parallel"] and (number := pick(st)):
+    """Fill `Parallel` build slots and one extra parallel slot while the machine has headroom.
+    The first worker always starts; further workers wait on load and memory."""
+    kinds = {i["number"]: common.issue_kind(i.get("body")) for i in st["issues"]}
+    while True:
+        running = [kinds.get(n, "build") for n in st["building"]]
+        available = {kind for kind, cap in (("build", settings["Parallel"]), ("parallel", 1))
+                     if running.count(kind) < cap}
+        number = pick(st, available)
+        if number is None:
+            return
         if os.path.exists(os.path.join(project, ".loop", "stop")):
             return
         why = headroom() if st["building"] else None
