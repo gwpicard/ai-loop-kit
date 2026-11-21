@@ -129,6 +129,15 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Standing-instruction budget tests: add a separate module because existing
+  tests stay locked. Invoke setup from the project root with settings already
+  in JSON, so settings migration cannot obscure whether the check edits the
+  instructions. Treat whitespace-separated tokens as words, exclude only a
+  standalone import line, and check both sides of the 1,500-word boundary.
+  Vary whitespace and import position; nested instruction files do not count.
+  All three tests fail by assertion on the missing warning; below-budget
+  silence and preservation of both instruction files already pass.
+
 - Legacy refusal correction: the person's latest instruction supersedes the
   earlier decision to refuse unknown `.loop/` names. Recognise only the
   former kit 1.x names and `.lite/`, removing the current-runtime allowlist.
