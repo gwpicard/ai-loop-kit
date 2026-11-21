@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import FakeGh, make_repo, run_git
+from kit.tests.helpers import FakeGh, make_repo, run_git, settings_json
 import common
 import loop
 import report
@@ -17,7 +17,7 @@ class ReportTest(FakeGh):
     def setUp(self):
         super().setUp()
         self.work, _ = make_repo(self.tmp, {
-            'AGENTS.md': '## Loop\nTest command: true\n',
+            "loop.json": settings_json('## Loop\nTest command: true\n'),
             'src/api/main.py': 'old\n', 'tests/test_old.py': 'old\n',
             'tests/test_keep.py': 'old\n', 'package-lock.json': '{}\n',
             'widget/__init__.py': '', 'widget/core/run.py': 'old\n'})
@@ -30,7 +30,7 @@ class ReportTest(FakeGh):
         self.folder = Path(self.work, '.loop')
         self.folder.mkdir()
         self.scenario([{'match': 'issue view 8', 'responses': [{'stdout': json.dumps({
-            'title': 'Load the list', 'body': '## Paths the builder may change\n\n`tests/test_old.py`\n',
+            'title': 'Load the list', 'body': '## Protected paths this issue may change\n\n`tests/test_old.py`\n',
             'comments': [{'body': '## Built\n\nLoad without waiting. More detail.\n\nDeviations: Kept the cache.\n\nMerged as abc.\n'}]})}]},
             {'match': 'issue view 9', 'responses': [{'code': 1, 'stderr': 'unavailable'}]}])
 

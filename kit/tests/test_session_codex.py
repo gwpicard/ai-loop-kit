@@ -3,7 +3,7 @@ import json
 import unittest
 
 from kit.tests.fake_codex import FakeCodexGh
-from kit.tests.helpers import make_repo
+from kit.tests.helpers import make_repo, settings_json, write_settings
 import common
 import session
 
@@ -16,7 +16,7 @@ class CodexSessionTest(FakeCodexGh):
     def setUp(self):
         super().setUp()
         session.SWEPT.clear()
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS)})
 
     def run_session(self, resume=None, **kw):
         return session.run("builder", "do it", self.work, "gpt-6", self.work, 7,
@@ -79,8 +79,7 @@ class CodexSessionTest(FakeCodexGh):
             self.run_session()
 
     def read(self, body):
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + body)
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + body)
         return common.read_settings(self.work)
 
 

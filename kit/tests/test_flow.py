@@ -7,7 +7,7 @@ from unittest import mock
 from kit.tests.fake_claude import FakeClaudeGh
 import tempfile
 
-from kit.tests.helpers import copy_repo, make_repo, run_git
+from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json, write_settings
 import common
 import flow
 import merge
@@ -29,7 +29,7 @@ class FlowTest(FakeClaudeGh):
     def setUpClass(cls):
         cls._dir = tempfile.TemporaryDirectory()
         cls.template = cls._dir.name
-        work, _ = make_repo(cls.template, {"AGENTS.md": AGENTS})
+        work, _ = make_repo(cls.template, {"loop.json": settings_json(AGENTS)})
         run_git(["push", "origin", "main:loop/main"], work)
 
     @classmethod
@@ -88,9 +88,9 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(len([e for e in events if e["kind"] == "disk-wait"]), 1)
 
     def test_build_temp_is_shared_by_sessions_and_commands_and_removed_with_markers(self):
-        agents = Path(self.work, "AGENTS.md")
-        agents.write_text(AGENTS.replace("seq 1 99;", 'echo "$TMPDIR|$TMP|$TEMP" >> ' + self.tmp + '/temps; seq 1 99;'))
-        run_git(["add", "AGENTS.md"], self.work)
+        agents = Path(self.work, "loop.json")
+        agents.write_text(settings_json(AGENTS.replace("seq 1 99;", 'echo "$TMPDIR|$TMP|$TEMP" >> ' + self.tmp + '/temps; seq 1 99;')))
+        run_git(["add", "loop.json"], self.work)
         run_git(["commit", "-qm", "record temp"], self.work)
         run_git(["push", "origin", "HEAD:loop/main"], self.work)
         self.build_scenario(builder=[{"files": {"app.py": "1\n"}, "passed": True}])
@@ -210,7 +210,8 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(builder["env"]["LOOP_LOCKED"], "tests/test_new.py")
         self.assertIn("Add it", builder["prompt"])
         self.assertIn("Do the thing.", builder["prompt"])
-        self.assertIn("PLAN.md", builder["prompt"])
+        self.assertIn("AGENTS.md", builder["prompt"])
+        self.assertNotIn("PLAN.md", builder["prompt"])
         self.assertIn("Use the env var.", builder["prompt"])
         self.assertIn("Work autonomously", builder["prompt"])
         self.assertIn("Test command: seq 1 99; { test ! -f FAIL && { test ! -f tests/test_new.py || test -f app.py; }; } || { echo AssertionError; false; }", builder["prompt"])
@@ -489,7 +490,7 @@ class FlowTest(FakeClaudeGh):
             self.assertIn(text, brief)
 
     def test_the_builder_may_change_the_paths_the_issue_names_including_stops(self):
-        self.issue_view(body="Do it.\n\n## Paths the builder may change\n\ntests/test_new.py\n.claude/tests/test_z.py\npackage-lock.json\n")
+        self.issue_view(body="Do it.\n\n## Protected paths this issue may change\n\ntests/test_new.py\n.claude/tests/test_z.py\npackage-lock.json\n")
         self.build_scenario()
         self.build()
         env = self.claude_calls()[1]["env"]
@@ -643,8 +644,7 @@ class FlowTest(FakeClaudeGh):
         """Rewrite the settings of the project the build reads; markers go to files in tmp."""
         text = "## Loop\nLoop branch: loop/main\nMax rounds: 3\n" + "".join(
             "%s: %s\n" % (k.replace("_", " "), v.replace("TMP", self.tmp)) for k, v in lines.items())
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(text)
+        write_settings(os.path.join(self.work, "loop.json"), text)
 
     def runs(self, name):
         try:
@@ -751,7 +751,8 @@ class FlowTest(FakeClaudeGh):
                                                "tests/helpers.py": "support\n"}}])
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), [])
-        self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py"])
+        self.assertEqual(self.runs("files"), ["tests/test_new.py", "tests/test_added.py tests/test_new.py",
+                                            "tests/test_added.py"])
         self.assertIn("Test files command: tests/test_added.py, tests/test_new.py", self.claude_calls()[-1]["prompt"])
         self.assertEqual(roles(self.claude_calls()), ["test-writer", "builder", "reviewer"])
 
@@ -766,7 +767,7 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.build().status, "merged")
         self.assertEqual(self.runs("full"), ["full"])
         self.assertEqual(self.runs("files"), ["tests/test_new.py"] +
-                         ["tests/test_added.py tests/test_new.py"] * 2)
+                         ["tests/test_added.py tests/test_new.py", "tests/test_added.py"] * 2)
         for call in self.claude_calls():
             self.assertEqual(call["env"]["LOOP_TEST_COMMAND"], self.FULL.replace("TMP", self.tmp))
             self.assertEqual(call["env"]["LOOP_TEST_FILES_COMMAND"], self.FILES.replace("TMP", self.tmp))

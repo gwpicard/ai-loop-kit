@@ -4,6 +4,7 @@ import contextvars
 import errno
 import fcntl
 import json
+import math
 import os
 import re
 import shlex
@@ -28,22 +29,23 @@ CODEX_FLAGS = ("-s", "-m", "-c", "--json", "-o", "--dangerously-bypass-hook-trus
 
 DEFAULTS = {
     "Loop branch": "loop/main",
-    "Builder model": "sonnet",  # older lines: set Builder and Test writer
-    "Reviewer model": "sonnet",  # older lines: set Reviewer and Pass
     "Builder": "claude sonnet",
     "Test writer": "claude sonnet",
     "Reviewer": "claude sonnet",
     "Pass": "claude sonnet",
-    "Protected paths": ".github/, .claude/, .githooks/",
-    "Codex writable roots": "",  # comma-separated folders a Codex session may write, beyond temp and cache
-    "Idle hours": "12",
-    "Max rounds": "3",
-    "Session minutes": "45",
+    "Protected paths": [".github/", ".claude/", ".githooks/", "loop.json", "loop.local.json"],
+    "Codex writable roots": [],
+    "Red-team surfaces": [],
+    "Idle hours": 12,
+    "Max rounds": 3,
+    "Session minutes": 45,
     "Check command": "",
     "Smoke command": "",
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
     "Prepare command": "",  # run once in each worktree, before any test run
-    "Parallel": "1",  # builds running at once
+    "Parallel": 1,  # builds running at once
+    "Sign-off": False,
+    "Agent attribution": False,
 }
 
 
@@ -196,43 +198,79 @@ def setting_lines(text):
             yield line, m.group(1), m.group(2).replace("`", "").strip()
 
 
-def read_settings(root=".", unknown=None):
-    """Read the `## Loop` section of AGENTS.md into a dict with defaults."""
-    path = os.path.join(root, "AGENTS.md")
+NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes"}
+LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
+BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution"}
+_BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
+
+
+@contextlib.contextmanager
+def settings_environment(settings):
+    """Keep one validated configuration for a build and its subprocesses."""
+    token = _BUILD_SETTINGS.set(settings)
     try:
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        raise SettingsError("no AGENTS.md in " + os.path.abspath(root))
-    found = {key: value for _, key, value in setting_lines(text)}
-    if unknown is not None:
-        unknown.extend(k for k in found if k not in DEFAULTS and k != "Test command")
-    for role, old in (("Builder", "Builder model"), ("Test writer", "Builder model"),
-                      ("Reviewer", "Reviewer model"), ("Pass", "Reviewer model")):
-        if found.get(old) and not found.get(role):
-            found[role] = "claude " + found[old]
-    settings = dict(DEFAULTS)
-    settings.update({k: v for k, v in found.items() if v and k in DEFAULTS})
-    if not found.get("Test command"):
-        raise SettingsError("AGENTS.md has no 'Test command:' under '## Loop'")
-    settings["Test command"] = found["Test command"]
+        yield
+    finally:
+        _BUILD_SETTINGS.reset(token)
+
+
+def build_settings(root="."):
+    settings = _BUILD_SETTINGS.get()
+    if settings is None and os.environ.get("LOOP_BUILD_SETTINGS"):
+        settings = json.loads(os.environ["LOOP_BUILD_SETTINGS"])
+        for role in ROLES:
+            settings[role] = tuple(settings[role])
+    return settings if settings is not None else read_settings(root)
+
+
+def validate_settings(found, filename, local=False):
+    if not isinstance(found, dict):
+        raise SettingsError("%s must contain a JSON object" % filename)
+    allowed = {"Parallel", "Idle hours"} if local else set(DEFAULTS) | {"Test command"}
+    for key, value in found.items():
+        if key not in allowed:
+            raise SettingsError("%s: unknown key '%s'" % (filename, key))
+        valid = (isinstance(value, bool) if key in BOOLEAN_SETTINGS else
+                 type(value) in (int, float) if key in NUMERIC_SETTINGS else
+                 isinstance(value, list) and all(isinstance(p, str) for p in value)
+                 if key in LIST_SETTINGS else isinstance(value, str))
+        if not valid:
+            raise SettingsError("%s: wrong type for '%s'" % (filename, key))
+        if key in NUMERIC_SETTINGS:
+            if not math.isfinite(value) or value < 0 or (
+                    key in {"Parallel", "Max rounds"} and (value < 1 or value != int(value))):
+                raise SettingsError("%s: invalid number for '%s'" % (filename, key))
+    if not local and not found.get("Test command"):
+        raise SettingsError("%s: missing 'Test command'" % filename)
     for role in ROLES:
-        words = settings[role].split()
-        if len(words) != 2:
-            raise SettingsError("AGENTS.md line '%s: %s' must be '<agent> <model>', such as 'claude sonnet'"
-                                % (role, settings[role]))
-        if words[0] not in AGENTS:
-            raise SettingsError("AGENTS.md line '%s: %s' names an agent the kit does not support; supported: %s"
-                                % (role, settings[role], ", ".join(AGENTS)))
-        settings[role] = tuple(words)
-    settings["Protected paths"] = [
-        p.strip() for p in settings["Protected paths"].split(",") if p.strip()]
-    settings["Codex writable roots"] = [
-        p.strip() for p in settings["Codex writable roots"].split(",") if p.strip()]
-    settings["Idle hours"] = float(settings["Idle hours"])
-    settings["Max rounds"] = int(settings["Max rounds"])
-    settings["Session minutes"] = float(settings["Session minutes"])
-    settings["Parallel"] = max(1, int(settings["Parallel"]))
+        if role not in found:
+            continue
+        words = found[role].split()
+        if len(words) != 2 or words[0] not in AGENTS:
+            raise SettingsError("%s: '%s' must be '<agent> <model>'; supported agents: %s"
+                                % (filename, role, ", ".join(AGENTS)))
+
+
+def read_settings(root="."):
+    """Read validated project settings and the machine's optional overrides."""
+    settings = {k: list(v) if isinstance(v, list) else v for k, v in DEFAULTS.items()}
+    for filename in ("loop.json", "loop.local.json"):
+        path = os.path.join(root, filename)
+        try:
+            with open(path, encoding="utf-8") as f:
+                found = json.load(f)
+        except FileNotFoundError:
+            if filename == "loop.local.json":
+                continue
+            raise SettingsError("%s: missing file and 'Test command'; run setup" % path)
+        except (OSError, ValueError) as e:
+            raise SettingsError("%s: cannot read settings: %s" % (path, e))
+        validate_settings(found, path, local=filename == "loop.local.json")
+        settings.update(found)
+    for role in ROLES:
+        settings[role] = tuple(settings[role].split())
+    for key in ("Max rounds", "Parallel"):
+        settings[key] = int(settings[key])
     return settings
 
 
@@ -429,7 +467,10 @@ _BUILD_TEMP = contextvars.ContextVar("build_temp", default="")
 
 def build_env():
     path = _BUILD_TEMP.get()
-    return dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+    env = dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+    if _BUILD_SETTINGS.get() is not None:
+        env["LOOP_BUILD_SETTINGS"] = json.dumps(_BUILD_SETTINGS.get())
+    return env
 
 
 def record_session(session_id, env):

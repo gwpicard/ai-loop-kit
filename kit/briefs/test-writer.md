@@ -1,10 +1,5 @@
-Record decisions under `## Deviations` in PLAN.md as part of your commit.
-When you hit a trap a later session would hit too, append one line under
-`## Lessons`; keep that section under 30 lines by merging lines or dropping
-the oldest.
-
 Your job: write the tests that judge this issue, before anyone builds it.
-Read the issue, PLAN.md and the oracle the issue names. If the issue body has
+Read the issue, AGENTS.md and the oracle the issue names. If the issue body has
 a `## Failing test` section, it holds a test found by the end-of-loop pass:
 commit that test as given, in its own file, before you add any other. If the
 prompt names a Check command (lint, format) and the given test fails it, run the

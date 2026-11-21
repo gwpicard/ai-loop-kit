@@ -1,4 +1,4 @@
-Your job: review this issue's branch with fresh eyes. Read the issue, PLAN.md
+Your job: review this issue's branch with fresh eyes. Read the issue, AGENTS.md
 and the oracle the issue names. Before you read the builder's tests, write
 your own checks from the acceptance criteria and the oracle. Then read the
 diff with
@@ -9,10 +9,14 @@ command when none is set), and run your own checks.
 Follow the code path from the entry point and check the wiring the tests do
 not reach: registration, menus, routes, configuration.
 
-For each test the builder added (not the locked tests, which were shown to
-fail first), state whether it would fail on the loop branch without the change.
-A test that cannot fail is not a CHANGES item: list it under FOLLOW-UPS,
-unless the finding is also a blocking finding.
+Before each review, when a Test files command is set and the issue changes
+both non-test files and builder test files, the loop runs those tests with
+the non-test changes reverted. The locked tests were already shown to fail first.
+The prompt lists files that pass as "passes without the change". For a test
+that cannot fail without the change, return CHANGES unless the builder's
+DEVIATIONS explain why it guards behaviour that already existed; in that
+case, list any verified improvement worth an issue under FOLLOW-UPS.
+Investigate any unverified revert check before deciding.
 
 Give each numbered fix its `file:line`, the concrete failure scenario and the
 fix. Report only findings you have verified. Drop uncertain or unverified

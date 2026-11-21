@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import run_git
+from kit.tests.helpers import run_git, write_settings
 from kit.tests.test_loop import AGENTS, Base, FACTORY, issue, setUpModule, tearDownModule  # noqa: F401
 from kit.tests import test_loop
 import common
@@ -54,8 +54,7 @@ class ParallelTest(Base):
         mock.patch.object(loop, "BUSY_POLL", 0.05).start()
         self.headroom = mock.patch.object(loop, "headroom", return_value=None).start()
         os.makedirs(os.path.join(self.work, ".loop", "merged"))
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + "Parallel: 3\n")
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 3\n")
         self.script = os.path.join(self.work, ".loop", "fake_worker.py")
         with open(self.script, "w") as f:
             f.write(FAKE_WORKER)
@@ -114,8 +113,7 @@ class ParallelTest(Base):
         self.assertTrue(any("#2, builder, since" in b and "#3, builder, since" in b for b in self.board_inputs()))
 
     def test_parallel_is_a_ceiling(self):
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + "Parallel: 2\n")
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 2\n")
         self.world_of(issue(2), issue(3), issue(4))
         self.run_it()
         self.assertEqual(self.merged(), {2, 3, 4})
@@ -129,8 +127,7 @@ class ParallelTest(Base):
         self.assertLess(self.at(4, "start"), self.at(2, "end"))
 
     def test_stop_lets_running_builds_finish_and_starts_none(self):
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + "Parallel: 2\n")
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 2\n")
         self.configure(stop_at=2, sleep=0.4)
         self.world_of(issue(2), issue(3), issue(4), issue(5))
         self.run_it()
@@ -184,8 +181,7 @@ class ParallelTest(Base):
         self.assertEqual(len(said), len(set(said)))  # said once per reason, not at every poll
 
     def test_parallel_one_builds_in_a_worker_process(self):
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS)
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS)
         self.world_of(issue(2))
         self.run_it()
         self.assertEqual(self.merged(), {2})

@@ -1,13 +1,15 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
+import tarfile
 from unittest import mock
-import os
 import pathlib
 
-from kit.tests.helpers import FakeGh, make_repo
+from kit.tests.helpers import FakeGh, make_repo, write_exe, settings_json
+from kit.tests.fake_codex_check import FakeCodexCheck
 import setup
 import common
 
@@ -113,8 +115,8 @@ class SetupTest(FakeGh):
         self.assertIn("Defect rounds: outside", agents)
         self.assertIn("Defect rounds: keep", agents)
         self.assertEqual(pathlib.Path(self.work, "PLAN.md").read_bytes(), plan)
-        self.assertEqual(text.count("no longer reads ## Standing approvals"), 1)
-        self.assertIn("confirmed defects now arrive as inbox issues", text)
+        self.assertIn("Find a home for the contents of PLAN.md", text)
+        self.assertIn("Pass defects are approved.", text)
         log = pathlib.Path(self.work, ".loop", "migrations.log")
         records = [json.loads(line) for line in log.read_text().splitlines()]
         removed = next(r for r in records if "removed Defect rounds" in r["change"])
@@ -136,7 +138,10 @@ class SetupTest(FakeGh):
     def test_dry_run_previews_all_changes_without_writes_or_preflight(self):
         self.old_project()
         self.fresh()
-        for name in (".loop/heartbeat", ".loop/logs/old.log", ".lite/logs/new.log", ".lite/pass.json"):
+        for name in (".loop/logs/old.log", ".loop/v1/heartbeat", ".loop/pass.json", ".loop/loop.out.lite",
+                     ".loop/events.jsonl", ".loop/summary.json", ".loop/pass/review.md",
+                     ".loop/pauses", ".loop/passed-session", ".loop/stop-session",
+                     ".loop/session-active", ".loop/history-7.md"):
             path = pathlib.Path(self.work, name)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
@@ -166,75 +171,97 @@ class SetupTest(FakeGh):
             self.assertEqual(run(self.work, dry_run=True)[0], 0)
         self.assertFalse(pathlib.Path(self.work, ".loop").exists())
 
+    def test_setup_refuses_each_kit_1_marker_before_migrating_settings(self):
+        self.old_project()
+        for name in ("run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json",
+                     "summary.md", "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"):
+            with self.subTest(name=name):
+                path = pathlib.Path(self.work, ".loop", name)
+                path.parent.mkdir(exist_ok=True)
+                path.write_text("legacy content\n")
+                before = self.snapshot(self.work)
+                result = subprocess.run([sys.executable, setup.__file__, self.work],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("install kit 2.2.0, run its setup, then update to this version", result.stdout)
+                self.assertEqual(self.snapshot(self.work), before)
+                path.unlink()
 
-class TidyTest(FakeGh):
-    def make(self, folder, names):
-        for name in names:
-            path = os.path.join(self.tmp, folder, name)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            pathlib.Path(path).write_text(name)
+    def test_setup_preserves_unknown_runtime_files_and_folders(self):
+        self.repo()
+        self.fresh()
+        files = ("notes.md", "fake.json", "fake.log", "merged/result",
+                 "history-piece.md", "passed-session", "stop-session", "heartbeat.notes")
+        for name in files:
+            path = pathlib.Path(self.work, ".loop", name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name + "\n")
+        result = subprocess.run([sys.executable, setup.__file__, self.work],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for name in files:
+            self.assertEqual(pathlib.Path(self.work, ".loop", name).read_text(), name + "\n")
 
-    def test_nothing_to_tidy(self):
-        self.assertEqual(setup.tidy(self.tmp), ([], None))
 
-    def test_1x_files_move_aside_and_lite_moves_in(self):
-        self.make(".loop", ["heartbeat", "events.jsonl", "logs/piece-1-attempt-1.log"])
-        self.make(".lite", ["pass.json", "events.jsonl", "logs/7-builder-1.log"])
-        moved, refusal = setup.tidy(self.tmp)
-        self.assertIsNone(refusal)
-        loop = pathlib.Path(self.tmp, ".loop")
-        self.assertEqual((loop / "v1" / "events.jsonl").read_text(), "events.jsonl")
-        self.assertTrue((loop / "v1" / "heartbeat").exists())
-        self.assertTrue((loop / "v1" / "logs" / "piece-1-attempt-1.log").exists())
-        self.assertTrue((loop / "pass.json").exists())
-        self.assertTrue((loop / "logs" / "7-builder-1.log").exists())
-        self.assertTrue(pathlib.Path(self.tmp, ".lite").is_dir())
-        self.assertIn(".lite/pass.json to .loop/", moved)
-        self.assertEqual(setup.tidy(self.tmp), ([], None))  # safe to run again
+class MissingCodexSetupTest(FakeCodexCheck):
+    def test_setup_without_codex_preserves_the_test_memory_pressure_command(self):
+        work, _ = make_repo(self.tmp, {"loop.json": settings_json(
+            "## Loop\nTest command: sysctl -n kern.memorystatus_vm_pressure_level\n")})
+        memory = pathlib.Path(self.tmp, "memory-tools")
+        memory.mkdir()
+        marker = pathlib.Path(self.tmp, "memory-read")
+        write_exe(str(memory / "sysctl"), "#!PYTHON\nprint(1)\nopen(%r, 'a').write('read\\n')\n" % str(marker))
+        os.environ["PATH"] = str(memory) + os.pathsep + os.environ["PATH"]
+        self.without_codex()
+        self.scenario([rule("label list", json.dumps([{"name": n} for n in setup.LABELS])),
+                       rule("issue list", '[{"number":7,"title":"Factory"}]')])
+        result = subprocess.run([sys.executable, setup.__file__, work],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(marker.exists(), "setup must read the test's memory pressure, not the host's")
 
-    def test_a_file_already_in_loop_is_kept_and_the_old_one_moves_beside_it(self):
-        self.make(".loop", ["loop.out"])  # the start command creates it before the loop runs
-        pathlib.Path(self.tmp, ".loop", "loop.out").write_text("new")
-        self.make(".lite", ["loop.out", "events.jsonl"])
-        moved, _ = setup.tidy(self.tmp)
-        self.assertEqual(pathlib.Path(self.tmp, ".loop", "loop.out").read_text(), "new")
-        self.assertEqual(pathlib.Path(self.tmp, ".loop", "loop.out.lite").read_text(), "loop.out")
-        self.assertTrue(pathlib.Path(self.tmp, ".loop", "events.jsonl").exists())
-        self.assertTrue(pathlib.Path(self.tmp, ".lite").is_dir())
-        self.assertIn(".lite/loop.out to .loop/loop.out.lite", moved)
 
-    def test_the_start_command_s_output_stays_when_1x_files_move_aside(self):
-        self.make(".loop", ["heartbeat", "loop.out"])
-        setup.tidy(self.tmp)
-        self.assertTrue(pathlib.Path(self.tmp, ".loop", "loop.out").exists())
-        self.assertTrue(pathlib.Path(self.tmp, ".loop", "v1", "heartbeat").exists())
-
-    def test_a_live_loop_in_lite_refuses_and_moves_nothing(self):
-        self.make(".loop", ["heartbeat"])
-        pathlib.Path(self.tmp, ".lite").mkdir()
-        pathlib.Path(self.tmp, ".lite", "loop.pid").write_text(str(os.getppid()))
-        moved, refusal = setup.tidy(self.tmp)
-        self.assertEqual(moved, [])
-        self.assertIn("running from .lite/", refusal)
-        self.assertTrue(pathlib.Path(self.tmp, ".loop", "heartbeat").exists())
-
-    def test_a_running_loop_s_own_files_are_never_moved(self):
-        self.make(".loop", ["heartbeat", "builds/7.step"])
-        pathlib.Path(self.tmp, ".loop", "loop.pid").write_text(str(os.getppid()))
-        self.assertEqual(setup.tidy(self.tmp), ([], None))
-        self.assertTrue(pathlib.Path(self.tmp, ".loop", "builds", "7.step").exists())
-
-    def test_folders_in_both_are_merged(self):
-        self.make(".loop", ["logs/8-reviewer-1.log"])
-        self.make(".lite", ["logs/7-builder-1.log", "logs/8-reviewer-1.log"])
-        moved, _ = setup.tidy(self.tmp)
-        self.assertTrue(pathlib.Path(self.tmp, ".loop", "logs", "7-builder-1.log").exists())
-        self.assertIn(".lite/logs/7-builder-1.log to .loop/logs/7-builder-1.log", moved)
-        self.assertTrue(pathlib.Path(self.tmp, ".lite", "logs", "8-reviewer-1.log").exists())  # never overwritten
-
-    def test_a_loop_file_in_the_way_refuses_without_a_traceback(self):
-        pathlib.Path(self.tmp, ".loop").write_text("x")
-        self.make(".lite", ["pass.json"])
-        moved, refusal = setup.tidy(self.tmp)
-        self.assertIn("could not be moved", refusal)
-        self.assertTrue(pathlib.Path(self.tmp, ".lite", "pass.json").exists())
+class ReleasedUpgradeTest(FakeGh):
+    def test_released_migration_then_preserved_residual_folder_allows_current_setup(self):
+        kit = pathlib.Path(setup.__file__).resolve().parents[1]
+        found = subprocess.run(["git", "archive", "v2.2.0", "kit"], cwd=kit.parent, capture_output=True)
+        if found.returncode:  # a shallow checkout, as in CI, has no release tags
+            self.skipTest("the v2.2.0 tag is not in this checkout")
+        archive = found.stdout
+        release = pathlib.Path(self.tmp, "release")
+        with tarfile.open(fileobj=io.BytesIO(archive)) as files:
+            files.extractall(release)
+        for collision in (False, True):
+            with self.subTest(collision=collision):
+                work, _ = make_repo(self.tmp, {"AGENTS.md": "## Loop\nTest command: true\n"})
+                root = pathlib.Path(work)
+                lite = root / ".lite"
+                lite.mkdir()
+                (lite / "pass.json").write_text("{}\n")
+                if collision:
+                    for folder, text in ((".lite", "old log\n"), (".loop", "current log\n")):
+                        path = root / folder / "logs" / "same.log"
+                        path.parent.mkdir(parents=True)
+                        path.write_text(text)
+                self.scenario([rule("label list", json.dumps([{"name": n} for n in setup.LABELS])),
+                               rule("issue list", '[{"number":7,"title":"Factory"}]')])
+                old = subprocess.run([sys.executable, str(release / "kit/scripts/setup.py"), work],
+                                     capture_output=True, text=True, timeout=30)
+                self.assertEqual(old.returncode, 0, old.stdout + old.stderr)
+                self.assertEqual((root / ".loop/pass.json").read_text(), "{}\n")
+                self.assertTrue(lite.is_dir())
+                residual = {str(p.relative_to(lite)): p.read_bytes() for p in lite.rglob("*") if p.is_file()}
+                refused = subprocess.run([sys.executable, setup.__file__, work],
+                                         capture_output=True, text=True, timeout=30)
+                self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                for advice in ("After kit 2.2.0 setup succeeds", "stop any running loop",
+                               "with all its contents", "unused backup path outside this project"):
+                    self.assertIn(advice, refused.stdout)
+                backup = pathlib.Path(self.tmp, "lite-backup-" + str(collision))
+                lite.rename(backup)
+                current = subprocess.run([sys.executable, setup.__file__, work],
+                                         capture_output=True, text=True, timeout=30)
+                self.assertEqual(current.returncode, 0, current.stdout + current.stderr)
+                self.assertEqual({str(p.relative_to(backup)): p.read_bytes()
+                                  for p in backup.rglob("*") if p.is_file()}, residual)
+                self.assertTrue((root / "loop.json").exists())

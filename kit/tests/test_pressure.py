@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 from kit.tests.fake_codex import FakeCodexGh
-from kit.tests.helpers import HERE, make_repo
+from kit.tests.helpers import HERE, make_repo, settings_json
 import common
 import loop
 import session
@@ -61,7 +61,7 @@ class SessionAndCommandTest(Pressure):
     def setUp(self):
         super().setUp()
         session.SWEPT.clear()
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS)})
 
     def run_session(self, agent="claude"):
         out = io.StringIO()
@@ -177,7 +177,7 @@ class LongWaitTest(Pressure):
         self.assertIn("10 minutes", out.getvalue())
 
     def test_both_agents_start_after_ten_minutes(self):
-        work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
+        work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS)})
         self.claude({"builder": [{"reply": "done"}]})
         self.codex([{"reply": "done"}])
         for agent in ("claude", "codex"):

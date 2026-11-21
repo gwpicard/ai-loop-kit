@@ -10,14 +10,14 @@ import common
 import loop
 from kit.tests.test_loop import AGENTS, Base, comment, issue
 from kit.tests.test_loop_pause import PauseBase, SLOW, states, tree
+from kit.tests.helpers import write_settings
 
 
 class ParkDrainTest(Base):
     def setUp(self):
         super().setUp()
         os.makedirs(os.path.join(self.work, ".loop"))
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS.replace("Idle hours: 0", "Idle hours: 12"))
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS.replace("Idle hours: 0", "Idle hours: 12"))
         self.drain = mock.patch.object(loop, "drain").start()
         mock.patch.object(loop, "sync_default", return_value=False).start()
 

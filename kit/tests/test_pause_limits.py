@@ -12,7 +12,7 @@ import tempfile
 import time
 import unittest
 
-from kit.tests.helpers import HERE, make_repo
+from kit.tests.helpers import HERE, make_repo, settings_json
 
 ROOT = os.path.dirname(os.path.dirname(HERE))
 SCRIPTS = os.path.join(ROOT, "kit", "scripts")
@@ -88,7 +88,7 @@ class PauseLimitsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.work, _ = make_repo(self.tmp.name, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self.tmp.name, {"loop.json": settings_json(AGENTS)})
         os.makedirs(os.path.join(self.work, ".loop"), exist_ok=True)
         self.ready = os.path.join(self.tmp.name, "ready")
         self.out = os.path.join(self.tmp.name, "out.json")

@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from kit.tests.helpers import FakeGh, make_repo
+from kit.tests.helpers import FakeGh, make_repo, settings_json
 from kit.tests.test_setup import rule
 import setup
 
@@ -46,7 +46,7 @@ def tree(project):
 
 class KitVersionTest(FakeGh):
     def project(self):
-        self.work, self.origin = make_repo(self.tmp, {"AGENTS.md": "## Loop\nTest command: true\n"})
+        self.work, self.origin = make_repo(self.tmp, {"loop.json": settings_json("## Loop\nTest command: true\n")})
         return self.work
 
     def cli(self, plugin, *args):
@@ -144,7 +144,7 @@ class SkillStepTest(unittest.TestCase):
         self.assertLess(text.index("check-version"), text.index(first_marker))
 
     def test_shape_checks_the_version_first(self):
-        self.check("shape", "Read `PLAN.md`")
+        self.check("shape", "Read `AGENTS.md`")
 
     def test_loop_checks_the_version_first(self):
         self.check("loop", "use the setup skill")

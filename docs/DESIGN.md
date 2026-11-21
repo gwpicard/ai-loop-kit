@@ -1,519 +1,243 @@
 # AI Loop Kit: design
 
-Version 2.2.2. This is the one description of what the kit is, how it works
-and why. It describes the kit in `kit/`.
+Version 3.0.0. This describes what the kit in `kit/` does, how it works and
+why. Command details and settings are in `kit/README.md`; history lives in
+the git tags and `CHANGELOG.md`.
 
 ## The goal
 
-A continuous factory. The loop keeps building whatever is approved. You
-shape and approve work whenever you like, in another session, and it joins
-the queue. You can see on GitHub what is waiting to be shaped, what is
-queued, what is building, what needs you and what is done. The loop never
-asks you for input or waits to be asked for status. It stops only for a
-decision that a written rule says only you can make.
+A continuous factory for building software while you are away. You shape
+work into GitHub issues and approve it once. The loop builds, tests,
+reviews and merges each approved issue into a loop branch. You review the
+batch and merge its final pull request into the project's default branch.
+Shaping can continue in another session while the loop runs.
 
-Three rules follow:
+Every session works towards a goal without asking you questions or waiting
+for an answer. A failed test, review finding or transient error is work to
+resolve. Sessions decide from the issue and standing rules, take the closest
+approach that keeps those rules, and record deviations for your review.
 
-1. Everything you must do happens in shaping: decisions, approvals, and the
-   prerequisites only a person can clear. Shaping can happen at any time,
-   while the loop runs.
-2. The loop never stops for a cause it can handle: a GitHub error, a review
-   finding, a failed test, a crashed session, the end of a batch.
-3. Progress is visible on GitHub. The milestones page shows how far each
-   milestone has come; the board shows what is building and what needs you.
-   Notifications are not built.
+The exception is a decision reserved for you: a product choice about
+behaviour, appearance or what ships, money, credentials, access, settings,
+irreversible data, going public, a new dependency or a protected path
+without approval. The issue parks with a question and a recommended
+answer; the loop continues with other eligible work. Shaping should clear
+these prerequisites before approval, so walking away remains practical.
 
-## Default posture: a goal, not a conversation
+## The contract and settings
 
-Every session the loop starts behaves as if it had been given a goal: keep
-going until the work is done, without the person. Code prepends one shared
-preamble to each role's brief; the guards bound what it can do.
+Each issue follows `kit/templates/issue.md`: a goal, acceptance criteria,
+an oracle an agent can use to judge the result, dependencies and binding
+decisions. Optional hands-on checks become unticked boxes in the final
+pull request. They do not block the loop; you perform them before merging.
+Enforceable rules belong in checks. Standing guidance that every agent
+needs belongs in `AGENTS.md`.
 
-- **Never ask.** No session asks the person anything or waits for an answer.
-  A question becomes a decision: take the choice `PLAN.md` implies, or the
-  closest approach that keeps its rules, record it under Deviations, and
-  continue.
-- **Never stop early.** A failed test, a review finding, a crash or a GitHub
-  error is work to do, not a reason to end. The coordinator retries, fixes
-  and re-reviews until the issue merges or its rounds run out.
-- **Finish.** An issue ends merged, or parked with a reason. The loop ends
-  only when nothing is left to build, after the idle limit, or on a stop file.
-- **The one exception is the stops list.** An issue that needs a decision
-  only the person can make (money, credentials, permissions, settings,
-  irreversible data, going public, a protected path) is parked as
-  `needs-user` with a one-line reply, and the loop carries on with
-  everything else.
+The kit does not use `PLAN.md` as a runtime contract. Decisions belong in
+issues; standing instructions belong in `AGENTS.md`. Setup preserves the
+contents of an existing plan in an inbox issue for you to place, leaving the
+file unchanged. Setup warns when the root standing instructions exceed
+1,500 words, excluding the standalone import of `AGENTS.md` in `CLAUDE.md`.
 
-The rest of this design supports that posture: shaping removes the reasons
-to ask, the guards make autonomy safe, the board removes the need to ask for
-status, and continuous shaping keeps the queue full.
+The committed `loop.json` holds validated settings. Only `Test command` is
+required. `Loop branch` defaults to `loop/main`; `Max rounds` to three;
+`Session minutes` to 45. `Builder`, `Test writer`, `Reviewer` and `Pass`
+select an agent and model per role, each defaulting to Claude Sonnet.
+Each role can use Claude or Codex. The loop skill shows these choices before
+each start.
 
-## The pattern
+The git-ignored `loop.local.json` may override only `Parallel` and
+`Idle hours`, whose defaults are one build and 12 hours. The supervisor
+reloads both settings files at each cycle. If either cannot be read or
+validated, it retains the previous valid settings and logs the error,
+without repeating an unchanged error. Each build keeps its validated
+settings snapshot, so a later edit does not change its checks mid-build.
 
-This is the marcdown run, written down, with guards where marcdown was weak.
+The issue section `## Protected paths this issue may change` grants
+permission for named protected files, manifests, lockfiles, settings and
+existing tests. Every other file is available to the builder. Both settings
+files are protected by default. Setup renames the former permissions
+heading in open issues and records backups and undo instructions.
 
-| Marcdown did | The kit keeps it as |
+## The queue and progress
+
+GitHub holds the durable work state. Issues move through these labels:
+
+| State | Meaning |
 | --- | --- |
-| A plan file with binding decisions | `PLAN.md` in the repository, read by every agent |
-| Issues with acceptance criteria and `Depends on` | The same, from a template |
-| A coordinator session dispatching builders and reviewers | The same, restarted per issue by a supervisor (see "Stateless") |
-| Sonnet builder, then Sonnet reviewer in its own worktree | The same; every agent works in its own worktree |
-| Fix list back to the same builder, at most three rounds | The same |
-| "Closest approach, record under Deviations, continue" | The same, bounded by a stops list |
-| `needs-user` label with a one-line reply | The same, for anything on the stops list |
-| An oracle built early (`MarcdownRender`) | A shaping question: "how will an agent see this is right?" |
+| inbox | An idea or report awaiting shaping |
+| shaping | Decisions and acceptance criteria are being agreed |
+| ready | Shaped and approved for the loop |
+| building | Claimed by a build |
+| needs-user | Parked on a decision reserved for you |
+| closed | Merged into the loop branch |
 
-## Marcdown's weak spots, and the guard for each
+The loop accepts ready labels only from collaborators, checked against the
+issue timeline. Issue text is data, not authority to override the rules.
+Dependencies determine which approved issues can start. A collaborator's
+reply to a parked issue requeues it. A clear yes to a permission question
+ending with `?` grants each named test path the stops list permits, whatever
+verb the question uses; paths in the recommendation and replies containing
+doubt words grant nothing.
 
-| Weak spot (evidence from the run) | Guard | Kind |
-| --- | --- | --- |
-| The coordinator merged to `main` itself | The hook refuses a push to `main`, `master` or the default branch in every session, and `git merge`, `gh` and branch switches in the loop's sessions; branch protection is the line that holds | Code (`guard.py`) |
-| About 20 of 41 fixes merged with no re-check; coordinator edits merged untested | The loop merges only through `merge.py`, which runs the Test command on the exact commit and merges with `--match-head-commit`. In the loop's sessions the hook refuses `gh` and `git merge`; branch protection stops other routes | Code and settings |
-| A builder can weaken the tests that judge it | The hook refuses writes to existing test modules in the loop's sessions, and `merge.py` refuses a diff that changes one unless the issue names its path. New tests are allowed | Code |
-| Agents shared one checkout and switched each other's branches | Every builder and reviewer gets its own worktree, created by the supervisor | Code |
-| Reviews lived only in agent hand-backs | `merge.py` refuses unless the review verdict is posted on the pull request | Code |
-| The only park happened by accident (a classifier refusal) | A written stops list: money, credentials, permissions, settings, irreversible data, going public, new dependencies. Anything on it parks as `needs-user` | Words, checked by the reviewer |
-| Stray worktrees and test processes left running | The supervisor removes its worktrees and kills its process group after each issue | Code |
-| One long session holding everything (440k tokens) | Fresh sessions per issue; state lives in GitHub | Design |
-| Deletes and secrets | The hook refuses recursive deletes and force pushes in every session, and secret shapes in content a session writes (not in diffs) | Code (`guard.py`) |
+One pinned Factory issue shows current builds and their stages, parked
+questions, blocked dependencies, the final pull request and the next poll.
+It links to milestone progress rather than reproducing the whole backlog.
+The supervisor rewrites it from GitHub state, so no dashboard server is
+needed. Notifications are not built.
 
-## The factory
+The local status command reports activity, timings and recent events
+without GitHub or an agent session. The report command summarises merged
+issues using git refs, local events and read-only GitHub calls for build
+notes. The final pull request includes that report.
 
-### States, as labels on issues
+## One issue through the loop
 
-| Label | Meaning | Who sets it |
-| --- | --- | --- |
-| `inbox` | An idea or report, not shaped yet. Anyone may open one | GitHub, by default, on a new issue |
-| `shaping` | Being shaped | The shape skill |
-| `ready` | Shaped and approved: in the queue | The shape skill, after your yes |
-| `building` | Claimed by the loop | `loop.py` |
-| `needs-user` | Parked on a decision only you can make, with a one-line reply | The coordinator |
-| closed | Merged into the loop branch | `merge.py` |
+`kit/scripts/loop.py` selects an eligible issue, claims it and creates an
+isolated worktree. `kit/scripts/flow.py` coordinates fresh test-writer,
+builder and reviewer sessions, with fixes returned to the builder. Each
+issue ends merged or parked with a reason. Fresh sessions limit accumulated
+context; build notes preserve what a restarted builder needs.
 
-The loop builds only `ready` issues whose `ready` label was added by a
-collaborator (checked in the issue's timeline), so a stranger's issue in a
-public repository never reaches an unattended builder.
+The test writer starts from the issue's acceptance criteria and writes
+tests through the entry point a person or caller actually uses. The loop
+proves they fail on the base before building. A meaningful assertion failure,
+or a missing module or symbol that the issue introduces, counts; a broken
+test command does not. Criteria already satisfied need no new test.
 
-### The board: one pinned issue
+The builder implements the smallest change and commits it. The guard locks
+the test writer's tests and existing tests. A permitted existing test path
+can be changed, but a builder cannot silently weaken the tests judging its
+work. New builder tests remain editable. The lock covers test modules,
+including `conftest.py`; test support files stay editable and appear in the
+report's risk flags.
 
-`loop.py` keeps one pinned issue, "Factory", and rewrites its body after
-every step. It shows:
+A fresh reviewer reads the issue, standing rules, diff and latest test
+result. It checks the acceptance criteria and follows the real entry point,
+using renders or measurements where appropriate. A review verdict names
+the exact head commit. Fixes receive another review, within the configured
+round limit. Verified reviewer follow-ups may become inbox issues.
 
-- what is building now, its step and elapsed minutes in that step, or whether
-  the drain or end-of-loop pass is running;
-- what needs you: parked issues, each with its question and the reply to
-  type, the dependencies the loop will never build, the open final pull
-  request and a conflict;
-- progress: one line for each open milestone that has a `ready`,
-  `building` or `needs-user` issue, with its closed and total issue counts
-  as GitHub reports them for the whole milestone, and a link to its
-  milestone page;
-- the last event and the date and time of the next check; when ready issues
-  are waiting and nothing is building, parked dependencies or load or memory
-  deferrals explain why.
+Before each review, the revert check examines builder-added or changed
+test files outside the locked set when a Test files command is configured
+and non-test files also changed. In a scratch checkout, it restores the
+non-test files to the branch base and runs each selected test file. The
+reviewer receives the files that pass without the implementation and any
+unverified results. Such a passing test requires changes unless the recorded
+deviations explain that it guards existing behaviour. This checks whether
+the builder's tests actually depend on the change they claim to prove.
 
-An empty section reads `Nothing.` Progress lives on GitHub's milestones
-page, where the shape skill puts each issue in a milestone; the board keeps
-only what is building and what needs you. It has no server: it lives on
-GitHub, works from your phone, and cannot drift from the truth because
-`loop.py` writes it from the labels. To answer a question, reply on the
-parked issue; the next poll reads a reply from a collaborator, removes
-`needs-user` and requeues the issue.
+`kit/scripts/merge.py` checks the diff permissions, test lock and posted
+review before merging. It tests the exact commit and requires the reviewed
+head when merging the pull request. A conflict-free catch-up with the loop
+branch is tested too; conflicts return to the builder. The merge lock
+serialises this step across parallel builds. After a successful merge, the
+loop posts the build note and closes the issue.
 
-`loop status` answers what happened from local `.loop/` files, without GitHub
-or a session. It shows current activity and the last 12 hours of merges,
-parks, crashes, rule counts, stage timings, agents and models. `--since`
-accepts a date and time, today's time, or a duration. Stage timings count
-steps completed in the window; merged issue totals use their recorded history.
+## Testing without repeated full runs
 
-`loop report` summarises issues merged on the loop branch since the default
-branch, from local git refs, `.loop/` events and one read-only GitHub call per
-issue for its build note. It shows changed folders, separate test counts,
-risk flags (including every test support file changed), reasons, deviations
-and build timings, without a session or GitHub writes. The drain includes
-the same text under `What changed` near
-the top of the final pull request body.
+`Test files command` selects test files through its placeholder. Without
+it, the Test command stands in. `Prepare command` runs once per worktree
+and fresh checkout before testing. `Check command` supplies additional
+guardrails; `Smoke command` exercises the real artefact during the batch
+pass.
 
-### Shaping while it runs
+With a Test files command set, the guard refuses the full Test command in
+all four roles: builder, reviewer, test writer and pass. The full suite is
+reserved for merge and drain. This keeps expensive checks off the repeated
+build and review path while retaining a full run on the commit being merged.
 
-You run the shape skill in any session, at any time. It turns `inbox`
-issues or a new idea into shaped issues, adds decisions to `PLAN.md`, asks
-you one batch of questions, and labels the issues `ready` on your yes. The
-loop picks them up at its next poll. `PLAN.md` is a living file: every
-batch adds its decisions, and every builder reads all of them.
+The fails-first step runs the locked tests. The builder's Stop hook runs
+the locked tests and changed test files, then the Check command, and refuses
+completion on failure. Its record identifies the commit and tests run; the
+flow reuses it only for that head, otherwise repeating the targeted checks
+in a fresh checkout. Reviewers run targeted checks and the issue's oracle.
+The pass validates candidate failing tests with targeted checks and the
+Check command.
 
-### The loop never finishes on its own work
+## Boundaries and recovery
 
-- It polls GitHub every two minutes while nothing is ready.
-- When the queue drains (nothing `ready` or `building`), it runs the full
-  suite on the loop branch, opens or refreshes one pull request from the
-  loop branch into `main`, posts a summary on the board and keeps
-  waiting.
-- When every `ready` issue waits on an open `needs-user` dependency and no
-  build is running, it keeps reading replies until 60 minutes after the
-  latest park comment on those dependencies, then drains. The board's
-  `Why idle` line names the parked dependencies and the minutes left.
-  This wait applies in the cycle that collects the parked build's result.
-- After you merge that pull request, it merges `main` into the loop branch
-  and carries on.
-- It ends after 12 hours with nothing to build, or when you create a stop
-  file, and says why. Starting it again is one command.
+`kit/hooks/guard.py` refuses recognised recursive deletes, force pushes,
+pushes to protected branch names and secret shapes in written content.
+Loop sessions also cannot push, merge, switch branches or use GitHub's CLI.
+Reviewers write scratch files only in the system temporary folder; pass
+sessions write only in their runtime folder. These command checks are early warnings,
+not a sandbox: merge-time diff checks and branch protection provide further
+boundaries. For git and GitHub CLI restrictions, the guard ignores quoted
+text and heredoc bodies unless the command invokes `sh`, `bash`, `zsh`,
+`dash`, `eval` or `xargs`, directly or through `env`.
+A builder's first write to an unapproved stop path is refused;
+`setup.py` is a manifest only at the root or beside `pyproject.toml` or `setup.cfg`.
 
-`loop stop` starts nothing new and ends after running builds finish their
-issue. `loop stop --now` ends their process trees, including agent sessions
-and test commands, at once and returns their issues to `ready`. Their attempt
-and crash counts stay unchanged; each build records an `exit` event with
-reason `stopped`, rather than a crash.
+`kit/scripts/session.py` isolates sessions from personal plugins and MCP
+servers. Codex receives the same guard and Stop checks as Claude, and its
+guard refuses inputs it cannot parse. Setup and loop startup verify the
+Codex hooks feature and required flags for configured Codex roles; missing
+support prevents a run. Usage limits wait for reset without switching agent.
 
-`loop pause` freezes the loop and every process it started, with nothing
-killed, for when the machine is slow; `loop resume` continues each build where
-it was. The board shows `Paused since` meanwhile. Paused time does not count
-against the build time limit, the session limit or test timeouts, and `loop stop`
-on a paused loop resumes it first.
+GitHub transient errors retry with back-off; rate limits wait for reset.
+A crashed or timed-out build gets one retry, then parks. Permission refusals
+park immediately with the refused path. Each build cleans up its worktree
+and processes. An unregistered folder at the worktree path is renamed aside
+rather than deleted.
 
-## Stateless
+`Parallel` controls concurrent builds. The first build can start regardless
+of machine load; additional builds wait for CPU and, on macOS, memory
+headroom. Memory waits apply only at critical pressure, and a lone build
+never waits for memory.
+Low disk space delays work rather than consuming a crash attempt. Each
+build has its own temporary folder for sessions and test commands.
 
-Nothing the loop needs lives in a session or on disk outside the
-repository. Any run can stop at any moment and the next one carries on.
+One lock permits one supervisor per repository. Runtime locks, logs,
+events, session records and worker results live under `.loop/`. Events
+record stages, durations, agents, models, refusals and exit reasons. Workers
+report progress to the supervisor and have a time cap; a worker that dies
+without a result follows the crash retry rule.
 
-- **State is GitHub.** An issue is open (to do), labelled `building` (claimed),
-  labelled `needs-user` (parked), or closed (merged into the loop branch).
-  `Depends on` lines give the order.
-- **Decisions are `PLAN.md`.** Deviations are appended there by the
-  builder's pull request, so they merge with the code.
-- **The supervisor is `scripts/loop.py`.** It repeats:
-  1. Pick the next `ready` issue whose dependencies are closed.
-  2. Label it `building` and create a worktree for it.
-  3. Run that issue's own fresh sessions (`claude -p`): a test writer, a
-     builder and a reviewer, with fix rounds, then `merge.py`.
-  4. If the session crashes or times out, remove the `building` label and
-     try the issue once more; a second failure parks it with the reason.
-  5. Remove the worktree and any process left behind. Go to 1.
-  6. Rewrite the board. When nothing is `ready` or `building`, do the
-     drain steps above and wait.
-- **One loop per repository**, enforced by a lock file holding the pid; a
-  stale lock with a dead pid is taken over.
-- **GitHub errors** are retried with a short back-off by `loop.py` and
-  `merge.py`. A rate limit waits for its reset.
+The pause command freezes the loop and its processes without discarding
+work; resume continues them. Paused time does not consume the kit's build,
+session or test timeouts. Stop prevents new builds and lets running builds
+finish their issue. `loop stop --now` ends build process trees and returns
+their issues to `ready` without consuming an attempt or counting a crash.
+The loop reports why it exits.
 
-A fresh session per issue means no context growth and no compaction. A
-restarted builder reads earlier review rounds and build notes from
-`.loop/history-<issue>.md` in the project folder, outside the worktree; the
-merge removes it. Each fresh issue prompt carries its title, body and only replies
-to the last park. Reviewers receive only the BUILT and DEVIATIONS blocks of
-the builder's report.
+## The batch and the person's review
 
-## The files
+When the queue drains, the loop runs the full suite on the loop branch and
+opens or refreshes one final pull request into the default branch. When all
+ready issues depend, directly or through other ready issues, on parked work,
+it waits until 60 minutes after the latest park on those dependencies before
+draining, including the cycle that collects a parked build's result. After
+new merges, `kit/scripts/pass_.py` runs the batch pass: smoke, drift,
+red-team checks with failing tests, rubric, lessons, and simplify and
+reconcile. The pass reports findings rather than editing product code.
+Confirmed defects become inbox issues with reproducing tests. One open
+simplification issue collects later findings.
 
-| File | What it is |
-| --- | --- |
-| `kit/skills/shape/SKILL.md` | Turns an idea into `PLAN.md` plus issues; asks one batch of questions; lists the person-only prerequisites; one approval |
-| `kit/skills/setup/SKILL.md` | Writes the `## Loop` settings with the person, then runs `scripts/setup.py` |
-| `kit/skills/loop/SKILL.md` | Starts and watches the loop |
-| `kit/templates/PLAN.md`, `kit/templates/issue.md` | The plan and issue shapes |
-| `kit/briefs/` | The instructions for the test writer, the builder, the reviewer and the end-of-loop passes |
-| `kit/scripts/loop.py` | The supervisor: picks issues, starts builds, rewrites the board |
-| `kit/scripts/flow.py`, `session.py`, `worker.py` | One issue from tests to review; one Claude session; one parallel build |
-| `kit/scripts/merge.py` | Tests the exact commit, checks the posted review, merges into the loop branch |
-| `kit/scripts/pass_.py` | The end-of-loop pass |
-| `kit/scripts/setup.py` | Labels, loop branch, board issue, first test run |
-| `kit/hooks/guard.py`, `kit/hooks/stop.py` | The refusals and the Stop hook |
+The final pull request records evidence, risk, deviations needing
+confirmation and hands-on checks. You decide whether to merge it. The loop
+then brings the default branch back into the loop branch and continues.
+With no eligible work, it polls every two minutes until the idle limit or
+a stop request. A batch ending is not a reason to end the factory.
 
-The tests are in `kit/tests/`; `python3 kit/tests/run.py` runs them in
-parallel in about 100 seconds. File paths or module names select only those
-modules, with the same sharding and output; `-h` or `--help` prints the usage.
-An argument that names no test module exits non-zero.
+## Setup and maintenance
 
-## Settings, in `AGENTS.md`
+`kit/skills/setup/SKILL.md` gathers settings;
+`kit/scripts/setup.py` creates missing labels, the loop branch and the
+Factory issue, ignores runtime files and runs preflight on a fresh checkout.
+Setup previews migrations with its dry-run flag and records changes with
+undo instructions. It refuses unsupported legacy layouts with upgrade
+advice rather than guessing how to move their contents. It also refuses an
+older running kit than the version recorded for the project.
 
-`Test command` is the only required key. The others are listed in the README.
-Four lines choose the agent and model of each role: `Builder`, `Test writer`,
-`Reviewer` and `Pass`, each `<agent> <model>` (default `claude sonnet`).
-Only `claude` is accepted so far. The loop skill shows the four lines before
-every start and writes any change to `AGENTS.md`; the person's Claude usage
-is then a choice made in the open, not a default.
+`kit/skills/shape/SKILL.md` handles shaping and approval;
+`kit/skills/loop/SKILL.md` starts and watches the loop. Role instructions
+live in `kit/briefs/`. The Python implementation uses only the standard
+library. Keep it small enough to read in one sitting: a rule in a brief is
+preferable to code when judgement is sufficient, and redundant code and
+guidance leave with the change that makes them redundant.
 
-## Simplification as a step
-
-- **Per batch.** There is no per-issue simplify pass. The end-of-loop pass runs one "simplify and reconcile" session over the
-  batch's changed code and build notes and files one inbox issue; nothing is
-  edited by the pass.
-- **Per release.** One pass whose only job is deletion: list what no run used
-  since the last release, and remove it unless the maintainer says why it
-  stays.
-
-## Standing decisions
-
-- **The loop is continuous.** It waits for new `ready` issues and ends after
-  12 idle hours or a stop file.
-- **Unattended sessions run in Claude Code's auto mode, guarded by hooks.**
-  No builder sandbox.
-- **The test lock's escape hatch:** an existing test module may change or be
-  deleted only when the issue names its path. A collaborator's clear yes to
-  a park's permission question ending with `?` grants each named test path
-  the stops list permits, whatever verb the question uses. Protected paths
-  and paths named only in the recommendation are never granted. A reply
-  containing a doubt word grants nothing. Test modules are
-  recognised by name, including `conftest.py`.
-  Other files under test folders are test support files: they are not locked
-  or passed to the Test files command, and changes appear in the report's risk flags.
-- **A release needs a smoke run** in an empty repository: one small issue
-  built end to end.
-
-## Failures the design answers
-
-Each comes from a failure seen in a real run.
-
-- **Merges.** The review verdict names the exact head commit it reviewed;
-  `merge.py` refuses when the head differs, so a fix commit cannot merge
-  without review. `merge.py` is the authoritative line: it merges the
-  reviewed commit, or a conflict-free merge of it with the current loop
-  branch, after a full test run on that exact commit.
-- **Early warnings in the guard.** In the loop's own sessions the guard hook
-  also refuses `gh`, `git push`, `git merge`, branch switches and checkouts.
-  For these restrictions it ignores quoted text and heredoc bodies. If the
-  command invokes `sh`, `bash`, `zsh`, `dash`, `eval` or `xargs`, directly or
-  through `env`, it checks the whole command, including quoted and piped input.
-  It matches command text, so it can be routed around. It is an early warning,
-  and `merge.py` and branch protection are the lines that hold.
-- **Stops in code, not only words.** `merge.py` parks an issue whose diff
-  touches a protected path, a workflow file, a lockfile or manifest, or a
-  settings file or an existing test module, unless the issue names that path.
-  The guard refuses a builder's write or edit to an unnamed stop path at
-  once and tells the builder to park if the change is needed. The diff check
-  remains the final gate. `setup.py` is a manifest only at the repository
-  root or beside `pyproject.toml` or `setup.cfg`.
-- **Setup.** `scripts/setup.py` creates the missing labels, the loop branch
-  (from the default branch), a pinned `Factory` issue and a `.loop/` line in
-  `.gitignore`. It runs the Test command, after the Prepare command, on a fresh
-  checkout of the loop branch as a preflight, and reports the optional
-  settings that are set. Running it again is safe. It opens
-  no pull request and does not check `core.hooksPath`.
-
-  Every release that changes what a project holds ships its migration in setup.
-  Migrations are safe to run twice and delete nothing. Setup prints each change
-  before applying it and logs the time, kit version and undo instructions in
-  `.loop/migrations.log`. `--dry-run` previews every change without writing
-  files or GitHub data, or running preflight.
-
-- **One runtime folder.** The loop keeps its lock, logs and state in `.loop/`.
-  Setup and every loop start first move older files there: kit 1.x files into
-  `.loop/v1/`, and the contents of `.lite/` from kit 2.0.0 into `.loop/`. A
-  file whose name `.loop/` already has moves in beside it as `<name>.lite`,
-  and a folder in both is merged. Nothing moves while a 2.0.0 loop runs or
-  while a loop runs from `.loop/`, and nothing is deleted, including empty folders.
-- **Events.** `.loop/events.jsonl` records step starts and ends with durations
-  and outcomes, session agents and models, parks, crashes, merge refusals,
-  drains, passes and stop or exit reasons. Refusals name a stable rule id;
-  pass end events count sessions, confirmed and rejected red-team findings,
-  and issues created. Every record carries the running kit version and the
-  project folder’s base name.
-  Loop output and per-build log lines start with a local timestamp.
-- **Never silent.** `loop.py` runs unbuffered, prints a line before every
-  long step, and gives a reason on every exit, including "nothing to build".
-- **Session isolation.** Sessions start with project-only settings and a
-  strict MCP configuration, so they do not inherit the person's plugins and
-  MCP servers (one project's sessions carried 41).
-- **Codex.** Any role can run on Codex (`Builder: codex <model>`). It gets
-  the guard and the stop check as hooks, with `LOOP_AGENT=codex` so the guard
-  refuses what it cannot parse. Setup and the loop's start check, for each
-  role set to `codex`, that the `codex` command, its hooks feature and the
-  flags the kit passes exist, and refuse naming the missing one. Without that
-  guard the kit does not run Codex.
-- **Limits.** A Claude or Codex usage limit or a GitHub rate limit waits for its
-  reset; it is neither a failure nor a park.
-- **Safe to repeat.** Every step can run twice after a crash: create a
-  pull request only if none exists, and clear `building` before a retry.
-- **Permission refusals** park the issue with the refused path named; they
-  are not retried.
-- **Held dependants.** A park notice and the finish summary name the issues
-  that wait on the parked one.
-- **Review verdict format.** The verdict is a delimited block; prose around
-  it is kept, not refused.
-- **Reviewers get paths, not pasted content,** so a large project cannot
-  overflow their input.
-- **Only issues a collaborator labelled `ready` are built.** In a public
-  repository, issue text is data, and a stranger's issue must never reach an
-  unattended builder.
-- **A minimal event log** (one line per step) feeds the release's deletion
-  pass.
-
-## Checking the work: three independent layers
-
-Recommended on the evidence. Each layer catches failures the others miss.
-
-1. **Acceptance tests first, by a separate session.** Before the builder
-   starts, a fresh test-writer session writes one test per acceptance
-   criterion from the issue alone, commits them to the issue branch, and
-   shows that each fails on the base with an assertion. Only those tests
-   run, so this takes minutes.
-
-   Criteria that already hold get no test, so there is no "already true"
-   marking to get wrong. Why: in two earlier projects, builders edited tests
-   and turned off a lint rule to pass, and marcdown's tests were written by
-   the same agent that wrote the code.
-2. **The test lock.** The builder cannot edit those tests or any test at
-   the loop branch baseline when the build started, except a path the issue
-   names. The guard uses `LOOP_START`, or the merge base with the loop branch
-   when it is absent. Tests the builder adds on the issue branch remain
-   editable.
-3. **A reviewer after the build, in a fresh session.** It reads the issue,
-   the diff and `PLAN.md`; is given the latest test result, naming the tests
-   run, and runs only targeted tests and the oracle (renders, measurements);
-   checks each criterion with evidence; may add a test that
-   reproduces a finding; and gives a verdict naming the head commit. Why:
-   the contract review caught real defects that frozen tests missed
-   (graphwright, docla, the 10 November batch), and marcdown's reviewers
-   returned changes on 10 of the first 16 issues, caught from renders and
-   reading.
-
-Then fix rounds, at most three, each re-reviewed. A test the writer got
-wrong is not a dead end: the reviewer can flag it and the coordinator parks
-the issue with the reason, as a `needs-user` question.
-
-## From version 1
-
-Version 1 of the kit (tag `v1.7.0`, kept in history) moved each piece through
-a state machine written in code, and wrote and froze judges at shaping time.
-Version 2 replaces it with the design above. What was dropped, and why:
-
-- **The state machine and typed reasons.** A gate decided when a piece was
-  ready, with a reason for each refusal. Each field failure added a state,
-  a reason or a setting, and each rule needed more rules at its edges. Version
-  2 keeps the states as labels on GitHub issues and leaves proportionate
-  judgement to the sessions.
-- **Judges written and frozen at shaping.** Writing and proving a judge,
-  then the ready check, ran the full suite about three times per piece. In
-  one batch, judge-writing pieces without a blocker took 61 to 105 minutes
-  before any build, and five of ten judges needed a hand fix. Version 2 writes
-  the tests in the run, from the acceptance criteria, in a separate session,
-  and locks them against the builder.
-- **The dashboard server.** The board is one pinned GitHub issue and progress
-  is the milestones page; neither needs a server, and both work from a phone.
-- **Size.** Version 1 measured 9,144 lines of kit Python in 44 scripts, 124
-  test files and a 20-minute suite; the sum of its concepts and settings was
-  the cost of every change. Version 2 is about 2,100 lines of Python in 10
-  scripts and hooks, with a suite of about 100 seconds.
-
-Evidence. The marcdown run, with no kit code, took 32 minutes of shaping and
-merged 41 pieces in 11 hours. The docla trial of version 2 merged all 8 of its
-first batch, about 50 minutes per issue before the fast path and 19 to 25
-minutes after it, with 23 merges unattended and 20 of 24 approved in the first
-review round. The docla history on version 1 counted 56 runs, 55 attended,
-29 that merged nothing, and 94 backward moves against 53 merges. These are not
-a controlled comparison: the projects and the periods differ.
-
-Carried over as ideas, not code: the fix round, retries for transient
-failures, the standing loop, deviations, the stops list, the oracle question,
-one final pull request into the default branch merged by the person, and the
-guard hook.
-
-## Details of the loop
-
-### The fast path
-
-A Test command that takes minutes must not run on every step. With a Test
-files command set, the full suite runs once per issue, at merge, on the exact
-commit `merge.py` merges. Path checks and the test lock run first, so a
-refusal costs no test run.
-
-- `Test files command` runs only some test files (`{files}` stands for their
-  paths; the Test command stands in when it is absent). `Prepare command`
-  runs once per worktree and per fresh checkout, before any test run.
-- The fails-first step runs only the locked files with the Test files command
-  and requires a failure by assertion, not a syntax error in the test.
-- The builder runs the Test files command while it works. The Stop hook runs
-  the locked tests and the test files changed since the issue started, then
-  the Check command. It records the commit, which tests ran and the output
-  tails in `.loop/passed-<session>`. The flow reuses that pass when it is for
-  the head commit, and otherwise runs the same targeted set in a fresh checkout.
-  Without a Test files command, these steps use the full Test command.
-- There is no per-issue simplify step. The reviewer gets the latest test
-  result in its prompt and runs only targeted checks. With a Test files command
-  set, the guard refuses the full Test command in every role.
-- The pass judges each red-team candidate with the Test files command on that
-  file, or the Test command when none is set, and then the Check command.
-- A folder that is not a registered worktree is renamed aside, never deleted.
-  A Stop hook command lives in its own process group, listed in
-  `LOOP_GROUPS`, so the loop kills it with the session.
-
-### Parallel builds
-
-`Parallel: N` (default 1) sets how many builds run at once.
-
-- Each build is
-  `scripts/worker.py`, a separate process that runs the same crash, retry and
-  park logic for one issue and leaves its result in
-  `.loop/builds/<issue>.result`. The supervisor, one loop under one lock,
-  polls the processes. A process that ends with no result died: the issue is
-  queued once more, then parked.
-- Claim: the `building` label goes on before the process starts. A new build
-  starts while fewer than N run, an eligible issue exists and the machine has
-  headroom (load average below the CPU count; on macOS, memory pressure below
-  critical, level 4). The first build always starts. Each deferral is logged
-  once per reason.
-- Memory: on macOS, sessions and test commands wait only at critical pressure
-  (level 4), with more than one build running. They wait at most 10 minutes,
-  then start anyway and log a line. A build running alone never waits for memory.
-  Memory waits happen before the merge lock is taken, do not count against
-  the build cap and record `memory-wait` events with the level and seconds waited.
-- Disk: before a build and each test command, the loop checks free space on
-  the project volume and in the temp folder. Below 2 GB it prints one line,
-  records a `disk-wait` event and checks again every minute. A failure reporting
-  "No space left on device" waits without using a crash attempt.
-- Each build creates a folder under the system temp folder and sets `TMPDIR`,
-  `TMP` and `TEMP` to it for all its sessions and test commands. Codex includes
-  it in its writable roots. During worktree cleanup, the build removes that
-  folder after checking its identity, and removes its sessions'
-  `.loop/passed-<session>` and `.loop/stop-<session>` files.
-- Merge queue: `.loop/merge.lock` (an advisory file lock, freed when its
-  holder dies) is held while the loop branch is merged into the issue branch
-  and `merge.merge` runs. A clean catch-up is pushed and the verdict's HEAD
-  follows it. Conflicts leave the merge open and return the issue to its
-  builder for a fix round.
-- If the merge is refused and the loop branch moved, the lock is released,
-  the catch-up runs once more, and the merge is retried.
-- The board reads each running build's step from `.loop/builds/<issue>.step`.
-- Supervision: workers run in their own session and the pid goes to
-  `.loop/builds/<issue>.pid`. A worker running longer than 3 times
-  `Session minutes` plus 30 minutes is killed with its group and counts as a
-  death. If a recorded pid is still alive at start, the loop refuses rather
-  than claim those issues again.
-- When the loop exits with builds left, it ends them; that skips their
-  worktree cleanup, which the next start's worktree pruning covers.
-- Stop: no new build starts and running builds finish their issue. Worktree,
-  process group and Docker cleanup stay with each build.
-
-### Checks on each merge, and the pass
-
-- The test writer's tests are proven to fail at the base commit before the
-  builder starts.
-- Stop hooks keep a builder from ending while the Test or Check command
-  fails, and a test writer from ending without a test.
-- `Check command` (guardrails, run after every Test command run) and
-  `Smoke command` (the real artefact, run by the pass only) are optional.
-- After each merge the issue and the pull request get a `## Built` note, and
-  at most two verified reviewer follow-ups become `inbox` issues. Unverified
-  lines and titles under four words are dropped.
-- `PLAN.md` has `## Lessons` and `## Surfaces`; issues may carry a
-  `## Failing test`.
-- After new merges the drain runs the end-of-loop pass (smoke, drift, red
-  team with failing tests, rubric, lessons, simplify and reconcile), puts its
-  report in the pull request body.
-  The README describes it in detail.
-
-### Pass findings and paths
-
-- Confirmed defects are filed as `inbox` issues with their failing tests,
-  then shaped and approved like any other issue.
-- A red-team test must also pass the Check command with the file in place.
-  The test writer may format a given failing test (layout only) so the locked
-  file never fails the Check command. The fails-first run after that commit
-  still requires a failure by assertion, or the writer is resumed once and the
-  issue then parks.
-- One `Simplify and reconcile` issue is open at a time; later passes comment
-  on it.
-- A collaborator's clear "yes" to a park that asks about changing test files adds
-  every test path the question names to the issue's `## Paths the builder may
-  change`. Nothing else grants a path.
-- The reviewer may write scratch files in the system temp folder only.
+`python3 kit/tests/run.py` runs the kit tests, with file arguments selecting
+modules. `sh tests/house-rules.sh` checks repository conventions;
+`tests/run-all.sh` runs both. A release also needs an end-to-end smoke run
+in an empty repository, building one small issue through the loop.

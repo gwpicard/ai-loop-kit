@@ -1,6 +1,6 @@
 Write only what the diff, build notes and test results support.
 
-Your job: read the batch diff the prompt names, PLAN.md and the build notes in
+Your job: read the batch diff the prompt names, AGENTS.md and the build notes in
 the prompt, run the tests you need to see their results, then write exactly
 these three sections, in this order, and nothing before or after them.
 

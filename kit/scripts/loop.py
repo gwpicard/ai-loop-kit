@@ -197,7 +197,7 @@ def answer(st, protected=None):
             last = st["replies"][n][-1].strip()
             if paths and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
                 for path in paths:
-                    grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"].split(", "))
+                    grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -215,18 +215,18 @@ def parked_test_paths(park):
 
 
 def grant_path(i, path, protected):
-    """Add `path` to the issue's `## Paths the builder may change`."""
+    """Add `path` to the issue's `## Protected paths this issue may change`."""
     body = i.get("body") or ""
     if merge.stop_reason(path, protected) or ".." in path.split("/") or path.startswith("/"):
         return  # a protected path is never granted by a reply
     if path in merge.allowed_paths(body):
         return
-    m = re.search(r"^(## Paths the builder may change[^\n]*\n)(.*?)(?=^## |\Z)", body, re.S | re.M | re.I)
+    m = re.search(r"^(## Protected paths this issue may change[^\n]*\n)(.*?)(?=^## |\Z)", body, re.S | re.M | re.I)
     if m:
         keep = [l for l in m.group(2).splitlines() if l.strip().strip("-* `").lower() not in ("", "none")]
         body = body[:m.start()] + m.group(1) + "\n" + "\n".join(keep + [path]) + "\n\n" + body[m.end():]
     else:
-        body = body.rstrip("\n") + "\n\n## Paths the builder may change\n\n" + path + "\n"
+        body = body.rstrip("\n") + "\n\n## Protected paths this issue may change\n\n" + path + "\n"
     gh(["issue", "edit", str(i["number"]), "--body-file", "-"], input=body)
     i["body"] = body
 
@@ -351,6 +351,7 @@ def start_builds(project, settings, st):
         os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
         with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
             proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, []), st["attempts"].get(number, st["deaths"].get(number, 0))), cwd=project,
+                                    env=dict(common.build_env(), LOOP_BUILD_SETTINGS=json.dumps(settings)),
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
         with open(common.build_file(project, number, "pid"), "w") as f:
@@ -504,29 +505,26 @@ def hands_on(project, base, loop, old_body):
     if not blocks:
         return "## Hands-on checks\n\nnone\n"
     head = git(["rev-parse", "--short", "origin/" + loop], cwd=project, check=False).strip()
-    plan = git(["show", "origin/%s:PLAN.md" % loop], cwd=project, check=False)
-    found = re.search(r"^## Try it[ \t]*\n(.*?)(?=^## |\Z)", plan, re.M | re.S)
-    steps = re.sub(r"<!--.*?-->", "", found.group(1) if found else "", flags=re.S).strip()
-    if steps.lower().rstrip(".") == "none":
-        intro = ""
-    else:
-        intro = "Build: `%s` at `%s`.\n\n" % (loop, head)
-        intro += (steps if steps else "No steps to run it are written. Add them under `## Try it` in `PLAN.md`.") + "\n\n"
+    intro = "Build: `%s` at `%s`.\n\n" % (loop, head)
     return "## Hands-on checks\n\n" + intro + "\n\n".join(blocks) + "\n"
 
 
 def decisions(project, base, loop):
-    """The `## Decisions to confirm` section: the lines added under `## Deviations` in PLAN.md since the default branch."""
-    def lines(ref):
-        text = git(["show", "origin/%s:PLAN.md" % ref], cwd=project, check=False)
-        found = re.search(r"^## Deviations[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-        return [l for l in found.group(1).splitlines() if l.strip()] if found else []
-    old, added = lines(base), []
-    for line in lines(loop):
-        if line in old:
-            old.remove(line)
-        else:
-            added.append(line)
+    """List each merged issue's recorded builder deviations, without shortening them."""
+    log = git(["log", "--format=%s", "origin/%s..origin/%s" % (base, loop)], cwd=project, check=False)
+    added = []
+    for number in sorted({int(n) for n in re.findall(r"^Issue (\d+)\b", log, re.M)}):
+        try:
+            info = json.loads(gh(["issue", "view", str(number), "--json", "title,body,comments"]))
+        except (ValueError, common.GitHubError):
+            continue
+        note = next((c.get("body") or "" for c in reversed(info.get("comments") or [])
+                     if (c.get("body") or "").startswith("## Built")), "")
+        found = re.search(r"^Deviations:[ \t]*(.*?)(?=\n\s*\nMerged as |\Z)", note, re.M | re.S)
+        for item in found[1].strip().splitlines() if found else []:
+            item = re.sub(r"^\s*[-*]\s+", "", item).strip()
+            if item and item.lower() != "none":
+                added.append("- #%d: %s" % (number, item))
     return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
 
 
@@ -551,8 +549,8 @@ def summary(project, settings, head, landed):
             pass
         with common.scratch_tree(project, "origin/" + loop) as tree:
             prompt = flow.brief("pr-summary") + (
-                "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
-                    os.path.join(tree, "PLAN.md"), loop, settings["Test command"], base, "\n\n".join(notes)))
+                "\n\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
+                    loop, settings["Test command"], base, "\n\n".join(notes)))
             reply = session.run("pass", prompt, tree, settings["Pass"][1], project, "summary", agent=settings["Pass"][0])[0]
         found = re.search(r"^## Summary\b.*?^## Evidence\b.*?^## Merge danger\b.*", reply, re.M | re.S)
         text = found.group(0).strip() + "\n" if found else ""
@@ -740,10 +738,8 @@ def resume(project):
 
 def run(project):
     project = os.path.abspath(project)
-    unknown = []
-    settings = common.read_settings(project, unknown=unknown)
-    if unknown:
-        say("unknown Loop settings: %s; next: run setup" % ", ".join(unknown))
+    settings = common.read_settings(project)
+    settings_error = None
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
@@ -766,6 +762,14 @@ def run(project):
     try:
         while not os.path.exists(stop):
             try:
+                try:
+                    settings = common.read_settings(project)
+                    settings_error = None
+                except common.SettingsError as e:
+                    if str(e) != settings_error:
+                        say("keeping previous settings: %s" % e)
+                        settings_error = str(e)
+                cap = (3 * settings["Session minutes"] + 30) * 60
                 snapshot(st)
                 st["reaped"] = set()
                 reap(project, st, cap)
@@ -786,7 +790,8 @@ def run(project):
                 if not park_wait(st) and not os.path.exists(stop):
                     dirty = sync_default(project, settings["Loop branch"], st) or dirty
                     if dirty:
-                        drain(project, settings, st)
+                        with common.settings_environment(settings):
+                            drain(project, settings, st)
                         dirty = False
                 if time.time() - built >= settings["Idle hours"] * 3600:
                     reason = "nothing built for %g hours" % settings["Idle hours"]
@@ -888,6 +893,9 @@ def main(argv):
             return say(old) or 1
         if cmd == "check-version":
             return 0
+        _, refusal = setup.tidy(project)
+        if refusal:
+            return say(refusal) or 1
         common.record_kit_version(project)
     if cmd != "run":
         say("usage: loop.py run|stop|pause|resume|check-version|report|status [--since <time>]")

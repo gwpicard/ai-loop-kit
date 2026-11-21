@@ -32,16 +32,23 @@ AGENT_TRAILER = re.compile(
     re.I)
 
 
-def squash_body(project, loop, sha):
-    """The builder's commit messages in order, without agent co-author trailers."""
+def squash_body(project, loop, sha, settings):
+    """The builder's commit messages in order, with the project's chosen trailers."""
     log = git(["log", "--reverse", "--format=%B%x00", "origin/%s..%s" % (loop, sha)],
               cwd=project)
     messages = []
+    sign_off = ""
+    if settings["Sign-off"]:
+        name = git(["config", "user.name"], cwd=project)
+        email = git(["config", "user.email"], cwd=project)
+        sign_off = "Signed-off-by: %s <%s>" % (name, email)
     for raw in log.split("\0"):
-        lines = [l for l in raw.strip().splitlines() if not AGENT_TRAILER.match(l)]
+        lines = [l for l in raw.strip().splitlines()
+                 if (settings["Agent attribution"] or not AGENT_TRAILER.match(l))
+                 and (not sign_off or l.strip().casefold() != sign_off.casefold())]
         if text := "\n".join(lines).strip():
             messages.append(text)
-    return "\n\n".join(messages)
+    return "\n\n".join(messages + ([sign_off] if sign_off else []))
 
 
 def _refuse(rule, reason, park=False):
@@ -90,11 +97,11 @@ def locked_baseline(comments):
 
 
 def allowed_paths(body):
-    """Paths listed under the issue's `## Paths the builder may change`."""
+    """Paths listed under the issue's `## Protected paths this issue may change`."""
     body = body.replace("\r\n", "\n")
     body = re.sub(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", "", body,
                   flags=re.S | re.M)  # fenced content grants nothing
-    m = re.search(r"^## Paths the builder may change[^\n]*\n(.*?)(?=^## |\Z)",
+    m = re.search(r"^## Protected paths this issue may change[^\n]*\n(.*?)(?=^## |\Z)",
                   body, re.S | re.M | re.I)
     return {p.removeprefix("./") for p in _items(m.group(1) if m else "")
             if p.lower() not in ("", "none")}
@@ -245,7 +252,7 @@ def merge(issue, branch, verdict_text, project="."):
 
 
 def _merge(issue, branch, verdict_text, project):
-    settings = common.read_settings(project)
+    settings = common.build_settings(project)
     loop = settings["Loop branch"]
     verdict, head = parse_verdict(verdict_text)
     if verdict != "APPROVE":
@@ -284,7 +291,7 @@ def _merge(issue, branch, verdict_text, project):
         try:
             gh(["pr", "merge", str(number), "--squash",
                 "--subject", "Issue %s (#%s)" % (issue, number),
-                "--body", squash_body(project, loop, sha),
+                "--body", squash_body(project, loop, sha, settings),
                 "--match-head-commit", sha, "--delete-branch"], retry=False)
         except common.GitHubError as e:
             err = e

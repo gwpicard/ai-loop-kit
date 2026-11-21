@@ -59,7 +59,7 @@ def count_block(project, session_id, limit):
 def problem(role, cwd, project, session_id=""):
     """Why the session may not stop yet, or None."""
     if role == "builder":
-        settings = common.read_settings(project)
+        settings = common.build_settings(project)
         if session_id and unchanged_since_pass(project, session_id, cwd):
             return None
         timeout = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit

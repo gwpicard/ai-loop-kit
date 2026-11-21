@@ -5,22 +5,7 @@ from common import LoopError, gh, git
 
 LABELS = {"inbox": "ededed", "shaping": "fbca04", "ready": "0e8a16",
           "building": "1d76db", "needs-user": "d93f0b"}
-SECTION = "## Loop\nTest command: <the command that runs your tests>\n"
-
-
-V1 = {"run.lock", "heartbeat", "dashboard.html", "dashboard.json", "preferences.json", "summary.md",
-      "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}  # files only kit 1.x kept in .loop/
-OURS = {"loop.out", "loop.pid", "pass.json", "builds", "merge.lock", "stop", "kit-version", "migrations.log"}  # never moved into .loop/v1/
-
-
-def alive(path):
-    try:
-        with open(path) as f:
-            pid = int(f.read().strip())
-        os.kill(pid, 0)
-        return pid
-    except (OSError, ValueError):
-        return None
+SECTION = '{"Test command": "<the command that runs your tests>"}'
 
 
 def change(project, what, undo, apply, dry_run=False):
@@ -36,53 +21,22 @@ def change(project, what, undo, apply, dry_run=False):
 
 
 def tidy(project, dry_run=False):
-    """Move older runtime files without overwriting or deleting anything."""
+    """Refuse legacy runtime layouts and explain the intermediate upgrade."""
     loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
-    if alive(os.path.join(loop, "loop.pid")):
-        return [], None
-    pid = alive(os.path.join(lite, "loop.pid"))
-    if pid:
-        return [], "refused: a loop of kit 2.0.0 is running from .lite/ (pid %d)\nnext: stop it, then start again" % pid
-    moved, sources = [], set()
-
-    def exists(path):
-        return os.path.exists(path) and path not in sources
-
-    def move(old, new, what):
-        def apply():
-            os.makedirs(os.path.dirname(new), exist_ok=True)
-            os.rename(old, new)
-        change(project, what, "move %s to %s" % (os.path.relpath(new, project), os.path.relpath(old, project)),
-               apply, dry_run)
-        sources.add(old)
-        moved.append(what)
-
-    try:
-        names = sorted(os.listdir(loop)) if os.path.isdir(loop) else []
-        if V1 & set(names):
-            for name in names:
-                if name != "v1" and name not in OURS and not name.startswith(("passed-", "stop-")) \
-                        and not os.path.exists(os.path.join(loop, "v1", name)):
-                    move(os.path.join(loop, name), os.path.join(loop, "v1", name),
-                         ".loop/%s to .loop/v1/" % name)
-        for name in sorted(os.listdir(lite)) if os.path.isdir(lite) else ():
-            old, new = os.path.join(lite, name), os.path.join(loop, name)
-            if os.path.isfile(old) and exists(new) and not exists(new + ".lite"):
-                new += ".lite"
-            if not exists(new):
-                move(old, new, ".lite/%s to .loop/%s" % (name, os.path.basename(new) if new.endswith(".lite") else ""))
-            elif os.path.isdir(old) and os.path.isdir(new):
-                for child in sorted(os.listdir(old)):
-                    if not exists(os.path.join(new, child)):
-                        move(os.path.join(old, child), os.path.join(new, child),
-                             ".lite/%s/%s to .loop/%s/%s" % (name, child, name, child))
-    except OSError as e:
-        return moved, "refused: the runtime files could not be moved into .loop/: %s\nnext: move them by hand, then start again" % e
-    return moved, None
+    names = os.listdir(loop) if os.path.isdir(loop) else []
+    if os.path.exists(lite) or set(names) & {"run.lock", "heartbeat", "dashboard.html", "dashboard.json",
+            "preferences.json", "summary.md", "why.md", "hypothesis", "outcome", "cache", "capture", "run-metrics"}:
+        return [], ("refused: this project has a .lite/ folder or kit 1.x files in .loop/\n"
+                    "next: install kit 2.2.0, run its setup, then update to this version.\n"
+                    "After kit 2.2.0 setup succeeds, stop any running loop and move any remaining .lite/ folder, "
+                    "with all its contents, to an unused backup path outside this project before updating.")
+    return [], None
 
 
 def migrate_220(project, dry_run):
     path = pathlib.Path(project, "AGENTS.md")
+    if not path.exists():
+        return False
     with path.open(encoding="utf-8", newline="") as f:
         text = f.read()
     removed = [line for line, key, _ in common.setting_lines(text) if key == "Defect rounds"]
@@ -99,13 +53,120 @@ def migrate_220(project, dry_run):
                 f.write("".join(kept))
         change(project, "removed Defect rounds from AGENTS.md: confirmed defects now arrive as inbox issues",
                "restore under ## Loop in AGENTS.md: " + "".join(removed), apply, dry_run)
-    plan = pathlib.Path(project, "PLAN.md")
-    if plan.exists() and any(line.strip().lower() == "## standing approvals" for line in plan.read_text(encoding="utf-8").splitlines()):
-        print("notice: the kit no longer reads ## Standing approvals in PLAN.md; confirmed defects now arrive as inbox issues", flush=True)
     return bool(removed)
 
 
 MIGRATIONS = (("2.2.0", migrate_220),)
+
+
+def migrate_issue_paths(project, dry_run=False):
+    """Rename the protected-paths section, saving each original body for undo."""
+    old = re.compile(r"^## Paths the builder may change(?=[ \t]*\r?$)", re.M)
+    heading = "## Protected paths this issue may change"
+    issues = json.loads(gh(["issue", "list", "--state", "open", "--limit", "10000",
+                           "--json", "number,body"]) or "[]")
+    if len(issues) >= 10000:
+        raise LoopError("refused: open issue list may be truncated; no issue headings renamed")
+    changed = False
+    for issue in issues:
+        body = issue.get("body") or ""
+        renamed = old.sub(heading, body)
+        if renamed == body:
+            continue
+        number = str(issue["number"])
+        backup = pathlib.Path(".loop/migrations", "issue-%s-%s.md" % (number, time.time_ns()))
+        def apply():
+            path = pathlib.Path(project, backup)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("xb") as f:
+                f.write(body.encode("utf-8"))
+            gh(["issue", "edit", number, "--body-file", "-"], input=renamed)
+        change(project, "issue %s: renamed section to %s" % (number, heading),
+               "gh issue edit %s --body-file %s" % (number, backup.as_posix()), apply, dry_run)
+        changed = True
+    return changed
+
+
+def migrate_plan(project, dry_run=False):
+    """Preserve every non-empty section of PLAN.md in one inbox issue."""
+    path = pathlib.Path(project, "PLAN.md")
+    log = pathlib.Path(project, ".loop/migrations.log")
+    title = "Find a home for the contents of PLAN.md"
+    if not path.exists() or log.exists() and title in log.read_text(encoding="utf-8"):
+        return False
+    homes = {
+        "decisions": "Move to AGENTS.md when every agent needs the decision and no check can enforce it.",
+        "product rules": "Move to AGENTS.md when every agent needs the rule and no check can enforce it.",
+        "stops": "Move the project's own stops to AGENTS.md; the kit's stops are in its preamble.",
+        "surfaces": "Move to the Red-team surfaces list in loop.json.",
+        "lessons": "Turn each lesson into a check or an AGENTS.md line, or drop it.",
+        "deviations": "Drop these notes; git keeps them.",
+        "try it": "Move the steps to README.md and include them in each issue's hands-on check when needed.",
+    }
+    text = path.read_text(encoding="utf-8")
+    sections = re.split(r"^##[ \t]+(.+?)[ \t]*$", text, flags=re.M)
+    body = "Decide where these contents belong. PLAN.md is unchanged.\n"
+    intro = re.sub(r"\A\s*# [^\n]*\n", "", sections[0]).strip()
+    parts = [("Introduction", intro)] + list(zip(sections[1::2], sections[2::2]))
+    for name, content in parts:
+        if content.strip():
+            home = homes.get(name.lower(), "Keep useful context in README.md, or in docs/ if it earns its place; otherwise drop it.")
+            body += "\n## %s\n\n%s\n\nProposed home: %s\n" % (name, content.strip(), home)
+    print(title + "\n\n" + body, flush=True)
+    if dry_run:
+        change(project, title, "close the migration's inbox issue", lambda: None, True)
+    else:
+        # Recover an issue created before a failed log write without filing it twice.
+        issues = json.loads(gh(["issue", "list", "--state", "all", "--search", title + " in:title",
+                               "--limit", "500", "--json", "title,number"]) or "[]")
+        number = next((str(i["number"]) for i in issues if i["title"] == title), None)
+        if number is None:
+            url = gh(["issue", "create", "--title", title, "--label", "inbox", "--body-file", "-"],
+                     input=body, retry=False)
+            number = url.strip().rsplit("/", 1)[-1]
+        change(project, title, "close inbox issue " + number + "; PLAN.md was left unchanged",
+               lambda: None)
+    return True
+
+
+def migrate_settings(project, dry_run=False):
+    """Move the old section into JSON, retaining the original text for undo."""
+    path, config = pathlib.Path(project, "AGENTS.md"), pathlib.Path(project, "loop.json")
+    if config.exists() or not path.exists():
+        return None
+    with path.open(encoding="utf-8", newline="") as f:
+        text = f.read()
+    if not any(line.strip().lower() == "## loop" for line in text.splitlines()):
+        return None
+    found = {key: value for _, key, value in common.setting_lines(text) if key != "Defect rounds"}
+    for role, prefix in (("Builder", "Builder"), ("Test writer", "Builder"),
+                         ("Reviewer", "Reviewer"), ("Pass", "Reviewer")):
+        old = prefix + " model"
+        if found.get(old) and not found.get(role):
+            found[role] = "claude " + found[old]
+    for prefix in ("Builder", "Reviewer"):
+        found.pop(prefix + " model", None)
+    for key in common.LIST_SETTINGS & found.keys():
+        found[key] = [p.strip() for p in found[key].split(",") if p.strip()]
+    for key in common.NUMERIC_SETTINGS & found.keys():
+        try:
+            found[key] = float(found[key])
+        except ValueError:
+            raise common.SettingsError("AGENTS.md: invalid number for '%s'" % key)
+    common.validate_settings(found, "loop.json")
+    change(project, "created loop.json from AGENTS.md", "remove loop.json",
+           lambda: config.write_text(json.dumps(found, indent=2) + "\n", encoding="utf-8"), dry_run)
+    kept, removed, inside = [], [], False
+    for line in text.splitlines(keepends=True):
+        if re.match(r"#{1,6}\s", line):
+            inside = line.strip().lower() == "## loop"
+        (removed if inside else kept).append(line)
+    def apply():
+        with path.open("w", encoding="utf-8", newline="") as f:
+            f.write("".join(kept))
+    change(project, "removed ## Loop from AGENTS.md", "restore in AGENTS.md: " + "".join(removed),
+           apply, dry_run)
+    return found
 
 
 def labels_present():
@@ -133,26 +194,39 @@ def missing(project, settings):
 def setup(project=".", dry_run=False):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
+    counts = {}
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        path = pathlib.Path(project, name)
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        counts[name] = sum(len(line.split()) for line in lines
+                           if not (name == "CLAUDE.md" and line.strip() == "@AGENTS.md"))
+    if sum(counts.values()) > 1500:
+        say("warning: standing instructions exceed the 1,500-word budget: " +
+            "; ".join("%s: %s words" % (name, format(count, ",")) for name, count in counts.items()))
     old = common.kit_version_refusal(project)
     if old:
         say(old)
         return 1
-    try:
-        settings = common.read_settings(project)
-    except common.SettingsError as e:
-        say("refused: %s\nnext: add these lines to AGENTS.md, then run setup again:\n%s"
-            % (e, SECTION))
-        return 1
-    moved, refusal = tidy(project, dry_run)
+    _, refusal = tidy(project, dry_run)
     if refusal:
         say(refusal)
         return 1
-    if moved:
-        say("runtime folder: " + ("would move " if dry_run else "moved ") + "; ".join(moved))
-    changes.extend(moved)
     for version, migrate in MIGRATIONS:
         if migrate(project, dry_run):
             changes.append("migration " + version)
+    try:
+        migrated = migrate_settings(project, dry_run)
+        if migrated is not None:
+            changes.extend(["loop.json", "AGENTS.md"])
+        if dry_run and migrated is not None:
+            settings = dict(common.DEFAULTS, **migrated)
+            for role in common.ROLES:
+                settings[role] = tuple(settings[role].split())
+        else:
+            settings = common.read_settings(project)
+    except common.SettingsError as e:
+        say("refused: %s\nnext: set Test command: in loop.json, then run setup again:\n%s" % (e, SECTION))
+        return 1
     path = pathlib.Path(project, ".loop", "kit-version")
     previous = path.read_text(encoding="utf-8") if path.exists() else None
     if previous != common.kit_version() + "\n":
@@ -171,6 +245,10 @@ def setup(project=".", dry_run=False):
         change(project, "label " + name, "remove label " + name,
                lambda: gh(["label", "create", name, "--color", LABELS[name]]), dry_run)
         changes.append("label " + name)
+    if migrate_plan(project, dry_run):
+        changes.append("plan contents inbox issue")
+    if migrate_issue_paths(project, dry_run):
+        changes.append("protected paths issue headings")
     if not dry_run:
         git(["fetch", "origin"], cwd=project)
     base = common.default_branch(project)
@@ -186,6 +264,13 @@ def setup(project=".", dry_run=False):
         changes.append("Factory issue, pinned")
     path = os.path.join(project, ".gitignore")
     text = pathlib.Path(path).read_text(encoding="utf-8") if os.path.exists(path) else ""
+    if "loop.local.json" not in text.splitlines():
+        def ignore_local():
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(("" if not text or text.endswith("\n") else "\n") + "loop.local.json\n")
+        change(project, ".gitignore now lists loop.local.json", "remove the appended loop.local.json line from .gitignore",
+               ignore_local, dry_run)
+        changes.append(".gitignore now lists loop.local.json")
     if ".loop/" not in text.split():
         def ignore():
             with open(path, "a", encoding="utf-8") as f:

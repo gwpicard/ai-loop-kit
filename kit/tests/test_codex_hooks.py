@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from kit.tests.fake_codex_hooks import FakeCodexHooks
-from kit.tests.helpers import make_repo, run_git
+from kit.tests.helpers import make_repo, run_git, settings_json, write_settings
 import common
 import session
 
@@ -123,7 +123,7 @@ class CodexSessionHooksTest(FakeCodexHooks):
 
     def build(self, test="test -f GOOD"):
         self.work, _ = make_repo(self.tmp, dict(
-            FILES, **{"AGENTS.md": "## Loop\nTest command: %s\nLoop branch: loop/main\n" % test}))
+            FILES, **{"loop.json": settings_json("## Loop\nTest command: %s\nLoop branch: loop/main\n" % test)}))
         self.start = common.git(["rev-parse", "HEAD"], cwd=self.work).strip()
 
     def run_session(self, role="builder", resume=None, **kw):
@@ -171,8 +171,7 @@ class CodexSessionHooksTest(FakeCodexHooks):
         self.assertEqual(len(self.reasons("Test command fails")), 1)
 
     def test_a_builder_with_a_failing_check_command_is_sent_back(self):
-        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
-            f.write("Check command: test -f CLEAN\n")
+        write_settings(os.path.join(self.work, "loop.json"), "Check command: test -f CLEAN\n", append=True)
         run_git(["commit", "-qam", "check"], self.work)
         self.codex([{"reply": "done", "files": {"GOOD": "x\n"}}, {"reply": "fixed", "files": {"CLEAN": "x\n"}}])
         self.run_session()

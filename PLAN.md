@@ -96,7 +96,22 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- Unknown `.loop/` names are not legacy markers: projects and test fixtures keep their own files there. Refuse only the explicit kit 1.x names or `.lite/`.
+- A reload test that replaces builds with fake workers cannot prove retention reaches sessions, hooks and merge checks. Exercise a real build after damaging each settings file, both serially and in a worker.
+- JSON accepts whole numbers such as 3.0; normalise count settings to integers before passing Max rounds to range.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
+- Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
+- The test runner drops inherited `LOOP_PROJECT` before starting test processes, so disk checks and events use each fixture. Unsetting it only in a manual command leaves the Stop hook exposed to the same failure.
+- Reviewer prompts include the whole brief; keep the literal revert result prefix out of its explanatory prose so a skipped check has no result line.
+- Protected paths this issue may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
+- Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
+- A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
+- The test-lock hook refuses edits to existing tests even when the issue allows them; write judging tests in a new file when instructed to continue.
+- The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
+- A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
+- The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
+- When hiding Codex, preserve the test runner's sysctl stub; replacing it with the host command can make setup preflight wait on real memory pressure.
+- Released kit 2.2.0 leaves `.lite/` behind, sometimes with colliding files; preserve the whole residual folder outside the project after migration rather than deleting it.
 - Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
 - Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
 - A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
@@ -116,6 +131,160 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Design shortening: replace the historical narrative with the current
+  contract and workflow, keeping command detail in the kit reference.
+  Treat the issue's old permissions heading as its protected-path list,
+  not a restriction on the documentation change its goal explicitly asks
+  for; the current issue template permits changes to other files. Leave
+  locked tests unchanged. Run their targeted command and house rules;
+  reserve the full suite for merge because the current guard refuses it
+  in all four session roles when targeted tests are configured. The kit
+  does not read this plan at runtime; record this decision here only to
+  satisfy the current build instructions.
+
+  A fresh writing review corrected the cleanup claim, reviewer scratch
+  location and product-choice stops against the implementation. These
+  prose corrections are verified by reading the real paths, not new
+  executable regressions; text assertions would only mirror the wording.
+
+- Design shortening tests: add a new module because existing tests stay
+  locked. Run the named word-count command and read the actual document.
+  Check the current contract, one history pointer and repository evidence
+  for static backticked names. Prose accuracy, runtime path templates and
+  command semantics still need the issue's read against the code; text
+  searches cannot establish those. Keep the existing house-rules check
+  rather than duplicate it. No production or documentation changes belong
+  in the test writer's commit.
+
+- Standing-instruction budget: count the root files before migrations, so
+  normal setup and dry-run report the same input. Missing files count as zero.
+  The check only reads the files; existing settings migrations remain separate.
+  Use whitespace-separated words and exclude only a standalone `@AGENTS.md`
+  line in `CLAUDE.md`, as the locked acceptance tests require.
+  All 16 setup tests and house rules pass. Leave the full suite to merge,
+  as the repository's fast-path rule requires.
+
+- Standing-instruction budget tests: add a separate module because existing
+  tests stay locked. Invoke setup from the project root with settings already
+  in JSON, so settings migration cannot obscure whether the check edits the
+  instructions. Treat whitespace-separated tokens as words, exclude only a
+  standalone import line, and check both sides of the 1,500-word boundary.
+  Vary whitespace and import position; nested instruction files do not count.
+  All three tests fail by assertion on the missing warning; below-budget
+  silence and preservation of both instruction files already pass.
+
+- Legacy refusal correction: the person's latest instruction supersedes the
+  earlier decision to refuse unknown `.loop/` names. Recognise only the
+  former kit 1.x names and `.lite/`, removing the current-runtime allowlist.
+  Retain those names solely as refusal markers, without restoring their
+  migrations. Command regressions cover setup preserving unknown files and
+  folders, and `loop run` reaching settings validation with those files intact.
+  All 120 targeted tests pass with process inspection available. Keep the
+  full Test command reserved for merge, as the earlier builder notes require.
+
+- Legacy migration merge failure: the log retains only the final failure
+  line, so the exact failing assertion is unknown. Reproduced a setup
+  timeout through the command with the missing-Codex fixture: it discarded
+  the runner's memory-pressure stub when rebuilding PATH. Preserve the
+  selected sysctl command while keeping Codex hidden. Add a setup-command
+  regression that records the stub being read. Run the affected fixture,
+  setup and loop tests; the full suite remains reserved for merge.
+
+- Legacy upgrade review: retain the required `.lite/` refusal and explain
+  that, after kit 2.2.0 setup succeeds and its loop is stopped, the person
+  moves the whole residual folder to an unused backup path outside the
+  project before updating. Test the released migration from the local
+  `v2.2.0` tag, including colliding logs, then run current setup after that
+  move and check the backup. Check legacy layouts at the `loop run` entry
+  point before settings, Codex checks or version recording. Cover both
+  legacy layouts with settings still in `AGENTS.md` and no `loop.json`.
+
+- Legacy migration removal: recognise current runtime names and session or
+  history prefixes instead of retaining the kit 1.x file list. Unknown names
+  directly under `.loop/` also require the intermediate upgrade; archived
+  files under `.loop/v1/` and `.lite` copies of current files left by the
+  intermediate migration remain valid. Keep `tidy`'s return shape for its
+  existing callers and check it before `loop run` reads settings, so it
+  refuses before reporting missing settings or a missing branch. Remove obsolete move tests and
+  retain coverage of the 2.2.0 and 3.0.0 migrations. The full Test command is
+  reserved for merge by the builder guard; run targeted checks here.
+  Stop the broader Codex fixture check when it waits on host memory pressure;
+  leave that unrelated fixture unchanged and run the migration checks separately.
+
+- Legacy migration tests: add a separate acceptance module because existing
+  tests stay locked for the test writer. Exercise setup and `loop run` as
+  commands, with empty and populated `.lite/` folders and varied kit 1.x
+  markers. Require the intermediate-upgrade advice before the ordinary
+  missing-loop-branch advice. Existing tests cover the retained migrations;
+  the builder must remove the obsolete move assertions and the old file list.
+
+- Protected paths heading: update the loop's park-reply writer as well as
+  the named consumers, so an approval uses the section merge reads. Rename
+  only heading lines in setup and save each original body before editing,
+  retaining line endings and a separate backup for each attempt. Refuse a
+  possibly truncated open-issue list before editing any body. Update the
+  authorised existing test fixtures to use the new heading; leave the test
+  writer's locked acceptance module unchanged. Use targeted checks here;
+  the builder guard reserves the full Test command for merge.
+
+- Protected paths heading tests: add a new test module because existing tests
+  stay locked. Exercise setup through its command with a fake GitHub that
+  records edited bodies, including section order and line-ending variants.
+  Check the saved originals and undo commands without prescribing backup
+  filenames. Existing park messages name no section, so that criterion
+  already holds on this branch and needs no failing test.
+
+- Squash settings: use the build's validated settings snapshot for both
+  trailer options. Remove existing copies of the project's sign-off before
+  appending it once at the end, keeping other contributors' sign-offs.
+  Compare sign-offs case-insensitively and ignore surrounding whitespace,
+  so differences in the trailer label's capitalisation do not leave
+  duplicates. Both settings default to false and remain excluded from local
+  overrides.
+- Squash settings validation: add a separate test module for invalid boolean
+  values and both options enabled together, leaving the locked tests intact.
+  Run the relevant test modules and house rules in the builder; the full
+  Test command is reserved for merge by the builder guard.
+
+- Squash settings tests: add a new module beside the squash-message tests,
+  reusing their fake GitHub merge fixture because existing tests stay locked.
+  Check both boolean values through `merge.merge` and its recorded `--body`,
+  with varied trailer order and project git identities. Local-file validation
+  already refuses both keys; the existing JSON test checks every key added to
+  the defaults and requires the file and key in the diagnostic. Default
+  attribution removal already passes.
+
+- Settings in JSON, resumed validation: retain the implementation approved by the latest review, with no further runtime changes. All 478 tests in the 31 changed test modules, including the locked acceptance tests and build-retention regressions, pass with process inspection available. House rules pass too.
+
+- Settings in JSON, merge resolution: keep both the settings decisions and the incoming Spotlight README notes. Their additions to Deviations are independent; the README paragraph and its tests remain intact.
+
+- Settings in JSON: retain legacy parsing only for setup migration and fixture conversion. Existing alias assertions now check role values, and the old unknown-key warning assertion now requires refusal, because the new criteria supersede those behaviours. Migration fixtures stay in AGENTS.md to exercise the real setup command.
+- Settings in JSON, Stop hook fix: isolate inherited LOOP_PROJECT in the test runner rather than changing runtime disk checks or requiring callers to unset it. A regression invokes the runner with an enclosing project and checks both the disk tests and the absence of events outside their fixtures.
+- Settings in JSON, build retention: scope a validated snapshot to each build, carry it into workers and agent hooks through the subprocess environment, and use it for sessions and merge checks. The supervisor alone reloads files between cycles. The drain and end-of-loop pass use their supplied snapshot too. Test subprocesses discard inherited snapshots so they retain fixture isolation.
+- Settings in JSON, runner regression: invoke only the two disk checks that reproduce project leakage, through a test module that selects them. Running every common test inside this regression also ran an unrelated short GitHub timeout check, which failed under concurrent suite load.
+- Settings in JSON: require finite, non-negative numbers, with positive whole numbers for Parallel and Max rounds. Normalise those counts to integers, including JSON values written with a decimal point. Reload failures keep the whole previous configuration and report each unchanged error once; recovery clears the warning. When concurrency falls to one, existing worker builds finish before an in-process build starts.
+
+- Spotlight README: the locked tests and house rules passed. After a merge
+  refusal reported only "Some checks failed", reran the full Test command
+  with `LOOP_PROJECT` unset and approved execution outside the sandbox, as
+  the Lessons require. All 837 tests and house rules passed; the merge
+  failure did not reproduce, so no code or locked tests changed.
+
+- Spotlight README tests: check the paragraph's required terms and its position
+  beside the load and memory explanation, allowing line wrapping and Markdown
+  code spans. The issue's reading oracle still judges whether the prose explains
+  the relationships clearly. The existing house-rules check covers the final
+  criterion; it needs no new test.
+
+- Revert check: run the Test files command once per builder test file in one scratch worktree per review, so a failing file cannot hide a passing one. Report command or preparation errors as unverified rather than as proof. The person authorised the two existing command-count assertions to include the revert runs; all their other checks stay intact.
+- Revert check brief: keep the locked brief tests' references to tests that cannot fail and FOLLOW-UPS, but limit that exception to tests guarding existing behaviour explained in DEVIATIONS, as the new criterion requires.
+
+- Revert check tests: exercise complete issue builds with fake agents and a real targeted test command. The builder records a Stop hook pass so each review must still run its own revert check. Cover added, modified and removed non-test files, changed existing tests and all three skip conditions.
+
+- Full Test command restriction: retain the shared session environment code, which already passes both test commands to every role. Replace the environment-only test with a check that invokes the configured guard using the spawned session's environment, with and without a Test files command. It fails on the loop branch for test-writer and pass refusals and passes with the fix.
+- Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.
+- Settings in JSON: judging tests live in a new file because the test-lock hook refused an existing test edit and the follow-up instructed the writer to continue with new tests. Fixture conversion stays with the builder. Live reload uses the run command handler with fake workers and bounded waits; setup and the legacy refusal use subprocess commands.
 
 - Full Test command restriction: retain the shared session environment code, which already passes both test commands to every role. Replace the environment-only test with a check that invokes the configured guard using the spawned session's environment, with and without a Test files command. It fails on the loop branch for test-writer and pass refusals and passes with the fix.
 - Full Test command restriction: put acceptance tests in a new file because the test lock refuses edits to existing tests. The builder must update the old guard assertion that permits the full command for test-writer and pass sessions. Session environment propagation and the test-writer brief already meet their criteria; the brief test fails on the red-team instructions.

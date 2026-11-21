@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import FakeGh, make_repo
+from kit.tests.helpers import FakeGh, make_repo, settings_json
 import common
 import setup
 
@@ -33,7 +33,7 @@ class ScratchTreePathTest(FakeGh):
 
 class PreflightOutputTest(FakeGh):
     def setup_failing(self, agents):
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": agents})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(agents)})
         self.scenario([rule("label list", "[]"), rule("label create"), rule("issue list", "[]"),
                        rule("issue create", "https://github.com/o/r/issues/7\n"), rule("issue pin")])
         buf = io.StringIO()

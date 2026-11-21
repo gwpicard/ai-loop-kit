@@ -8,8 +8,8 @@ away. You shape and approve work with Claude. A loop on your computer builds
 each approved issue, has a second session review it and merges it into a
 loop branch. You merge that branch into your default branch yourself.
 
-The loop never asks for input. It parks an issue only for a decision that
-`PLAN.md` reserves for a person.
+The loop never asks for input. It parks an issue for a product choice or a
+decision reserved for a person by the kit's stops or `AGENTS.md`.
 
 ## Install
 
@@ -38,25 +38,35 @@ delete nothing.
 
 ## Set up a project
 
-Put this in the project's `AGENTS.md`:
+Commit `loop.json` at the project root:
 
-    ## Loop
-    Test command: <the command that runs your tests>
+    {"Test command": "<the command that runs your tests>"}
 
-Optional keys in the same section: `Loop branch` (default `loop/main`),
+Optional keys in the same JSON object: `Loop branch` (default `loop/main`),
 `Builder`, `Test writer`, `Reviewer` and `Pass` (each `<agent> <model>`,
 default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command` and `Parallel` (default 1).
-`Codex writable roots` lists further folders, comma-separated
-like `Protected paths`, that a Codex session may write to, in addition to the
+`Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings. The four
+numeric settings take JSON numbers; all other settings take strings. Unknown
+keys and values of the wrong type are refused. `Codex writable roots` lists
+further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
-tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM. The
-older `Builder model: <m>` line still sets the builder and test writer to
-`claude <m>`, and `Reviewer model: <m>` the reviewer and the pass, unless the new line for that role is set.
+tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM.
+
+`Red-team surfaces` names the parts of the project the end-of-loop pass
+attacks, such as a command, an input format or a screen. The pass uses at
+most four surfaces. With an empty list, it proposes surfaces in an inbox issue.
+
+The optional, git-ignored `loop.local.json` accepts only `Parallel` and
+`Idle hours`, which override `loop.json`. The running loop reloads both files
+at the start of every cycle. If either cannot be read or validated, it keeps
+the previous settings and logs the error without repeating an unchanged
+error. Both settings files are protected paths by default; changing them in
+a piece requires naming the file under `## Protected paths this issue may change`.
 
 Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
 runs under the same rules as a Claude one: the guard and the stop check are
@@ -93,6 +103,13 @@ at most 10 minutes, then start anyway and log a line. A build running alone
 never waits for memory. Memory waits happen before the merge lock is taken
 and do not count against the build cap; each records a `memory-wait` event
 with its level and seconds waited.
+
+On a Mac, Spotlight indexes every new worktree, log and test repository the
+loop creates, competing with builds for the processor. Add the folder that
+holds your projects and `.loop-worktrees` (by default the parent folder of
+the project) to System Settings, Spotlight, Search Privacy. Without this
+exclusion, you may see `mds_stores` and `mds` near the top of Activity Monitor
+and a high load average, which also holds back a second build.
 
 Before a build or a test command starts, the loop checks free space on the
 project volume and in the temp folder. With less than 2 GB free, it prints a
@@ -133,7 +150,7 @@ the top of the final pull request body.
 When a park's permission question ends with `?` and names test paths, a
 collaborator can reply "yes", whatever verb the question uses. The loop adds
 each path the stops list permits to the issue's
-`## Paths the builder may change` and requeues it.
+`## Protected paths this issue may change` and requeues it.
 Paths named only in the recommendation and protected paths are never granted
 by a reply. A reply that does not clearly agree or contains a doubt word,
 or the loop's own comment, grants nothing. The reviewer may
@@ -160,19 +177,37 @@ the end-of-loop pass simplifies the whole batch once.
 
 ## Set up with the script
 
-Ask Claude to set up the loop (the setup skill writes the `## Loop` section
+Ask Claude to set up the loop (the setup skill writes `loop.json`
 with you), or run `python3 <plugin>/scripts/setup.py` from the project root.
-It first moves the runtime files of kit 1.x (into `.loop/v1/`) and of kit
-2.0.0 (the `.lite/` folder) into `.loop/`, then creates the labels, the loop
-branch, a pinned `Factory` issue, a `.loop/` line in `.gitignore` (commit it
+Setup refuses legacy kit 1.x and `.lite/` layouts with upgrade advice.
+Otherwise it creates the labels, the loop branch, a pinned `Factory` issue,
+a `.loop/` line in `.gitignore` (commit it
 yourself) and runs your Test command on a fresh copy of the loop branch.
-Running it again is safe.
+Setup also migrates an existing `## Loop` section from `AGENTS.md` into
+`loop.json`, removes the section and ignores `loop.local.json`. It records
+each change and its undo in `.loop/migrations.log`; `--dry-run` previews
+the changes without applying them. Running it again is safe.
+
+Setup warns when the root standing instructions exceed 1,500 words,
+excluding the standalone import of `AGENTS.md` in `CLAUDE.md`.
+
+Setup also renames the protected-paths section in open issues. It saves each
+original body under `.loop/migrations/` and records the rename and an undo
+command in `.loop/migrations.log`. A dry run lists the issues without editing
+them.
+
+When the project has a `PLAN.md`, setup files one inbox issue titled
+"Find a home for the contents of PLAN.md". It preserves each non-empty
+section and proposes where it belongs, leaves the file unchanged and
+records the issue in `.loop/migrations.log`. A dry run prints the issue
+without filing it. The kit uses the issue and `AGENTS.md` for instructions;
+it does not read the old plan outside this migration.
 
 ## Shape
 
 Use the shape skill in any session, at any time. It turns inbox issues or an
 idea into issues with acceptance criteria and dependencies, asks one batch
-of questions, records decisions in `PLAN.md` and clears person-only
+of questions, records decisions in the issues and clears person-only
 prerequisites first. On your single yes it labels the issues `ready`.
 
 ## Run
@@ -183,8 +218,9 @@ Use the loop skill, or run from the project root
 finish their issue. Use `<plugin>/bin/loop stop --now` to end them at once
 and return their issues to `ready`. The idle limit also stops the loop.
 
-When every `ready` issue waits on an open `needs-user` dependency and no
-build is running, the loop keeps reading replies before draining. It waits
+When every `ready` issue waits, directly or through other ready issues, on an
+open `needs-user` dependency and no build is running, the loop keeps reading
+replies before draining. It waits
 until 60 minutes after the latest park comment on those dependencies, then
 runs the usual drain. This wait applies in the cycle that collects the parked
 build's result. With nothing `ready` or parked, it drains as usual.
@@ -232,8 +268,8 @@ a temporary worktree and is told not to edit tracked files; the guard hook
 blocks this best-effort.
 
 - Smoke: the `Smoke command`, if set.
-- Drift: the batch diff against `PLAN.md` (decisions, budgets, duplication).
-- Red team: one session per bullet under `## Surfaces` in `PLAN.md` (four at
+- Drift: the batch diff against `AGENTS.md` (rules, budgets, duplication).
+- Red team: one session per entry in `Red-team surfaces` in `loop.json` (four at
   most). A finding counts only with a test file under `.loop/pass/` at the
   path where it belongs (such as `.loop/pass/tests/test_x.py`). The pass
   copies it there. After Prepare, it must fail the Test files command on that
@@ -252,9 +288,10 @@ A confirmed defect becomes an `inbox` issue with a `## Failing test`
 section. Shape and approve it like any other issue.
 
 A finding that touches an open `inbox` or `needs-user` decision is held,
-never queued. Every other finding, guardrail and lesson goes into one `inbox`
+never queued. Every other finding and guardrail goes into one `inbox`
 issue, a checkbox each; an open `Pass findings` issue gets only what it lacks,
-as a comment. Lessons reach `PLAN.md` through an issue, never a direct commit.
+as a comment. Each lesson becomes a separate inbox issue naming the check or
+`AGENTS.md` line that would prevent it. No lesson is appended to a project file.
 
 The report goes into the pull request body. A pass that fails is noted there
 and never blocks it. `.loop/pass.json` remembers it. After a pass without errors nothing reruns
@@ -286,7 +323,7 @@ the worktrees and issue branches left. Outside services are on the stops list.
   fresh checkout). Conflicts go back to the builder and a fresh review.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test module, unless the issue
-  lists it in its `## Paths the builder may change` section; a path named
+  lists it in its `## Protected paths this issue may change` section; a path named
   elsewhere grants nothing. The guard refuses a builder's write or edit to
   a path on the stops list at once, unless the issue lists it, and tells the
   builder to park if the change is needed. `setup.py` is a manifest only at

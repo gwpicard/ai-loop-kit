@@ -6,8 +6,9 @@ computer then builds each approved issue, has a second Claude session review
 it and merges it into a loop branch. You merge that branch into your default
 branch yourself.
 
-The loop never asks for input. It parks an issue only for a decision that the
-project's `PLAN.md` reserves for a person, and it carries on with the rest.
+The loop never asks for input. It parks an issue for a product choice or a
+decision reserved for a person by the kit's stops or `AGENTS.md`, and carries
+on with the rest.
 
 Version 2.2.2. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
 The full settings reference is in [kit/README.md](kit/README.md).
@@ -39,7 +40,7 @@ it again is safe. Optional keys, such as `Parallel`, `Protected paths` and
 
 Use the shape skill in any session, at any time. It turns inbox issues or an
 idea into issues with acceptance criteria and dependencies, asks one batch of
-questions, records decisions in `PLAN.md` and clears the prerequisites only a
+questions, records decisions in the issues and clears the prerequisites only a
 person can clear. On your single yes it labels the issues `ready`. You can
 shape while the loop runs; new issues join the queue.
 

@@ -100,7 +100,7 @@ class Drain(test_loop.Base):
         self.drain()
         self.assertEqual(len(self.summary_calls()), 1)
         call = self.summary_calls()[0]
-        self.assertIn(common.read_settings(self.work)["Reviewer model"], list(call.args) + list(call.kwargs.values()))
+        self.assertIn(common.read_settings(self.work)["Reviewer"][1], list(call.args) + list(call.kwargs.values()))
 
     def test_a_refresh_without_new_merges_reuses_the_saved_summary(self):
         self.land()

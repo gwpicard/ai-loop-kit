@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import copy_repo, make_repo, run_git
+from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json, write_settings
 import common
 import flow
 import loop
@@ -22,7 +22,7 @@ TEMPLATE = None
 def setUpModule():
     global TEMPLATE
     TEMPLATE = tempfile.TemporaryDirectory()
-    work, _ = make_repo(TEMPLATE.name, {"AGENTS.md": AGENTS})
+    work, _ = make_repo(TEMPLATE.name, {"loop.json": settings_json(AGENTS)})
     run_git(["push", "origin", "main:loop/main"], work)
 
 
@@ -115,6 +115,48 @@ class Base(unittest.TestCase):
 
 
 class LoopTest(Base):
+    def test_command_allows_unknown_runtime_files_before_reading_settings(self):
+        from pathlib import Path
+        from kit.tests.test_setup_legacy_refusal import KIT, snapshot
+        work, _ = make_repo(self._tmp.name, {"README.md": "Project\n"})
+        for name in ("notes.md", "fake.json", "fake.log", "merged/result",
+                     "history-piece.md", "passed-session", "stop-session", "heartbeat.notes"):
+            path = Path(work, ".loop", name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name + "\n")
+        before = snapshot(work)
+        result = subprocess.run([str(KIT / "bin/loop"), "run"], cwd=work,
+                                capture_output=True, text=True, timeout=30)
+        text = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, text)
+        self.assertIn("loop.json: missing file", text)
+        self.assertNotIn("install kit 2.2.0", text)
+        after = snapshot(work)
+        for name, content in before.items():
+            self.assertEqual(after[name], content)
+
+    def test_command_refuses_legacy_layouts_before_reading_json_or_checking_codex(self):
+        from kit.tests.test_setup_legacy_refusal import KIT, LITE, V1, snapshot
+        for files in (*LITE, *V1):
+            with self.subTest(files=files):
+                work, _ = make_repo(self._tmp.name, {"AGENTS.md": AGENTS + "Builder: codex missing-model\n"})
+                for name, content in files.items():
+                    path = os.path.join(work, name)
+                    if content is None:
+                        os.makedirs(path, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        with open(path, "w") as f:
+                            f.write(content)
+                before = snapshot(work)
+                result = subprocess.run([str(KIT / "bin/loop"), "run"], cwd=work,
+                                        capture_output=True, text=True, timeout=30)
+                text = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 1, text)
+                self.assertIn("install kit 2.2.0, run its setup, then update to this version", text)
+                self.assertNotIn("loop.json: missing file", text)
+                self.assertEqual(snapshot(work), before)
+
     def test_disk_full_waits_without_spending_a_crash_attempt(self):
         os.makedirs(self.work, exist_ok=True)
         results = [flow.Result("failed", "No space left on device"),
@@ -132,20 +174,17 @@ class LoopTest(Base):
     def setUp(self):
         super().setUp()
         os.makedirs(os.path.join(self.work, ".loop"))
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS)
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS)
         mock.patch.object(loop, "sync_default").start()
         mock.patch.object(loop, "drain").start()
 
-    def test_unknown_settings_are_named_once_and_the_loop_starts(self):
-        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
-            f.write("Defect rounds: 2\nFuture-key: yes\n## Other\nNot a setting: ignored\n")
+    def test_unknown_settings_are_refused_before_the_loop_starts(self):
+        write_settings(os.path.join(self.work, "loop.json"), "Defect rounds: 2\nFuture-key: yes\n## Other\nNot a setting: ignored\n", append=True)
         self.world([issue(8)])
         with self.fake_build():
-            self.assertEqual(self.run_loop(), 0)
-        self.assertEqual(self.built, [(8, [])])
-        notices = [c.args[0] for c in self.say.call_args_list if "next: run setup" in c.args[0]]
-        self.assertEqual(notices, ["unknown Loop settings: Defect rounds, Future-key; next: run setup"])
+            with self.assertRaisesRegex(common.SettingsError, "loop.json.*Future-key"):
+                self.run_loop()
+        self.assertEqual(self.built, [])
 
     def pid_file(self):
         return os.path.join(self.work, ".loop", "loop.pid")
@@ -175,14 +214,13 @@ class LoopTest(Base):
         with open(os.path.join(self.work, ".lite", "loop.pid"), "w") as f:
             f.write(str(os.getppid()))
         self.assertEqual(self.run_loop(), 1)
-        self.assertIn("running from .lite/", self.say.call_args[0][0])
+        self.assertIn("install kit 2.2.0, run its setup, then update to this version", self.say.call_args[0][0])
         self.assertFalse(os.path.exists(self.pid_file()))
         self.assertEqual(self.calls, [])
 
     def test_stop_file_exits(self):
         self.world([])
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS.replace("Idle hours: 0", "Idle hours: 5"))
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS.replace("Idle hours: 0", "Idle hours: 5"))
         old = os.getcwd()
         os.chdir(self.work)
         self.addCleanup(os.chdir, old)
@@ -274,10 +312,10 @@ class LoopTest(Base):
         self.assertEqual(self.built, [(4, ["Yes, go ahead."])])
 
     def test_the_path_joins_an_existing_paths_section(self):
-        edits = self.agree("yes", body="Do it.\n\n## Paths the builder may change\n\nsrc/a.py\n\n## Notes\n\nx\n")
+        edits = self.agree("yes", body="Do it.\n\n## Protected paths this issue may change\n\nsrc/a.py\n\n## Notes\n\nx\n")
         self.assertEqual(merge.allowed_paths(edits[0]), {"src/a.py", "tests/test_x.py"})
         self.assertIn("## Notes", edits[0])
-        edits = self.agree("yes", body="## Paths the builder may change\n\nnone\n")
+        edits = self.agree("yes", body="## Protected paths this issue may change\n\nnone\n")
         self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py"})
 
     def test_a_yes_grants_test_paths_whatever_the_permission_verb(self):
@@ -622,8 +660,7 @@ class StartCheckTest(Base):
         else:
             os.makedirs(self.work)
             run_git(["init", "-q", "-b", "main"], self.work)
-            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-                f.write(AGENTS)
+            write_settings(os.path.join(self.work, "loop.json"), AGENTS)
         self.rules = [{"match": "label list", **out([{"name": n} for n in (labels or self.LABELS)])},
                       {"match": "issue list", **out([FACTORY] if issues is None else issues)}]
         with mock.patch.object(loop.os, "getcwd", return_value=self.work), \

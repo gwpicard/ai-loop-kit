@@ -21,10 +21,6 @@ TITLES = (("drift", "Drift"), ("confirmed", "Red team: confirmed"), ("rejected",
           ("issues", "Issues created"), ("batch", "Merged in this batch"), ("errors", "Problems"))
 
 
-def section(plan, name):
-    return (re.search(r"^## %s\s*\n(.*?)(?=^## |\Z)" % name, plan, re.S | re.M) or [0, ""])[1]
-
-
 def esc(text):  # a finding cannot start a section of the issue
     return re.sub(r"(?m)^(\s*#)", r"\\\1", text)
 
@@ -101,7 +97,7 @@ def run_pass(project, settings, since_ref):
     # run the pass on origin/<loop branch>; return (report dict, Markdown report)
     project = os.path.abspath(project)
     r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0)
-    with common.timed("pass", project) as end:
+    with common.settings_environment(settings), common.timed("pass", project) as end:
         try:
             with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
                 _pass(project, settings, since_ref, tree, r)
@@ -116,10 +112,9 @@ def run_pass(project, settings, since_ref):
 
 def _pass(project, settings, since, tree, r):
     sha, test = git(["rev-parse", "HEAD"], cwd=tree), settings["Test command"]
-    plan = git(["show", "HEAD:PLAN.md"], cwd=tree, check=False)
     check = settings.get("Check command")
-    context = "\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n%sBatch diff: git diff %s...HEAD\n" % (
-        os.path.join(tree, "PLAN.md"), settings["Loop branch"], test,
+    context = "\n\nLoop branch: %s\nTest command: %s\nRed-team surfaces: %s\n%sBatch diff: git diff %s...HEAD\n" % (
+        settings["Loop branch"], test, json.dumps(settings.get("Red-team surfaces", [])),
         "Check command: %s\n" % check if check else "", since)
     def ask(name, extra=""):  # at most 9 calls: drift, rubric, four red teams, confirm, lessons, simplify
         r["sessions"] += 1
@@ -141,9 +136,9 @@ def _pass(project, settings, since, tree, r):
     drift = ask("drift")
     r["drift"] += findings(drift)
     rubric = findings(ask("rubric"))
-    surfaces = re.findall(r"^\s*[-*]\s+(\S.*)$", section(plan, "Surfaces"), re.M)[:4]
+    surfaces = settings.get("Red-team surfaces", [])[:4]
     if findings(drift, "SURFACES") and not surfaces:
-        r["drift"].append(("Add red-team surfaces to PLAN.md", "Proposed under ## Surfaces:\n- "
+        r["drift"].append(("Set Red-team surfaces in loop.json", "Proposed Red-team surfaces:\n- "
                            + "\n- ".join(f[0] for f in findings(drift, "SURFACES")[:4]), ""))
     candidates = []
     for surface in surfaces:
@@ -188,7 +183,7 @@ def _pass(project, settings, since, tree, r):
             r["rubric_rejected"].append((f[0], why.get(f[0]) or "not confirmed"))
     reply = ask("lessons", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nFindings so far:\n"
                 + "\n".join(f[0] for f in r["drift"] + r["rubric"] + r["confirmed"]) + "\n")
-    r["lessons"], r["guardrails"] = [f[0] for f in findings(reply, "LESSONS")], findings(reply, "GUARDRAILS")
+    r["lessons"], r["guardrails"] = findings(reply, "LESSONS"), findings(reply, "GUARDRAILS")
     r["simplify"] = findings(ask("simplify", "\nMerged in this batch:\n" + "\n".join(r["batch"]) + "\n\nBuild notes:\n"
                                  + "\n\n".join(notes) + "\n"), "SIMPLIFY")
     if blocked:  # open decisions cannot be checked: queue only the rubric findings
@@ -197,7 +192,8 @@ def _pass(project, settings, since, tree, r):
     fence = lambda c: "`" * max([3] + [len(m) + 1 for m in re.findall(r"`+", c)])
     jobs = [(t, "%s\n\n## Failing test\n\nPath: %s\n\n%s\n%s\n%s\n" % (esc(d), p, fence(c), c.rstrip("\n"), fence(c)),
              "inbox") for t, d, p, c in queued(r["confirmed"])]
-    found = queued(r["drift"]) + r["rubric"] + queued(r["held"] + r["guardrails"] + [("Add to PLAN.md ## Lessons", l, "") for l in r["lessons"]])
+    jobs += [(t, d, "inbox") for t, d, _ in queued(r["lessons"])]
+    found = queued(r["drift"]) + r["rubric"] + queued(r["held"] + r["guardrails"])
     line = lambda t, d: "- [ ] **%s**: %s" % (t, esc(d).replace("\n", "\n  "))
     def file(prefix, items):  # one open inbox issue per kind: add only what it does not list yet
         open_ = next((i for i in issues if i["title"].startswith(prefix) and "inbox" in tags(i)), None)

@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import copy_repo, make_repo, run_git
+from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json
 import flow
 import merge
 
@@ -56,7 +56,7 @@ class ReviewRoundsTest(FakeClaudeGh):
     def setUpClass(cls):
         cls._dir = tempfile.TemporaryDirectory()
         cls.template = cls._dir.name
-        work, _ = make_repo(cls.template, {"AGENTS.md": AGENTS})
+        work, _ = make_repo(cls.template, {"loop.json": settings_json(AGENTS)})
         run_git(["push", "origin", "main:loop/main"], work)
 
     @classmethod

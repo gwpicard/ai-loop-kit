@@ -1,11 +1,8 @@
 """Build one issue end to end: tests, code, review, merge."""
 import collections
-import difflib
 import json
 import os
 import re
-import subprocess
-import tempfile
 import time
 
 import common
@@ -135,28 +132,35 @@ def fails_properly(kinds, failed, body):
     return "Your tests do not fail by assertion. Make them fail by assertion for the right reason."
 
 
-def keep_added_plan_lines(tree):
-    """Finish a merge open in the tree when PLAN.md is the only conflict and both sides only added
-    lines to it: keep both, the loop branch's lines first, and commit. Return True when it did."""
-    if git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines() != ["PLAN.md"]:
-        return False
-    base, mine, theirs = ((git(["show", ":%d:PLAN.md" % n], cwd=tree, check=False) + "\n").splitlines(True) for n in (1, 2, 3))
-    for side in (mine, theirs):
-        if any(op not in ("insert", "equal") for op, *_ in difflib.SequenceMatcher(None, base, side, autojunk=False).get_opcodes()):
-            return False
-    with tempfile.TemporaryDirectory() as d:
-        paths = []
-        for name, lines in (("loop", theirs), ("base", base), ("issue", mine)):
-            paths.append(os.path.join(d, name))
-            with open(paths[-1], "w", encoding="utf-8", newline="") as f:
-                f.writelines(lines)
-        out = subprocess.run(["git", "merge-file", "-p", "--union"] + paths, cwd=tree,
-                             capture_output=True, text=True, timeout=common.TIMEOUT).stdout
-    with open(os.path.join(tree, "PLAN.md"), "w", encoding="utf-8", newline="") as f:
-        f.write(out)
-    git(["add", "PLAN.md"], cwd=tree)
-    git(["commit", "--no-edit"], cwd=tree)
-    return True
+def revert_check(issue, project, tree, head, settings, locked, body):
+    """Tell the reviewer which builder tests do not prove the issue's change."""
+    files, listed = [], []
+    if settings["Test files command"]:
+        base = git(["merge-base", head, "origin/" + settings["Loop branch"]], cwd=tree)
+        changes = git(["diff", "--no-renames", "--name-status", "-z", base, head], cwd=tree).split("\0")
+        entries = list(zip(changes[0::2], changes[1::2]))
+        code = [p for _, p in entries if not merge.is_test_file(p)]
+        tests = sorted(p for status, p in entries if status != "D" and merge.is_test_module(p) and p not in locked)
+        if code and tests:
+            with common.scratch_tree(project, head) as scratch:
+                git(["restore", "--source=" + base, "--staged", "--worktree", "--"] + code, cwd=scratch)
+                failure = (merge.run_in("Prepare", settings["Prepare command"], scratch, head[:10], 60)
+                           if settings["Prepare command"] else None)
+                if failure:
+                    listed.append("Revert check unverified: " + failure)
+                else:
+                    for path in tests:
+                        files.append(path)
+                        kinds = []
+                        failed = merge.run_in("Test", common.files_command(settings, [path]), scratch,
+                                              head[:10], 60, kinds=kinds)
+                        if not failed:
+                            listed.append("passes without the change: " + path)
+                        elif why := fails_properly(kinds, failed, body):
+                            listed.append("Revert check unverified: %s: %s" % (path, why))
+    common.event("revert-check", project, issue=issue, rule="revert-check", files=files,
+                 outcome="listed" if listed else "passed" if files else "skipped")
+    return "\n".join(listed) + "\n" if listed else ""
 
 
 Landed = collections.namedtuple("Landed", "result conflicts head review files")
@@ -193,8 +197,7 @@ def _land(issue, branch, review, project, tree, settings):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
-                if not keep_added_plan_lines(tree):
-                    return Landed(None, conflicts, old, review, [])
+                return Landed(None, conflicts, old, review, [])
             head = git(["rev-parse", "HEAD"], cwd=tree)
             if head != old:
                 git(["push", "origin", branch], cwd=tree)
@@ -219,8 +222,8 @@ def brief(role):
 
 def prompt_for(role, number, info, tree, settings, replies, report=None, history=None):
     text = brief(role)
-    text += ("\n\n# Issue %s: %s\n\n%s\n\nPLAN.md: %s\nLoop branch: %s\nTest command: %s\n"
-             % (number, info["title"], info.get("body") or "", os.path.join(tree, "PLAN.md"),
+    text += ("\n\n# Issue %s: %s\n\n%s\n\nLoop branch: %s\nTest command: %s\n"
+             % (number, info["title"], info.get("body") or "",
                 settings["Loop branch"], settings["Test command"]))
     if settings["Test files command"]:
         text += "Test files command: %s\n" % settings["Test files command"]
@@ -242,13 +245,13 @@ def build(issue, project, replies=()):
     """Build one issue. Return Result(status, reason)."""
     project = os.path.abspath(project)
     common.wait_for_disk(project)
-    with common.build_environment(project, issue):
+    with common.settings_environment(common.build_settings(project)), common.build_environment(project, issue):
         return _build_tree(issue, project, replies)
 
 
 def _build_tree(issue, project, replies):
     result = None
-    settings = common.read_settings(project)
+    settings = common.build_settings(project)
     loop, branch = settings["Loop branch"], "issue/%s" % issue
     tree = os.path.join(os.path.dirname(project), ".loop-worktrees",
                         "%s-%s" % (os.path.basename(project), issue))
@@ -274,8 +277,6 @@ def _build_tree(issue, project, replies):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
-                if keep_added_plan_lines(tree):
-                    conflicts = []
         return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
         common.park(issue, *p.args, project=project)
@@ -396,8 +397,10 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                                        prepare=settings["Prepare command"], tails=tails)
             if feedback:
                 continue
+        reverted = revert_check(issue, project, tree, head, settings, locked, info.get("body") or "")
         review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
                         extra="\nLatest test result: passed on this commit. " + " | ".join(tails) + "\n"
+                        + reverted
                         + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
                            if fixes else ""))
         verdict, _ = merge.parse_verdict(review)

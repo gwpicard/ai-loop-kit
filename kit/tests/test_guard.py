@@ -247,6 +247,8 @@ class TestRole(GuardCase):
 
     def test_builder_stops_at_unnamed_paths_but_may_edit_named_paths(self):
         for path, reason in (("package-lock.json", "lockfile or package manifest"),
+                             ("loop.json", "protected path"),
+                             ("loop.local.json", "protected path"),
                              (".claude/config.json", "protected path"),
                              (".github/workflows/ci.yml", "protected path"),
                              ("config/settings.json", "settings file")):

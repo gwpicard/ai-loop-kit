@@ -1,11 +1,11 @@
-"""A PLAN.md conflict where both sides only added lines is resolved by the loop."""
+"""Old plan conflicts follow the same builder path as any other conflict."""
 import json
 import os
 import tempfile
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import copy_repo, make_repo, run_git
+from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json
 import common
 import flow
 import merge
@@ -22,7 +22,7 @@ class PlanAdditionsConflict(FakeClaudeGh):
     def setUpClass(cls):
         cls._dir = tempfile.TemporaryDirectory()
         cls.template = cls._dir.name
-        work, _ = make_repo(cls.template, {"AGENTS.md": AGENTS, "PLAN.md": BASE_PLAN, "other.txt": "base\n"})
+        work, _ = make_repo(cls.template, {"loop.json": settings_json(AGENTS), "PLAN.md": BASE_PLAN, "other.txt": "base\n"})
         run_git(["push", "origin", "main:loop/main"], work)
 
     @classmethod
@@ -79,11 +79,12 @@ class PlanAdditionsConflict(FakeClaudeGh):
     def builder_prompts(self):
         return [c["prompt"] for c in self.claude_calls() if c["role"] == "builder"]
 
-    def test_build_keeps_both_added_lines_without_a_builder_session(self):
+    def test_build_sends_added_lines_to_the_builder(self):
         self.additions()
-        r = self.build()
+        r = self.build({"files": {"PLAN.md": BASE_PLAN + "- loop line\n- builder line\n"}})
         self.assertEqual(r.status, "merged", r.reason)
-        self.assertFalse(any("First task" in p or "conflicts in" in p for p in self.builder_prompts()))
+        self.assertIn("First task", self.builder_prompts()[0])
+        self.assertIn("conflicts in: PLAN.md", self.builder_prompts()[0])
         plan = common.git(["show", "issue/7:PLAN.md"], cwd=self.origin)
         self.assertEqual(plan.splitlines()[-3:], ["- base line", "- loop line", "- builder line"])
         self.assertTrue(common.git(["log", "--merges", "--format=%s", "issue/7"], cwd=self.origin))
@@ -119,19 +120,19 @@ class PlanAdditionsConflict(FakeClaudeGh):
         with mock.patch.object(merge, "merge", return_value=MERGED) as m:
             return flow.land(7, "issue/7", review, self.work, t, SETTINGS), m
 
-    def test_land_keeps_both_added_lines_pushes_and_updates_the_head(self):
+    def test_land_leaves_added_lines_to_the_builder(self):
         self.additions()
         t = self.tree()
         landed, m = self.land(t)
-        self.assertEqual(landed.conflicts, [])
-        m.assert_called_once()
+        self.assertEqual(landed.conflicts, ["PLAN.md"])
+        m.assert_not_called()
         with open(os.path.join(t, "PLAN.md")) as f:
-            self.assertEqual(f.read().splitlines()[-3:], ["- base line", "- loop line", "- builder line"])
+            self.assertIn("<<<<<<<", f.read())
         head = common.git(["rev-parse", "HEAD"], cwd=t)
         self.assertEqual(landed.head, head)
         self.assertEqual(common.git(["rev-parse", "issue/7"], cwd=self.origin), head)
         self.assertIn("HEAD: " + head, landed.review)
-        self.assertEqual(len(common.git(["log", "-1", "--format=%P"], cwd=t).split()), 2)
+        self.assertEqual(len(common.git(["log", "-1", "--format=%P"], cwd=t).split()), 1)
 
     def test_land_leaves_a_reworded_line_to_the_builder(self):
         self.reworded()
