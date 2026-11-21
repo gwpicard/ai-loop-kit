@@ -1,0 +1,24 @@
+{
+  "Test command": "tests/run-all.sh",
+  "Test files command": "python3 kit/tests/run.py {files}",
+  "Loop branch": "loop/main",
+  "Parallel": 2,
+  "Builder": "codex gpt-6.1-sol",
+  "Test writer": "codex gpt-6.1-sol",
+  "Reviewer": "codex gpt-6.1-sol",
+  "Pass": "codex gpt-6.1-sol",
+  "Protected paths": [
+    ".claude/",
+    ".githooks/",
+    ".agents/guard/",
+    ".github/",
+    "loop.json",
+    "loop.local.json"
+  ],
+  "Red-team surfaces": [
+    "The loop supervisor: claims, retries, parks and the drain in `kit/scripts/loop.py`",
+    "The merge checks in `kit/scripts/merge.py`",
+    "The guard hook, `kit/hooks/guard.py`",
+    "The parsing of session replies: the VERDICT, TESTS, FINDINGS and PARK blocks in `kit/scripts/flow.py` and `kit/scripts/pass_.py`"
+  ]
+}
