@@ -279,6 +279,10 @@ Each comes from a failure seen in a real run.
 - **Stops in code, not only words.** `merge.py` parks an issue whose diff
   touches a protected path, a workflow file, a lockfile or manifest, or a
   settings file or an existing test module, unless the issue names that path.
+  The guard refuses a builder's write or edit to an unnamed stop path at
+  once and tells the builder to park if the change is needed. The diff check
+  remains the final gate. `setup.py` is a manifest only at the repository
+  root or beside `pyproject.toml` or `setup.cfg`.
 - **Setup.** `scripts/setup.py` creates the missing labels, the loop branch
   (from the default branch), a pinned `Factory` issue and a `.loop/` line in
   `.gitignore`. It runs the Test command, after the Prepare command, on a fresh

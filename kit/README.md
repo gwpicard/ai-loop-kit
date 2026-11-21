@@ -287,7 +287,12 @@ the worktrees and issue branches left. Outside services are on the stops list.
 - It refuses a diff that touches a protected path, a workflow, a lockfile or
   package manifest, a settings file, or an existing test module, unless the issue
   lists it in its `## Paths the builder may change` section; a path named
-  elsewhere grants nothing. The test writer's tests are locked the same way.
+  elsewhere grants nothing. The guard refuses a builder's write or edit to
+  a path on the stops list at once, unless the issue lists it, and tells the
+  builder to park if the change is needed. `setup.py` is a manifest only at
+  the repository root or beside `pyproject.toml` or `setup.cfg`.
+
+  The test writer's tests are locked the same way.
   The test lock covers test modules, recognised by their names, including
   `conftest.py`. Other files under test folders, such as helpers, runners,
   fakes and fixtures, are test support files. They are not locked or passed

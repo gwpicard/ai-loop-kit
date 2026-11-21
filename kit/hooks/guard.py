@@ -11,7 +11,9 @@ Everywhere: no push to main, master or the default branch (LOOP_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
 content. When LOOP_ROLE is set, also: no git push, merge, checkout, switch,
 restore, apply or branch -f, no gh, no write to a path in LOOP_LOCKED (newline
-separated) or to a tracked test file (except an exact path in LOOP_ALLOWED, for the builder only, that the stops list does not cover), and the reviewer role writes nothing in the project (scratch files in the system
+separated) or to a tracked test file (except an exact path in LOOP_ALLOWED,
+for the builder only). Builders cannot write paths on the stops list unless
+the issue allows them. The reviewer role writes nothing in the project (scratch files in the system
 temp folder are fine; the pass role writes only under .loop/pass/).
 
 Known limits: this is a regular-expression check on the raw command, so it can
@@ -87,8 +89,13 @@ def check_path(path, role, cwd):
     allowed = {os.path.relpath(os.path.realpath(os.path.join(top, a.strip())), top)
                for a in os.environ.get("LOOP_ALLOWED", "").splitlines() if a.strip()}
     protected = [x for x in os.environ.get("LOOP_PROTECTED", "").split(",") if x] or common.DEFAULTS["Protected paths"].split(", ")
-    if role == "builder" and rel in allowed and not merge.stop_reason(rel, protected):
-        return  # the issue names this path as one the builder may change
+    if role == "builder":
+        if rel in allowed:
+            return  # the issue names this path as one the builder may change
+        why = merge.stop_reason(rel, protected, top)
+        if why:
+            raise Refuse("stop", "%s: %s" % (why, rel),
+                         "park the issue if this change is needed")
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
         if locked.strip() and merge.is_test_module(rel) and (full == lfull or full.startswith(lfull + "/")):

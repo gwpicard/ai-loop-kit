@@ -19,7 +19,7 @@ LOCKFILES = {
     "pyproject.toml", "go.mod", "cargo.toml", "pipfile.lock", "composer.lock",
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
-    "pdm.lock", "deno.lock", "pom.xml", "build.gradle", "setup.py"}
+    "pdm.lock", "deno.lock", "pom.xml", "build.gradle"}
 TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
 TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
@@ -112,7 +112,7 @@ def is_test_file(path):
         p in TEST_DIRS for p in parts[:-1]) and not BUILD.search(path.lower())
 
 
-def stop_reason(path, protected):
+def stop_reason(path, protected, project=".", ref=None):
     """Why a changed path is on the stops list, or None. Case-insensitive."""
     low = path.lower()
     name = low.split("/")[-1]
@@ -122,6 +122,13 @@ def stop_reason(path, protected):
             return "protected path " + p
     if low.startswith(".github/workflows/"):
         return "workflow file"
+    if name == "setup.py":
+        folder = os.path.dirname(path)
+        if not folder or any(
+                git(["ls-tree", "--name-only", ref, "--", os.path.join(folder, p)], project)
+                if ref else os.path.isfile(os.path.join(project, folder, p))
+                for p in ("pyproject.toml", "setup.cfg")):
+            return "lockfile or package manifest"
     if name in LOCKFILES or re.match(r"requirements.*\.(txt|in)$", name):
         return "lockfile or package manifest"
     if name in ("settings.json", "settings.local.json"):
@@ -147,7 +154,7 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     for status, path in zip(out[0::2], out[1::2]):
         if path in allowed:
             continue
-        why = stop_reason(path, protected)
+        why = stop_reason(path, protected, project, sha)
         if why is None and status[0] in "MDT" and is_test_module(path):
             why = "existing test file changed"
         if why:
