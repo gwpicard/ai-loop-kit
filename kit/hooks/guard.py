@@ -87,7 +87,7 @@ def check_path(path, role, cwd):
         return  # the issue names this path as one the builder may change
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
-        if locked.strip() and (full == lfull or full.startswith(lfull + "/")):
+        if locked.strip() and merge.is_test_module(rel) and (full == lfull or full.startswith(lfull + "/")):
             raise Refuse("test-lock", "%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
     command = ["ls-files", "--", full]
@@ -99,14 +99,14 @@ def check_path(path, role, cwd):
         if start:
             command = ["ls-tree", "--name-only", start, "--", rel]
             cwd = top
-    if merge.is_test_file(rel) and common.git(command, cwd, check=False):
+    if merge.is_test_module(rel) and common.git(command, cwd, check=False):
         raise Refuse("test-lock", "%s is an existing test file" % rel,
                      "leave existing tests alone; add a new test file if needed")
 
 
 def check_role_command(command, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
-    if role in ("builder", "reviewer") and files and os.environ.get("LOOP_TEST_COMMAND") in [
+    if role in ("builder", "reviewer", "test-writer", "pass") and files and os.environ.get("LOOP_TEST_COMMAND") in [
             s.strip() for s in re.split(r"&&|\|\||[;|\n]", command)]:
         raise Refuse("full-test", "the full Test command is reserved for merge", "use the Test files command: " + files)
     if ROLE_GIT.search(command) or GH.search(command):

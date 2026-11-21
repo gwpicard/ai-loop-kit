@@ -54,7 +54,22 @@ class Base(unittest.TestCase):
         self.say = mock.patch.object(loop, "say", return_value=None).start()
         mock.patch.object(loop.time, "sleep").start()
         mock.patch.object(common, "_run_gh", self.fake_gh).start()
+        self.starts = mock.patch.object(loop, "start_builds", self.start_build)
+        self.starts.start()
         self.rules, self.calls, self.inputs, self.built = [], [], [], []
+
+    def start_build(self, project, settings, st):
+        number = loop.pick(st)
+        if number is None:
+            return
+        loop.claim(st, number)
+        st["building"][number] = ("10:00", None)
+        try:
+            loop.write_board(project, st)
+        except common.GitHubError:
+            pass
+        st["last"] = loop.build_attempts(project, number, st["replies"].get(number, []))
+        st["building"] = {}
 
     def fake_gh(self, args, input=None):
         text = " ".join(args)
@@ -289,9 +304,20 @@ class LoopTest(Base):
         self.assertEqual(self.agree("yes", park=park), [])
         self.assertEqual(self.writes("issue edit 4"), [])  # not even requeued
 
-    def test_only_a_park_naming_exactly_one_test_path_and_asking_to_change_it_counts(self):
+    def test_a_yes_grants_every_test_path_except_protected_paths(self):
+        park = "## Needs you\n\nMay I change tests/test_x.py, tests/test_y.py and .claude/tests/test_z.py?\n\n" + common.MARKER
+        edits = self.agree("Yes, go ahead.", park=park)
+        self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/test_x.py", "tests/test_y.py"})
+        self.assertEqual(self.built, [(4, ["Yes, go ahead."])])
+
+    def test_a_path_named_only_in_the_recommendation_is_not_granted(self):
+        park = ("## Needs you\n\nMay I change tests/helpers.py and tests/test_x.py?\n\n"
+                "Recommended: yes, and keep tests/test_y.py locked\n\n" + common.MARKER)
+        edits = self.agree("Yes, go ahead.", park=park)
+        self.assertEqual(merge.allowed_paths(edits[-1]), {"tests/helpers.py", "tests/test_x.py"})
+
+    def test_only_a_park_naming_test_paths_and_asking_to_change_them_counts(self):
         for park in ("## Needs you\n\nWhich port?\n\nRecommended: 80",
-                     "## Needs you\n\nMay I change tests/test_x.py and tests/test_y.py?\n\nRecommended: yes\n\n" + common.MARKER,
                      "## Needs you\n\nMay I change src/app.py?\n\nRecommended: yes\n\n" + common.MARKER,
                      "## Needs you\n\ntests/test_x.py is slow.\n\nRecommended: wait\n\n" + common.MARKER):
             with self.subTest(park=park):

@@ -9,6 +9,7 @@ from unittest import mock
 from kit.tests.helpers import FakeGh, make_repo, run_git
 import common
 import loop
+import report
 from kit.tests.test_status import event
 
 
@@ -68,6 +69,21 @@ class ReportTest(FakeGh):
         for part in ('Manifests and lockfiles: package-lock.json', 'Allowed paths: tests/test_old.py',
                      'Deleted tests: tests/test_old.py', 'Most churn: src/api/main.py (+2 -1)'):
             self.assertIn(part, text)
+
+    def test_report_and_what_changed_list_all_added_changed_and_deleted_support(self):
+        paths = ('kit/tests/helpers.py', 'kit/tests/run.py', 'kit/tests/fake_codex.py',
+                 'tests/fixtures/data.json')
+        self.land(10, {p: 'old\n' for p in paths})
+        run_git(['push', 'origin', 'loop/main:main'], self.work)
+        self.land(11, {paths[0]: 'new\n', paths[1]: None, paths[2]: 'changed\n',
+                       paths[3]: None, 'tests/fixtures/new.json': '{}\n'})
+        run_git(['push', 'origin', 'loop/main'], self.work)
+        text = self.command()
+        for rendered in (text, report.section(text)):
+            risk = next(l for l in rendered.splitlines() if l.startswith('test support files changed: '))
+            for path in paths + ('tests/fixtures/new.json',):
+                self.assertIn(path, risk)
+        self.assertIn('Tests: 0 added, 0 changed, 0 deleted', text)
 
     def test_issue_uses_build_note_and_event_history(self):
         events = [event('step', '10:00', issue=8, step='builder', phase='start'),

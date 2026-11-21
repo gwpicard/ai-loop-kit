@@ -175,7 +175,7 @@ class TestRole(GuardCase):
                                        locked=["tests/test_added.py"], **kw), "locked test")
 
     def test_full_test_segments_are_refused_only_with_a_test_files_command(self):
-        for role in ("builder", "reviewer"):
+        for role in ("builder", "reviewer", "test-writer", "pass"):
             for command in ("make test", "  make test  ", "true && make test", "false || make test",
                             "make test; true", "make test | cat", "true\nmake test"):
                 with self.subTest(role=role, command=command):
@@ -183,8 +183,7 @@ class TestRole(GuardCase):
                                  "make unit {files}")
             self.allowed(self.bash("make test", role=role, test="make test"))
             self.allowed(self.bash("make test-unit", role=role, test="make test", files="make unit {files}"))
-        for role in (None, "test-writer", "pass"):
-            self.allowed(self.bash("make test", role=role, test="make test", files="make unit {files}"))
+        self.allowed(self.bash("make test", role=None, test="make test", files="make unit {files}"))
 
     def test_push_merge_gh_refused(self):
         for role in ["builder", "test-writer", "reviewer"]:
@@ -241,13 +240,13 @@ class TestRole(GuardCase):
                                role="builder", allowed=["tests/test_*.py"]), "existing test")
 
     def test_an_allowed_protected_path_is_still_refused(self):
-        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py", "tests/package.json"):
+        for path in (".claude/tests/test_x.py", ".github/workflows/tests/test_a.py"):
             with self.subTest(path=path):
                 self.refused(self.call("Write", {"file_path": path, "content": "a"}, role="builder",
                                        locked=[path], allowed=[path]))
 
     def test_locked_folder_refused(self):
-        self.refused(self.call("Write", {"file_path": "spec/a.py", "content": "a"},
+        self.refused(self.call("Write", {"file_path": "spec/test_a.py", "content": "a"},
                                role="builder", locked=["spec"]), "locked")
 
     def test_existing_test_refused_for_builder_and_writer(self):

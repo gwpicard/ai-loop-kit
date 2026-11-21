@@ -35,7 +35,10 @@ preview.
 Start: `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`
 from the project root. A second start is refused while a loop is alive. `tail .loop/loop.out`
 shows its steps.
-Stop: `<plugin>/bin/loop stop`; the loop ends after its current step.
+Stop: `<plugin>/bin/loop stop`; the loop starts nothing new and ends after
+running builds finish their issue. `<plugin>/bin/loop stop --now` ends the
+builds, their agent sessions and test commands at once and returns their
+issues to `ready`, without counting a crash or using an attempt.
 Pause: `<plugin>/bin/loop pause` freezes the loop and every process it
 started, with nothing killed, for when the Mac is slow. Processor use stops at
 once; memory is not freed at once. `<plugin>/bin/loop resume` continues every
@@ -64,6 +67,11 @@ their words on it with `gh issue comment`. The loop reads the reply,
 queues the issue again and passes the reply to the next build.
 
 ## After a drain
+
+When every `ready` issue waits on an open `needs-user` dependency and no
+build is running, the loop keeps reading replies until 60 minutes after the
+latest park comment on those dependencies, then drains. `Why idle` names
+the parked dependencies and the minutes left. An empty queue drains as usual.
 
 Run `<plugin>/bin/loop report` for a compact view of what changed and why
 before merging the loop branch. It reads local git refs and events, plus

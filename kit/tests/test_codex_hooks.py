@@ -84,7 +84,7 @@ class CodexGuardTest(unittest.TestCase):
         self.refused(self.apply(patch(update("tests/test_app.py", "*** Move to: src/other.py\n@@\n-x\n+y\n"))))
 
     def test_a_patch_to_a_locked_path_is_refused(self):
-        self.refused(self.apply(patch(update("src/app.py")), locked=("src/app.py",)))
+        self.refused(self.apply(patch(add("tests/test_new.py")), locked=("tests/test_new.py",)))
 
     def test_a_patch_to_a_source_file_or_a_new_test_file_passes(self):
         self.allowed(self.apply(patch(update("src/app.py"))))
@@ -158,9 +158,9 @@ class CodexSessionHooksTest(FakeCodexHooks):
         self.assertEqual([r["code"] for r in results], [2, 2, 2, 0, 2, 2, 0, 2])
 
     def test_a_locked_path_is_refused_through_the_configuration(self):
-        calls = [{"tool_name": "apply_patch", "tool_input": {"command": patch(update("src/app.py"))}}]
+        calls = [{"tool_name": "apply_patch", "tool_input": {"command": patch(add("tests/test_new.py"))}}]
         self.codex([{"reply": "ok", "tool_calls": calls}])
-        self.run_session(locked=("src/app.py",))
+        self.run_session(locked=("tests/test_new.py",))
         self.assertEqual([r["code"] for r in self.hook_results()], [2])
 
     def test_a_builder_with_a_failing_test_command_is_sent_back_with_the_reason(self):

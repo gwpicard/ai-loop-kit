@@ -1,6 +1,6 @@
 {
   "name": "ai-loop-kit",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "A continuous factory: shape work in one session while a loop builds, reviews and merges it on your own computer.",
   "author": {
     "name": "Guillaume Picard"
