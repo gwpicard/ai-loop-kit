@@ -164,6 +164,12 @@ and test commands, at once and returns their issues to `ready`. Their attempt
 and crash counts stay unchanged; each build records an `exit` event with
 reason `stopped`, rather than a crash.
 
+`loop pause` freezes the loop and every process it started, with nothing
+killed, for when the machine is slow; `loop resume` continues each build where
+it was. The board shows `Paused since` meanwhile. Paused time does not count
+against the build time limit, the session limit or test timeouts, and `loop stop`
+on a paused loop resumes it first.
+
 ## Stateless
 
 Nothing the loop needs lives in a session or on disk outside the
@@ -414,7 +420,7 @@ refusal costs no test run.
   Without a Test files command, these steps use the full Test command.
 - There is no per-issue simplify step. The reviewer gets the latest test
   result in its prompt and runs only targeted checks. With a Test files command
-  set, the guard refuses the full Test command in builder and reviewer sessions.
+  set, the guard refuses the full Test command in every role.
 - The pass judges each red-team candidate with the Test files command on that
   file, or the Test command when none is set, and then the Check command.
 - A folder that is not a registered worktree is renamed aside, never deleted.
@@ -425,7 +431,7 @@ refusal costs no test run.
 
 `Parallel: N` (default 1) sets how many builds run at once.
 
-- With 1, the loop builds in its own process. With more, each build is
+- Each build is
   `scripts/worker.py`, a separate process that runs the same crash, retry and
   park logic for one issue and leaves its result in
   `.loop/builds/<issue>.result`. The supervisor, one loop under one lock,
@@ -497,7 +503,7 @@ refusal costs no test run.
   issue then parks.
 - One `Simplify and reconcile` issue is open at a time; later passes comment
   on it.
-- A collaborator's clear "yes" to a park that names one test path adds that
-  path to the issue's `## Paths the builder may change`. Nothing else grants a
-  path.
+- A collaborator's clear "yes" to a park that asks about changing test files adds
+  every test path the question names to the issue's `## Paths the builder may
+  change`. Nothing else grants a path.
 - The reviewer may write scratch files in the system temp folder only.
