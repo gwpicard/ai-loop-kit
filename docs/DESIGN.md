@@ -488,6 +488,6 @@ refusal costs no test run.
 - One `Simplify and reconcile` issue is open at a time; later passes comment
   on it.
 - A collaborator's clear "yes" to a park that names one test path adds that
-  path to the issue's `## Paths the builder may change`. Nothing else grants a
+  path to the issue's `## Protected paths this issue may change`. Nothing else grants a
   path.
 - The reviewer may write scratch files in the system temp folder only.

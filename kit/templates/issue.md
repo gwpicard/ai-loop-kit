@@ -27,10 +27,11 @@ them. Omit this section when an agent can check everything.
 Optional. A test that fails now, found by the end-of-loop pass. The test
 writer commits it as given. Omit this section otherwise.
 
-## Paths the builder may change
+## Protected paths this issue may change
 
 One path per line: protected paths, lockfiles, manifests, settings files or
-existing tests the builder may change or delete. Normally `none`.
+existing tests the builder may change or delete. The builder may change every
+other file. The usual value is `none`.
 
 ## Depends on
 

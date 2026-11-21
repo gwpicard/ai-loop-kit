@@ -107,6 +107,34 @@ def migrate_220(project, dry_run):
 MIGRATIONS = (("2.2.0", migrate_220),)
 
 
+def migrate_issue_paths(project, dry_run=False):
+    """Rename the protected-paths section, saving each original body for undo."""
+    old = re.compile(r"^## Paths the builder may change(?=[ \t]*\r?$)", re.M)
+    heading = "## Protected paths this issue may change"
+    issues = json.loads(gh(["issue", "list", "--state", "open", "--limit", "10000",
+                           "--json", "number,body"]) or "[]")
+    if len(issues) >= 10000:
+        raise LoopError("refused: open issue list may be truncated; no issue headings renamed")
+    changed = False
+    for issue in issues:
+        body = issue.get("body") or ""
+        renamed = old.sub(heading, body)
+        if renamed == body:
+            continue
+        number = str(issue["number"])
+        backup = pathlib.Path(".loop/migrations", "issue-%s-%s.md" % (number, time.time_ns()))
+        def apply():
+            path = pathlib.Path(project, backup)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("xb") as f:
+                f.write(body.encode("utf-8"))
+            gh(["issue", "edit", number, "--body-file", "-"], input=renamed)
+        change(project, "issue %s: renamed section to %s" % (number, heading),
+               "gh issue edit %s --body-file %s" % (number, backup.as_posix()), apply, dry_run)
+        changed = True
+    return changed
+
+
 def migrate_plan(project, dry_run=False):
     """Preserve every non-empty section of PLAN.md in one inbox issue."""
     path = pathlib.Path(project, "PLAN.md")
@@ -261,6 +289,8 @@ def setup(project=".", dry_run=False):
         changes.append("label " + name)
     if migrate_plan(project, dry_run):
         changes.append("plan contents inbox issue")
+    if migrate_issue_paths(project, dry_run):
+        changes.append("protected paths issue headings")
     if not dry_run:
         git(["fetch", "origin"], cwd=project)
     base = common.default_branch(project)

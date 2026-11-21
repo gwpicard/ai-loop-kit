@@ -39,7 +39,7 @@ code and never merges.
    a task.
 7. Split the work into issues an agent can finish in about an hour. Each
    follows `<plugin>/templates/issue.md`: a goal, three to six acceptance
-   criteria, how an agent checks it, a `## Paths the builder may change`
+   criteria, how an agent checks it, a `## Protected paths this issue may change`
    section (normally `none`), `Depends on: #a, #b`, and a milestone. A path
    named anywhere else in the issue body grants nothing.
 8. Create each issue with `gh issue create --label shaping --milestone
@@ -73,7 +73,7 @@ the command, and make that the first issue.
 
 - Label nothing `ready` without the person's yes in this session.
 - Mark an issue `shaping` while it is drafted, so the board shows it.
-- Never write a path in `## Paths the builder may change` unless the
+- Never write a path in `## Protected paths this issue may change` unless the
   builder may change it: it lifts the merge checks for that path.
 - An issue that needs a decision from the person on the kit's stops list in
   `<plugin>/briefs/preamble.md` or in `AGENTS.md` is not ready: ask for the decision now.
