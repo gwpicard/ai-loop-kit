@@ -108,7 +108,7 @@ def check_path(path, role, cwd):
         if not start:
             loop = os.environ.get("LOOP_LOOP_BRANCH", "loop/main")
             start = common.git(["merge-base", "HEAD", "origin/" + loop], cwd, check=False)
-        if start:
+        if start and common.git(["rev-parse", "--verify", start + "^{commit}"], top, check=False):
             command = ["ls-tree", "--name-only", start, "--", rel]
             cwd = top
     if merge.is_test_module(rel) and common.git(command, cwd, check=False):
