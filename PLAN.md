@@ -109,6 +109,7 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
 - A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
 - The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
+- FakeCodexCheck.without_codex rebuilds PATH with the host sysctl, hiding the runner's memory-pressure stub; setup preflight can then wait on real memory pressure.
 
 ## Standing approvals
 
@@ -125,6 +126,18 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Legacy migration removal: recognise current runtime names and session or
+  history prefixes instead of retaining the kit 1.x file list. Unknown names
+  directly under `.loop/` also require the intermediate upgrade; archived
+  files under `.loop/v1/` and `.lite` copies of current files left by the
+  intermediate migration remain valid. Keep `tidy`'s return shape for its
+  existing callers and check it in setup's readiness check so `loop run`
+  refuses before reporting a missing branch. Remove obsolete move tests and
+  retain coverage of the 2.2.0 and 3.0.0 migrations. The full Test command is
+  reserved for merge by the builder guard; run targeted checks here.
+  Stop the broader Codex fixture check when it waits on host memory pressure;
+  leave that unrelated fixture unchanged and run the migration checks separately.
 
 - Legacy migration tests: add a separate acceptance module because existing
   tests stay locked for the test writer. Exercise setup and `loop run` as

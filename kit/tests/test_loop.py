@@ -157,7 +157,7 @@ class LoopTest(Base):
         with open(os.path.join(self.work, ".lite", "loop.pid"), "w") as f:
             f.write(str(os.getppid()))
         self.assertEqual(self.run_loop(), 1)
-        self.assertIn("running from .lite/", self.say.call_args[0][0])
+        self.assertIn("install kit 2.2.0, run its setup, then update to this version", self.say.call_args[0][0])
         self.assertFalse(os.path.exists(self.pid_file()))
         self.assertEqual(self.calls, [])
 
