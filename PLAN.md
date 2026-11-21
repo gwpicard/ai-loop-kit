@@ -120,9 +120,11 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
-- Spotlight README: run the locked README tests and house rules here; the
-  current fast-path rule reserves the full Test command for merge, despite
-  the issue's full-suite checking instruction.
+- Spotlight README: the locked tests and house rules passed. After a merge
+  refusal reported only "Some checks failed", reran the full Test command
+  with `LOOP_PROJECT` unset and approved execution outside the sandbox, as
+  the Lessons require. All 837 tests and house rules passed; the merge
+  failure did not reproduce, so no code or locked tests changed.
 
 - Spotlight README tests: check the paragraph's required terms and its position
   beside the load and memory explanation, allowing line wrapping and Markdown
