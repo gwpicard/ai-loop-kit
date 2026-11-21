@@ -120,6 +120,18 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Spotlight README: the locked tests and house rules passed. After a merge
+  refusal reported only "Some checks failed", reran the full Test command
+  with `LOOP_PROJECT` unset and approved execution outside the sandbox, as
+  the Lessons require. All 837 tests and house rules passed; the merge
+  failure did not reproduce, so no code or locked tests changed.
+
+- Spotlight README tests: check the paragraph's required terms and its position
+  beside the load and memory explanation, allowing line wrapping and Markdown
+  code spans. The issue's reading oracle still judges whether the prose explains
+  the relationships clearly. The existing house-rules check covers the final
+  criterion; it needs no new test.
+
 - Revert check: run the Test files command once per builder test file in one scratch worktree per review, so a failing file cannot hide a passing one. Report command or preparation errors as unverified rather than as proof. The person authorised the two existing command-count assertions to include the revert runs; all their other checks stay intact.
 - Revert check brief: keep the locked brief tests' references to tests that cannot fail and FOLLOW-UPS, but limit that exception to tests guarding existing behaviour explained in DEVIATIONS, as the new criterion requires.
 
