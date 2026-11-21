@@ -124,6 +124,18 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Squash settings: use the build's validated settings snapshot for both
+  trailer options. Remove existing copies of the project's sign-off before
+  appending it once at the end, keeping other contributors' sign-offs.
+  Compare sign-offs case-insensitively and ignore surrounding whitespace,
+  so differences in the trailer label's capitalisation do not leave
+  duplicates. Both settings default to false and remain excluded from local
+  overrides.
+- Squash settings validation: add a separate test module for invalid boolean
+  values and both options enabled together, leaving the locked tests intact.
+  Run the relevant test modules and house rules in the builder; the full
+  Test command is reserved for merge by the builder guard.
+
 - Squash settings tests: add a new module beside the squash-message tests,
   reusing their fake GitHub merge fixture because existing tests stay locked.
   Check both boolean values through `merge.merge` and its recorded `--body`,
