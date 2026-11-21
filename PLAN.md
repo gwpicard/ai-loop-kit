@@ -129,6 +129,22 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Design shortening: replace the historical narrative with the current
+  contract and workflow, keeping command detail in the kit reference.
+  Treat the issue's old permissions heading as its protected-path list,
+  not a restriction on the documentation change its goal explicitly asks
+  for; the current issue template permits changes to other files. Leave
+  locked tests unchanged. Run their targeted command and house rules;
+  reserve the full suite for merge because the current guard refuses it
+  in all four session roles when targeted tests are configured. The kit
+  does not read this plan at runtime; record this decision here only to
+  satisfy the current build instructions.
+
+  A fresh writing review corrected the cleanup claim, reviewer scratch
+  location and product-choice stops against the implementation. These
+  prose corrections are verified by reading the real paths, not new
+  executable regressions; text assertions would only mirror the wording.
+
 - Design shortening tests: add a new module because existing tests stay
   locked. Run the named word-count command and read the actual document.
   Check the current contract, one history pointer and repository evidence
