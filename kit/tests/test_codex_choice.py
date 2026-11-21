@@ -8,7 +8,7 @@ from unittest import mock
 
 from kit.tests import test_flow, test_setup
 from kit.tests.fake_codex_check import FLAGS, FakeCodexCheck
-from kit.tests.helpers import make_repo
+from kit.tests.helpers import make_repo, settings_json
 import common
 import session
 
@@ -20,7 +20,7 @@ APPROVE = test_flow.APPROVE
 
 def read(extra):
     with tempfile.TemporaryDirectory() as d:
-        Path(d, "AGENTS.md").write_text("## Loop\nTest command: t\n" + extra, encoding="utf-8")
+        Path(d, "loop.json").write_text(settings_json("## Loop\nTest command: t\n" + extra), encoding="utf-8")
         return common.read_settings(d)
 
 
@@ -44,7 +44,7 @@ class SettingsTest(unittest.TestCase):
 class LimitTest(FakeCodexCheck):
     def setUp(self):
         super().setUp()
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": LOOP})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(LOOP)})
 
     def run_session(self):
         return session.run("builder", "do it", self.work, "gpt-6", self.work, 7, agent="codex")
@@ -121,7 +121,7 @@ class SetupCheckTest(test_setup.SetupTest, FakeCodexCheck):
 
 class StartCheckTest(FakeCodexCheck):
     def start(self, env=None):
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": LOOP + "Reviewer: codex gpt-6\n"})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(LOOP + "Reviewer: codex gpt-6\n")})
         return subprocess.run([str(KIT / "bin" / "loop"), "run"], cwd=self.work, capture_output=True, text=True,
                               env=dict(os.environ, **(env or {})))
 
@@ -148,7 +148,7 @@ class StartCheckTest(FakeCodexCheck):
 class CodexBuilderBuildTest(test_flow.FlowTest, FakeCodexCheck):
     def setUp(self):
         super().setUp()
-        Path(self.work, "AGENTS.md").write_text(test_flow.AGENTS + "Builder: codex gpt-6\n")
+        Path(self.work, "loop.json").write_text(settings_json(test_flow.AGENTS + "Builder: codex gpt-6\n"))
         common.git(["commit", "-qam", "agents"], cwd=self.work)
 
     def test_a_codex_builder_and_claude_reviewer_build_and_merge(self):

@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import FakeGh, make_repo
+from kit.tests.helpers import FakeGh, make_repo, write_settings
 import common
 
 
@@ -23,17 +23,16 @@ class SettingsTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         d = tmp.name
-        with open(os.path.join(d, "AGENTS.md"), "w") as f:
-            f.write(text)
+        write_settings(os.path.join(d, "loop.json"), text)
         return d
 
     def test_defaults(self):
         s = common.read_settings(self.write("## Loop\nTest command: make test\n"))
         self.assertEqual(s["Test command"], "make test")
         self.assertEqual(s["Loop branch"], "loop/main")
-        self.assertEqual(s["Builder model"], "sonnet")
-        self.assertEqual(s["Reviewer model"], "sonnet")
-        self.assertEqual(s["Protected paths"], [".github/", ".claude/", ".githooks/"])
+        self.assertEqual(s["Builder"], ("claude", "sonnet"))
+        self.assertEqual(s["Reviewer"], ("claude", "sonnet"))
+        self.assertEqual(s["Protected paths"], [".github/", ".claude/", ".githooks/", "loop.json", "loop.local.json"])
         self.assertEqual(s["Idle hours"], 12)
         self.assertEqual(s["Max rounds"], 3)
 

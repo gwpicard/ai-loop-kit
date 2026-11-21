@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import HERE, make_repo, write_exe
+from kit.tests.helpers import HERE, make_repo, write_exe, settings_json
 import common
 import loop
 import session
@@ -72,7 +72,7 @@ class SessionAndCommandTest(Pressure):
     def setUp(self):
         super().setUp()
         session.SWEPT.clear()
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": AGENTS})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(AGENTS)})
 
     def run_session(self):
         out = io.StringIO()

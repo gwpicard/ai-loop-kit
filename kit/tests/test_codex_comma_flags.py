@@ -6,7 +6,7 @@ from pathlib import Path
 
 from kit.tests import test_setup
 from kit.tests.fake_codex_check import FAKE, FLAGS, FakeCodexCheck
-from kit.tests.helpers import make_repo, write_exe
+from kit.tests.helpers import make_repo, write_exe, settings_json
 
 KIT = Path(__file__).resolve().parents[1]
 LOOP = "## Loop\nTest command: true\nLoop branch: loop/main\n"
@@ -33,7 +33,7 @@ class CommaCodex(FakeCodexCheck):
 
 class StartTest(CommaCodex):
     def start(self, env=None):
-        self.work, _ = make_repo(self.tmp, {"AGENTS.md": LOOP + "Builder: codex gpt-6\nTest writer: codex gpt-6\n"})
+        self.work, _ = make_repo(self.tmp, {"loop.json": settings_json(LOOP + "Builder: codex gpt-6\nTest writer: codex gpt-6\n")})
         return subprocess.run([str(KIT / "bin" / "loop"), "run"], cwd=self.work, capture_output=True, text=True,
                               timeout=120, env=dict(os.environ, **(env or {})))
 

@@ -18,17 +18,21 @@ non-zero, report its two lines and stop.
 
 ## Set up, once per project
 
-If the project has no `## Loop` section in `AGENTS.md`, or the loop refuses
+If the project has no `loop.json`, or the loop refuses
 because the project is not set up, use the setup skill first.
 
 ## Confirm the agents, before every start
 
-Read `Builder:`, `Test writer:`, `Reviewer:` and `Pass:` from the `## Loop`
-section of `AGENTS.md` (each `<agent> <model>`, default `claude sonnet`; an
-older `Builder model` or `Reviewer model` line sets two of them). Show the
+Read the `Builder`, `Test writer`, `Reviewer` and `Pass` keys from
+`loop.json` (each `<agent> <model>`, default `claude sonnet`). Show the
 four to the person and ask once whether to change any. Write a change to
-`AGENTS.md` before the start. The agent is `claude` or `codex`; Codex is a
+`loop.json` before the start. Display them as `Builder:`, `Test writer:`,
+`Reviewer:` and `Pass:`. The agent is `claude` or `codex`; Codex is a
 preview.
+
+For machine-specific concurrency or idle limits, edit `Parallel` or
+`Idle hours` in the git-ignored `loop.local.json`. The loop reloads both
+settings files at the start of each cycle, so no restart is needed.
 
 ## Start and stop
 

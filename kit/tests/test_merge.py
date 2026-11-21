@@ -4,7 +4,7 @@ import unittest
 
 import tempfile
 
-from kit.tests.helpers import FakeGh, copy_repo, make_repo, run_git
+from kit.tests.helpers import FakeGh, copy_repo, make_repo, run_git, settings_json, write_settings
 import common
 import merge
 
@@ -34,7 +34,7 @@ class MergeTest(FakeGh):
         cls._dir = tempfile.TemporaryDirectory()
         cls.template = cls._dir.name
         work, _ = make_repo(cls.template, {
-            "AGENTS.md": AGENTS, "app.py": "x = 1\n",
+            "loop.json": settings_json(AGENTS), "app.py": "x = 1\n",
             "tests/test_old.py": "old\n", "tests/test_locked.py": "tests\n"})
         run_git(["push", "origin", "main:loop/main"], work)
 
@@ -150,8 +150,7 @@ class MergeTest(FakeGh):
     def test_a_test_lock_refusal_runs_no_tests(self):
         marker = os.path.join(self.tmp, "tests-ran")
         sha = self.branch({"tests/test_old.py": "changed\n"})
-        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
-            f.write("Test command: echo ran >> %s\n" % marker)
+        write_settings(os.path.join(self.work, "loop.json"), "Test command: echo ran >> %s\n" % marker, append=True)
         self.rules()
         result = self.run_merge(sha)
         self.assertEqual((result.park, result.rule), (True, "test-lock"))
@@ -405,8 +404,7 @@ class MergeTest(FakeGh):
 
     def test_timeout_kills_process_group(self):
         sha = self.good()
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write("## Loop\nTest command: sleep 30\n")
+        write_settings(os.path.join(self.work, "loop.json"), "## Loop\nTest command: sleep 30\n")
         self.rules(sha)
         old, merge.TEST_TIMEOUT = merge.TEST_TIMEOUT, 1
         self.addCleanup(setattr, merge, "TEST_TIMEOUT", old)
@@ -417,8 +415,7 @@ class MergeTest(FakeGh):
     def test_prepare_runs_once_before_one_full_run_on_the_exact_commit(self):
         sha = self.good()
         log = os.path.join(self.tmp, "runs.log")
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write("## Loop\nPrepare command: echo prepare >> %s\nTest command: echo test >> %s\n"
+        write_settings(os.path.join(self.work, "loop.json"), "## Loop\nPrepare command: echo prepare >> %s\nTest command: echo test >> %s\n"
                     "Check command: echo check >> %s\nTest files command: echo files >> %s\n"
                     "Loop branch: loop/main\n" % ((log,) * 4))
         self.rules(sha, [None, "OPEN", "MERGED"])
@@ -428,8 +425,7 @@ class MergeTest(FakeGh):
 
     def test_a_failing_prepare_command_refuses_the_merge(self):
         sha = self.good()
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write("## Loop\nPrepare command: exit 3\nTest command: true\nLoop branch: loop/main\n")
+        write_settings(os.path.join(self.work, "loop.json"), "## Loop\nPrepare command: exit 3\nTest command: true\nLoop branch: loop/main\n")
         self.rules(sha)
         r = self.run_merge(sha)
         self.assertEqual((r.ok, r.park), (False, False))

@@ -93,6 +93,33 @@ def run_git(args, cwd):
                    text=True)
 
 
+def settings_json(text):
+    """Convert the settings used by older fixtures into typed JSON."""
+    import common
+    found = {k: v for _, k, v in common.setting_lines(text)}
+    for role, prefix in (("Builder", "Builder"), ("Test writer", "Builder"),
+                         ("Reviewer", "Reviewer"), ("Pass", "Reviewer")):
+        if found.get(prefix + " model") and not found.get(role):
+            found[role] = "claude " + found[prefix + " model"]
+    for key in ("Builder model", "Reviewer model", "Defect rounds"):
+        found.pop(key, None)
+    for key in found.keys() & common.NUMERIC_SETTINGS:
+        found[key] = float(found[key])
+    for key in found.keys() & common.LIST_SETTINGS:
+        found[key] = [p.strip() for p in found[key].split(",") if p.strip()]
+    return json.dumps(found)
+
+
+def write_settings(path, text, append=False):
+    """Write a JSON fixture, optionally extending its previous settings."""
+    found = json.loads(settings_json("## Loop\n" + text))
+    if append:
+        with open(path) as f:
+            found = dict(json.load(f), **found)
+    with open(path, "w") as f:
+        json.dump(found, f)
+
+
 _TEMPLATES = {}
 _TEMPLATE_DIR = []
 

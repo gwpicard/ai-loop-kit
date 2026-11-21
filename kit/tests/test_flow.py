@@ -7,7 +7,7 @@ from unittest import mock
 from kit.tests.fake_claude import FakeClaudeGh
 import tempfile
 
-from kit.tests.helpers import copy_repo, make_repo, run_git
+from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json, write_settings
 import common
 import flow
 import merge
@@ -29,7 +29,7 @@ class FlowTest(FakeClaudeGh):
     def setUpClass(cls):
         cls._dir = tempfile.TemporaryDirectory()
         cls.template = cls._dir.name
-        work, _ = make_repo(cls.template, {"AGENTS.md": AGENTS})
+        work, _ = make_repo(cls.template, {"loop.json": settings_json(AGENTS)})
         run_git(["push", "origin", "main:loop/main"], work)
 
     @classmethod
@@ -88,9 +88,9 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(len([e for e in events if e["kind"] == "disk-wait"]), 1)
 
     def test_build_temp_is_shared_by_sessions_and_commands_and_removed_with_markers(self):
-        agents = Path(self.work, "AGENTS.md")
-        agents.write_text(AGENTS.replace("seq 1 99;", 'echo "$TMPDIR|$TMP|$TEMP" >> ' + self.tmp + '/temps; seq 1 99;'))
-        run_git(["add", "AGENTS.md"], self.work)
+        agents = Path(self.work, "loop.json")
+        agents.write_text(settings_json(AGENTS.replace("seq 1 99;", 'echo "$TMPDIR|$TMP|$TEMP" >> ' + self.tmp + '/temps; seq 1 99;')))
+        run_git(["add", "loop.json"], self.work)
         run_git(["commit", "-qm", "record temp"], self.work)
         run_git(["push", "origin", "HEAD:loop/main"], self.work)
         self.build_scenario(builder=[{"files": {"app.py": "1\n"}, "passed": True}])
@@ -643,8 +643,7 @@ class FlowTest(FakeClaudeGh):
         """Rewrite the settings of the project the build reads; markers go to files in tmp."""
         text = "## Loop\nLoop branch: loop/main\nMax rounds: 3\n" + "".join(
             "%s: %s\n" % (k.replace("_", " "), v.replace("TMP", self.tmp)) for k, v in lines.items())
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(text)
+        write_settings(os.path.join(self.work, "loop.json"), text)
 
     def runs(self, name):
         try:

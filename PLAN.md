@@ -96,6 +96,7 @@ An agent that needs one of these ends its reply with
 
 One line per trap that a later session would hit too. Sessions append here.
 Keep the section under 30 lines: merge lines or drop the oldest when full.
+- JSON accepts whole numbers such as 3.0; normalise count settings to integers before passing Max rounds to range.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 - Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
 - When running the suite inside a loop session, unset `LOOP_PROJECT`; otherwise the disk tests write events to the enclosing project instead of their fixture.
@@ -122,6 +123,9 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Settings in JSON: retain legacy parsing only for setup migration and fixture conversion. Existing alias assertions now check role values, and the old unknown-key warning assertion now requires refusal, because the new criteria supersede those behaviours. Migration fixtures stay in AGENTS.md to exercise the real setup command.
+- Settings in JSON: require finite, non-negative numbers, with positive whole numbers for Parallel and Max rounds. Normalise those counts to integers, including JSON values written with a decimal point. Reload failures keep the whole previous configuration and report each unchanged error once; recovery clears the warning. When concurrency falls to one, existing worker builds finish before an in-process build starts.
 
 - Revert check: run the Test files command once per builder test file in one scratch worktree per review, so a failing file cannot hide a passing one. Report command or preparation errors as unverified rather than as proof. The person authorised the two existing command-count assertions to include the revert runs; all their other checks stay intact.
 - Revert check brief: keep the locked brief tests' references to tests that cannot fail and FOLLOW-UPS, but limit that exception to tests guarding existing behaviour explained in DEVIATIONS, as the new criterion requires.

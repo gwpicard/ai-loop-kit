@@ -82,7 +82,7 @@ def check_path(path, role, cwd):
                      "describe the change in the review instead")
     allowed = {os.path.relpath(os.path.realpath(os.path.join(top, a.strip())), top)
                for a in os.environ.get("LOOP_ALLOWED", "").splitlines() if a.strip()}
-    protected = [x for x in os.environ.get("LOOP_PROTECTED", "").split(",") if x] or common.DEFAULTS["Protected paths"].split(", ")
+    protected = [x for x in os.environ.get("LOOP_PROTECTED", "").split(",") if x] or common.DEFAULTS["Protected paths"]
     if role == "builder" and rel in allowed and not merge.stop_reason(rel, protected):
         return  # the issue names this path as one the builder may change
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():

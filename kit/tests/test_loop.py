@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import copy_repo, make_repo, run_git
+from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json, write_settings
 import common
 import flow
 import loop
@@ -22,7 +22,7 @@ TEMPLATE = None
 def setUpModule():
     global TEMPLATE
     TEMPLATE = tempfile.TemporaryDirectory()
-    work, _ = make_repo(TEMPLATE.name, {"AGENTS.md": AGENTS})
+    work, _ = make_repo(TEMPLATE.name, {"loop.json": settings_json(AGENTS)})
     run_git(["push", "origin", "main:loop/main"], work)
 
 
@@ -117,20 +117,17 @@ class LoopTest(Base):
     def setUp(self):
         super().setUp()
         os.makedirs(os.path.join(self.work, ".loop"))
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS)
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS)
         mock.patch.object(loop, "sync_default").start()
         mock.patch.object(loop, "drain").start()
 
-    def test_unknown_settings_are_named_once_and_the_loop_starts(self):
-        with open(os.path.join(self.work, "AGENTS.md"), "a") as f:
-            f.write("Defect rounds: 2\nFuture-key: yes\n## Other\nNot a setting: ignored\n")
+    def test_unknown_settings_are_refused_before_the_loop_starts(self):
+        write_settings(os.path.join(self.work, "loop.json"), "Defect rounds: 2\nFuture-key: yes\n## Other\nNot a setting: ignored\n", append=True)
         self.world([issue(8)])
         with self.fake_build():
-            self.assertEqual(self.run_loop(), 0)
-        self.assertEqual(self.built, [(8, [])])
-        notices = [c.args[0] for c in self.say.call_args_list if "next: run setup" in c.args[0]]
-        self.assertEqual(notices, ["unknown Loop settings: Defect rounds, Future-key; next: run setup"])
+            with self.assertRaisesRegex(common.SettingsError, "loop.json.*Future-key"):
+                self.run_loop()
+        self.assertEqual(self.built, [])
 
     def pid_file(self):
         return os.path.join(self.work, ".loop", "loop.pid")
@@ -166,8 +163,7 @@ class LoopTest(Base):
 
     def test_stop_file_exits(self):
         self.world([])
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS.replace("Idle hours: 0", "Idle hours: 5"))
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS.replace("Idle hours: 0", "Idle hours: 5"))
         old = os.getcwd()
         os.chdir(self.work)
         self.addCleanup(os.chdir, old)
@@ -584,8 +580,7 @@ class StartCheckTest(Base):
         else:
             os.makedirs(self.work)
             run_git(["init", "-q", "-b", "main"], self.work)
-            with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-                f.write(AGENTS)
+            write_settings(os.path.join(self.work, "loop.json"), AGENTS)
         self.rules = [{"match": "label list", **out([{"name": n} for n in (labels or self.LABELS)])},
                       {"match": "issue list", **out([FACTORY] if issues is None else issues)}]
         with mock.patch.object(loop.os, "getcwd", return_value=self.work), \

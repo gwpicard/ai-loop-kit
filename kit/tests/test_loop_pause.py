@@ -14,7 +14,7 @@ import time
 import unittest
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import HERE, copy_repo, make_repo, run_git, write_exe
+from kit.tests.helpers import HERE, copy_repo, make_repo, run_git, write_exe, settings_json, write_settings
 
 ROOT = os.path.dirname(os.path.dirname(HERE))
 SCRIPTS = os.path.join(ROOT, "kit", "scripts")
@@ -139,11 +139,10 @@ class PauseBase(FakeClaudeGh):
         self.addCleanup(self.cleanup_processes)
         template = tempfile.TemporaryDirectory()
         self.addCleanup(template.cleanup)
-        work, _ = make_repo(template.name, {"AGENTS.md": AGENTS})
+        work, _ = make_repo(template.name, {"loop.json": settings_json(AGENTS)})
         run_git(["push", "origin", "main:loop/main"], work)
         self.work, self.origin = copy_repo(template.name, self.tmp)
-        with open(os.path.join(self.work, "AGENTS.md"), "w") as f:
-            f.write(AGENTS + "Parallel: %d\n" % self.PARALLEL)
+        write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: %d\n" % self.PARALLEL)
         self.bin = os.path.join(self.tmp, "bin")
         self.gh_dir = os.path.join(self.tmp, "gh2")
         os.mkdir(self.gh_dir)

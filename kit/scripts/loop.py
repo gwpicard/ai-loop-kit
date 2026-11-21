@@ -187,7 +187,7 @@ def answer(st, protected=None):
             path = parked_test_path(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
             if path and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
-                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"].split(", "))
+                grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -689,10 +689,8 @@ def resume(project):
 
 def run(project):
     project = os.path.abspath(project)
-    unknown = []
-    settings = common.read_settings(project, unknown=unknown)
-    if unknown:
-        say("unknown Loop settings: %s; next: run setup" % ", ".join(unknown))
+    settings = common.read_settings(project)
+    settings_error = None
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
@@ -715,6 +713,14 @@ def run(project):
     try:
         while not os.path.exists(stop):
             try:
+                try:
+                    settings = common.read_settings(project)
+                    settings_error = None
+                except common.SettingsError as e:
+                    if str(e) != settings_error:
+                        say("keeping previous settings: %s" % e)
+                        settings_error = str(e)
+                cap = (3 * settings["Session minutes"] + 30) * 60
                 reap(project, st, cap)
                 snapshot(st)
                 for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]]:
@@ -724,7 +730,7 @@ def run(project):
                     common.remove_label(i["number"], "building")
                     i["labels"] = (i["labels"] - {"building"}) | {"ready"}
                 answer(st, settings["Protected paths"])
-                if settings["Parallel"] == 1:  # one build at a time, in this process
+                if settings["Parallel"] == 1 and not st["building"]:  # one build at a time, in this process
                     number = pick(st)
                     if number:
                         build_once(project, st, number)

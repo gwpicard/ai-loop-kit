@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import FakeGh, make_repo, run_git
+from kit.tests.helpers import FakeGh, make_repo, run_git, settings_json
 import common
 import loop
 from kit.tests.test_status import event
@@ -16,7 +16,7 @@ class ReportTest(FakeGh):
     def setUp(self):
         super().setUp()
         self.work, _ = make_repo(self.tmp, {
-            'AGENTS.md': '## Loop\nTest command: true\n',
+            "loop.json": settings_json('## Loop\nTest command: true\n'),
             'src/api/main.py': 'old\n', 'tests/test_old.py': 'old\n',
             'tests/test_keep.py': 'old\n', 'package-lock.json': '{}\n',
             'widget/__init__.py': '', 'widget/core/run.py': 'old\n'})

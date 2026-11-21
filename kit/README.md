@@ -38,25 +38,31 @@ delete nothing.
 
 ## Set up a project
 
-Put this in the project's `AGENTS.md`:
+Commit `loop.json` at the project root:
 
-    ## Loop
-    Test command: <the command that runs your tests>
+    {"Test command": "<the command that runs your tests>"}
 
-Optional keys in the same section: `Loop branch` (default `loop/main`),
+Optional keys in the same JSON object: `Loop branch` (default `loop/main`),
 `Builder`, `Test writer`, `Reviewer` and `Pass` (each `<agent> <model>`,
 default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command` and `Parallel` (default 1).
-`Codex writable roots` lists further folders, comma-separated
-like `Protected paths`, that a Codex session may write to, in addition to the
+`Protected paths` and `Codex writable roots` are lists of strings. The four
+numeric settings take JSON numbers; all other settings take strings. Unknown
+keys and values of the wrong type are refused. `Codex writable roots` lists
+further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
-tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM. The
-older `Builder model: <m>` line still sets the builder and test writer to
-`claude <m>`, and `Reviewer model: <m>` the reviewer and the pass, unless the new line for that role is set.
+tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM.
+
+The optional, git-ignored `loop.local.json` accepts only `Parallel` and
+`Idle hours`, which override `loop.json`. The running loop reloads both files
+at the start of every cycle. If either cannot be read or validated, it keeps
+the previous settings and logs the error without repeating an unchanged
+error. Both settings files are protected paths by default; changing them in
+a piece requires naming the file under `## Paths the builder may change`.
 
 Codex is an agent for any role, such as `Builder: codex gpt-6`. A Codex session
 runs under the same rules as a Claude one: the guard and the stop check are
@@ -151,13 +157,16 @@ the end-of-loop pass simplifies the whole batch once.
 
 ## Set up with the script
 
-Ask Claude to set up the loop (the setup skill writes the `## Loop` section
+Ask Claude to set up the loop (the setup skill writes `loop.json`
 with you), or run `python3 <plugin>/scripts/setup.py` from the project root.
 It first moves the runtime files of kit 1.x (into `.loop/v1/`) and of kit
 2.0.0 (the `.lite/` folder) into `.loop/`, then creates the labels, the loop
 branch, a pinned `Factory` issue, a `.loop/` line in `.gitignore` (commit it
 yourself) and runs your Test command on a fresh copy of the loop branch.
-Running it again is safe.
+Setup also migrates an existing `## Loop` section from `AGENTS.md` into
+`loop.json`, removes the section and ignores `loop.local.json`. It records
+each change and its undo in `.loop/migrations.log`; `--dry-run` previews
+the changes without applying them. Running it again is safe.
 
 ## Shape
 

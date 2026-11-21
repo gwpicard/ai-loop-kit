@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import make_repo, run_git
+from kit.tests.helpers import make_repo, run_git, settings_json
 import common
 import flow
 import merge
@@ -59,7 +59,7 @@ sys.exit(int(failed))
         if targeted:
             agents += "Test files command: " + command + " {files}\n"
         self.work, _ = make_repo(self.tmp, {
-            "AGENTS.md": agents, "run_tests.py": runner,
+            "loop.json": settings_json(agents), "run_tests.py": runner,
             "app.py": "old\n", "removed.py": "restore me\n",
             "untouched.py": "keep me\n", EXISTING: INSENSITIVE,
         })
