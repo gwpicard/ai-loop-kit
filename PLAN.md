@@ -126,6 +126,13 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Legacy migration tests: add a separate acceptance module because existing
+  tests stay locked for the test writer. Exercise setup and `loop run` as
+  commands, with empty and populated `.lite/` folders and varied kit 1.x
+  markers. Require the intermediate-upgrade advice before the ordinary
+  missing-loop-branch advice. Existing tests cover the retained migrations;
+  the builder must remove the obsolete move assertions and the old file list.
+
 - Protected paths heading: update the loop's park-reply writer as well as
   the named consumers, so an approval uses the section merge reads. Rename
   only heading lines in setup and save each original body before editing,
