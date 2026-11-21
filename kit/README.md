@@ -299,6 +299,10 @@ the worktrees and issue branches left. Outside services are on the stops list.
 The guard hook is an early warning that matches the text of a command, so it
 can be routed around. It is registered for the loop's own sessions (through
 `--settings`) and wherever the plugin is enabled.
+For `gh` and the loop's git restrictions, it ignores quoted text and heredoc
+bodies. If the command invokes `sh`, `bash`, `zsh`, `dash`, `eval` or `xargs`,
+directly or through `env`, it checks the whole command, including quoted and
+piped input.
 
 - Everywhere: it refuses pushes to the default branch, force pushes and
   recursive deletes.

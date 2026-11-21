@@ -271,8 +271,11 @@ Each comes from a failure seen in a real run.
   branch, after a full test run on that exact commit.
 - **Early warnings in the guard.** In the loop's own sessions the guard hook
   also refuses `gh`, `git push`, `git merge`, branch switches and checkouts.
-  It matches the text of the command, so it can be routed around. It is an
-  early warning, and `merge.py` and branch protection are the lines that hold.
+  For these restrictions it ignores quoted text and heredoc bodies. If the
+  command invokes `sh`, `bash`, `zsh`, `dash`, `eval` or `xargs`, directly or
+  through `env`, it checks the whole command, including quoted and piped input.
+  It matches command text, so it can be routed around. It is an early warning,
+  and `merge.py` and branch protection are the lines that hold.
 - **Stops in code, not only words.** `merge.py` parks an issue whose diff
   touches a protected path, a workflow file, a lockfile or manifest, or a
   settings file or an existing test module, unless the issue names that path.
