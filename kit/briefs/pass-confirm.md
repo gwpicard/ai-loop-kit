@@ -6,6 +6,8 @@ issue's acceptance criteria establish that it is wrong, and the test fails
 for that reason and not for a mistake in the test.
 Reject a test that asserts something the project never promised, fails by
 accident, or restates a constant.
+Run only the candidate tests with the Test files command (the Test command
+when none is set); merge has already run the full suite.
 
 The prompt also lists the open decisions (issues the person has yet to decide)
 as `#<number> <title>: <first line>`. A finding that touches one is not a

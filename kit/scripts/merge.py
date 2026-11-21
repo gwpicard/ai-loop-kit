@@ -20,7 +20,7 @@ LOCKFILES = {
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
     "pdm.lock", "deno.lock", "pom.xml", "build.gradle"}
-TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
+TEST_NAMES = ("test[ _]*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
 TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
@@ -146,7 +146,7 @@ def stop_reason(path, protected, project=".", ref=None):
 def targeted_command(settings, cwd, start, locked):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
-    changed = git(["diff", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).splitlines() if start else []
+    changed = git(["diff", "-z", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).split("\0") if start else []
     files = sorted({p for p in list(locked) + changed if is_test_module(p)})
     if not files:  # an empty list would run the whole suite
         return "", "Test files command: no test files to run"

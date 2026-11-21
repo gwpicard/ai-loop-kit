@@ -24,6 +24,7 @@ from common import GitError, gh, git, say
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
+CHECK_OUTPUT_LINES = 60
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -847,8 +848,40 @@ def wait_stop(path, seconds):
         time.sleep(0.2)
 
 
+def check(project):
+    """Run the session's targeted tests and guardrails with bounded output."""
+    try:
+        settings = common.build_settings(project)
+        test, description = merge.targeted_command(
+            settings, project, os.environ.get("LOOP_START"),
+            os.environ.get("LOOP_LOCKED", "").splitlines())
+        for command in (test, settings["Check command"]):
+            if not command:
+                continue
+            code, output = common.run_shell(command, project, merge.TEST_TIMEOUT,
+                                            record=os.environ.get("LOOP_GROUPS"))
+            if code != 0:
+                print("failed: %s%s" % (command, " (timed out)" if code is None else ""))
+                lines = output.strip().splitlines()
+                if len(lines) > CHECK_OUTPUT_LINES:
+                    print("output truncated; last %d lines:" % CHECK_OUTPUT_LINES)
+                for line in lines[-CHECK_OUTPUT_LINES:]:
+                    print(line)
+                return 1
+    except (common.LoopError, OSError) as e:
+        print("failed: %s" % e)
+        return 1
+    print("passed: " + description.split(": ", 1)[1])
+    return 0
+
+
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "check":
+        if len(argv) != 1:
+            print("usage: loop check")
+            return 2
+        return check(project)
     if cmd == "pause":
         return pause(project)
     if cmd == "resume":
@@ -898,7 +931,7 @@ def main(argv):
             return say(refusal) or 1
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|pause|resume|check-version|report|status [--since <time>]")
+        say("usage: loop.py run|stop|pause|resume|check|check-version|report|status [--since <time>]")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):

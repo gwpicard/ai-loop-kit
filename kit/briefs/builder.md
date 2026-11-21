@@ -13,9 +13,15 @@ Your job: make this issue's acceptance criteria true with the smallest change
 that fits the project's conventions. Read the issue, AGENTS.md and the tests
 already written. Implement, and commit.
 
-Run the Test files command on the locked tests and the test files you touch
-(or the Test command when none is set). The Stop hook runs these tests and
-the Check command when you finish, and blocks you until they pass.
+Run `<plugin>/bin/loop check`. It selects the locked tests and test files
+changed since the session's start commit through the Test files command (or
+uses the Test command when none is set), then runs the Check command. The
+Stop hook runs these checks when you finish, and blocks you until they pass.
+
+Test budget per step: the test writer runs only its new tests; the builder
+runs `loop check`; the reviewer reads the Stop hook's result and runs nothing
+unless a finding needs it; merge runs the full suite once; the pass runs only
+its candidates.
 
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts at the named paths, keeping both intents, test the files
