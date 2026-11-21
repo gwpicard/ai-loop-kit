@@ -32,16 +32,23 @@ AGENT_TRAILER = re.compile(
     re.I)
 
 
-def squash_body(project, loop, sha):
-    """The builder's commit messages in order, without agent co-author trailers."""
+def squash_body(project, loop, sha, settings):
+    """The builder's commit messages in order, with the project's chosen trailers."""
     log = git(["log", "--reverse", "--format=%B%x00", "origin/%s..%s" % (loop, sha)],
               cwd=project)
     messages = []
+    sign_off = ""
+    if settings["Sign-off"]:
+        name = git(["config", "user.name"], cwd=project)
+        email = git(["config", "user.email"], cwd=project)
+        sign_off = "Signed-off-by: %s <%s>" % (name, email)
     for raw in log.split("\0"):
-        lines = [l for l in raw.strip().splitlines() if not AGENT_TRAILER.match(l)]
+        lines = [l for l in raw.strip().splitlines()
+                 if (settings["Agent attribution"] or not AGENT_TRAILER.match(l))
+                 and (not sign_off or l.strip().casefold() != sign_off.casefold())]
         if text := "\n".join(lines).strip():
             messages.append(text)
-    return "\n\n".join(messages)
+    return "\n\n".join(messages + ([sign_off] if sign_off else []))
 
 
 def _refuse(rule, reason, park=False):
@@ -271,7 +278,7 @@ def _merge(issue, branch, verdict_text, project):
         try:
             gh(["pr", "merge", str(number), "--squash",
                 "--subject", "Issue %s (#%s)" % (issue, number),
-                "--body", squash_body(project, loop, sha),
+                "--body", squash_body(project, loop, sha, settings),
                 "--match-head-commit", sha, "--delete-branch"], retry=False)
         except common.GitHubError as e:
             err = e

@@ -43,6 +43,8 @@ DEFAULTS = {
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
     "Prepare command": "",  # run once in each worktree, before any test run
     "Parallel": 1,  # builds running at once
+    "Sign-off": False,
+    "Agent attribution": False,
 }
 
 
@@ -171,6 +173,7 @@ def setting_lines(text):
 
 NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots"}
+BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
 
 
@@ -200,7 +203,8 @@ def validate_settings(found, filename, local=False):
     for key, value in found.items():
         if key not in allowed:
             raise SettingsError("%s: unknown key '%s'" % (filename, key))
-        valid = (type(value) in (int, float) if key in NUMERIC_SETTINGS else
+        valid = (isinstance(value, bool) if key in BOOLEAN_SETTINGS else
+                 type(value) in (int, float) if key in NUMERIC_SETTINGS else
                  isinstance(value, list) and all(isinstance(p, str) for p in value)
                  if key in LIST_SETTINGS else isinstance(value, str))
         if not valid:
