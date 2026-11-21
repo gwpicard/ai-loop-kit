@@ -109,7 +109,7 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
 - A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
 - The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
-- FakeCodexCheck.without_codex rebuilds PATH with the host sysctl, hiding the runner's memory-pressure stub; setup preflight can then wait on real memory pressure.
+- When hiding Codex, preserve the test runner's sysctl stub; replacing it with the host command can make setup preflight wait on real memory pressure.
 - Released kit 2.2.0 leaves `.lite/` behind, sometimes with colliding files; preserve the whole residual folder outside the project after migration rather than deleting it.
 
 ## Standing approvals
@@ -127,6 +127,14 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
+
+- Legacy migration merge failure: the log retains only the final failure
+  line, so the exact failing assertion is unknown. Reproduced a setup
+  timeout through the command with the missing-Codex fixture: it discarded
+  the runner's memory-pressure stub when rebuilding PATH. Preserve the
+  selected sysctl command while keeping Codex hidden. Add a setup-command
+  regression that records the stub being read. Run the affected fixture,
+  setup and loop tests; the full suite remains reserved for merge.
 
 - Legacy upgrade review: retain the required `.lite/` refusal and explain
   that, after kit 2.2.0 setup succeeds and its loop is stopped, the person

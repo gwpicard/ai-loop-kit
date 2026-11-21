@@ -1,13 +1,15 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
 from unittest import mock
 import pathlib
 
-from kit.tests.helpers import FakeGh, make_repo
+from kit.tests.helpers import FakeGh, make_repo, write_exe
+from kit.tests.fake_codex_check import FakeCodexCheck
 import setup
 import common
 
@@ -184,6 +186,23 @@ class SetupTest(FakeGh):
                 self.assertIn("install kit 2.2.0, run its setup, then update to this version", result.stdout)
                 self.assertEqual(self.snapshot(self.work), before)
                 path.unlink()
+
+
+class MissingCodexSetupTest(FakeCodexCheck):
+    def test_setup_without_codex_preserves_the_test_memory_pressure_command(self):
+        work, _ = make_repo(self.tmp, {"AGENTS.md": "## Loop\nTest command: true\n"})
+        memory = pathlib.Path(self.tmp, "memory-tools")
+        memory.mkdir()
+        marker = pathlib.Path(self.tmp, "memory-read")
+        write_exe(str(memory / "sysctl"), "#!PYTHON\nprint(1)\nopen(%r, 'a').write('read\\n')\n" % str(marker))
+        os.environ["PATH"] = str(memory) + os.pathsep + os.environ["PATH"]
+        self.without_codex()
+        self.scenario([rule("label list", json.dumps([{"name": n} for n in setup.LABELS])),
+                       rule("issue list", '[{"number":7,"title":"Factory"}]')])
+        result = subprocess.run([sys.executable, setup.__file__, work],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(marker.exists(), "setup must read the test's memory pressure, not the host's")
 
 
 class ReleasedUpgradeTest(FakeGh):
