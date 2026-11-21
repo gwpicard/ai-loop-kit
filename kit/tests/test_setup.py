@@ -224,8 +224,10 @@ class MissingCodexSetupTest(FakeCodexCheck):
 class ReleasedUpgradeTest(FakeGh):
     def test_released_migration_then_preserved_residual_folder_allows_current_setup(self):
         kit = pathlib.Path(setup.__file__).resolve().parents[1]
-        archive = subprocess.run(["git", "archive", "v2.2.0", "kit"], cwd=kit.parent,
-                                 capture_output=True, check=True).stdout
+        found = subprocess.run(["git", "archive", "v2.2.0", "kit"], cwd=kit.parent, capture_output=True)
+        if found.returncode:  # a shallow checkout, as in CI, has no release tags
+            self.skipTest("the v2.2.0 tag is not in this checkout")
+        archive = found.stdout
         release = pathlib.Path(self.tmp, "release")
         with tarfile.open(fileobj=io.BytesIO(archive)) as files:
             files.extractall(release)
