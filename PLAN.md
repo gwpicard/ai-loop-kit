@@ -124,11 +124,25 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Settings in JSON, merge resolution: keep both the settings decisions and the incoming Spotlight README notes. Their additions to Deviations are independent; the README paragraph and its tests remain intact.
+
 - Settings in JSON: retain legacy parsing only for setup migration and fixture conversion. Existing alias assertions now check role values, and the old unknown-key warning assertion now requires refusal, because the new criteria supersede those behaviours. Migration fixtures stay in AGENTS.md to exercise the real setup command.
 - Settings in JSON, Stop hook fix: isolate inherited LOOP_PROJECT in the test runner rather than changing runtime disk checks or requiring callers to unset it. A regression invokes the runner with an enclosing project and checks both the disk tests and the absence of events outside their fixtures.
 - Settings in JSON, build retention: scope a validated snapshot to each build, carry it into workers and agent hooks through the subprocess environment, and use it for sessions and merge checks. The supervisor alone reloads files between cycles. The drain and end-of-loop pass use their supplied snapshot too. Test subprocesses discard inherited snapshots so they retain fixture isolation.
 - Settings in JSON, runner regression: invoke only the two disk checks that reproduce project leakage, through a test module that selects them. Running every common test inside this regression also ran an unrelated short GitHub timeout check, which failed under concurrent suite load.
 - Settings in JSON: require finite, non-negative numbers, with positive whole numbers for Parallel and Max rounds. Normalise those counts to integers, including JSON values written with a decimal point. Reload failures keep the whole previous configuration and report each unchanged error once; recovery clears the warning. When concurrency falls to one, existing worker builds finish before an in-process build starts.
+
+- Spotlight README: the locked tests and house rules passed. After a merge
+  refusal reported only "Some checks failed", reran the full Test command
+  with `LOOP_PROJECT` unset and approved execution outside the sandbox, as
+  the Lessons require. All 837 tests and house rules passed; the merge
+  failure did not reproduce, so no code or locked tests changed.
+
+- Spotlight README tests: check the paragraph's required terms and its position
+  beside the load and memory explanation, allowing line wrapping and Markdown
+  code spans. The issue's reading oracle still judges whether the prose explains
+  the relationships clearly. The existing house-rules check covers the final
+  criterion; it needs no new test.
 
 - Revert check: run the Test files command once per builder test file in one scratch worktree per review, so a failing file cannot hide a passing one. Report command or preparation errors as unverified rather than as proof. The person authorised the two existing command-count assertions to include the revert runs; all their other checks stay intact.
 - Revert check brief: keep the locked brief tests' references to tests that cannot fail and FOLLOW-UPS, but limit that exception to tests guarding existing behaviour explained in DEVIATIONS, as the new criterion requires.
