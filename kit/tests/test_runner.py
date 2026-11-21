@@ -1,6 +1,9 @@
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 from kit.tests.helpers import HERE
 from pathlib import Path
@@ -21,6 +24,13 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("test_parse_block_annotated_path", result.stdout)
         self.assertIn("test_parse_block_blank_after_header", result.stdout)
         self.assertIn("2 tests in 2 modules, 0 failed,", result.stdout)
+
+    def test_an_enclosing_loop_does_not_redirect_fixture_disk_checks_or_events(self):
+        with tempfile.TemporaryDirectory() as project:
+            with mock.patch.dict(os.environ, {"LOOP_PROJECT": project}):
+                result = self.run_tests("kit/tests/test_common.py")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(Path(project, ".loop").exists())
 
     def test_module_arguments_run_only_the_named_module(self):
         for name in ("test_parse_block_annotated_path", "kit.tests.test_parse_block_annotated_path"):

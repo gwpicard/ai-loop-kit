@@ -99,14 +99,13 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - JSON accepts whole numbers such as 3.0; normalise count settings to integers before passing Max rounds to range.
 - `kit/tests/test_entry_point.py` imports `flow` without `helpers`; locked, so `kit/tests/run.py` puts `kit/scripts` on the child's path.
 - Flow fixtures run real session cleanup, which needs `ps`; a sandbox that denies it produces an environment error before the behaviour assertions.
-- When running the suite inside a loop session, unset `LOOP_PROJECT`; otherwise the disk tests write events to the enclosing project instead of their fixture.
+- The test runner drops inherited `LOOP_PROJECT` before starting test processes, so disk checks and events use each fixture. Unsetting it only in a manual command leaves the Stop hook exposed to the same failure.
 - Reviewer prompts include the whole brief; keep the literal revert result prefix out of its explanatory prose so a skipped check has no result line.
 - Paths the builder may change do not unlock existing tests for the test writer; add new tests and leave any conflicting old assertion for the builder.
 - Session tests use `ps` to reap child processes; the macOS sandbox may refuse it, so these checks need an approved run outside that sandbox.
 - A session environment assertion can pass before a guard fix; invoke the configured hook with the spawned session's environment and prove the test fails on the loop branch.
 - The test-lock hook refuses edits to existing tests even when the issue allows them; write judging tests in a new file when instructed to continue.
 - The full checks need `ps`; a sandbox that refuses process inspection breaks session and pause tests and can leave their loop processes running. Run with process inspection available and check for surviving test processes.
-- Unset an inherited `LOOP_PROJECT` when checking disk tests: it redirects their disk checks and events away from the temporary project in the fixture.
 
 ## Standing approvals
 
@@ -125,6 +124,7 @@ Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
 - Settings in JSON: retain legacy parsing only for setup migration and fixture conversion. Existing alias assertions now check role values, and the old unknown-key warning assertion now requires refusal, because the new criteria supersede those behaviours. Migration fixtures stay in AGENTS.md to exercise the real setup command.
+- Settings in JSON, Stop hook fix: isolate inherited LOOP_PROJECT in the test runner rather than changing runtime disk checks or requiring callers to unset it. A regression invokes the runner with an enclosing project and checks both the disk tests and the absence of events outside their fixtures.
 - Settings in JSON: require finite, non-negative numbers, with positive whole numbers for Parallel and Max rounds. Normalise those counts to integers, including JSON values written with a decimal point. Reload failures keep the whole previous configuration and report each unchanged error once; recovery clears the warning. When concurrency falls to one, existing worker builds finish before an in-process build starts.
 
 - Revert check: run the Test files command once per builder test file in one scratch worktree per review, so a failing file cannot hide a passing one. Report command or preparation errors as unverified rather than as proof. The person authorised the two existing command-count assertions to include the revert runs; all their other checks stay intact.
