@@ -110,6 +110,7 @@ Keep the section under 30 lines: merge lines or drop the oldest when full.
 - A fake GitHub command reading `--body-file -` must read stdin as bytes to preserve CRLF issue bodies.
 - The builder guard matches command names inside read-only search patterns; use direct file reads for those names, as the person authorised.
 - FakeCodexCheck.without_codex rebuilds PATH with the host sysctl, hiding the runner's memory-pressure stub; setup preflight can then wait on real memory pressure.
+- Released kit 2.2.0 leaves `.lite/` behind, sometimes with colliding files; preserve the whole residual folder outside the project after migration rather than deleting it.
 
 ## Standing approvals
 
@@ -127,13 +128,22 @@ A confirmed defect with a failing test, found by the end-of-loop pass, may be qu
 Builders append here when they take the closest approach to a decision the
 plan did not make: the issue, what they chose, and why.
 
+- Legacy upgrade review: retain the required `.lite/` refusal and explain
+  that, after kit 2.2.0 setup succeeds and its loop is stopped, the person
+  moves the whole residual folder to an unused backup path outside the
+  project before updating. Test the released migration from the local
+  `v2.2.0` tag, including colliding logs, then run current setup after that
+  move and check the backup. Check legacy layouts at the `loop run` entry
+  point before settings, Codex checks or version recording. Cover both
+  legacy layouts with settings still in `AGENTS.md` and no `loop.json`.
+
 - Legacy migration removal: recognise current runtime names and session or
   history prefixes instead of retaining the kit 1.x file list. Unknown names
   directly under `.loop/` also require the intermediate upgrade; archived
   files under `.loop/v1/` and `.lite` copies of current files left by the
   intermediate migration remain valid. Keep `tidy`'s return shape for its
-  existing callers and check it in setup's readiness check so `loop run`
-  refuses before reporting a missing branch. Remove obsolete move tests and
+  existing callers and check it before `loop run` reads settings, so it
+  refuses before reporting missing settings or a missing branch. Remove obsolete move tests and
   retain coverage of the 2.2.0 and 3.0.0 migrations. The full Test command is
   reserved for merge by the builder guard; run targeted checks here.
   Stop the broader Codex fixture check when it waits on host memory pressure;

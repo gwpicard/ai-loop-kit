@@ -824,6 +824,9 @@ def main(argv):
             return say(old) or 1
         if cmd == "check-version":
             return 0
+        _, refusal = setup.tidy(project)
+        if refusal:
+            return say(refusal) or 1
         common.record_kit_version(project)
     if cmd != "run":
         say("usage: loop.py run|stop|pause|resume|check-version|report|status [--since <time>]")

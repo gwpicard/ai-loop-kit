@@ -3,6 +3,7 @@ import io
 import json
 import subprocess
 import sys
+import tarfile
 from unittest import mock
 import pathlib
 
@@ -183,3 +184,47 @@ class SetupTest(FakeGh):
                 self.assertIn("install kit 2.2.0, run its setup, then update to this version", result.stdout)
                 self.assertEqual(self.snapshot(self.work), before)
                 path.unlink()
+
+
+class ReleasedUpgradeTest(FakeGh):
+    def test_released_migration_then_preserved_residual_folder_allows_current_setup(self):
+        kit = pathlib.Path(setup.__file__).resolve().parents[1]
+        archive = subprocess.run(["git", "archive", "v2.2.0", "kit"], cwd=kit.parent,
+                                 capture_output=True, check=True).stdout
+        release = pathlib.Path(self.tmp, "release")
+        with tarfile.open(fileobj=io.BytesIO(archive)) as files:
+            files.extractall(release)
+        for collision in (False, True):
+            with self.subTest(collision=collision):
+                work, _ = make_repo(self.tmp, {"AGENTS.md": "## Loop\nTest command: true\n"})
+                root = pathlib.Path(work)
+                lite = root / ".lite"
+                lite.mkdir()
+                (lite / "pass.json").write_text("{}\n")
+                if collision:
+                    for folder, text in ((".lite", "old log\n"), (".loop", "current log\n")):
+                        path = root / folder / "logs" / "same.log"
+                        path.parent.mkdir(parents=True)
+                        path.write_text(text)
+                self.scenario([rule("label list", json.dumps([{"name": n} for n in setup.LABELS])),
+                               rule("issue list", '[{"number":7,"title":"Factory"}]')])
+                old = subprocess.run([sys.executable, str(release / "kit/scripts/setup.py"), work],
+                                     capture_output=True, text=True, timeout=30)
+                self.assertEqual(old.returncode, 0, old.stdout + old.stderr)
+                self.assertEqual((root / ".loop/pass.json").read_text(), "{}\n")
+                self.assertTrue(lite.is_dir())
+                residual = {str(p.relative_to(lite)): p.read_bytes() for p in lite.rglob("*") if p.is_file()}
+                refused = subprocess.run([sys.executable, setup.__file__, work],
+                                         capture_output=True, text=True, timeout=30)
+                self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                for advice in ("After kit 2.2.0 setup succeeds", "stop any running loop",
+                               "with all its contents", "unused backup path outside this project"):
+                    self.assertIn(advice, refused.stdout)
+                backup = pathlib.Path(self.tmp, "lite-backup-" + str(collision))
+                lite.rename(backup)
+                current = subprocess.run([sys.executable, setup.__file__, work],
+                                         capture_output=True, text=True, timeout=30)
+                self.assertEqual(current.returncode, 0, current.stdout + current.stderr)
+                self.assertEqual({str(p.relative_to(backup)): p.read_bytes()
+                                  for p in backup.rglob("*") if p.is_file()}, residual)
+                self.assertTrue((root / "loop.json").exists())

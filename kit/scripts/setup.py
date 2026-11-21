@@ -26,13 +26,15 @@ def change(project, what, undo, apply, dry_run=False):
 
 
 def tidy(project, dry_run=False):
-    """Refuse runtime folders that still need the kit 2.2.0 migrations."""
+    """Refuse legacy runtime layouts and explain the intermediate upgrade."""
     loop, lite = os.path.join(project, ".loop"), os.path.join(project, ".lite")
     names = os.listdir(loop) if os.path.isdir(loop) else []
     if os.path.exists(lite) or any(name.removesuffix(".lite") not in RUNTIME and not name.startswith(
             ("passed-", "stop-", "session-", "history-")) for name in names):
         return [], ("refused: this project has a .lite/ folder or unrecognised runtime files in .loop/\n"
-                    "next: install kit 2.2.0, run its setup, then update to this version")
+                    "next: install kit 2.2.0, run its setup, then update to this version.\n"
+                    "After kit 2.2.0 setup succeeds, stop any running loop and move any remaining .lite/ folder, "
+                    "with all its contents, to an unused backup path outside this project before updating.")
     return [], None
 
 
@@ -184,9 +186,6 @@ def factory_exists():
 
 def missing(project, settings):
     """Why the project is not set up for the loop, or None. Changes nothing."""
-    _, refusal = tidy(project)
-    if refusal:
-        raise LoopError(refusal.removeprefix("refused: "))
     branch = settings["Loop branch"]
     if not git(["remote", "get-url", "origin"], cwd=project, check=False):
         return "this folder has no origin remote"

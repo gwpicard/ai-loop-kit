@@ -100,6 +100,28 @@ class Base(unittest.TestCase):
 
 
 class LoopTest(Base):
+    def test_command_refuses_legacy_layouts_before_reading_json_or_checking_codex(self):
+        from kit.tests.test_setup_legacy_refusal import KIT, LITE, V1, snapshot
+        for files in (*LITE, *V1):
+            with self.subTest(files=files):
+                work, _ = make_repo(self._tmp.name, {"AGENTS.md": AGENTS + "Builder: codex missing-model\n"})
+                for name, content in files.items():
+                    path = os.path.join(work, name)
+                    if content is None:
+                        os.makedirs(path, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        with open(path, "w") as f:
+                            f.write(content)
+                before = snapshot(work)
+                result = subprocess.run([str(KIT / "bin/loop"), "run"], cwd=work,
+                                        capture_output=True, text=True, timeout=30)
+                text = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 1, text)
+                self.assertIn("install kit 2.2.0, run its setup, then update to this version", text)
+                self.assertNotIn("loop.json: missing file", text)
+                self.assertEqual(snapshot(work), before)
+
     def test_disk_full_waits_without_spending_a_crash_attempt(self):
         os.makedirs(self.work, exist_ok=True)
         results = [flow.Result("failed", "No space left on device"),
