@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.0 (22 November 2026)
+
+In a project whose `Test files command` contains `{files}`, the loop now runs
+the full Test command only at every fourth merge and at the drain;
+`"Full suite every": 1` in `loop.json` restores a full run on every merge. The
+loop runs at background priority, build temporary files live in
+`.loop-worktrees`, and `loop status` reports throughput, turns and tokens.
+Issues can declare `Kind: parallel`, sessions get `loop check`, shaping lists
+the paths an issue will touch, a default branch that will not merge is
+reported in `loop.out`, and `loop.json` and `loop.local.json` stay protected
+whatever the `Protected paths` list holds. The guard and the merge check close
+three gaps in test locking and the `full-test` rule. No setup run is needed.
+See [the 3.1.0 release notes](docs/release-notes/v3.1.0.md).
+
 ## 3.0.0 (21 November 2026)
 
 Loop settings move from `## Loop` in `AGENTS.md` into a committed `loop.json`
