@@ -139,7 +139,7 @@ def _codex_hooks():
             'Stop = [{hooks = [%s]}]}' % (hook("guard.py"), hook("stop.py", TEST_TIMEOUT)))
 
 
-def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
+def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
     """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
     common_dir = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
                                 capture_output=True, text=True).stdout.strip()
@@ -175,6 +175,14 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit):
                     if isinstance(event, dict):
                         events.append(event)
             thread = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None) or resume
+            turns = [e for e in events if e.get("type") == "turn.completed"]
+            counts = {}
+            for field in ("input_tokens", "cached_input_tokens", "output_tokens"):
+                values = [e["usage"][field] for e in turns if isinstance(e.get("usage"), dict)
+                          and isinstance(e["usage"].get(field), (int, float))]
+                if values:
+                    counts[field] = sum(values)
+            record(turns=len(turns), **counts)
             common.record_session(thread, env)
             with open(last, encoding="utf-8") as f:
                 text = f.read()
@@ -214,9 +222,11 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
     prefix = "%s-%s-" % (issue, role)
     n = sum(1 for f in os.listdir(logs) if f.startswith(prefix)) + 1
     log = os.path.join(logs, "%s%d.log" % (prefix, n))
+    def record(**counts):
+        common.event("session", project, issue=issue, role=role, agent=agent, model=model, **counts)
     if agent == "codex":
         env["LOOP_AGENT"] = "codex"
-        return _codex(role, prompt, cwd, model, env, log, issue, resume, settings["Session minutes"] * 60)
+        return _codex(role, prompt, cwd, model, env, log, issue, resume, settings["Session minutes"] * 60, record)
 
     def hook(name, **more):
         return {"type": "command", "command": "python3 " + shlex.quote(
@@ -235,6 +245,13 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
         except ValueError:
             data = None
         data = data if isinstance(data, dict) else None
+        usage = (data or {}).get("usage") or {}
+        counts = {field: usage[source] for field, source in (
+            ("input_tokens", "input_tokens"), ("cached_input_tokens", "cache_read_input_tokens"),
+            ("output_tokens", "output_tokens")) if isinstance(usage, dict) and source in usage}
+        if data and "num_turns" in data:
+            counts["turns"] = data["num_turns"]
+        record(**counts)
         common.record_session((data or {}).get("session_id"), env)
         text = str(data.get("result") or "") if data else out + err
         if LIMIT.search(text) and (not data or data.get("is_error") or code):

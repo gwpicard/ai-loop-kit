@@ -134,11 +134,11 @@ class ThroughputStatusTest(unittest.TestCase):
                 code, text = self.command("--since", "2h")
                 self.assertEqual(code, 0)
                 legacy = ("Loop: not running\nNow: idle\nSince: 2026-11-20 10:00\nMerged:\n"
-                          "  #11: 30.0 min, 0 rounds\n  #12: 40.0 min, 1 rounds\nParked:\n"
-                          "  #21: A decision\n  #22: A decision\n  #23: A decision\nCrashes: 0\n"
+                          "  #{0}: 30.0 min, 0 rounds\n  #{1}: 40.0 min, 1 rounds\nParked:\n"
+                          "  #{2}: A decision\n  #{3}: A decision\n  #{4}: A decision\nCrashes: 0\n"
                           "Rules: test-lock=3\nStage seconds (total, median; completed in window):\n"
                           "  builder: 3600, 900\n  pre-review test run: 600, 600\n"
-                          "  reviewer: 1800, 1800\n  merge: 60, 60\nAgents: codex\nModels: test")
+                          "  reviewer: 1800, 1800\n  merge: 60, 60\nAgents: codex\nModels: test").format(11, 12, 21, 22, 23)
                 self.assertTrue(text.startswith(legacy), text)
                 self.assertIn("Throughput", text)
                 throughput = text.split("Throughput", 1)[1]

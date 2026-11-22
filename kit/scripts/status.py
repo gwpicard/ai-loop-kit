@@ -96,9 +96,54 @@ def build_state(project, alive):
     return running, builds
 
 
-def render(events, now, since=None, running=False, builds=None):
-    """Render supplied events, clock and local process snapshot as plain text."""
+def throughput(events, now, since):
+    """Aggregate completed work and reported usage in the selected wall-clock window."""
+    window = [e for e in events if since <= event_time(e["time"]) <= now]
+    seconds = max(0, now - since)
+    stages, roles = {}, {}
+    steps = [e for e in window if e["kind"] == "step" and e.get("phase") == "end"
+             and isinstance(e.get("seconds"), (int, float))]
+    for e in steps:
+        stage = stages.setdefault(e["step"], {"seconds": 0})
+        stage["seconds"] += e["seconds"]
+    for stage in stages.values():
+        stage["share"] = stage["seconds"] / seconds if seconds else 0
+    for e in window:
+        if e["kind"] == "session":
+            role = roles.setdefault(e.get("role", "unknown"), {})
+            for field in ("turns", "input_tokens", "cached_input_tokens", "output_tokens"):
+                if isinstance(e.get(field), (int, float)):
+                    role[field] = role.get(field, 0) + e[field]
+    slowest = sorted(steps, key=lambda e: (-e["seconds"], str(e.get("issue")), e["step"]))[:5]
+    return dict(window_seconds=seconds,
+                merged_per_hour=sum(e["kind"] == "merged" for e in window) * 3600 / seconds if seconds else 0,
+                stages=stages, roles=roles,
+                parks_by_rule=dict(Counter(e.get("rule", "unknown") for e in window if e["kind"] == "parked")),
+                slowest_steps=[{k: e.get(k) for k in ("issue", "step", "seconds")} for e in slowest])
+
+
+def render_throughput(report):
+    lines = ["Throughput:", "  Issues merged per hour: %g" % report["merged_per_hour"],
+             "  Stage seconds (share of window):"]
+    for step, values in sorted(report["stages"].items()):
+        lines.append("    %s: %g (%g%%)" % (STAGES.get(step, step), values["seconds"], values["share"] * 100))
+    lines.append("  Usage per role (turns, input tokens, cached input tokens, output tokens; reported counts):")
+    for role, counts in sorted(report["roles"].items()):
+        lines.append("    %s: %s" % (role, ", ".join(str(counts.get(k, "unknown")) for k in
+                     ("turns", "input_tokens", "cached_input_tokens", "output_tokens"))))
+    lines.append("  Parks by rule: " + (", ".join("%s=%d" % p for p in sorted(report["parks_by_rule"].items())) or "none"))
+    lines.append("  Five slowest steps (seconds):")
+    for e in report["slowest_steps"]:
+        lines.append("    #%s %s: %g" % (e["issue"], STAGES.get(e["step"], e["step"]), e["seconds"]))
+    return "\n".join(lines)
+
+
+def render(events, now, since=None, running=False, builds=None, as_json=False):
+    """Render local status as text, or the throughput report as JSON."""
     since = since_time(None, now) if since is None else since
+    report = throughput(events, now, since)
+    if as_json:
+        return json.dumps({"throughput": report})
     events = sorted((e for e in events if event_time(e["time"]) <= now), key=lambda e: event_time(e["time"]))
     window = [e for e in events if event_time(e["time"]) >= since]
     _, ended, doing = activity(events)
@@ -135,4 +180,4 @@ def render(events, now, since=None, running=False, builds=None):
             lines.append("  %s: %g, %g" % (label, sum(samples), median(samples)))
     for field in ("agent", "model"):
         lines.append(field.capitalize() + "s: " + (", ".join(sorted({e[field] for e in window if e.get(field)})) or "none"))
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n" + render_throughput(report)
