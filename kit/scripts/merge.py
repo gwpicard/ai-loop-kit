@@ -138,7 +138,7 @@ def stop_reason(path, protected, project=".", ref=None):
             return "lockfile or package manifest"
     if name in LOCKFILES or re.match(r"requirements.*\.(txt|in)$", name):
         return "lockfile or package manifest"
-    if name in ("settings.json", "settings.local.json"):
+    if name in ("settings.json", "settings.local.json") or low in ("loop.json", "loop.local.json"):
         return "settings file"
     return None
 

@@ -151,6 +151,8 @@ def migrate_settings(project, dry_run=False):
     for key in common.NUMERIC_SETTINGS & found.keys():
         try:
             found[key] = float(found[key])
+            if found[key].is_integer():
+                found[key] = int(found[key])
         except ValueError:
             raise common.SettingsError("AGENTS.md: invalid number for '%s'" % key)
     common.validate_settings(found, "loop.json")
