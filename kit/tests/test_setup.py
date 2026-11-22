@@ -116,7 +116,7 @@ class SetupTest(FakeGh):
         self.assertIn("Defect rounds: keep", agents)
         self.assertEqual(pathlib.Path(self.work, "PLAN.md").read_bytes(), plan)
         self.assertIn("Find a home for the contents of PLAN.md", text)
-        self.assertIn("Pass defects are approved.", text)
+        self.assertNotIn("Pass defects are approved.", text)
         log = pathlib.Path(self.work, ".loop", "migrations.log")
         records = [json.loads(line) for line in log.read_text().splitlines()]
         removed = next(r for r in records if "removed Defect rounds" in r["change"])
