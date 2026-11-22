@@ -11,7 +11,8 @@ Issues can declare `Kind: parallel`, sessions get `loop check`, shaping lists
 the paths an issue will touch, a default branch that will not merge is
 reported in `loop.out`, and `loop.json` and `loop.local.json` stay protected
 whatever the `Protected paths` list holds. The guard and the merge check close
-three gaps in test locking and the `full-test` rule. No setup run is needed.
+three gaps in test locking and the `full-test` rule, and the guard no longer
+refuses `git merge-base`. No setup run is needed.
 See [the 3.1.0 release notes](docs/release-notes/v3.1.0.md).
 
 ## 3.0.0 (21 November 2026)
