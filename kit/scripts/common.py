@@ -633,7 +633,25 @@ def event(kind, root=".", **fields):
 
 def park(issue, question, recommendation, project="."):
     """Hand an issue to the person: label needs-user, drop building, comment."""
-    event("parked", project, issue=issue, reason=question)
+    rule = None
+    try:
+        with open(os.path.join(project, ".loop", "events.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    previous = json.loads(line)
+                    if not isinstance(previous, dict) or previous.get("issue") != issue:
+                        continue
+                    kind = previous.get("kind")
+                    if kind == "rule":
+                        rule = previous.get("rule")
+                    elif kind in {"parked", "merged", "crashed"} or (
+                            kind == "step" and previous.get("phase", "start") == "start"):
+                        rule = None
+                except ValueError:
+                    pass
+    except OSError:
+        pass
+    event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
