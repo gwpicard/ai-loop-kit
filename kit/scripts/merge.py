@@ -31,6 +31,13 @@ BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # 
 AGENT_TRAILER = re.compile(
     r"^\s*co-authored-by:.*(claude|codex|chatgpt|openai|@anthropic\.com|@openai\.com)",
     re.I)
+AGENT_FOOTER = re.compile(
+    r"^[ \t]*claude-session:|claude\.ai/code/" + r"session_"
+    r"|generated (with|by) \[claude code\]"
+    r"|^[^a-z0-9]*generated (with|by) claude code[ \t.]*$"
+    # Co-author addresses remain governed by Agent attribution.
+    r"|^(?![ \t]*co-authored-by:).*noreply@anthropic\.com",
+    re.I)
 
 
 def squash_body(project, loop, sha, settings):
@@ -46,6 +53,7 @@ def squash_body(project, loop, sha, settings):
     for raw in log.split("\0"):
         lines = [l for l in raw.strip().splitlines()
                  if (settings["Agent attribution"] or not AGENT_TRAILER.match(l))
+                 and not AGENT_FOOTER.search(l)
                  and (not sign_off or l.strip().casefold() != sign_off.casefold())]
         if text := "\n".join(lines).strip():
             messages.append(text)
