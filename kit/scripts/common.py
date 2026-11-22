@@ -400,12 +400,13 @@ def git(args, cwd=None, check=True):
     return p.stdout.rstrip("\n")
 
 
-def _record(path, pid, add):
-    """Add a process group id to the list in `path`, or take it off."""
+def _record(path, pid, add, token=None):
+    """Add a process group id and optional ownership token to `path`, or take it off."""
     try:
         pids = open(path).read().split() if os.path.exists(path) else []
         with open(path, "w") as f:
-            f.write("".join(p + "\n" for p in [p for p in pids if p != str(pid)] + [str(pid)] * add))
+            entry = str(pid) + (":" + token if token else "")
+            f.write("".join(p + "\n" for p in [p for p in pids if p.split(":", 1)[0] != str(pid)] + [entry] * add))
     except OSError:
         pass
 
@@ -543,18 +544,20 @@ def _run_shell(command, cwd, timeout, record=None):
     """Run a shell command in its own process group, or in the pass worker's group.
     Return (exit code, output); the code is None on timeout outside a pass worker.
     A pass command timeout ends the worker and its commands; the supervisor reports the error.
-    With `record`, the group id is listed in that file while the command runs, so whoever
-    ends the caller can also end the command. Before it starts, the command waits at critical memory
+    With `record`, the group id is listed so whoever ends the caller can also end the command.
+    Pass records remain until session cleanup, including commands whose children outlive them.
+    Before it starts, the command waits at critical memory
     pressure for at most ten minutes; the wait is outside `timeout`."""
     wait_for_memory(project_of(cwd))
     wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
     # Pass commands share the worker's lifetime, including an external kill.
     pass_worker = os.environ.get("LOOP_PASS_WORKER") == str(os.getpid())
+    token = os.environ.get("LOOP_GROUP_TOKEN")
     p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=not pass_worker,
-                         preexec_fn=(lambda: _record(record, os.getpid(), True)) if record and os.environ.get("LOOP_PASS_GROUPS") else None,
+                         preexec_fn=(lambda: _record(record, os.getpid(), True, token)) if record and os.environ.get("LOOP_PASS_GROUPS") else None,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
-        _record(record, p.pid, True)
+        _record(record, p.pid, True, token)
     try:
         out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd))
         return p.returncode, out
@@ -563,7 +566,8 @@ def _run_shell(command, cwd, timeout, record=None):
         p.communicate()
         return None, ""
     finally:
-        if record:
+        # Pass cleanup also needs groups whose command exited before its children.
+        if record and not os.environ.get("LOOP_PASS_GROUPS"):
             _record(record, p.pid, False)
 
 
