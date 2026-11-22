@@ -246,6 +246,7 @@ def setup(project=".", dry_run=False):
     for role in common.ROLES:
         say("%s: %s" % (role, " ".join(settings[role])))
     branch, command = settings["Loop branch"], settings["Test command"]
+    common.warn_delete_branch_on_merge(project, say)
     for name in sorted(set(LABELS) - labels_present()):
         change(project, "label " + name, "remove label " + name,
                lambda: gh(["label", "create", name, "--color", LABELS[name]]), dry_run)

@@ -38,6 +38,10 @@ delete nothing.
 
 ## Set up a project
 
+Turn off "Automatically delete head branches" in the repository's Settings,
+General, Pull Requests. Otherwise, merging the loop's final pull request
+deletes the loop branch.
+
 Commit `loop.json` at the project root:
 
     {"Test command": "<the command that runs your tests>"}

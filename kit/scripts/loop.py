@@ -871,6 +871,7 @@ def run(project):
         os.remove(stop)
     reason = "interrupted"
     try:
+        common.warn_delete_branch_on_merge(project, say)
         while not os.path.exists(stop):
             try:
                 try:
