@@ -150,7 +150,7 @@ class Migration(FakeGh):
                 self.assertEqual(len(self.bodies()), 1)
                 self.assertEqual(log.read_bytes(), before)
 
-    def test_dry_run_prints_the_whole_issue_without_filing_or_changing_files(self):
+    def test_dry_run_summarises_without_filing_or_changing_files(self):
         for reverse in (False, True):
             with self.subTest(reverse=reverse):
                 self.project(reverse)
@@ -161,7 +161,23 @@ class Migration(FakeGh):
                 self.assertEqual(test_setup.SetupTest.snapshot(self, Path(self.origin)), origin)
                 self.assertEqual(self.bodies(), [])
                 self.assertIn(TITLE, text)
-                self.check_body(text)
+                for heading, content in SECTIONS:
+                    self.assertIn(heading, text)
+                    self.assertNotIn(content, text)
+                self.assertNotIn("## Empty", text)
+
+    def test_dry_run_skips_a_missing_or_logged_plan(self):
+        for logged in (False, True):
+            with self.subTest(logged=logged):
+                self.project()
+                if logged:
+                    self.command()
+                else:
+                    Path(self.work, "PLAN.md").unlink()
+                before = test_setup.SetupTest.snapshot(self, Path(self.work))
+                self.assertNotIn(TITLE, self.command(dry_run=True))
+                self.assertEqual(test_setup.SetupTest.snapshot(self, Path(self.work)), before)
+                self.assertEqual(len(self.bodies()), int(logged))
 
     def test_setup_accepts_red_team_surfaces_as_a_json_list(self):
         for surfaces in ([], ["import records", "export records"]):
