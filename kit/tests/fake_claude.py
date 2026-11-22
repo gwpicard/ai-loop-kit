@@ -60,7 +60,7 @@ if step.get("passed"):
 reply = step.get("limit") or step.get("error") or step.get("reply", "ok")
 print(json.dumps({"type": "result", "is_error": bool(step.get("limit") or step.get("error")),
                   "result": reply.replace("{HEAD}", head),
-                  "session_id": sid}))
+                  "session_id": sid, **{k: step[k] for k in ("num_turns", "usage") if k in step}}))
 sys.exit(1 if step.get("limit") else 0)
 '''
 

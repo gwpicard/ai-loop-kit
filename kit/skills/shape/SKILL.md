@@ -42,6 +42,26 @@ code and never merges.
    criteria, how an agent checks it, a `## Protected paths this issue may change`
    section (normally `none`), `Depends on: #a, #b`, and a milestone. A path
    named anywhere else in the issue body grants nothing.
+
+   From the project root, run `python3 <plugin>/scripts/shapecheck.py <draft-file>`
+   on each draft. Backtick the files, functions and names the issue touches.
+   The script lists tracked tests referring to those names, including helpers,
+   fakes and runners, and named files on the stops list. Write its output into
+   `## Protected paths this issue may change` before approval. Review each path:
+   listing it permits the builder to change it. If the file limit is exceeded,
+   split the issue and run the check on each new draft.
+
+   Pass `--issues <issues-json>` with a JSON array of issue objects containing
+   `number` and `body` to check the batch's dependencies too. Resolve warnings
+   about more than two dependants or chains deeper than three links before
+   approval. At build time the loop checks the current loop branch again and
+   reports paths; any additional path still needs the person's approval.
+
+   Add `Kind: build` for implementation, or `Kind: parallel` for work that
+   cannot conflict with builds, such as documentation or research. The loop
+   runs at most one parallel issue beside the builds, without taking a
+   `Parallel` slot. Both kinds wait for dependencies, and additional workers
+   wait for load and memory headroom. A missing or unknown kind means `build`.
 8. Create each issue with `gh issue create --label shaping --milestone
    <name>`, dependencies first. Then write `Depends on: #n` with the real
    numbers into the dependants. Show every issue in full. Ask for one yes

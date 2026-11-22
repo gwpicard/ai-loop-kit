@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from common import GitError, gh, git, say
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
+CHECK_OUTPUT_LINES = 60
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -118,6 +120,7 @@ def write_board(project, st, doing=None):
     _, ended, recorded = status.activity(status.read_events(project))
     doing = doing or recorded
     parked = {i["number"] for i in of("needs-user")}
+    parallel = {i["number"] for i in st["issues"] if common.issue_kind(i["body"]) == "parallel"}
     building = []
     for n, (since, _) in sorted(b.items()):
         if n in parked or n in ended:
@@ -126,7 +129,8 @@ def write_board(project, st, doing=None):
             minutes = max(0, int(time.time() - os.path.getmtime(common.build_file(project, n, "step"))) // 60)
         except OSError:
             minutes = 0
-        building.append("#%d, %s, since %s (%d min in step)" % (n, step_of(project, n), since, minutes))
+        building.append("#%d%s, %s, since %s (%d min in step)" %
+                        (n, " (parallel)" if n in parallel else "", step_of(project, n), since, minutes))
     if not building and doing != "idle":
         building = [doing]
     why = []
@@ -238,9 +242,10 @@ def trusted(st, i):
     return st["trust"][key]
 
 
-def pick(st):
+def pick(st, kinds=None):
     for i in sorted(st["issues"], key=lambda x: x["number"]):
         if ("ready" in i["labels"] and "building" not in i["labels"] and i["number"] not in st["building"]
+                and (kinds is None or common.issue_kind(i["body"]) in kinds)
                 and all(d in st["closed"] for d in common.depends_on(i["body"]))
                 and trusted(st, i)):
             return i["number"]
@@ -335,9 +340,16 @@ def worker_command(project, number, replies, previous=0):
 
 
 def start_builds(project, settings, st):
-    """Claim and start eligible issues, each in its own process, up to `Parallel` and while the machine has
-    headroom. The first build always starts: only a second one waits on load."""
-    while len(st["building"]) < settings["Parallel"] and (number := pick(st)):
+    """Fill `Parallel` build slots and one extra parallel slot while the machine has headroom.
+    The first worker always starts; further workers wait on load and memory."""
+    kinds = {i["number"]: common.issue_kind(i.get("body")) for i in st["issues"]}
+    while True:
+        running = [kinds.get(n, "build") for n in st["building"]]
+        available = {kind for kind, cap in (("build", settings["Parallel"]), ("parallel", 1))
+                     if running.count(kind) < cap}
+        number = pick(st, available)
+        if number is None:
+            return
         if os.path.exists(os.path.join(project, ".loop", "stop")):
             return
         why = headroom() if st["building"] else None
@@ -351,7 +363,8 @@ def start_builds(project, settings, st):
         os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
         with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
             proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, []), st["attempts"].get(number, st["deaths"].get(number, 0))), cwd=project,
-                                    env=dict(common.build_env(), LOOP_BUILD_SETTINGS=json.dumps(settings)),
+                                    env=dict(common.build_env(), LOOP_BUILD_SETTINGS=json.dumps(settings),
+                                             LOOP_TEST_WORKERS=str(max(1, (os.cpu_count() or 1) // settings["Parallel"]))),
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
         with open(common.build_file(project, number, "pid"), "w") as f:
@@ -467,19 +480,31 @@ def reap(project, st, cap=None, stopped=False):
 def sync_default(project, loop, st):
     base = common.default_branch(project)
     git(["fetch", "--no-prune", "origin"], cwd=project)
-    st["conflict"] = ""
     try:
         git(["merge-base", "--is-ancestor", "origin/" + base, "origin/" + loop], cwd=project)
+        st["conflict"] = ""
         return False
     except GitError:
-        say("merging origin/%s into %s" % (base, loop))
+        if not st["conflict"]:
+            say("merging origin/%s into %s" % (base, loop))
+    files = []
     try:
         with common.scratch_tree(project, "origin/" + loop) as tree:
-            git(["merge", "--no-edit", "origin/" + base], cwd=tree)
+            try:
+                git(["merge", "--no-edit", "origin/" + base], cwd=tree)
+            except GitError:
+                files = sorted(filter(None, git(["diff", "--name-only", "--diff-filter=U", "-z"], cwd=tree).split("\0")))
+                raise
             git(["push", "origin", "HEAD:" + loop], cwd=tree)
+        st["conflict"] = ""
         return True
     except GitError as e:
-        st["conflict"] = "Merging %s into %s did not go through: %s" % (base, loop, e)
+        message = "Merging %s into %s failed: %s" % (
+            base, loop, "conflicting files: " + ", ".join(files) if files else e)
+        if message != st["conflict"]:
+            say(message)
+            common.event("default-merge-failed", project, base=base, branch=loop, files=files, reason=message)
+        st["conflict"] = message
         return False
 
 
@@ -604,6 +629,8 @@ def _drain(project, settings, st):
             pass
     top = summary(project, settings, head, landed)
     body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
+    if st["conflict"]:
+        body += "## Default branch merge\n\n" + st["conflict"] + "\n\n"
     body += report.section(report.render(project, settings)) + "\n"
     body += hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
     body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
@@ -631,7 +658,19 @@ def clean_up(project, closed):
             os.remove(path)
     with contextlib.suppress(OSError):
         os.rmdir(os.path.join(os.path.dirname(project), ".loop-worktrees"))  # only when empty
-    trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines() if l.startswith("worktree ")][1:]
+    trees = [field[9:] for field in git(["worktree", "list", "--porcelain", "-z"], cwd=project, check=False).split("\0")
+             if field.startswith("worktree ")][1:]
+    own = Path(project).resolve().parent / ".loop-worktrees"
+    trees = [t for t in trees if not Path(t).resolve().is_relative_to(own)]
+    temps = [Path(p).resolve() for p in (tempfile.gettempdir(), "/tmp", "/var/tmp")]
+    if sys.platform == "darwin":
+        with contextlib.suppress(OSError):
+            path = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+            if path:
+                temps.append(Path(path).resolve())
+    for tree in trees:
+        if any(Path(tree).resolve().is_relative_to(p) for p in temps):
+            git(["worktree", "remove", tree], cwd=project, check=False)
     old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project, check=False).split()
            if b[6:].isdigit() and int(b[6:]) in closed]
     say("left behind: worktrees: %s; branches of closed issues: %s" % (", ".join(trees) or "none", ", ".join(old) or "none"))
@@ -788,7 +827,9 @@ def run(project):
                     wait_stop(stop, BUSY_POLL)
                     continue
                 if not park_wait(st) and not os.path.exists(stop):
+                    conflict = st["conflict"]
                     dirty = sync_default(project, settings["Loop branch"], st) or dirty
+                    dirty = dirty or conflict != st["conflict"]
                     if dirty:
                         with common.settings_environment(settings):
                             drain(project, settings, st)
@@ -847,8 +888,40 @@ def wait_stop(path, seconds):
         time.sleep(0.2)
 
 
+def check(project):
+    """Run the session's targeted tests and guardrails with bounded output."""
+    try:
+        settings = common.build_settings(project)
+        test, description = merge.targeted_command(
+            settings, project, os.environ.get("LOOP_START"),
+            os.environ.get("LOOP_LOCKED", "").splitlines())
+        for command in (test, settings["Check command"]):
+            if not command:
+                continue
+            code, output = common.run_shell(command, project, merge.TEST_TIMEOUT,
+                                            record=os.environ.get("LOOP_GROUPS"))
+            if code != 0:
+                print("failed: %s%s" % (command, " (timed out)" if code is None else ""))
+                lines = output.strip().splitlines()
+                if len(lines) > CHECK_OUTPUT_LINES:
+                    print("output truncated; last %d lines:" % CHECK_OUTPUT_LINES)
+                for line in lines[-CHECK_OUTPUT_LINES:]:
+                    print(line)
+                return 1
+    except (common.LoopError, OSError) as e:
+        print("failed: %s" % e)
+        return 1
+    print("passed: " + description.split(": ", 1)[1])
+    return 0
+
+
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "check":
+        if len(argv) != 1:
+            print("usage: loop check")
+            return 2
+        return check(project)
     if cmd == "pause":
         return pause(project)
     if cmd == "resume":
@@ -864,17 +937,21 @@ def main(argv):
             return 1
         return 0
     if cmd == "status":
-        if len(argv) != 1 and not (len(argv) == 3 and argv[1] == "--since"):
-            print("usage: loop status [--since <time>]")
+        args = argv[1:]
+        as_json = "--json" in args
+        if as_json:
+            args.remove("--json")
+        if args and not (len(args) == 2 and args[0] == "--since"):
+            print("usage: loop status [--since <time>] [--json]")
             return 2
         now = time.time()
         try:
-            since = status.since_time(argv[2] if len(argv) == 3 else None, now)
+            since = status.since_time(args[1] if args else None, now)
         except ValueError as e:
             print(str(e))
             return 2
         running, builds = status.build_state(project, alive)
-        print(status.render(status.read_events(project), now, since, running, builds))
+        print(status.render(status.read_events(project), now, since, running, builds, as_json=as_json))
         return 0
     if cmd == "stop":
         if argv not in (["stop"], ["stop", "--now"]):
@@ -898,9 +975,17 @@ def main(argv):
             return say(refusal) or 1
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|pause|resume|check-version|report|status [--since <time>]")
+        say("usage: loop.py run|stop|pause|resume|check|check-version|report|status [--since <time>]")
         return 2
     try:
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["taskpolicy", "-b", "-p", str(os.getpid())],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                os.nice(10)
+        except (OSError, subprocess.CalledProcessError):
+            say("could not set background priority; continuing")
         if sys.platform == "darwin" and shutil.which("caffeinate"):
             subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
         settings = common.read_settings(project)

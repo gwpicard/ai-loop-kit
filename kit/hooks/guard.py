@@ -25,6 +25,7 @@ caught, because the guard does not ask git which branch is checked out.
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 
@@ -44,7 +45,7 @@ GIT = r"\bgit(?:(?:\s|\\\n)+(?:-C(?:\s|\\\n)+\S+|-c(?:\s|\\\n)+\S+|--(?:git-dir|
 DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
 PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
-ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
+ROLE_GIT = re.compile(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$))|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 QUOTED = re.compile(r"'[^']*'")
 SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[^']*'|"(?:\\.|[^"\\])*"|\n''')
@@ -98,7 +99,8 @@ def check_path(path, role, cwd):
                          "park the issue if this change is needed")
     for locked in os.environ.get("LOOP_LOCKED", "").splitlines():
         lfull = os.path.realpath(os.path.join(top, locked.strip()))
-        if locked.strip() and merge.is_test_module(rel) and (full == lfull or full.startswith(lfull + "/")):
+        if (locked.strip() and (merge.is_test_module(rel) or merge.is_test_module(locked.strip()))
+                and (full == lfull or full.startswith(lfull + "/"))):
             raise Refuse("test-lock", "%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
     command = ["ls-files", "--", full]
@@ -107,7 +109,7 @@ def check_path(path, role, cwd):
         if not start:
             loop = os.environ.get("LOOP_LOOP_BRANCH", "loop/main")
             start = common.git(["merge-base", "HEAD", "origin/" + loop], cwd, check=False)
-        if start:
+        if start and common.git(["rev-parse", "--verify", start + "^{commit}"], top, check=False):
             command = ["ls-tree", "--name-only", start, "--", rel]
             cwd = top
     if merge.is_test_module(rel) and common.git(command, cwd, check=False):
@@ -142,11 +144,40 @@ def role_commands(command):
     return command if RUNNER.search(text) else text
 
 
+def full_test_files(command, template, cwd):
+    before, marker, after = template.partition("{files}")
+    if not marker:
+        return False
+    command = re.sub(
+        r'''('[^']*'|"(?:\\.|[^"\\])*"|\\.)|(?:(?<!\S)\d+)?(?:>>?|<)&?[ \t]*(?:'[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|<>]+)''',
+        lambda m: m.group(1) or "", command)
+    try:
+        args, prefix, suffix = map(shlex.split, (command, before, after))
+    except ValueError:
+        return False
+    if (len(args) < len(prefix) + len(suffix) or args[:len(prefix)] != prefix
+            or suffix and args[-len(suffix):] != suffix):
+        return False
+    selected = args[len(prefix):len(args) - len(suffix) if suffix else None]
+    if not selected:
+        return True
+    top = common.git(["rev-parse", "--show-toplevel"], cwd, check=False) or cwd
+    paths = common.git(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], top, check=False)
+    modules = {p: os.path.realpath(os.path.join(top, p)) for p in paths.split("\0")
+               if p and merge.is_test_module(p) and os.path.isfile(os.path.join(top, p))}
+    names = {name: full for p, full in modules.items() if p.endswith(".py")
+             for name in (p[:-3].replace("/", "."), os.path.basename(p)[:-3])}
+    chosen = {names.get(p, os.path.realpath(os.path.join(cwd, p))) for p in selected}
+    return bool(modules) and set(modules.values()) <= chosen
+
+
 def check_role_command(command, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
-    if role in ("builder", "reviewer", "test-writer", "pass") and files and os.environ.get("LOOP_TEST_COMMAND") in [
-            s.strip() for s in re.split(r"&&|\|\||[;|\n]", command)]:
-        raise Refuse("full-test", "the full Test command is reserved for merge", "use the Test files command: " + files)
+    if role in ("builder", "reviewer", "test-writer", "pass") and files and any(
+            s.strip() == os.environ.get("LOOP_TEST_COMMAND") or full_test_files(s, files, cwd)
+            for s in re.split(r"&&|\|\||[;|\n]", command)):
+        raise Refuse("full-test", "the full Test command is reserved for merge",
+                     "use <plugin>/bin/loop check; for selected files, use the Test files command: " + files)
     executable = role_commands(command)
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,

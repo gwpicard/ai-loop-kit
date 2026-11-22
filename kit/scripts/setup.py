@@ -112,7 +112,10 @@ def migrate_plan(project, dry_run=False):
         if content.strip():
             home = homes.get(name.lower(), "Keep useful context in README.md, or in docs/ if it earns its place; otherwise drop it.")
             body += "\n## %s\n\n%s\n\nProposed home: %s\n" % (name, content.strip(), home)
-    print(title + "\n\n" + body, flush=True)
+            if dry_run:
+                count = len(content.strip().splitlines())
+                print("%s: %d %s. Proposed home: %s" %
+                      (name, count, "line" if count == 1 else "lines", home), flush=True)
     if dry_run:
         change(project, title, "close the migration's inbox issue", lambda: None, True)
     else:
@@ -151,6 +154,8 @@ def migrate_settings(project, dry_run=False):
     for key in common.NUMERIC_SETTINGS & found.keys():
         try:
             found[key] = float(found[key])
+            if found[key].is_integer():
+                found[key] = int(found[key])
         except ValueError:
             raise common.SettingsError("AGENTS.md: invalid number for '%s'" % key)
     common.validate_settings(found, "loop.json")

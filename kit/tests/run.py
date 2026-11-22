@@ -122,7 +122,7 @@ def main():
     # machine's real memory pressure; tests that check the wait put their own sysctl in front of it.
     # A claude or codex that refuses comes first too: a test that forgets its fake must fail, not start a
     # real session that spends the person's usage and memory.
-    stub_dir = tempfile.TemporaryDirectory(prefix="sysctl-stub-")
+    stub_dir = tempfile.TemporaryDirectory(prefix="loop-tests-run-")
     atexit.register(stub_dir.cleanup)
     for name, body in (("sysctl", "echo 1"), ("claude", "echo 'a test ran the real claude' >&2; exit 97"),
                        ("codex", "echo 'a test ran the real codex' >&2; exit 97")):
@@ -131,7 +131,10 @@ def main():
             f.write("#!/bin/sh\n%s\n" % body)
         os.chmod(stub, 0o755)
     QUIET["PATH"] = stub_dir.name + os.pathsep + os.environ.get("PATH", "")
-    workers = max(1, min(os.cpu_count() or 1, 8, len(work)))
+    QUIET["LOOP_TEST_EXE_CACHE"] = os.path.join(stub_dir.name, "executables")
+    workers = (max(1, int(os.environ["LOOP_TEST_WORKERS"])) if "LOOP_TEST_WORKERS" in os.environ
+               else max(2, min((os.cpu_count() or 1) // 2, 8)))
+    workers = min(workers, max(1, len(work)))
     start = time.time()
     ran, bad, errors = collections.Counter(), set(), []
     with concurrent.futures.ThreadPoolExecutor(workers) as pool:

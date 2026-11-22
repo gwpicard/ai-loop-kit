@@ -38,6 +38,7 @@ DEFAULTS = {
     "Red-team surfaces": [],
     "Idle hours": 12,
     "Max rounds": 3,
+    "Full suite every": 4,
     "Session minutes": 45,
     "Check command": "",
     "Smoke command": "",
@@ -198,7 +199,7 @@ def setting_lines(text):
             yield line, m.group(1), m.group(2).replace("`", "").strip()
 
 
-NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes"}
+NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Full suite every"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
 BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
@@ -238,7 +239,7 @@ def validate_settings(found, filename, local=False):
             raise SettingsError("%s: wrong type for '%s'" % (filename, key))
         if key in NUMERIC_SETTINGS:
             if not math.isfinite(value) or value < 0 or (
-                    key in {"Parallel", "Max rounds"} and (value < 1 or value != int(value))):
+                    key in {"Parallel", "Max rounds", "Full suite every"} and (value < 1 or value != int(value))):
                 raise SettingsError("%s: invalid number for '%s'" % (filename, key))
     if not local and not found.get("Test command"):
         raise SettingsError("%s: missing 'Test command'" % filename)
@@ -269,7 +270,7 @@ def read_settings(root="."):
         settings.update(found)
     for role in ROLES:
         settings[role] = tuple(settings[role].split())
-    for key in ("Max rounds", "Parallel"):
+    for key in ("Max rounds", "Parallel", "Full suite every"):
         settings[key] = int(settings[key])
     return settings
 
@@ -366,6 +367,12 @@ def has_write(user):
     except (GitHubError, ValueError):
         return False
     return perm.get("permission") in ("write", "admin")
+
+
+def issue_kind(body):
+    """Read the issue's Kind line; missing or unknown kinds mean build."""
+    match = re.search(r"^[ \t]*Kind:[ \t]*([^\r\n]*)", body or "", re.I | re.M)
+    return "parallel" if match and match.group(1).strip().lower() == "parallel" else "build"
 
 
 def depends_on(body):
@@ -481,7 +488,9 @@ def record_session(session_id, env):
 
 @contextlib.contextmanager
 def build_environment(project, issue=None):
-    path = tempfile.mkdtemp(prefix="loop-build-", dir=tempfile.gettempdir())
+    folder = os.path.join(os.path.dirname(os.path.abspath(project)), ".loop-worktrees")
+    os.makedirs(folder, exist_ok=True)
+    path = tempfile.mkdtemp(prefix="loop-build-", dir=folder)
     created = os.stat(path)
     token = _BUILD_TEMP.set(path)
     build = _BUILD.set((project, issue))
@@ -609,6 +618,8 @@ def merge_lock(root):
 
 def event(kind, root=".", **fields):
     """Append one JSON line to .loop/events.jsonl. A step of a build also becomes its step file, for the board."""
+    if kind in {"step", "merged", "parked"}:
+        fields.update(load=os.getloadavg()[0], pressure=pressure_level())
     folder = os.path.join(root, ".loop")
     os.makedirs(folder, exist_ok=True)
     if kind == "step" and "issue" in fields and fields.get("phase", "start") == "start":
@@ -623,7 +634,25 @@ def event(kind, root=".", **fields):
 
 def park(issue, question, recommendation, project="."):
     """Hand an issue to the person: label needs-user, drop building, comment."""
-    event("parked", project, issue=issue, reason=question)
+    rule = None
+    try:
+        with open(os.path.join(project, ".loop", "events.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    previous = json.loads(line)
+                    if not isinstance(previous, dict) or previous.get("issue") != issue:
+                        continue
+                    kind = previous.get("kind")
+                    if kind == "rule":
+                        rule = previous.get("rule")
+                    elif kind in {"parked", "merged", "crashed"} or (
+                            kind == "step" and previous.get("phase", "start") == "start"):
+                        rule = None
+                except ValueError:
+                    pass
+    except OSError:
+        pass
+    event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,

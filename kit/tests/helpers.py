@@ -1,5 +1,7 @@
 """Test helpers: a fake gh on PATH driven by a scenario file, temp git repos."""
 import atexit
+import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -35,13 +37,37 @@ sys.exit(1)
 '''
 
 
-def write_exe(path, text):
-    """Write a fake command. Its shebang runs this interpreter with -S (no site
-    import), which starts about twice as fast and is all a stdlib-only fake needs."""
+def write_exe(path, text, *, shared=True):
+    """Link a fake to the run's cache; use shared=False for tests that edit it.
+
+    The shebang uses this interpreter with -S: stdlib-only fakes need no site import.
+    """
     shebang = "#!%s -S" % sys.executable if " " not in sys.executable else "#!/usr/bin/env python3"
-    with open(path, "w") as f:
-        f.write(text.replace("#!PYTHON", shebang, 1))
-    os.chmod(path, 0o755)
+    rendered = text.replace("#!PYTHON", shebang, 1)
+    if os.path.lexists(path):
+        os.unlink(path)
+    if not shared:
+        with open(path, "w") as f:
+            f.write(rendered)
+        os.chmod(path, 0o755)
+        return
+    cache = os.environ.get("LOOP_TEST_EXE_CACHE")
+    if not cache:
+        # Direct unittest invocations share with their children too.
+        folder = tempfile.TemporaryDirectory(prefix="loop-test-exes-")
+        atexit.register(folder.cleanup)
+        cache = os.environ["LOOP_TEST_EXE_CACHE"] = folder.name
+    os.makedirs(cache, exist_ok=True)
+    key = hashlib.sha256((sys.executable + "\0" + text).encode()).hexdigest()
+    target = os.path.join(cache, key)
+    # Hold the lock through chmod so another worker cannot run an unfinished fake.
+    with open(os.path.join(cache, ".lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not os.path.exists(target):
+            with open(target, "w") as f:
+                f.write(rendered)
+            os.chmod(target, 0o555)
+    os.symlink(target, path)
 
 
 class FakeGh(unittest.TestCase):

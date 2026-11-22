@@ -1,3 +1,11 @@
+Kind: build
+
+Use `Kind: build` for implementation. Use `Kind: parallel` for work that
+cannot conflict with builds, such as documentation or research. One parallel
+issue may run beside the builds without taking a `Parallel` slot. Both kinds
+wait for dependencies, and additional workers wait for load and memory
+headroom. A missing or unknown kind means `build`.
+
 ## Goal
 
 One or two sentences: what changes for the user, and why.

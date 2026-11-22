@@ -8,6 +8,7 @@ import time
 import common
 import merge
 import session
+import shapecheck
 from common import gh, git
 
 Result = collections.namedtuple("Result", "status reason")  # merged, parked, failed
@@ -58,7 +59,7 @@ def fixes_of(review):
     return [l.strip() for l in tail.splitlines() if re.match(r"\s*\d+[.)]\s", l)]
 
 
-def after_merge(issue, report, review, commit, files, pr, post=True, earlier=()):
+def after_merge(issue, report, review, commit, files, pr, post=True, earlier=(), shape_note=""):
     """Post the build note, then the pull request body, then the follow-ups of
     every review round (`earlier` holds those before the approving `review`)
     as inbox issues. Each step is safe to run again."""
@@ -69,6 +70,8 @@ def after_merge(issue, report, review, commit, files, pr, post=True, earlier=())
     swept = "\nLeft behind by sessions:\n" + "\n".join("- " + l for l in left) + "\n" if left else ""
     note = ("## Built\n\n%s\n\nDeviations: %s\n\nMerged as %s.\n\nChanged files:\n%s\n%s\n%s\n"
             % (built, deviations, commit, "\n".join("- " + f for f in files), swept, common.MARKER))
+    if shape_note:
+        note += "\n" + shape_note + "\n"
     if post:
         post_once(issue, note)
         if pr:
@@ -83,10 +86,10 @@ def after_merge(issue, report, review, commit, files, pr, post=True, earlier=())
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
 
-def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=()):
+def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=(), shape_note=""):
     """after_merge that never undoes a merge: any error is logged."""
     try:
-        after_merge(issue, report, review, commit, files, pr, post, earlier)
+        after_merge(issue, report, review, commit, files, pr, post, earlier, shape_note)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
 
@@ -307,6 +310,17 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             f.write("\n\n".join(notes) + "\n")
 
     allowed = sorted(merge.allowed_paths(info.get("body") or ""))
+    found = shapecheck.paths(info.get("body") or "", tree, settings["Protected paths"],
+                             ref="origin/" + settings["Loop branch"])
+    shape_note = ""
+    if found:
+        unapproved = [p for p in found if p not in allowed]
+        shape_note = ("### Build-time shaping check\n\nExisting paths on the current loop branch:\n"
+                      + "\n".join("- " + p for p in found)
+                      + "\n\nPaths without approval: " + (", ".join(unapproved) or "none")
+                      + ". This report does not grant permission to change these paths.\n"
+                      + "\n".join(shapecheck.warnings(found)))
+        post_once(issue, shape_note + "\n\n" + common.MARKER + "\n")
 
     def ask(role, who, report=None, resume=None, extra="", locked=(), step=None, rnd=None):
         if role == "builder":
@@ -421,7 +435,8 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                     pr = (merge.find_pr(branch, settings["Loop branch"], head) or {}).get("number")
                 except common.LoopError:
                     pr = None
-                note_after_merge(issue, project, report, review, result.commit, landed.files, pr, earlier=earlier)
+                note_after_merge(issue, project, report, review, result.commit, landed.files, pr,
+                                 earlier=earlier, shape_note=shape_note)
                 return Result("merged", result.reason)
             elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,

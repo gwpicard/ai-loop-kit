@@ -144,14 +144,27 @@ pass.
 
 With a Test files command set, the guard refuses the full Test command in
 all four roles: builder, reviewer, test writer and pass. The full suite is
-reserved for merge and drain. This keeps expensive checks off the repeated
-build and review path while retaining a full run on the commit being merged.
+reserved for merge and drain. At merge, targeted tests and the Check command
+run unless a full suite is due. `Full suite every` defaults to four merges;
+setting it to one runs the full suite at every merge. Without a Test files
+command containing `{files}`, every merge runs the full suite. A merge also
+runs the full suite if the issue has no posted list of locked test modules.
+
+Merge events record whether the full suite ran. The merge gate reads that
+history after a restart and resets the count after a successful full merge
+run or drain. If a due full suite fails, it runs once on the loop branch
+head. A failure there parks the issue as already present on the loop branch;
+otherwise the issue returns to its builder. The drain always runs the full
+suite before the pass and final pull request. A regression outside the
+targeted tests may reach the loop branch before the next full run finds it.
 
 The fails-first step runs the locked tests. The builder's Stop hook runs
 the locked tests and changed test files, then the Check command, and refuses
 completion on failure. Its record identifies the commit and tests run; the
 flow reuses it only for that head, otherwise repeating the targeted checks
-in a fresh checkout. Reviewers run targeted checks and the issue's oracle.
+in a fresh checkout. Builders use `loop check` for the same selection and
+the Check command, with bounded failure output. Reviewers read the Stop
+hook's result and run checks only when a finding needs verification.
 The pass validates candidate failing tests with targeted checks and the
 Check command.
 

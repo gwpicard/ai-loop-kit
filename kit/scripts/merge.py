@@ -9,6 +9,7 @@ import shutil
 import subprocess
 
 import common
+import status
 from common import gh, git
 
 Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
@@ -20,7 +21,7 @@ LOCKFILES = {
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
     "pdm.lock", "deno.lock", "pom.xml", "build.gradle"}
-TEST_NAMES = ("test_*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
+TEST_NAMES = ("test[ _]*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
 TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
@@ -138,15 +139,16 @@ def stop_reason(path, protected, project=".", ref=None):
             return "lockfile or package manifest"
     if name in LOCKFILES or re.match(r"requirements.*\.(txt|in)$", name):
         return "lockfile or package manifest"
-    if name in ("settings.json", "settings.local.json"):
+    if name in ("settings.json", "settings.local.json") or low in ("loop.json", "loop.local.json"):
         return "settings file"
     return None
 
 
-def targeted_command(settings, cwd, start, locked):
+def targeted_command(settings, cwd, start, locked, head=None):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
-    changed = git(["diff", "--name-only", "--diff-filter=ACMRT", start, "--"], cwd=cwd).splitlines() if start else []
+    changed = git(["diff", "-z", "--name-only", "--diff-filter=ACMRT", start]
+                  + ([head] if head else []) + ["--"], cwd=cwd).split("\0") if start else []
     files = sorted({p for p in list(locked) + changed if is_test_module(p)})
     if not files:  # an empty list would run the whole suite
         return "", "Test files command: no test files to run"
@@ -155,7 +157,7 @@ def targeted_command(settings, cwd, start, locked):
 
 def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     """Return a park reason for the first stop or test-lock breach, or None. A locked file must equal
-    its content at `baseline` (the writer's final commit), else at the commit that first added it."""
+    its content and mode at `baseline` (the writer's final commit), else at the commit that first added it."""
     out = git(["diff", "-z", "--no-renames", "--name-status", base + "..." + sha],
               cwd=project).split("\0")
     for status, path in zip(out[0::2], out[1::2]):
@@ -179,7 +181,9 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
                                capture_output=True) for ref in (first, sha)]
         if b.returncode != 0:
             return "locked test deleted: " + path
-        if a.stdout != b.stdout:
+        modes = [git(["ls-tree", ref, "--", path], cwd=project).split()[:1]
+                 for ref in (first, sha)]
+        if a.stdout != b.stdout or modes[0] != modes[1]:
             return "locked test modified: " + path
     return None
 
@@ -238,6 +242,22 @@ def view(kind, number, field):
     return json.loads(gh([kind, "view", str(number), "--json", field]) or "{}")
 
 
+def full_suite_due(project, settings):
+    """Count successful merges since the last full run, including across restarts."""
+    if "{files}" not in settings["Test files command"]:
+        # A command without the placeholder cannot select the issue's tests.
+        return True
+    count = 0
+    for event in reversed(status.read_events(project)):
+        if event["kind"] == "drain" and event.get("phase") == "end" and event.get("outcome") == "pass":
+            break
+        if event["kind"] == "merged":
+            if event.get("full_suite", True):  # older merges always ran the full suite
+                break
+            count += 1
+    return count >= settings["Full suite every"] - 1
+
+
 def merge(issue, branch, verdict_text, project="."):
     with common.timed("step", project, issue=issue, step="merge") as end:
         try:
@@ -270,8 +290,19 @@ def _merge(issue, branch, verdict_text, project):
                        "protected-path" if stop.startswith("protected path") else
                        "workflow" if stop.startswith("workflow file") else
                        "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
-    if failure := run_tests(project, sha, settings["Test command"],
+    locked = locked_paths(info.get("comments", []))
+    # Without the writer's test list, changed files alone may miss the issue's tests.
+    full_suite = not any(is_test_module(path) for path in locked) or full_suite_due(project, settings)
+    command = settings["Test command"] if full_suite else targeted_command(
+        settings, project, "origin/" + loop, locked, sha)[0]
+    kinds = []
+    if failure := run_tests(project, sha, command, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"]):
+        if full_suite and kinds and kinds[0][0] == "Test":
+            if baseline_failure := run_tests(project, "origin/" + loop, settings["Test command"],
+                                            prepare=settings["Prepare command"]):
+                return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
+                               + baseline_failure, park=True)
         return _refuse("test-command", failure)
     pr = find_pr(branch, loop, sha)
     if pr is None:
@@ -306,6 +337,6 @@ def _merge(issue, branch, verdict_text, project):
         if view("issue", issue, "state").get("state") != "CLOSED":
             return _refuse("issue-close", "merged as %s but the issue did not close" % commit)
     common.remove_label(issue, "building")
-    common.event("merged", project, issue=issue, branch=branch, commit=commit)
+    common.event("merged", project, issue=issue, branch=branch, commit=commit, full_suite=full_suite)
     return Result(True, False, "merged as " + commit, commit)
 

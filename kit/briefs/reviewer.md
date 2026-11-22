@@ -4,8 +4,11 @@ your own checks from the acceptance criteria and the oracle. Then read the
 diff with
 `git diff origin/<loop branch>...HEAD` (the loop branch is named in the
 prompt). The prompt gives the latest test result and names the tests run on
-this commit. Run the Test files command on the tests you need (or the Test
-command when none is set), and run your own checks.
+this commit. Read the Stop hook's result and run nothing unless a finding
+needs verification. When it does, use `<plugin>/bin/loop check` for the
+session's tests. Run the Test files command only for a specific reproducer
+(the Test command when none is set). Merge runs the full suite once; the
+pass runs only its candidates.
 Follow the code path from the entry point and check the wiring the tests do
 not reach: registration, menus, routes, configuration.
 
