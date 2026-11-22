@@ -38,6 +38,7 @@ DEFAULTS = {
     "Red-team surfaces": [],
     "Idle hours": 12,
     "Max rounds": 3,
+    "Full suite every": 4,
     "Session minutes": 45,
     "Check command": "",
     "Smoke command": "",
@@ -198,7 +199,7 @@ def setting_lines(text):
             yield line, m.group(1), m.group(2).replace("`", "").strip()
 
 
-NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes"}
+NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Full suite every"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
 BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
@@ -238,7 +239,7 @@ def validate_settings(found, filename, local=False):
             raise SettingsError("%s: wrong type for '%s'" % (filename, key))
         if key in NUMERIC_SETTINGS:
             if not math.isfinite(value) or value < 0 or (
-                    key in {"Parallel", "Max rounds"} and (value < 1 or value != int(value))):
+                    key in {"Parallel", "Max rounds", "Full suite every"} and (value < 1 or value != int(value))):
                 raise SettingsError("%s: invalid number for '%s'" % (filename, key))
     if not local and not found.get("Test command"):
         raise SettingsError("%s: missing 'Test command'" % filename)
@@ -269,7 +270,7 @@ def read_settings(root="."):
         settings.update(found)
     for role in ROLES:
         settings[role] = tuple(settings[role].split())
-    for key in ("Max rounds", "Parallel"):
+    for key in ("Max rounds", "Parallel", "Full suite every"):
         settings[key] = int(settings[key])
     return settings
 

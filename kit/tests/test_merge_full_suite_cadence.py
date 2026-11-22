@@ -22,7 +22,7 @@ class FullSuiteCadenceTest(FakeGh):
         target = shlex.quote(str(self.trace))
         record_files = (
             "import json, sys; "
-            "open(sys.argv[1], 'a').write('targeted ' + json.dumps(sys.argv[2:]) + '\\n')"
+            r"open(sys.argv[1], 'a').write('targeted ' + json.dumps(sys.argv[2:]) + '\n')"
         )
         self.settings = {
             "Test command": "echo full $(git rev-parse HEAD) >> %s; test ! -f FAIL" % target,
@@ -80,7 +80,7 @@ class FullSuiteCadenceTest(FakeGh):
         # Every invocation starts a new interpreter, discarding all module state.
         code = (
             "import json, sys; sys.path.insert(0, sys.argv[1]); import merge; "
-            "r = merge.merge(1, sys.argv[3], 'VERDICT: APPROVE\\nHEAD: ' + sys.argv[4], sys.argv[2]); "
+            r"r = merge.merge(1, sys.argv[3], 'VERDICT: APPROVE\nHEAD: ' + sys.argv[4], sys.argv[2]); "
             "print(json.dumps(r._asdict()))"
         )
         process = subprocess.run(

@@ -48,9 +48,11 @@ default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test files command`, `Prepare command`,
-`Check command`, `Smoke command` and `Parallel` (default 1).
-`Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings. The four
-numeric settings take JSON numbers; all other settings take strings. Unknown
+`Check command`, `Smoke command`, `Full suite every` (default 4) and
+`Parallel` (default 1).
+`Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings.
+Numeric settings take JSON numbers; `Full suite every` takes an integer of
+at least one. All other settings take strings. Unknown
 keys and values of the wrong type are refused. `Codex writable roots` lists
 further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
@@ -172,9 +174,22 @@ write scratch files in the system temp folder, never inside the project.
 
 ## The fast path
 
-With a Test files command set, the full suite runs once per issue, at merge,
-in `merge.py`'s fresh checkout of the reviewed commit. Path checks and the
-test lock run first, so a refusal costs no test run.
+With a Test files command set, `Full suite every` sets the merge interval
+for the full Test command: four by default, or one to run it at every merge.
+Other merges run the Test files command on the locked tests and test modules
+changed against the loop branch, then the Check command. Each run uses
+`merge.py`'s fresh checkout of the reviewed commit. Path checks and the test
+lock run first, so a refusal costs no test run.
+
+The merge count comes from `.loop/events.jsonl`, where each merge records
+`full_suite`, and survives restarts. A successful full merge run or drain
+resets it. If a due full Test command fails, the gate runs it once on the
+loop branch head. If that also fails, the issue parks with an explanation
+that the failure was already on the loop branch; otherwise it returns to
+the builder. Without a Test files command containing `{files}`, every merge
+runs the full suite.
+The drain always runs the full suite before the pass and final pull request.
+A regression outside the targeted tests may be found only at the next full run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
