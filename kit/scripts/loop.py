@@ -199,9 +199,20 @@ def answer(st, protected=None):
         if st["replies"][n]:
             paths = parked_test_paths(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
-            if paths and AGREES.search(last) and not DOUBTS.search(last):  # a collaborator clearly said yes
-                for path in paths:
-                    grant_path(i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])
+            if paths and AGREES.search(last):
+                doubt = DOUBTS.search(last)
+                if doubt:
+                    feedback = ("Test paths were not granted: %s. The last reply contains the doubt word `%s`. "
+                                'A plain "Yes." as the last reply grants the named test paths that the stops list permits.'
+                                % (", ".join("`%s`" % p for p in paths), doubt.group()))
+                else:
+                    added = [path for path in paths if grant_path(
+                        i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])]
+                    feedback = ("Added to ## Protected paths this issue may change: "
+                                + ", ".join("`%s`" % p for p in added) + ".") if added else ""
+                if feedback:
+                    gh(["issue", "comment", str(n), "--body-file", "-"],
+                       input=feedback + "\n\n" + common.MARKER + "\n")
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -214,8 +225,7 @@ DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|w
 def parked_test_paths(park):
     """The test paths named in a park's question, never just its recommendation."""
     text = park.split("Reply on this issue")[0].split("\nRecommended:")[0].split(common.MARKER)[0].strip()
-    paths = {t for t in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(t)}
-    return sorted(paths) if text.endswith("?") else []
+    return common.named_test_paths(text) if text.endswith("?") else []
 
 
 def grant_path(i, path, protected):
@@ -233,6 +243,7 @@ def grant_path(i, path, protected):
         body = body.rstrip("\n") + "\n\n## Protected paths this issue may change\n\n" + path + "\n"
     gh(["issue", "edit", str(i["number"]), "--body-file", "-"], input=body)
     i["body"] = body
+    return True
 
 
 def trusted(st, i):
