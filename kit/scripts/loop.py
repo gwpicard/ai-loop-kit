@@ -961,6 +961,14 @@ def main(argv):
         say("usage: loop.py run|stop|pause|resume|check|check-version|report|status [--since <time>]")
         return 2
     try:
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["taskpolicy", "-b", "-p", str(os.getpid())],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                os.nice(10)
+        except (OSError, subprocess.CalledProcessError):
+            say("could not set background priority; continuing")
         if sys.platform == "darwin" and shutil.which("caffeinate"):
             subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
         settings = common.read_settings(project)

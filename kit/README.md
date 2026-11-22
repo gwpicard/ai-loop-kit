@@ -101,6 +101,9 @@ reports those that are set; none is required.
 builds one issue at a time. Each build is a separate process in its own
 worktree, so a crash or a hang in one cannot stop the loop or the others.
 
+The loop runs at background priority so builds favour efficiency cores on
+macOS and keep the machine responsive.
+
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
 machine has headroom: load average below the CPU count and, on macOS, memory
