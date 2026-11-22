@@ -1,5 +1,6 @@
 """One end-of-loop pass on the commit selected by the supervisor."""
 import json
+import os
 import sys
 import time
 
@@ -21,6 +22,7 @@ def result(project, settings, head, since):
 
 def main(argv):
     project, settings, head, since = argv[0], json.loads(argv[1]), argv[2], argv[3]
+    os.environ["LOOP_PASS_WORKER"] = str(os.getpid())
     saved = result(project, settings, head, since)
     path = common.build_file(project, "pass", "result")
     with open(path, "w") as f:

@@ -540,13 +540,17 @@ def run_shell(command, cwd, timeout, record=None):
 
 
 def _run_shell(command, cwd, timeout, record=None):
-    """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
+    """Run a shell command in its own process group, or in the pass worker's group.
+    Return (exit code, output); the code is None on timeout outside a pass worker.
+    A pass command timeout ends the worker and its commands; the supervisor reports the error.
     With `record`, the group id is listed in that file while the command runs, so whoever
     ends the caller can also end the command. Before it starts, the command waits at critical memory
     pressure for at most ten minutes; the wait is outside `timeout`."""
     wait_for_memory(project_of(cwd))
     wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
-    p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=True,
+    # Pass commands share the worker's lifetime, including an external kill.
+    pass_worker = os.environ.get("LOOP_PASS_WORKER") == str(os.getpid())
+    p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=not pass_worker,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True)
@@ -554,7 +558,7 @@ def _run_shell(command, cwd, timeout, record=None):
         out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd))
         return p.returncode, out
     except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)
+        os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
         p.communicate()
         return None, ""
     finally:
