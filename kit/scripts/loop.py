@@ -924,17 +924,21 @@ def main(argv):
             return 1
         return 0
     if cmd == "status":
-        if len(argv) != 1 and not (len(argv) == 3 and argv[1] == "--since"):
-            print("usage: loop status [--since <time>]")
+        args = argv[1:]
+        as_json = "--json" in args
+        if as_json:
+            args.remove("--json")
+        if args and not (len(args) == 2 and args[0] == "--since"):
+            print("usage: loop status [--since <time>] [--json]")
             return 2
         now = time.time()
         try:
-            since = status.since_time(argv[2] if len(argv) == 3 else None, now)
+            since = status.since_time(args[1] if args else None, now)
         except ValueError as e:
             print(str(e))
             return 2
         running, builds = status.build_state(project, alive)
-        print(status.render(status.read_events(project), now, since, running, builds))
+        print(status.render(status.read_events(project), now, since, running, builds, as_json=as_json))
         return 0
     if cmd == "stop":
         if argv not in (["stop"], ["stop", "--now"]):
