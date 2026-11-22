@@ -114,7 +114,8 @@ with its level and seconds waited.
 On a Mac, Spotlight indexes every new worktree, log and test repository the
 loop creates, competing with builds for the processor. Add the folder that
 holds your projects and `.loop-worktrees` (by default the parent folder of
-the project) to System Settings, Spotlight, Search Privacy. Without this
+the project) to System Settings, Spotlight, Search Privacy. Build temporary
+files also live in `.loop-worktrees`, beside the build worktrees. Without this
 exclusion, you may see `mds_stores` and `mds` near the top of Activity Monitor
 and a high load average, which also holds back a second build.
 
@@ -138,6 +139,9 @@ local timestamp (`YYYY-MM-DD HH:MM:SS`).
 session agents and models, merges, parks, crashes, drains, passes and stop or
 exit reasons. Refusals carry stable rule ids, such as `test-lock`. Every record
 names the running kit version and the project folder’s base name.
+Step starts and ends, merges and parks also record `load` (the one-minute load
+average) and `pressure` (the macOS memory-pressure level, or null elsewhere
+or when the reading fails).
 
 `<plugin>/bin/loop status` reads only `.loop/` and checks local pids. It shows
 current activity, merges, parks, crashes, rule counts, stage times, agents and

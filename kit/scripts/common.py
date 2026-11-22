@@ -487,7 +487,9 @@ def record_session(session_id, env):
 
 @contextlib.contextmanager
 def build_environment(project, issue=None):
-    path = tempfile.mkdtemp(prefix="loop-build-", dir=tempfile.gettempdir())
+    folder = os.path.join(os.path.dirname(os.path.abspath(project)), ".loop-worktrees")
+    os.makedirs(folder, exist_ok=True)
+    path = tempfile.mkdtemp(prefix="loop-build-", dir=folder)
     created = os.stat(path)
     token = _BUILD_TEMP.set(path)
     build = _BUILD.set((project, issue))
@@ -615,6 +617,8 @@ def merge_lock(root):
 
 def event(kind, root=".", **fields):
     """Append one JSON line to .loop/events.jsonl. A step of a build also becomes its step file, for the board."""
+    if kind in {"step", "merged", "parked"}:
+        fields.update(load=os.getloadavg()[0], pressure=pressure_level())
     folder = os.path.join(root, ".loop")
     os.makedirs(folder, exist_ok=True)
     if kind == "step" and "issue" in fields and fields.get("phase", "start") == "start":
