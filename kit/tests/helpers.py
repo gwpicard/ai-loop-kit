@@ -13,6 +13,17 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
+
+def finish_pass(project, settings, st, head, since):
+    """Finish the mocked worker immediately in tests of drain body composition.
+
+    Background worker tests exercise the actual process and reap separately.
+    """
+    import pass_worker
+    saved = pass_worker.result(project, settings, head, since)
+    with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
+        json.dump(saved, f)
+
 FAKE_GH = '''#!PYTHON
 import json, os, sys, time
 path = os.environ["FAKE_GH_SCENARIO"]

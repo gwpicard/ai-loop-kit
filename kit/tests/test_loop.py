@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest import mock
 
-from kit.tests.helpers import copy_repo, make_repo, run_git, settings_json, write_settings
+from kit.tests.helpers import copy_repo, finish_pass, make_repo, run_git, settings_json, write_settings
 import common
 import flow
 import loop
@@ -513,6 +513,7 @@ class GitTest(Base):
         super().setUp()
         self.work, self.origin = copy_repo(TEMPLATE.name, self._tmp.name)
         mock.patch.object(pass_, "run_pass", return_value=({}, "")).start()  # no real sessions
+        mock.patch.object(loop, "start_pass", side_effect=finish_pass).start()
 
     def test_loop_exit_cleans_up_and_names_what_is_left(self):
         parent = os.path.dirname(self.work)

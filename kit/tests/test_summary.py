@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from kit.tests import test_loop
-from kit.tests.helpers import copy_repo
+from kit.tests.helpers import copy_repo, finish_pass
 import common
 import flow
 import loop
@@ -56,6 +56,7 @@ class Drain(test_loop.Base):
         self.work, self.origin = copy_repo(test_loop.TEMPLATE.name, self._tmp.name)
         mock.patch.object(merge, "run_tests", return_value=None).start()
         mock.patch.object(pass_, "run_pass", return_value=({}, "## End-of-loop pass\n\nPASS-REPORT\n")).start()
+        mock.patch.object(loop, "start_pass", side_effect=finish_pass).start()
         self.replies = [(REPLY, "s1")]
         self.asked = mock.patch.object(session, "run", side_effect=self.answer).start()
 
