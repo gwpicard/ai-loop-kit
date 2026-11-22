@@ -10,6 +10,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,16 @@ class SettingsError(LoopError):
 
 
 def say(text):
+    # Shell redirection with > leaves an offset that can overwrite worker log entries.
+    try:
+        fd = sys.stdout.fileno()
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            if not flags & os.O_APPEND:
+                sys.stdout.flush()
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_APPEND)
+    except (AttributeError, OSError, ValueError):
+        pass  # Captured output and pipes need no append flag.
     for line in str(text).splitlines():
         print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
 
@@ -609,16 +620,8 @@ def restore_loop_branch(project, branch):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "loop.out")
     line = "restored %s from %s at %s" % (branch, source, commit)
-    # Reuse the supervisor's stream so its next write cannot overwrite the appended line.
-    try:
-        logging_here = os.path.samestat(os.fstat(sys.stdout.fileno()), os.stat(path))
-    except (OSError, ValueError):
-        logging_here = False
-    if logging_here:
-        say(line)
-    else:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
     event("loop-branch-restored", project, branch=branch, source=source, commit=commit)
 
 
