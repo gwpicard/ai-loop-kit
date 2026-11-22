@@ -147,7 +147,8 @@ all four roles: builder, reviewer, test writer and pass. The full suite is
 reserved for merge and drain. At merge, targeted tests and the Check command
 run unless a full suite is due. `Full suite every` defaults to four merges;
 setting it to one runs the full suite at every merge. Without a Test files
-command containing `{files}`, every merge runs the full suite.
+command containing `{files}`, every merge runs the full suite. A merge also
+runs the full suite if the issue has no posted list of locked test modules.
 
 Merge events record whether the full suite ran. The merge gate reads that
 history after a restart and resets the count after a successful full merge

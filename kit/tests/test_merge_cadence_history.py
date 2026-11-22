@@ -1,5 +1,7 @@
 """Check cadence recovery and commands that cannot select test files."""
+import json
 import unittest
+from unittest import mock
 
 import common
 from kit.tests import test_merge_full_suite_cadence as cadence
@@ -16,6 +18,21 @@ class CadenceHistoryTest(unittest.TestCase):
         f.configure(**{"Test files command": "echo cannot select files"})
         f.candidate()
         result = f.merge_process()
+        self.assertTrue(result["ok"], result["reason"])
+        self.assertEqual(f.commands(), ["full " + f.sha, "check"])
+        self.assertTrue(f.merged_events()[-1]["full_suite"])
+
+    def test_missing_locked_test_list_runs_full_suite(self):
+        f = self.fixture
+        f.candidate({"tests/test_added.py": "candidate test\n"})
+        scenario = f.scenario
+
+        def without_locked_tests(rules):
+            rules[0]["responses"][0]["stdout"] = json.dumps({"body": "Add a feature.", "comments": []})
+            scenario(rules)
+
+        with mock.patch.object(f, "scenario", side_effect=without_locked_tests):
+            result = f.merge_process()
         self.assertTrue(result["ok"], result["reason"])
         self.assertEqual(f.commands(), ["full " + f.sha, "check"])
         self.assertTrue(f.merged_events()[-1]["full_suite"])

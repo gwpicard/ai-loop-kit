@@ -187,7 +187,9 @@ resets it. If a due full Test command fails, the gate runs it once on the
 loop branch head. If that also fails, the issue parks with an explanation
 that the failure was already on the loop branch; otherwise it returns to
 the builder. Without a Test files command containing `{files}`, every merge
-runs the full suite.
+runs the full suite. A merge also runs the full suite when the issue has no
+posted list of locked test modules, since changed files alone may omit tests
+that cover the issue.
 The drain always runs the full suite before the pass and final pull request.
 A regression outside the targeted tests may be found only at the next full run.
 

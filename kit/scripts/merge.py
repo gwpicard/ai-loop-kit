@@ -290,9 +290,11 @@ def _merge(issue, branch, verdict_text, project):
                        "protected-path" if stop.startswith("protected path") else
                        "workflow" if stop.startswith("workflow file") else
                        "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
-    full_suite = full_suite_due(project, settings)
+    locked = locked_paths(info.get("comments", []))
+    # Without the writer's test list, changed files alone may miss the issue's tests.
+    full_suite = not any(is_test_module(path) for path in locked) or full_suite_due(project, settings)
     command = settings["Test command"] if full_suite else targeted_command(
-        settings, project, "origin/" + loop, locked_paths(info.get("comments", [])), sha)[0]
+        settings, project, "origin/" + loop, locked, sha)[0]
     kinds = []
     if failure := run_tests(project, sha, command, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"]):
