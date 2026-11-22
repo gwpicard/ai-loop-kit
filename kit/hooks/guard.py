@@ -104,7 +104,7 @@ def check_path(path, role, cwd):
             raise Refuse("test-lock", "%s is a locked test file" % rel,
                          "make the code pass the test; do not change the test")
     command = ["ls-files", "--", full]
-    if role == "builder":
+    if role in {"builder", "test-writer"}:
         start = os.environ.get("LOOP_START")
         if not start:
             loop = os.environ.get("LOOP_LOOP_BRANCH", "loop/main")
