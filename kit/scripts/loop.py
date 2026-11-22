@@ -478,19 +478,31 @@ def reap(project, st, cap=None, stopped=False):
 def sync_default(project, loop, st):
     base = common.default_branch(project)
     git(["fetch", "--no-prune", "origin"], cwd=project)
-    st["conflict"] = ""
     try:
         git(["merge-base", "--is-ancestor", "origin/" + base, "origin/" + loop], cwd=project)
+        st["conflict"] = ""
         return False
     except GitError:
-        say("merging origin/%s into %s" % (base, loop))
+        if not st["conflict"]:
+            say("merging origin/%s into %s" % (base, loop))
+    files = []
     try:
         with common.scratch_tree(project, "origin/" + loop) as tree:
-            git(["merge", "--no-edit", "origin/" + base], cwd=tree)
+            try:
+                git(["merge", "--no-edit", "origin/" + base], cwd=tree)
+            except GitError:
+                files = sorted(filter(None, git(["diff", "--name-only", "--diff-filter=U", "-z"], cwd=tree).split("\0")))
+                raise
             git(["push", "origin", "HEAD:" + loop], cwd=tree)
+        st["conflict"] = ""
         return True
     except GitError as e:
-        st["conflict"] = "Merging %s into %s did not go through: %s" % (base, loop, e)
+        message = "Merging %s into %s failed: %s" % (
+            base, loop, "conflicting files: " + ", ".join(files) if files else e)
+        if message != st["conflict"]:
+            say(message)
+            common.event("default-merge-failed", project, base=base, branch=loop, files=files, reason=message)
+        st["conflict"] = message
         return False
 
 
@@ -615,6 +627,8 @@ def _drain(project, settings, st):
             pass
     top = summary(project, settings, head, landed)
     body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
+    if st["conflict"]:
+        body += "## Default branch merge\n\n" + st["conflict"] + "\n\n"
     body += report.section(report.render(project, settings)) + "\n"
     body += hands_on(project, base, loop, old) + "\n" + decisions(project, base, loop)
     body += "\n## Landed\n\n%s\n\nTests %s on the loop branch.\n" % (
@@ -799,7 +813,9 @@ def run(project):
                     wait_stop(stop, BUSY_POLL)
                     continue
                 if not park_wait(st) and not os.path.exists(stop):
+                    conflict = st["conflict"]
                     dirty = sync_default(project, settings["Loop branch"], st) or dirty
+                    dirty = dirty or conflict != st["conflict"]
                     if dirty:
                         with common.settings_environment(settings):
                             drain(project, settings, st)
