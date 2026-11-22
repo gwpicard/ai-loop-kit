@@ -24,3 +24,7 @@ in code comments, commits and your reply.
 
 Leave nothing running that outlives your session: prefer foreground runs and
 `docker run --rm`, and stop whatever you start.
+
+Create any scratch copy of the repository or `git worktree` under the build's
+own temp folder, `$TMPDIR`, which is removed with the build. Never use the
+system temp folder directly.
