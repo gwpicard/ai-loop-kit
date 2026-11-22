@@ -148,6 +148,9 @@ def full_test_files(command, template, cwd):
     before, marker, after = template.partition("{files}")
     if not marker:
         return False
+    command = re.sub(
+        r'''('[^']*'|"(?:\\.|[^"\\])*"|\\.)|(?:(?<!\S)\d+)?(?:>>?|<)&?[ \t]*(?:'[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|<>]+)''',
+        lambda m: m.group(1) or "", command)
     try:
         args, prefix, suffix = map(shlex.split, (command, before, after))
     except ValueError:
@@ -160,9 +163,12 @@ def full_test_files(command, template, cwd):
         return True
     top = common.git(["rev-parse", "--show-toplevel"], cwd, check=False) or cwd
     paths = common.git(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], top, check=False)
-    modules = {os.path.realpath(os.path.join(top, p)) for p in paths.split("\0")
+    modules = {p: os.path.realpath(os.path.join(top, p)) for p in paths.split("\0")
                if p and merge.is_test_module(p) and os.path.isfile(os.path.join(top, p))}
-    return bool(modules) and modules <= {os.path.realpath(os.path.join(cwd, p)) for p in selected}
+    names = {name: full for p, full in modules.items() if p.endswith(".py")
+             for name in (p[:-3].replace("/", "."), os.path.basename(p)[:-3])}
+    chosen = {names.get(p, os.path.realpath(os.path.join(cwd, p))) for p in selected}
+    return bool(modules) and set(modules.values()) <= chosen
 
 
 def check_role_command(command, role, cwd):
