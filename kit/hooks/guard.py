@@ -45,7 +45,7 @@ GIT = r"\bgit(?:(?:\s|\\\n)+(?:-C(?:\s|\\\n)+\S+|-c(?:\s|\\\n)+\S+|--(?:git-dir|
 DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
 PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
-ROLE_GIT = re.compile(GIT + r"(?:push|merge|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
+ROLE_GIT = re.compile(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$))|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 QUOTED = re.compile(r"'[^']*'")
 SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[^']*'|"(?:\\.|[^"\\])*"|\n''')
