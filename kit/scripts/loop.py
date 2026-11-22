@@ -401,6 +401,7 @@ def stray_workers(project):
 def reap(project, st, cap=None, stopped=False):
     """Collect the builds whose process has ended. One that left no result died: its issue is queued
     again once (the stale building label does it), and parked the second time."""
+    reap_pass(project, st, stopped)
     for number, (_, proc) in list(st["building"].items()):
         if proc is None:
             continue
@@ -553,14 +554,20 @@ def decisions(project, base, loop):
     return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
 
 
-def summary(project, settings, head, landed):
-    """The Summary, Evidence and Merge danger sections: one read-only session per new batch, saved for refreshes."""
+def cached_summary(project):
     path = os.path.join(project, ".loop", "summary.json")
     try:
         with open(path) as f:
             saved = json.load(f)
     except (OSError, ValueError):
         saved = {}
+    return saved if isinstance(saved, dict) else {}
+
+
+def summary(project, settings, head, landed):
+    """Generate and save the pull request summary in the batch worker."""
+    path = os.path.join(project, ".loop", "summary.json")
+    saved = cached_summary(project)
     if saved.get("head") == head or "- Issue " not in landed:
         return saved.get("text", "")
     base, loop = common.default_branch(project), settings["Loop branch"]
@@ -569,10 +576,10 @@ def summary(project, settings, head, landed):
     try:
         notes = []
         try:
-            pass_.batch_lines(project, "origin/" + base, loop, notes)
+            pass_.batch_lines(project, "origin/" + base, loop, notes, head=head)
         except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
             pass
-        with common.scratch_tree(project, "origin/" + loop) as tree:
+        with common.scratch_tree(project, head) as tree:
             prompt = flow.brief("pr-summary") + (
                 "\n\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     loop, settings["Test command"], base, "\n\n".join(notes)))
@@ -596,6 +603,75 @@ def drain(project, settings, st):
         end["outcome"] = "fail" if failed else "pass"
 
 
+def start_pass(project, settings, st, head, since, pass_needed=True):
+    """Use one extra slot so even Parallel: 1 can build beside the pass."""
+    os.makedirs(os.path.join(project, ".loop", "builds"), exist_ok=True)
+    os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
+    path = common.build_file(project, "pass", "result")
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(path)
+    with open(os.path.join(project, ".loop", "logs", "pass-worker.log"), "a") as log:
+        proc = subprocess.Popen([sys.executable, os.path.join(HERE, "pass_worker.py"), project,
+                                 json.dumps(settings), head, since, json.dumps(pass_needed)], cwd=project,
+                                env=dict(common.build_env(), LOOP_PASS_GROUPS=common.build_file(project, "pass", "groups")),
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    with open(common.build_file(project, "pass", "pid"), "w") as f:
+        f.write(str(proc.pid))
+    st["pass"] = dict(proc=proc, head=head, since=since, settings=settings, began=time.time())
+
+
+def reap_pass(project, st, stopped=False):
+    running = st.get("pass")
+    if not running:
+        return
+    proc = running["proc"]
+    if stopped and proc.poll() is None:
+        with contextlib.suppress(OSError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    if proc.poll() is None:
+        return
+    with contextlib.suppress(OSError):
+        os.killpg(proc.pid, signal.SIGKILL)  # a dead worker may have left session children
+    folder = os.path.join(project, ".loop", "builds")
+    groups = [os.path.join(folder, n) for n in os.listdir(folder)
+              if n == "pass.groups" or n.startswith("pass-hooks-")]
+    for path in groups:
+        session.reap_groups(path, running["began"])
+    path = common.build_file(project, "pass", "result")
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+        if not isinstance(saved, dict) or not isinstance(saved.get("text"), str):
+            raise ValueError("invalid pass result")
+    except (OSError, ValueError):
+        saved = dict(head=running["since"], text="## End-of-loop pass\n\nCommit: `%s`.\n\n"
+                     "The pass failed: worker ended with exit code %s and no result.\n" % (running["head"], proc.returncode))
+    with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
+        json.dump(saved, f)
+    # Keep the result pending until GitHub accepts the refreshed body.
+    settings = running["settings"]
+    found = json.loads(gh(["pr", "list", "--head", settings["Loop branch"], "--base", common.default_branch(project),
+                           "--state", "open", "--json", "number,url"]))
+    if found:
+        number = str(found[0]["number"])
+        old = json.loads(gh(["pr", "view", number, "--json", "body"])).get("body") or ""
+        body = re.split(r"^## End-of-loop pass\b", old, maxsplit=1, flags=re.M)[0].rstrip()
+        top = saved.get("summary", "")
+        if top:
+            sections = re.search(r"^## (?!Summary\b|Evidence\b|Merge danger\b)", body, re.M)
+            body = top.rstrip() + "\n\n" + (body[sections.start():] if sections else "")
+        gh(["pr", "edit", number, "--body-file", "-"], input=body + "\n\n" + saved["text"])
+    st.pop("pass", None)
+    st["pass_reaped"] = running["head"]
+    for kind in ("result", "pid"):
+        with contextlib.suppress(OSError):
+            os.remove(common.build_file(project, "pass", kind))
+    for path in groups:
+        with contextlib.suppress(OSError):
+            os.remove(path)
+
+
 def _drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
     loop, base = settings["Loop branch"], common.default_branch(project)
@@ -604,20 +680,15 @@ def _drain(project, settings, st):
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
                             prepare=settings["Prepare command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
-    if "- Issue " in landed and not failed and head != last.get("head"):  # new merges since the last pass
-        say("running the end-of-loop pass")
-        if st.get("factory"):
-            st["last"] = "running the end-of-loop pass"
-            write_board(project, st, doing="running the end-of-loop pass")
-        try:
-            pass_report, text = pass_.run_pass(project, settings, last.get("head") or "origin/" + base)
-        except Exception as e:  # the pass never blocks the drain or the pull request
-            pass_report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
-        last = dict(head=last.get("head") if pass_report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"), text=text,
-                    defects=len(pass_report.get("confirmed", [])),
-                    inbox=sum(i.endswith("(inbox)") for i in pass_report.get("issues", [])))
-        with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
-            json.dump(last, f)
+    pass_needed = head != last.get("head")
+    if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
+        say("starting the end-of-loop pass")
+        args = (project, settings, st, head, last.get("head") or "origin/" + base)
+        if pass_needed:
+            start_pass(*args)
+        else:
+            start_pass(*args, pass_needed=False)
+        last = last_pass(project)
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
                                   "open", "--json", "number,url"]))
     found = find()
@@ -627,7 +698,7 @@ def _drain(project, settings, st):
             old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
         except (ValueError, common.GitHubError):
             pass
-    top = summary(project, settings, head, landed)
+    top = cached_summary(project).get("text", "")
     body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
     if st["conflict"]:
         body += "## Default branch merge\n\n" + st["conflict"] + "\n\n"
@@ -812,6 +883,9 @@ def run(project):
                 snapshot(st)
                 st["reaped"] = set()
                 reap(project, st, cap)
+                passed = st.pop("pass_reaped", None)
+                if passed and git(["rev-parse", "origin/" + settings["Loop branch"]], cwd=project) != passed:
+                    dirty = True
                 for i in [i for i in st["issues"] if "building" in i["labels"] and i["number"] not in st["building"]
                           and i["number"] not in st["reaped"]]:
                     # only this loop builds, so a building label without a running build is stale
@@ -847,7 +921,7 @@ def run(project):
             reason = "stop requested"
             say("exiting: stop requested")
         said = 0
-        while st["building"]:  # running builds finish their current issue, unless `loop stop --now`
+        while st["building"] or st.get("pass"):  # workers finish unless `loop stop --now`
             if stop_now(stop):
                 reap(project, st, stopped=True)
                 break
@@ -859,6 +933,8 @@ def run(project):
         st["next"], st["last"] = "none, the loop has stopped", "loop stopped"
         write_board(project, st)
     finally:
+        if st.get("pass"):
+            reap_pass(project, st, stopped=True)
         common.event("exit", project, reason=reason)
         for _, proc in st["building"].values():  # only reached with builds left after an error or an interrupt
             if proc and proc.poll() is None:

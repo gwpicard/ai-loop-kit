@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from kit.tests import test_loop
-from kit.tests.helpers import copy_repo, run_git
+from kit.tests.helpers import copy_repo, finish_pass, run_git
 import loop
 import merge
 
@@ -25,6 +25,7 @@ class Decisions(test_loop.Base):
         self.work, self.origin = copy_repo(test_loop.TEMPLATE.name, self._tmp.name)
         mock.patch.object(merge, "run_tests", return_value=None).start()
         mock.patch.object(loop.pass_, "run_pass", return_value=({}, "")).start()
+        mock.patch.object(loop, "start_pass", side_effect=finish_pass).start()
         self.notes = {}
 
     def recorded_notes(self):

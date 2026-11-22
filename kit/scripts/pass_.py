@@ -65,10 +65,10 @@ def fix_rounds(texts):
     return max(0, len({n for t in texts for n in re.findall(r"^## Review, round (\d+)", t, re.M)}) - 1)
 
 
-def batch_lines(project, since, loop, notes=None):
+def batch_lines(project, since, loop, notes=None, head=None):
     # one line per issue merged since `since`: build note title, fix rounds, parks, deviations;
     # `notes` collects each build note whole
-    log = git(["log", "--format=%s", "%s..origin/%s" % (since, loop)], cwd=project, check=False)
+    log = git(["log", "--format=%s", "%s..%s" % (since, head or "origin/" + loop)], cwd=project, check=False)
     lines = []
     for n in sorted({int(m) for m in re.findall(r"^Issue (\d+)", log, re.M)}):
         info = json.loads(gh(["issue", "view", str(n), "--json", "title,body,comments"]))
@@ -93,13 +93,13 @@ def create(title, body, label):
     return (re.findall(r"\d+", out[0]) or ["?"])[-1] if out else None
 
 
-def run_pass(project, settings, since_ref):
-    # run the pass on origin/<loop branch>; return (report dict, Markdown report)
+def run_pass(project, settings, since_ref, head=None):
+    # Run on a fixed commit when supplied; return (report dict, Markdown report).
     project = os.path.abspath(project)
     r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0)
     with common.settings_environment(settings), common.timed("pass", project) as end:
         try:
-            with common.scratch_tree(project, "origin/" + settings["Loop branch"]) as tree:
+            with common.scratch_tree(project, head or "origin/" + settings["Loop branch"]) as tree:
                 _pass(project, settings, since_ref, tree, r)
         except Exception as e:  # the pass never raises; it reports
             r["errors"].append("pass stopped: %s" % e)
@@ -130,7 +130,7 @@ def _pass(project, settings, since, tree, r):
         r["drift"] += [("Smoke command failed on the loop branch", r["smoke"], "")] if bad else []
     notes = []
     try:
-        r["batch"] = batch_lines(project, since, settings["Loop branch"], notes)
+        r["batch"] = batch_lines(project, since, settings["Loop branch"], notes, head=sha)
     except Exception as e:
         r["errors"].append("batch notes: %s" % e)
     drift = ask("drift")

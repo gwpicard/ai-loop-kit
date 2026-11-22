@@ -206,12 +206,11 @@ class FullSuiteCadenceTest(FakeGh):
             {"match": "pr create", "responses": [{}]},
         ])
 
-        def run_pass(*args):
+        def start_pass(*args):
             self.assertEqual(self.commands(), ["full " + head, "check"])
             self.assertFalse(any(c[:2] == ["pr", "create"] for c in self.calls()))
-            return {}, "Pass complete."
 
-        with mock.patch.object(pass_, "run_pass", side_effect=run_pass) as passed, \
+        with mock.patch.object(loop, "start_pass", side_effect=start_pass) as passed, \
                 mock.patch.object(loop, "summary", return_value="Fixture summary"), \
                 mock.patch.object(loop.report, "render", return_value="Fixture report"), \
                 mock.patch.object(loop, "hands_on", return_value=""), \

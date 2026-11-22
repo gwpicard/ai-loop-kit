@@ -6,7 +6,7 @@ from unittest import mock
 
 from kit.tests import test_loop
 from kit.tests.test_loop import out
-from kit.tests.helpers import copy_repo
+from kit.tests.helpers import copy_repo, finish_pass
 import loop
 import merge
 
@@ -43,6 +43,7 @@ class Listing(test_loop.Base):
         self.work, self.origin = copy_repo(test_loop.TEMPLATE.name, self._tmp.name)
         self.tests = mock.patch.object(merge, "run_tests", return_value=None).start()
         mock.patch.object(loop.pass_, "run_pass", return_value=({}, "")).start()
+        mock.patch.object(loop, "start_pass", side_effect=finish_pass).start()
 
     def issues(self, **bodies):
         extra = []

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 import common
 
@@ -78,14 +79,30 @@ def age(pid):
 
 def reap_groups(path, since):
     """Kill the process groups a Stop hook listed in `path` and still left running; return a line per process.
-    A group is skipped unless its leader is alive, leads the group and started after `since`."""
+    Marked groups need a surviving member with the inherited ownership token.
+    Older records require a live leader that started after `since`."""
     try:
         with open(path) as f:
-            groups = [int(g) for g in f.read().split()]
+            groups = [g.partition(":") for g in f.read().split()]
+        groups = [(int(g), token) for g, _, token in groups]
     except (OSError, ValueError):
         return []
-    seen = {g: age(g) for g in groups if g > 1 and g != os.getpgrp()}
-    mine = [g for g, a in seen.items() if a and a[0] == g and a[1] <= time.time() - since + 2]
+    marked = any(token for _, token in groups)
+    # Inspect environments only to verify ownership; never include them in cleanup logs.
+    rows = subprocess.run(["ps", "eww", "-A", "-o", "pgid=,command="],
+                          capture_output=True, text=True).stdout.splitlines() if marked else []
+    mine = []
+    for g, token in groups:
+        if g <= 1 or g == os.getpgrp():
+            continue
+        if token:
+            owned = any(row.split()[:1] == [str(g)] and "LOOP_GROUP_TOKEN=" + token in row.split()[1:]
+                        for row in rows)
+        else:
+            a = age(g)
+            owned = a and a[0] == g and a[1] <= time.time() - since + 2
+        if owned:
+            mine.append(g)
     return [line for g in mine for line in reap(g)]
 
 
@@ -98,9 +115,12 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
-    handle, groups = tempfile.mkstemp(prefix="loop-groups-", dir=env.get("TMPDIR"))
+    registry = env.get("LOOP_PASS_GROUPS")
+    handle, groups = tempfile.mkstemp(prefix="pass-hooks-" if registry else "loop-groups-",
+                                    dir=os.path.dirname(registry) if registry else env.get("TMPDIR"))
     os.close(handle)
-    env = dict(env, LOOP_GROUPS=groups)
+    token = uuid.uuid4().hex if registry else None
+    env = dict(env, LOOP_GROUPS=groups, **({"LOOP_GROUP_TOKEN": token} if token else {}))
     project_of_cwd = env.get("LOOP_PROJECT") or common.project_of(cwd)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as fin, \
@@ -109,6 +129,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
         fin.write(prompt)
         fin.seek(0)
         p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
+                             preexec_fn=(lambda: common._record(registry, os.getpid(), True, token)) if registry else None,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:
             common.wait_limited(p.wait, limit, project_of_cwd)
@@ -119,6 +140,8 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
         with contextlib.suppress(OSError):
             os.remove(groups)
         p.wait()
+        if registry:
+            common._record(registry, p.pid, False)
         out, err = (f.seek(0) or f.read() for f in (fout, ferr))
     swept = sweep(before, cwd)
     SWEPT.setdefault(issue, []).extend(swept)
