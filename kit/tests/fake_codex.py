@@ -39,9 +39,10 @@ if step.get("error"):
 i = argv.index("resume") if "resume" in argv else -1
 thread = argv[i + 1] if i >= 0 else step.get("thread", "thread-%d" % n)
 reply = step.get("reply", "ok")
-for event in ({"type": "thread.started", "thread_id": thread}, {"type": "turn.started"},
-              {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": reply}},
-              {"type": "turn.completed", "usage": {}}):
+events = [{"type": "thread.started", "thread_id": thread}, {"type": "turn.started"},
+          {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": reply}}]
+events += step.get("events", [{"type": "turn.completed", "usage": {}}])
+for event in events:
     print(json.dumps(event))
 if "-o" in argv:
     open(argv[argv.index("-o") + 1], "w").write(reply)
