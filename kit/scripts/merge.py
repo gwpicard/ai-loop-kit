@@ -21,9 +21,9 @@ LOCKFILES = {
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
     "pdm.lock", "deno.lock", "pom.xml", "build.gradle"}
-TEST_NAMES = ("test[ _]*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
+TEST_NAMES = ("test[ _]*", "*_test.*", "*_tests.*", "*-test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
-TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
+TEST_CLASS = re.compile(r"(Tests?\.(java|php|kt|cs|swift)|Spec\.(scala|hs))$")  # case matters: Contest.swift is source
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
 
