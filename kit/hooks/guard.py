@@ -25,6 +25,7 @@ caught, because the guard does not ask git which branch is checked out.
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 
@@ -143,10 +144,32 @@ def role_commands(command):
     return command if RUNNER.search(text) else text
 
 
+def full_test_files(command, template, cwd):
+    before, marker, after = template.partition("{files}")
+    if not marker:
+        return False
+    try:
+        args, prefix, suffix = map(shlex.split, (command, before, after))
+    except ValueError:
+        return False
+    if (len(args) < len(prefix) + len(suffix) or args[:len(prefix)] != prefix
+            or suffix and args[-len(suffix):] != suffix):
+        return False
+    selected = args[len(prefix):len(args) - len(suffix) if suffix else None]
+    if not selected:
+        return True
+    top = common.git(["rev-parse", "--show-toplevel"], cwd, check=False) or cwd
+    paths = common.git(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], top, check=False)
+    modules = {os.path.realpath(os.path.join(top, p)) for p in paths.split("\0")
+               if p and merge.is_test_module(p) and os.path.isfile(os.path.join(top, p))}
+    return bool(modules) and modules <= {os.path.realpath(os.path.join(cwd, p)) for p in selected}
+
+
 def check_role_command(command, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
-    if role in ("builder", "reviewer", "test-writer", "pass") and files and os.environ.get("LOOP_TEST_COMMAND") in [
-            s.strip() for s in re.split(r"&&|\|\||[;|\n]", command)]:
+    if role in ("builder", "reviewer", "test-writer", "pass") and files and any(
+            s.strip() == os.environ.get("LOOP_TEST_COMMAND") or full_test_files(s, files, cwd)
+            for s in re.split(r"&&|\|\||[;|\n]", command)):
         raise Refuse("full-test", "the full Test command is reserved for merge",
                      "use <plugin>/bin/loop check; for selected files, use the Test files command: " + files)
     executable = role_commands(command)
