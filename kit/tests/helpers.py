@@ -14,15 +14,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 
-def finish_pass(project, settings, st, head, since):
+def finish_pass(project, settings, st, head, since, pass_needed=True):
     """Finish the mocked worker immediately in tests of drain body composition.
 
     Background worker tests exercise the actual process and reap separately.
     """
     import pass_worker
-    saved = pass_worker.result(project, settings, head, since)
+    import loop
+    saved = pass_worker.result(project, settings, head, since) if pass_needed else loop.last_pass(project)
     with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
         json.dump(saved, f)
+    base = pass_worker.common.default_branch(project)
+    landed = pass_worker.common.git(["log", "--format=- %s", "origin/%s..%s" % (base, head)], cwd=project)
+    loop.summary(project, settings, head, landed)
 
 FAKE_GH = '''#!PYTHON
 import json, os, sys, time

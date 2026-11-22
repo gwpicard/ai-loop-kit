@@ -554,14 +554,20 @@ def decisions(project, base, loop):
     return "## Decisions to confirm\n\n" + ("\n".join(added) or "none") + "\n"
 
 
-def summary(project, settings, head, landed):
-    """The Summary, Evidence and Merge danger sections: one read-only session per new batch, saved for refreshes."""
+def cached_summary(project):
     path = os.path.join(project, ".loop", "summary.json")
     try:
         with open(path) as f:
             saved = json.load(f)
     except (OSError, ValueError):
         saved = {}
+    return saved if isinstance(saved, dict) else {}
+
+
+def summary(project, settings, head, landed):
+    """Generate and save the pull request summary in the batch worker."""
+    path = os.path.join(project, ".loop", "summary.json")
+    saved = cached_summary(project)
     if saved.get("head") == head or "- Issue " not in landed:
         return saved.get("text", "")
     base, loop = common.default_branch(project), settings["Loop branch"]
@@ -570,10 +576,10 @@ def summary(project, settings, head, landed):
     try:
         notes = []
         try:
-            pass_.batch_lines(project, "origin/" + base, loop, notes)
+            pass_.batch_lines(project, "origin/" + base, loop, notes, head=head)
         except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
             pass
-        with common.scratch_tree(project, "origin/" + loop) as tree:
+        with common.scratch_tree(project, head) as tree:
             prompt = flow.brief("pr-summary") + (
                 "\n\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     loop, settings["Test command"], base, "\n\n".join(notes)))
@@ -597,7 +603,7 @@ def drain(project, settings, st):
         end["outcome"] = "fail" if failed else "pass"
 
 
-def start_pass(project, settings, st, head, since):
+def start_pass(project, settings, st, head, since, pass_needed=True):
     """Use one extra slot so even Parallel: 1 can build beside the pass."""
     os.makedirs(os.path.join(project, ".loop", "builds"), exist_ok=True)
     os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
@@ -606,11 +612,12 @@ def start_pass(project, settings, st, head, since):
         os.remove(path)
     with open(os.path.join(project, ".loop", "logs", "pass-worker.log"), "a") as log:
         proc = subprocess.Popen([sys.executable, os.path.join(HERE, "pass_worker.py"), project,
-                                 json.dumps(settings), head, since], cwd=project, env=common.build_env(),
+                                 json.dumps(settings), head, since, json.dumps(pass_needed)], cwd=project,
+                                env=dict(common.build_env(), LOOP_PASS_GROUPS=common.build_file(project, "pass", "groups")),
                                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     with open(common.build_file(project, "pass", "pid"), "w") as f:
         f.write(str(proc.pid))
-    st["pass"] = dict(proc=proc, head=head, since=since, settings=settings)
+    st["pass"] = dict(proc=proc, head=head, since=since, settings=settings, began=time.time())
 
 
 def reap_pass(project, st, stopped=False):
@@ -626,6 +633,11 @@ def reap_pass(project, st, stopped=False):
         return
     with contextlib.suppress(OSError):
         os.killpg(proc.pid, signal.SIGKILL)  # a dead worker may have left session children
+    folder = os.path.join(project, ".loop", "builds")
+    groups = [os.path.join(folder, n) for n in os.listdir(folder)
+              if n == "pass.groups" or n.startswith("pass-hooks-")]
+    for path in groups:
+        session.reap_groups(path, running["began"])
     path = common.build_file(project, "pass", "result")
     try:
         with open(path) as f:
@@ -645,12 +657,19 @@ def reap_pass(project, st, stopped=False):
         number = str(found[0]["number"])
         old = json.loads(gh(["pr", "view", number, "--json", "body"])).get("body") or ""
         body = re.split(r"^## End-of-loop pass\b", old, maxsplit=1, flags=re.M)[0].rstrip()
+        top = saved.get("summary", "")
+        if top:
+            sections = re.search(r"^## (?!Summary\b|Evidence\b|Merge danger\b)", body, re.M)
+            body = top.rstrip() + "\n\n" + (body[sections.start():] if sections else "")
         gh(["pr", "edit", number, "--body-file", "-"], input=body + "\n\n" + saved["text"])
     st.pop("pass", None)
     st["pass_reaped"] = running["head"]
     for kind in ("result", "pid"):
         with contextlib.suppress(OSError):
             os.remove(common.build_file(project, "pass", kind))
+    for path in groups:
+        with contextlib.suppress(OSError):
+            os.remove(path)
 
 
 def _drain(project, settings, st):
@@ -661,9 +680,14 @@ def _drain(project, settings, st):
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
                             prepare=settings["Prepare command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
-    if "- Issue " in landed and not failed and head != last.get("head") and not st.get("pass"):
+    pass_needed = head != last.get("head")
+    if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
         say("starting the end-of-loop pass")
-        start_pass(project, settings, st, head, last.get("head") or "origin/" + base)
+        args = (project, settings, st, head, last.get("head") or "origin/" + base)
+        if pass_needed:
+            start_pass(*args)
+        else:
+            start_pass(*args, pass_needed=False)
         last = last_pass(project)
     find = lambda: json.loads(gh(["pr", "list", "--head", loop, "--base", base, "--state",
                                   "open", "--json", "number,url"]))
@@ -674,7 +698,7 @@ def _drain(project, settings, st):
             old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
         except (ValueError, common.GitHubError):
             pass
-    top = summary(project, settings, head, landed)
+    top = cached_summary(project).get("text", "")
     body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
     if st["conflict"]:
         body += "## Default branch merge\n\n" + st["conflict"] + "\n\n"

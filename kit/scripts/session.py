@@ -98,7 +98,9 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
-    handle, groups = tempfile.mkstemp(prefix="loop-groups-", dir=env.get("TMPDIR"))
+    registry = env.get("LOOP_PASS_GROUPS")
+    handle, groups = tempfile.mkstemp(prefix="pass-hooks-" if registry else "loop-groups-",
+                                    dir=os.path.dirname(registry) if registry else env.get("TMPDIR"))
     os.close(handle)
     env = dict(env, LOOP_GROUPS=groups)
     project_of_cwd = env.get("LOOP_PROJECT") or common.project_of(cwd)
@@ -109,6 +111,7 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
         fin.write(prompt)
         fin.seek(0)
         p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
+                             preexec_fn=(lambda: common._record(registry, os.getpid(), True)) if registry else None,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:
             common.wait_limited(p.wait, limit, project_of_cwd)
@@ -119,6 +122,8 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
         with contextlib.suppress(OSError):
             os.remove(groups)
         p.wait()
+        if registry:
+            common._record(registry, p.pid, False)
         out, err = (f.seek(0) or f.read() for f in (fout, ferr))
     swept = sweep(before, cwd)
     SWEPT.setdefault(issue, []).extend(swept)

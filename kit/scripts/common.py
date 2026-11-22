@@ -551,6 +551,7 @@ def _run_shell(command, cwd, timeout, record=None):
     # Pass commands share the worker's lifetime, including an external kill.
     pass_worker = os.environ.get("LOOP_PASS_WORKER") == str(os.getpid())
     p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=not pass_worker,
+                         preexec_fn=(lambda: _record(record, os.getpid(), True)) if record and os.environ.get("LOOP_PASS_GROUPS") else None,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True)
