@@ -211,8 +211,7 @@ def answer(st, protected=None):
                     feedback = ("Added to ## Protected paths this issue may change: "
                                 + ", ".join("`%s`" % p for p in added) + ".") if added else ""
                 if feedback:
-                    gh(["issue", "comment", str(n), "--body-file", "-"],
-                       input=feedback + "\n\n" + common.MARKER + "\n")
+                    flow.post_once(n, feedback + "\n\n" + common.MARKER + "\n")
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
