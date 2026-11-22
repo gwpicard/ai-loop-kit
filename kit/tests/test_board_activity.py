@@ -93,6 +93,7 @@ class BoardActivityTest(unittest.TestCase):
         bodies = []
         with mock.patch.object(loop, "snapshot", side_effect=snapshot), \
                 mock.patch.object(loop, "sync_default", return_value=False), \
+                mock.patch.object(common, "restore_loop_branch"), \
                 mock.patch.object(loop, "drain"), mock.patch.object(loop, "clean_up"), \
                 mock.patch.object(loop, "gh", side_effect=lambda *a, **kw: bodies.append(kw.get("input", ""))), \
                 mock.patch.object(loop.time, "sleep", side_effect=stop):

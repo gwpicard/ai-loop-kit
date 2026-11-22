@@ -593,6 +593,35 @@ def default_branch(project):
     return ref.replace("origin/", "", 1) or "main"
 
 
+def restore_loop_branch(project, branch):
+    """Restore a missing remote branch, preserving its last known commit."""
+    if git(["ls-remote", "--heads", "origin", "refs/heads/" + branch], cwd=project):
+        return
+    git(["fetch", "--no-prune", "origin"], cwd=project)
+    source = "origin/" + branch
+    commit = git(["rev-parse", "--verify", "refs/remotes/" + source + "^{commit}"],
+                 cwd=project, check=False)
+    if not commit:
+        source = "origin/" + default_branch(project)
+        commit = git(["rev-parse", "--verify", "refs/remotes/" + source + "^{commit}"], cwd=project)
+    git(["push", "origin", commit + ":refs/heads/" + branch], cwd=project)
+    folder = os.path.join(project, ".loop")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "loop.out")
+    line = "restored %s from %s at %s" % (branch, source, commit)
+    # Reuse the supervisor's stream so its next write cannot overwrite the appended line.
+    try:
+        logging_here = os.path.samestat(os.fstat(sys.stdout.fileno()), os.stat(path))
+    except (OSError, ValueError):
+        logging_here = False
+    if logging_here:
+        say(line)
+    else:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+    event("loop-branch-restored", project, branch=branch, source=source, commit=commit)
+
+
 @contextlib.contextmanager
 def scratch_tree(project, ref):
     """A detached worktree of `ref` in a temporary folder, removed afterwards."""
