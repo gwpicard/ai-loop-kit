@@ -175,6 +175,7 @@ class LoopTest(Base):
         super().setUp()
         os.makedirs(os.path.join(self.work, ".loop"))
         write_settings(os.path.join(self.work, "loop.json"), AGENTS)
+        mock.patch.object(common, "restore_loop_branch").start()
         mock.patch.object(loop, "sync_default").start()
         mock.patch.object(loop, "drain").start()
 

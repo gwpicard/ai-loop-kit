@@ -48,6 +48,7 @@ class ParallelTest(Base):
     def setUp(self):
         super().setUp()
         self.starts.stop()
+        mock.patch.object(common, "restore_loop_branch").start()
         loop.time.sleep.side_effect = REAL_SLEEP
         for name in ("sync_default", "drain"):
             mock.patch.object(loop, name).start()

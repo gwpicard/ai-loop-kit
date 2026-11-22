@@ -278,6 +278,7 @@ def _merge(issue, branch, verdict_text, project):
     if verdict != "APPROVE":
         return _refuse("review-verdict", "the review verdict is %s, not APPROVE" % (verdict or "missing"))
     git(["fetch", "--no-prune", "origin"], cwd=project)
+    common.restore_loop_branch(project, loop)
     sha = git(["rev-parse", "--verify", "origin/" + branch], cwd=project)
     if not head or not sha.startswith(head):
         return _refuse("review-head", "the branch head %s is not the reviewed commit %s"

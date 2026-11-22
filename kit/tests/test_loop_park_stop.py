@@ -19,6 +19,7 @@ class ParkDrainTest(Base):
         os.makedirs(os.path.join(self.work, ".loop"))
         write_settings(os.path.join(self.work, "loop.json"), AGENTS.replace("Idle hours: 0", "Idle hours: 12"))
         self.drain = mock.patch.object(loop, "drain").start()
+        mock.patch.object(common, "restore_loop_branch").start()
         mock.patch.object(loop, "sync_default", return_value=False).start()
 
     def parked(self, minutes):

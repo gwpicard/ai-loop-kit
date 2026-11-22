@@ -10,6 +10,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,16 @@ class SettingsError(LoopError):
 
 
 def say(text):
+    # Shell redirection with > leaves an offset that can overwrite worker log entries.
+    try:
+        fd = sys.stdout.fileno()
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            if not flags & os.O_APPEND:
+                sys.stdout.flush()
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_APPEND)
+    except (AttributeError, OSError, ValueError):
+        pass  # Captured output and pipes need no append flag.
     for line in str(text).splitlines():
         print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
 
@@ -591,6 +602,27 @@ def read_passed(project, session_id):
 def default_branch(project):
     ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
     return ref.replace("origin/", "", 1) or "main"
+
+
+def restore_loop_branch(project, branch):
+    """Restore a missing remote branch, preserving its last known commit."""
+    if git(["ls-remote", "--heads", "origin", "refs/heads/" + branch], cwd=project):
+        return
+    git(["fetch", "--no-prune", "origin"], cwd=project)
+    source = "origin/" + branch
+    commit = git(["rev-parse", "--verify", "refs/remotes/" + source + "^{commit}"],
+                 cwd=project, check=False)
+    if not commit:
+        source = "origin/" + default_branch(project)
+        commit = git(["rev-parse", "--verify", "refs/remotes/" + source + "^{commit}"], cwd=project)
+    git(["push", "origin", commit + ":refs/heads/" + branch], cwd=project)
+    folder = os.path.join(project, ".loop")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "loop.out")
+    line = "restored %s from %s at %s" % (branch, source, commit)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+    event("loop-branch-restored", project, branch=branch, source=source, commit=commit)
 
 
 @contextlib.contextmanager

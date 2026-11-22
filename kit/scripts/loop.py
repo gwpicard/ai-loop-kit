@@ -481,6 +481,7 @@ def reap(project, st, cap=None, stopped=False):
 def sync_default(project, loop, st):
     base = common.default_branch(project)
     git(["fetch", "--no-prune", "origin"], cwd=project)
+    common.restore_loop_branch(project, loop)
     try:
         git(["merge-base", "--is-ancestor", "origin/" + base, "origin/" + loop], cwd=project)
         st["conflict"] = ""
@@ -880,6 +881,7 @@ def run(project):
                         say("keeping previous settings: %s" % e)
                         settings_error = str(e)
                 cap = (3 * settings["Session minutes"] + 30) * 60
+                common.restore_loop_branch(project, settings["Loop branch"])
                 snapshot(st)
                 st["reaped"] = set()
                 reap(project, st, cap)
