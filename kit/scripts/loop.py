@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -658,6 +659,17 @@ def clean_up(project, closed):
     with contextlib.suppress(OSError):
         os.rmdir(os.path.join(os.path.dirname(project), ".loop-worktrees"))  # only when empty
     trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines() if l.startswith("worktree ")][1:]
+    own = Path(project).resolve().parent / ".loop-worktrees"
+    trees = [t for t in trees if not Path(t).resolve().is_relative_to(own)]
+    temps = [Path(p).resolve() for p in (tempfile.gettempdir(), "/tmp", "/var/tmp")]
+    if sys.platform == "darwin":
+        with contextlib.suppress(OSError):
+            path = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+            if path:
+                temps.append(Path(path).resolve())
+    for tree in trees:
+        if any(Path(tree).resolve().is_relative_to(p) for p in temps):
+            git(["worktree", "remove", tree], cwd=project, check=False)
     old = [b for b in git(["branch", "--format=%(refname:short)", "--list", "issue/*"], cwd=project, check=False).split()
            if b[6:].isdigit() and int(b[6:]) in closed]
     say("left behind: worktrees: %s; branches of closed issues: %s" % (", ".join(trees) or "none", ", ".join(old) or "none"))
