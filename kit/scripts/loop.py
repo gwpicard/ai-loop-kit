@@ -658,7 +658,8 @@ def clean_up(project, closed):
             os.remove(path)
     with contextlib.suppress(OSError):
         os.rmdir(os.path.join(os.path.dirname(project), ".loop-worktrees"))  # only when empty
-    trees = [l[9:] for l in git(["worktree", "list", "--porcelain"], cwd=project, check=False).splitlines() if l.startswith("worktree ")][1:]
+    trees = [field[9:] for field in git(["worktree", "list", "--porcelain", "-z"], cwd=project, check=False).split("\0")
+             if field.startswith("worktree ")][1:]
     own = Path(project).resolve().parent / ".loop-worktrees"
     trees = [t for t in trees if not Path(t).resolve().is_relative_to(own)]
     temps = [Path(p).resolve() for p in (tempfile.gettempdir(), "/tmp", "/var/tmp")]
