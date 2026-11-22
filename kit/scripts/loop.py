@@ -362,7 +362,8 @@ def start_builds(project, settings, st):
         os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
         with open(os.path.join(project, ".loop", "logs", "build-%d.log" % number), "a") as log:
             proc = subprocess.Popen(worker_command(project, number, st["replies"].get(number, []), st["attempts"].get(number, st["deaths"].get(number, 0))), cwd=project,
-                                    env=dict(common.build_env(), LOOP_BUILD_SETTINGS=json.dumps(settings)),
+                                    env=dict(common.build_env(), LOOP_BUILD_SETTINGS=json.dumps(settings),
+                                             LOOP_TEST_WORKERS=str(max(1, (os.cpu_count() or 1) // settings["Parallel"]))),
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         os.makedirs(os.path.dirname(common.build_file(project, number, "pid")), exist_ok=True)
         with open(common.build_file(project, number, "pid"), "w") as f:
