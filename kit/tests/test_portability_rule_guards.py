@@ -19,6 +19,17 @@ class PortabilityRuleGuardsTest(unittest.TestCase):
             source.touch()
             subprocess.run(["git", "-C", folder, "add", "."], check=True, capture_output=True)
             cases = [
+                ("subprocess.%s(args=['caffeinate', 'true'])\n" % name, False)
+                for name in ("Popen", "call", "check_call", "check_output")
+            ] + [
+                ("subprocess.run(args=['caffeinate', 'true'], check=True)\n", False),
+                ("os.popen(cmd='sysctl -n hw.ncpu')\n", False),
+                ("common.run_shell(command='memory_pressure', cwd='.', timeout=1)\n", False),
+                ("run_shell(command='getconf DARWIN_USER_TEMP_DIR', cwd='.', timeout=1)\n", False),
+                ("if sys.platform == 'darwin':\n"
+                 "    subprocess.run(args=['caffeinate', 'true'], check=True)\n", True),
+                ("with mock.patch('subprocess.run'):\n"
+                 "    subprocess.run(args=['caffeinate', 'true'], check=True)\n", True),
                 ("if sys.platform != 'darwin':\n"
                  "    subprocess.run(['sysctl'])\n", False),
                 ("if sys.platform != 'darwin':\n    pass\nelse:\n"

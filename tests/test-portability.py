@@ -7,6 +7,12 @@ import sys
 
 
 TOOLS = {"taskpolicy", "sysctl", "memory_pressure", "caffeinate"}
+COMMAND_KEYWORDS = {
+    "subprocess.run": "args", "subprocess.Popen": "args", "subprocess.call": "args",
+    "subprocess.check_call": "args", "subprocess.check_output": "args",
+    "os.system": None, "os.popen": "cmd",
+    "common.run_shell": "command", "run_shell": "command",
+}
 
 
 def mac_condition(node):
@@ -55,11 +61,11 @@ class Portability(ast.NodeVisitor):
 
     def visit_Call(self, node):
         name = ast.unparse(node.func)
-        if (name in {"subprocess.run", "subprocess.Popen", "subprocess.call",
-                     "subprocess.check_call", "subprocess.check_output", "os.system",
-                     "os.popen", "common.run_shell", "run_shell"}
-                and node.args and not self.mac and name not in self.fakes):
-            tool = command_tool(node.args[0])
+        if name in COMMAND_KEYWORDS and not self.mac and name not in self.fakes:
+            command = node.args[0] if node.args else next(
+                (keyword.value for keyword in node.keywords
+                 if keyword.arg is not None and keyword.arg == COMMAND_KEYWORDS[name]), None)
+            tool = command_tool(command) if command is not None else None
             if tool:
                 self.failures.append((node.lineno, tool + " needs a macOS platform check or a fake"))
         self.generic_visit(node)
