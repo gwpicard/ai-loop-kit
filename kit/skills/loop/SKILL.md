@@ -39,6 +39,13 @@ settings files at the start of each cycle, so no restart is needed.
 Start: `mkdir -p .loop && nohup <plugin>/bin/loop run > .loop/loop.out 2>&1 &`
 from the project root. A second start is refused while a loop is alive. `tail .loop/loop.out`
 shows its steps.
+
+After starting the loop, run `<plugin>/bin/loop status` and read the Factory
+board. Tell the person which open parks need their decisions and whether a
+final pull request needs review, including work left from an earlier run.
+If either source cannot be read, report that the outstanding work could not
+be checked.
+
 Stop: `<plugin>/bin/loop stop`; the loop starts nothing new and ends after
 running builds finish their issue. `<plugin>/bin/loop stop --now` ends the
 builds, their agent sessions and test commands at once and returns their
