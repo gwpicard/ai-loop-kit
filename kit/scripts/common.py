@@ -291,23 +291,23 @@ def read_settings(root="."):
 def warn_delete_branch_on_merge(project, emit):
     """Probe once with a short timeout; this advice must not hold up startup."""
     try:
-        result = subprocess.run(
-            ["gh", "api", "repos/{owner}/{repo}", "--jq", ".delete_branch_on_merge"],
-            cwd=project, capture_output=True, text=True, timeout=2)
-    except (OSError, subprocess.SubprocessError):
+        result = gh(["api", "repos/{owner}/{repo}", "--jq", ".delete_branch_on_merge"],
+                    retry=False, timeout=2, cwd=project)
+        if result.strip() == "true":
+            emit('warning: in Settings, General, Pull Requests, turn off '
+                 '"Automatically delete head branches": merging the final pull request '
+                 'deletes the loop branch.')
+    except Exception:
         return
-    if result.returncode == 0 and result.stdout.strip() == "true":
-        emit('warning: in Settings, General, Pull Requests, turn off '
-             '"Automatically delete head branches": merging the final pull request '
-             'deletes the loop branch.')
 
 
-def _run_gh(args, input=None):
+def _run_gh(args, input=None, *, timeout=None, cwd=None):
+    timeout = TIMEOUT if timeout is None else timeout
     try:
         p = subprocess.run(["gh"] + list(args), input=input, text=True,
-                           capture_output=True, timeout=TIMEOUT)
+                           capture_output=True, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
-        return 124, "", "gh timed out after %s seconds" % TIMEOUT
+        return 124, "", "gh timed out after %s seconds" % timeout
     except OSError as e:
         raise GitHubError("cannot run gh: %s" % e)
     return p.returncode, p.stdout, p.stderr
@@ -327,13 +327,18 @@ def _wait_for_reset():
     return True
 
 
-def gh(args, input=None, retry=True):
+def gh(args, input=None, retry=True, *, timeout=None, cwd=None):
     """Run gh and return stdout. Retries 5xx and network failures, waits out
     a rate limit once, and raises GitHubError with one line otherwise.
     Pass retry=False for a write that is not safe to repeat."""
     waits, limited = list(RETRY_WAITS) if retry else [], not retry
+    options = {}
+    if timeout is not None:
+        options["timeout"] = timeout
+    if cwd is not None:
+        options["cwd"] = cwd
     while True:
-        code, out, err = _run_gh(args, input)
+        code, out, err = _run_gh(args, input, **options)
         if code == 0:
             return out
         if TRANSIENT.search(err) and waits:
