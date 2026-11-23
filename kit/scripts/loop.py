@@ -205,6 +205,7 @@ def answer(st, protected=None):
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
+            common.event("answered", issue=n)
 
 
 AGREES = re.compile(r"^\W*(yes|yep|yeah|agreed|approved|go ahead|ok|okay|sure|please do)\b", re.I)
