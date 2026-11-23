@@ -1,9 +1,11 @@
 """Merge one reviewed issue branch into the loop branch, or refuse with a reason."""
+import ast
 import collections
 import contextlib
 import fnmatch
 import json
 import os
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
@@ -14,6 +16,7 @@ from common import gh, git
 
 Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
 TEST_TIMEOUT = 1800
+TARGETED_MODULE_CAP = 40
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
@@ -152,15 +155,88 @@ def stop_reason(path, protected, project=".", ref=None):
     return None
 
 
+def test_imports(path, text):
+    """Dotted import names, including from imports and ancestor packages."""
+    names = set()
+    for node in ast.walk(ast.parse(text, filename=path)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = node.module or ""
+            if node.level:
+                parts = path.split("/")[:-node.level]
+                prefix = ".".join(parts + ([prefix] if prefix else []))
+            if prefix:
+                names.add(prefix)
+            names.update(".".join(filter(None, (prefix, alias.name)))
+                         for alias in node.names if alias.name != "*")
+    # Importing a submodule executes each ancestor package's initialiser.
+    return {".".join(name.split(".")[:i]) for name in names
+            for i in range(1, name.count(".") + 2)}
+
+
+def importing_tests(cwd, changed, selected, head=None):
+    """Select test importers to a fixed point without executing project code."""
+    paths = git(["ls-tree", "-rz", "--name-only", head] if head else
+                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd).split("\0")
+    tests = {}
+    for path in sorted(set(paths)):
+        if not is_test_module(path):
+            continue
+        if head:
+            text = git(["show", head + ":" + path], cwd)
+        else:
+            try:
+                text = Path(cwd, path).read_text(encoding="utf-8", errors="replace")
+            except FileNotFoundError:
+                continue
+        imports = None
+        if path.endswith(".py"):
+            try:
+                imports = test_imports(path, text)
+            except (SyntaxError, ValueError, RecursionError):
+                pass  # invalid Python uses the same fallback as other languages
+        tests[path] = (imports, text)
+    causes = {}
+    pending = set(changed) | set(selected)
+    selected.difference_update(path for path in changed if path not in tests)
+    visited = set()
+    while pending:
+        cause = min(pending)
+        pending.remove(cause)
+        if not cause or cause in visited:
+            continue
+        visited.add(cause)
+        module = cause.removesuffix(".py").replace("/", ".")
+        module = module.removesuffix(".__init__")
+        for path, (imports, text) in tests.items():
+            if path in selected:
+                continue
+            fallback = imports is None or not cause.endswith(".py")
+            matches = (PurePosixPath(cause).stem in text if fallback else
+                       any(module == name or module.endswith("." + name) for name in imports))
+            if matches:
+                selected.add(path)
+                causes[path] = ("mentions " if fallback else "imports ") + cause
+                pending.add(path)
+    return causes
+
+
 def targeted_command(settings, cwd, start, locked, head=None):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
-    changed = git(["diff", "-z", "--name-only", "--diff-filter=ACMRT", start]
+    changed = git(["diff", "-z", "--name-only", start]
                   + ([head] if head else []) + ["--"], cwd=cwd).split("\0") if start else []
-    files = sorted({p for p in list(locked) + changed if is_test_module(p)})
+    files = {p for p in list(locked) + changed if is_test_module(p)}
+    causes = importing_tests(cwd, changed, files, head) if start else {}
+    files = sorted(files)
+    extra = "".join("\n%s: %s" % (path, causes[path]) for path in sorted(causes))
+    if len(files) > TARGETED_MODULE_CAP:
+        return settings["Test command"], "Test command: full suite (%d modules exceed cap %d)%s" % (
+            len(files), TARGETED_MODULE_CAP, extra)
     if not files:  # an empty list would run the whole suite
         return "", "Test files command: no test files to run"
-    return common.files_command(settings, files), "Test files command: " + ", ".join(files)
+    return common.files_command(settings, files), "Test files command: " + ", ".join(files) + extra
 
 
 def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
@@ -302,8 +378,14 @@ def _merge(issue, branch, verdict_text, project):
     locked = locked_paths(info.get("comments", []))
     # Without the writer's test list, changed files alone may miss the issue's tests.
     full_suite = not any(is_test_module(path) for path in locked) or full_suite_due(project, settings)
-    command = settings["Test command"] if full_suite else targeted_command(
-        settings, project, "origin/" + loop, locked, sha)[0]
+    command, description = targeted_command(settings, project, "origin/" + loop, locked, sha)
+    full_suite = full_suite or command == settings["Test command"]
+    if full_suite:
+        command = settings["Test command"]
+        if not description.startswith("Test command: full suite"):
+            why = "merge cadence" if locked else "no locked test modules"
+            description = "Test command: full suite (%s)\n%s" % (why, description)
+    common.say("Merge tests: " + description.replace("\n", "; "))
     kinds = []
     if failure := run_tests(project, sha, command, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"]):
@@ -346,6 +428,7 @@ def _merge(issue, branch, verdict_text, project):
         if view("issue", issue, "state").get("state") != "CLOSED":
             return _refuse("issue-close", "merged as %s but the issue did not close" % commit)
     common.remove_label(issue, "building")
-    common.event("merged", project, issue=issue, branch=branch, commit=commit, full_suite=full_suite)
+    common.event("merged", project, issue=issue, branch=branch, commit=commit, full_suite=full_suite,
+                 test_selection=description)
     return Result(True, False, "merged as " + commit, commit)
 

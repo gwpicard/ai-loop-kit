@@ -1006,7 +1006,7 @@ def check(project):
     except (common.LoopError, OSError) as e:
         print("failed: %s" % e)
         return 1
-    print("passed: " + description.split(": ", 1)[1])
+    print("passed: " + description.split(": ", 1)[1].replace("\n", "; "))
     return 0
 
 
