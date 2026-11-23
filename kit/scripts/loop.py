@@ -685,7 +685,7 @@ def _drain(project, settings, st):
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
-                            prepare=settings["Prepare command"])
+                            prepare=settings["Prepare command"], full_suite=True)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):

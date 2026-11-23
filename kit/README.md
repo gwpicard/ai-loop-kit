@@ -108,7 +108,15 @@ builds one issue at a time. Each build is a separate process in its own
 worktree, so a crash or a hang in one cannot stop the loop or the others.
 
 The loop runs at background priority so builds favour efficiency cores on
-macOS and keep the machine responsive.
+macOS and keep the machine responsive. Builds and agent sessions, targeted
+tests, Prepare and Check commands keep background priority. On macOS, the
+full suite at merge and drain runs at normal priority to avoid the slowdown
+from using efficiency cores alone. Only the full Test command clears
+the inherited background class, using `taskpolicy -B`.
+
+The merge and drain command time limit is 1,800 seconds, controlled by
+`TEST_TIMEOUT` in `scripts/merge.py`. A timeout refusal reports the limit,
+elapsed time excluding pauses and up to 60 lines from the end of its output.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the

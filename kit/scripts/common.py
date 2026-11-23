@@ -593,8 +593,8 @@ def _run_shell(command, cwd, timeout, record=None):
         return p.returncode, out
     except subprocess.TimeoutExpired:
         os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
-        p.communicate()
-        return None, ""
+        out, _ = p.communicate()
+        return None, out
     finally:
         # Pass cleanup also needs groups whose command exited before its children.
         if record and not os.environ.get("LOOP_PASS_GROUPS"):
