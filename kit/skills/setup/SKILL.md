@@ -34,10 +34,13 @@ project root.
    open issues, and records each change and its undo in
    `.loop/migrations.log`. It refuses a kit 1.x or `.lite/` layout and prints
    the upgrade steps.
-4. Report each line it prints. On `refused:`, do the `next:` step and run it
-   again. If the preflight fails, report the failure and stop. If it added
-   settings or ignore lines, tell the person to commit `loop.json`, any
-   migrated removal from `AGENTS.md`, and the added `.gitignore` lines.
+4. Report each line it prints, including every `next:` line in order. Do not
+   start the loop until the person has seen these lines. On `refused:`, do
+   the `next:` step and run it again. If the preflight fails, report the
+   failure and stop. After a migration, complete the applicable `next:` steps
+   before restarting the loop. If it added settings or ignore lines, tell the
+   person to commit `loop.json`, any migrated removal from `AGENTS.md`, and
+   the added `.gitignore` lines through a pull request.
 5. Suggest the optional settings that fit: `"Parallel": 3` in the git-ignored
    `loop.local.json` on a machine with
    spare CPU and memory and a queue of independent issues; a `Smoke command`
