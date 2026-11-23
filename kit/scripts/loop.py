@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from common import GitError, gh, git, say
 
 POLL = 120
 BUSY_POLL = 45  # seconds between checks while builds run
+ERROR_LIMIT = 3  # consecutive cycles with the same exception type and message
 CHECK_OUTPUT_LINES = 60
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -886,6 +888,7 @@ def run(project):
     if os.path.exists(stop):
         os.remove(stop)
     reason = "interrupted"
+    last_error, error_count = None, 0
     try:
         common.warn_delete_branch_on_merge(project, say)
         while not os.path.exists(stop):
@@ -918,6 +921,7 @@ def run(project):
                     dirty, built = True, time.time()
                     write_board(project, st)
                     wait_stop(stop, BUSY_POLL)
+                    last_error, error_count = None, 0
                     continue
                 if not park_wait(st) and not os.path.exists(stop):
                     conflict = st["conflict"]
@@ -933,8 +937,27 @@ def run(project):
                     break
                 st["next"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + POLL))
                 write_board(project, st)
-            except Exception as e:  # one line, never a traceback or a silent death
+            except Exception as e:
+                error = (type(e), str(e))
+                error_count = error_count + 1 if error == last_error else 1
+                last_error = error
+                if error_count >= ERROR_LIMIT:
+                    reason = "stopped after %d identical failed cycles: %s: %s" % (error_count, type(e).__name__, e)
+                    trace = traceback.format_exc()
+                    common.event("crash", project, reason=reason, traceback=trace)
+                    say(reason)
+                    print(trace, file=sys.stderr, end="")
+                    st["next"], st["last"] = "none, the loop has stopped", reason
+                    try:
+                        write_board(project, st)
+                    except Exception as board_error:
+                        say("the board was not updated: %s" % board_error)
+                    return 1
                 say("problem, will check again: %s: %s" % (type(e).__name__, e))
+                wait_stop(stop, min(POLL, 1))
+                continue
+            else:
+                last_error, error_count = None, 0
             wait_stop(stop, POLL)
         else:
             reason = "stop requested"
