@@ -565,6 +565,12 @@ def cached_summary(project):
     return saved if isinstance(saved, dict) else {}
 
 
+def summary_intro(saved, head):
+    if saved.get("head") == head:
+        return saved.get("text") or "Built by the loop.\n\nThe summary did not run.\n"
+    return "Built by the loop.\n\nThe summary is pending.\n"
+
+
 def summary(project, settings, head, landed):
     """Generate and save the pull request summary in the batch worker."""
     path = os.path.join(project, ".loop", "summary.json")
@@ -658,8 +664,8 @@ def reap_pass(project, st, stopped=False):
         number = str(found[0]["number"])
         old = json.loads(gh(["pr", "view", number, "--json", "body"])).get("body") or ""
         body = re.split(r"^## End-of-loop pass\b", old, maxsplit=1, flags=re.M)[0].rstrip()
-        top = saved.get("summary", "")
-        if top:
+        if "summary" in saved:
+            top = summary_intro(dict(head=running["head"], text=saved["summary"]), running["head"])
             sections = re.search(r"^## (?!Summary\b|Evidence\b|Merge danger\b)", body, re.M)
             body = top.rstrip() + "\n\n" + (body[sections.start():] if sections else "")
         gh(["pr", "edit", number, "--body-file", "-"], input=body + "\n\n" + saved["text"])
@@ -699,8 +705,7 @@ def _drain(project, settings, st):
             old = json.loads(gh(["pr", "view", str(found[0]["number"]), "--json", "body"])).get("body") or ""
         except (ValueError, common.GitHubError):
             pass
-    top = cached_summary(project).get("text", "")
-    body = (top + "\n" if top else "Built by the loop.\n\nThe summary did not run.\n\n")
+    body = summary_intro(cached_summary(project), head) + "\n"
     if st["conflict"]:
         body += "## Default branch merge\n\n" + st["conflict"] + "\n\n"
     body += report.section(report.render(project, settings)) + "\n"
@@ -871,6 +876,7 @@ def run(project):
         os.remove(stop)
     reason = "interrupted"
     try:
+        common.warn_delete_branch_on_merge(project, say)
         while not os.path.exists(stop):
             try:
                 try:

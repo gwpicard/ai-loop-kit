@@ -9,6 +9,7 @@ from unittest import mock
 from kit.tests.helpers import FakeGh, make_repo, run_git, settings_json
 import common
 import loop
+import pass_worker
 import report
 from kit.tests.test_status import event
 
@@ -112,16 +113,34 @@ class ReportTest(FakeGh):
         text = self.command()
         inputs = []
         def gh(args, **kw):
-            if args[:2] == ['pr', 'create']:
+            if args[:2] in (['pr', 'create'], ['pr', 'edit']):
                 inputs.append(kw['input'])
+            if args[:2] == ['pr', 'list'] and inputs:
+                return '[{"number": 1, "url": "https://example.test/pull/1"}]'
+            if args[:2] == ['pr', 'view']:
+                return json.dumps({'body': inputs[-1]})
             return '{}' if args[:2] == ['issue', 'view'] else '[]'
         settings = common.read_settings(self.work)
+        st = loop.new_state()
+        worker = mock.Mock(pid=123, returncode=0)
+        worker.poll.return_value = None
+        popen = loop.subprocess.Popen
+        def launch(args, *rest, **kw):
+            if len(args) > 1 and args[1].endswith('/pass_worker.py'):
+                return worker
+            return popen(args, *rest, **kw)
         with mock.patch.object(loop, 'gh', side_effect=gh), \
                 mock.patch.object(loop.merge, 'run_tests', return_value=None), \
                 mock.patch.object(loop.pass_, 'run_pass', return_value=({}, 'PASS-REPORT')), \
+                mock.patch.object(loop.subprocess, 'Popen', side_effect=launch), \
+                mock.patch.object(loop.os, 'killpg'), \
                 mock.patch.object(loop, 'summary', return_value='## Summary\n\nSummary text.\n'):
-            loop.drain(self.work, settings, loop.new_state())
-        body = inputs[0]
+            loop.drain(self.work, settings, st)
+            running = st['pass']
+            pass_worker.main([self.work, json.dumps(settings), running['head'], running['since']])
+            worker.poll.return_value = 0
+            loop.reap_pass(self.work, st)
+        body = inputs[-1]
         self.assertIn('## What changed\n\n```text\n' + text + '\n```', body)
         self.assertLess(body.index('## What changed'), body.index('## Hands-on checks'))
         for part in ('## Summary', '## Decisions to confirm', '## Landed', 'PASS-REPORT'):
