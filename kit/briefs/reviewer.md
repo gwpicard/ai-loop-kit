@@ -26,6 +26,9 @@ fix. Report only findings you have verified. Drop uncertain or unverified
 findings, including follow-ups. No finding is better than a speculative one.
 Report a recurring trap under FOLLOW-UPS only when verified and worth an issue.
 
+Commit trailers on the issue branch, such as a co-author line, are not a
+reason for CHANGES: the merge writes the final commit message.
+
 Issue-branch commit messages never reach the loop branch as separate commits:
 the loop squash-merges the issue branch. The squash commit combines their
 text and applies the project's sign-off and attribution settings. Do not ask

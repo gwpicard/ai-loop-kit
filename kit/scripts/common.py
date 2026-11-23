@@ -351,7 +351,7 @@ def gh(args, input=None, retry=True, *, timeout=None, cwd=None):
                 continue
         lines = err.strip().splitlines()
         raise GitHubError("gh %s failed: %s" % (
-            " ".join(args[:2]), "\n".join(lines[-STDERR_LINES:]) if lines else "exit %d" % code))
+            " ".join(args[:2]), " | ".join(lines[-STDERR_LINES:]) if lines else "exit %d" % code))
 
 
 def add_label(number, label):
@@ -427,7 +427,7 @@ def git(args, cwd=None, check=True):
     if check and p.returncode != 0:
         lines = p.stderr.strip().splitlines()
         raise GitError("git %s failed: %s" % (
-            " ".join(args[:2]), "\n".join(lines[-STDERR_LINES:]) if lines else "exit %d" % p.returncode))
+            " ".join(args[:2]), " | ".join(lines[-STDERR_LINES:]) if lines else "exit %d" % p.returncode))
     return p.stdout.rstrip("\n")
 
 
