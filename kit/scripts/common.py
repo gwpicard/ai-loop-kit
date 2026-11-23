@@ -690,6 +690,20 @@ def event(kind, root=".", **fields):
                   project=os.path.basename(os.path.abspath(root)), **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+    progress = {"answered": "requeued on a reply", "merged": "merged", "parked": "parked"}.get(kind)
+    if (kind == "step" and fields.get("step") == "review" and fields.get("phase") == "end"
+            and fields.get("outcome") not in {None, "parked", "crashed"}):
+        progress = "review: " + fields["outcome"].upper()
+    if progress and "issue" in fields:
+        # Workers write stdout to build logs; progress also belongs in the supervisor's log.
+        with open(os.path.join(folder, "loop.out"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s %s\n" % (fields["issue"], progress))
+
+
+def named_test_paths(text):
+    """Test paths mentioned in text, using the same definition as the merge checks."""
+    import merge
+    return sorted({p for p in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(p)})
 
 
 def park(issue, question, recommendation, project="."):
@@ -715,9 +729,12 @@ def park(issue, question, recommendation, project="."):
     event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
+    warning = ("No test path was named in the question, so a yes cannot grant one.\n\n"
+               if re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I)
+               and not named_test_paths(question) else "")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
-       input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
-             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))
+       input="## Needs you\n\n%s\n\nRecommended: %s\n\n%sReply on this issue; "
+             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, warning, MARKER))
 
 
 def _version_key(text):
