@@ -91,11 +91,18 @@ every fresh checkout, before any test run, so the Test command need not
 embed it.
 
 In a build tree, `<plugin>/bin/loop check` selects the issue's locked tests
-and test files changed since the session's start commit, then runs the Check
-command. It prints one pass line, or the failing command and at most 60 lines
-of its output. Without a Test files command it runs the Test command. With
+and test files changed since the session's start commit, plus tests that
+import changed modules, then runs the Check command. It prints one pass line,
+or the failing command and at most 60 lines of its output. Without a Test
+files command it runs the Test command. With
 a Test files command and no selected files, it skips tests and still runs
 the Check command.
+
+Python selection parses imports, including relative and `from` imports.
+It also follows imports of test support files and selected test modules.
+For other languages or invalid
+Python, it selects tests mentioning the changed file's base name without its
+extension. When the selection exceeds 40 modules, it runs the full Test command.
 
 `Check command` is the project's guardrails (lint baseline, size budgets,
 architecture tests). It runs after every Test command run, and a failure
@@ -181,7 +188,12 @@ write scratch files in the system temp folder, never inside the project.
 With a Test files command set, `Full suite every` sets the merge interval
 for the full Test command: four by default, or one to run it at every merge.
 Other merges run the Test files command on the locked tests and test modules
-changed against the loop branch, then the Check command. Each run uses
+changed against the loop branch, plus the importers and base-name matches
+described above, then the Check command. When the selection exceeds 40 modules,
+the merge runs the full Test command.
+
+The merge's log line and build note list extra modules with the import or
+base-name mention that selected each one. Each run uses
 `merge.py`'s fresh checkout of the reviewed commit. Path checks and the test
 lock run first, so a refusal costs no test run.
 
@@ -199,8 +211,8 @@ A regression outside the targeted tests may be found only at the next full run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
-The Stop hook runs the locked tests and the test modules changed since the
-issue started, then the Check command. It records which tests ran. After the
+The Stop hook runs the same selection as `loop check`, then the Check
+command. It records which tests ran. After the
 builder or a fix pass, the loop reuses that result if it was for the head
 commit, and otherwise runs the same targeted set in a fresh checkout. Without
 a Test files command, these steps use the full Test command.
