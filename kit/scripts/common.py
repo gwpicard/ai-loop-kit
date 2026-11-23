@@ -288,6 +288,20 @@ def read_settings(root="."):
 
 # GitHub
 
+def warn_delete_branch_on_merge(project, emit):
+    """Probe once with a short timeout; this advice must not hold up startup."""
+    try:
+        result = subprocess.run(
+            ["gh", "api", "repos/{owner}/{repo}", "--jq", ".delete_branch_on_merge"],
+            cwd=project, capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return
+    if result.returncode == 0 and result.stdout.strip() == "true":
+        emit('warning: in Settings, General, Pull Requests, turn off '
+             '"Automatically delete head branches": merging the final pull request '
+             'deletes the loop branch.')
+
+
 def _run_gh(args, input=None):
     try:
         p = subprocess.run(["gh"] + list(args), input=input, text=True,
