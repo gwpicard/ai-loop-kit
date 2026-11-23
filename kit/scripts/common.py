@@ -289,12 +289,26 @@ def read_settings(root="."):
 
 # GitHub
 
-def _run_gh(args, input=None):
+def warn_delete_branch_on_merge(project, emit):
+    """Probe once with a short timeout; this advice must not hold up startup."""
+    try:
+        result = gh(["api", "repos/{owner}/{repo}", "--jq", ".delete_branch_on_merge"],
+                    retry=False, timeout=2, cwd=project)
+        if result.strip() == "true":
+            emit('warning: in Settings, General, Pull Requests, turn off '
+                 '"Automatically delete head branches": merging the final pull request '
+                 'deletes the loop branch.')
+    except Exception:
+        return
+
+
+def _run_gh(args, input=None, *, timeout=None, cwd=None):
+    timeout = TIMEOUT if timeout is None else timeout
     try:
         p = subprocess.run(["gh"] + list(args), input=input, text=True,
-                           capture_output=True, timeout=TIMEOUT)
+                           capture_output=True, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
-        return 124, "", "gh timed out after %s seconds" % TIMEOUT
+        return 124, "", "gh timed out after %s seconds" % timeout
     except OSError as e:
         raise GitHubError("cannot run gh: %s" % e)
     return p.returncode, p.stdout, p.stderr
@@ -314,13 +328,18 @@ def _wait_for_reset():
     return True
 
 
-def gh(args, input=None, retry=True):
+def gh(args, input=None, retry=True, *, timeout=None, cwd=None):
     """Run gh and return stdout. Retries 5xx and network failures, waits out
     a rate limit once, and raises GitHubError with the stderr tail otherwise.
     Pass retry=False for a write that is not safe to repeat."""
     waits, limited = list(RETRY_WAITS) if retry else [], not retry
+    options = {}
+    if timeout is not None:
+        options["timeout"] = timeout
+    if cwd is not None:
+        options["cwd"] = cwd
     while True:
-        code, out, err = _run_gh(args, input)
+        code, out, err = _run_gh(args, input, **options)
         if code == 0:
             return out
         if TRANSIENT.search(err) and waits:
@@ -672,6 +691,20 @@ def event(kind, root=".", **fields):
                   project=os.path.basename(os.path.abspath(root)), **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+    progress = {"answered": "requeued on a reply", "merged": "merged", "parked": "parked"}.get(kind)
+    if (kind == "step" and fields.get("step") == "review" and fields.get("phase") == "end"
+            and fields.get("outcome") not in {None, "parked", "crashed"}):
+        progress = "review: " + fields["outcome"].upper()
+    if progress and "issue" in fields:
+        # Workers write stdout to build logs; progress also belongs in the supervisor's log.
+        with open(os.path.join(folder, "loop.out"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s %s\n" % (fields["issue"], progress))
+
+
+def named_test_paths(text):
+    """Test paths mentioned in text, using the same definition as the merge checks."""
+    import merge
+    return sorted({p for p in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(p)})
 
 
 def park(issue, question, recommendation, project="."):
@@ -697,9 +730,12 @@ def park(issue, question, recommendation, project="."):
     event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
+    warning = ("No test path was named in the question, so a yes cannot grant one.\n\n"
+               if re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I)
+               and not named_test_paths(question) else "")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
-       input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
-             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))
+       input="## Needs you\n\n%s\n\nRecommended: %s\n\n%sReply on this issue; "
+             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, warning, MARKER))
 
 
 def _version_key(text):

@@ -21,15 +21,22 @@ LOCKFILES = {
     "gemfile", "pipfile", "composer.json", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
     "podfile.lock", "mix.lock", "pubspec.lock", "flake.lock", "package.resolved",
     "pdm.lock", "deno.lock", "pom.xml", "build.gradle"}
-TEST_NAMES = ("test[ _]*", "*_test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
+TEST_NAMES = ("test[ _]*", "*_test.*", "*_tests.*", "*-test.*", "*_spec.*", "*.test.*", "*.spec.*", "tests.py", "test.py", "conftest.py")
 TEST_DIRS = ("tests", "test", "__tests__", "spec")
-TEST_CLASS = re.compile(r"Tests?\.(java|php|kt|cs)$")  # case matters: Contest.java is source
+TEST_CLASS = re.compile(r"(Tests?\.(java|php|kt|cs|swift)|Spec\.(scala|hs)|(^|/)Test[^/]*\.java)$")  # case matters: Contest.swift is source
 ARTEFACT = re.compile(r"(^|/)__pycache__/|\.(pyc|pyo|class|o)$")  # compiled output is never a test
 BUILD = re.compile(r"(^|/)(node_modules|\.pytest_cache|build|dist|target)/")  # not a test unless named like one
 
 
 AGENT_TRAILER = re.compile(
     r"^\s*co-authored-by:.*(claude|codex|chatgpt|openai|@anthropic\.com|@openai\.com)",
+    re.I)
+AGENT_FOOTER = re.compile(
+    r"^[ \t]*claude-session:|claude\.ai/code/" + r"session_"
+    r"|generated (with|by) \[claude code\]"
+    r"|^[^a-z0-9]*generated (with|by) claude code[ \t.]*$"
+    # Co-author addresses remain governed by Agent attribution.
+    r"|^(?![ \t]*co-authored-by:).*noreply@anthropic\.com",
     re.I)
 
 
@@ -46,6 +53,7 @@ def squash_body(project, loop, sha, settings):
     for raw in log.split("\0"):
         lines = [l for l in raw.strip().splitlines()
                  if (settings["Agent attribution"] or not AGENT_TRAILER.match(l))
+                 and not AGENT_FOOTER.search(l)
                  and (not sign_off or l.strip().casefold() != sign_off.casefold())]
         if text := "\n".join(lines).strip():
             messages.append(text)

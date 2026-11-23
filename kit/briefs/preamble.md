@@ -18,6 +18,7 @@ The kit's stops also apply. If the work needs one of these, do not guess:
 When one of these stops applies, end your reply with one line by itself,
 at the start of the line,
 `PARK: <question> | <recommended answer>`.
+When a park asks to change a test file, you must name its path in the question.
 
 Write as the project does: follow the language and writing rules in AGENTS.md
 in code comments, commits and your reply.

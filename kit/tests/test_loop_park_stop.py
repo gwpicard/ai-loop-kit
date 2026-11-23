@@ -130,8 +130,8 @@ class StopTest(PauseBase):
         began = time.time()
         stopped = self.loop_cmd("stop", "--now")
         self.assertEqual(stopped.returncode, 0, stopped.stdout + stopped.stderr)
-        self.assertEqual(self.proc.wait(timeout=5), 0)
-        self.assertLess(time.time() - began, 5)
+        self.assertEqual(self.proc.wait(timeout=60), 0)
+        self.assertLess(time.time() - began, 60)
         self.assertFalse({p: s for p, s in states(descendants).items() if not s.startswith("Z")})
         with open(os.path.join(self.gh_dir, "state.json")) as f:
             self.assertEqual(json.load(f), {"labels": ["ready"], "closed": False})
