@@ -86,9 +86,15 @@ def after_merge(issue, report, review, commit, files, pr, post=True, earlier=(),
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
 
-def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=(), shape_note=""):
+def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=(), shape_note="",
+                     selection=""):
     """after_merge that never undoes a merge: any error is logged."""
     try:
+        selection = next((e.get("test_selection", "") for e in reversed(merge.status.read_events(project))
+                          if e.get("kind") == "merged" and e.get("issue") == issue
+                          and e.get("commit") == commit), selection)
+        if selection:
+            shape_note += "\nTest selection:\n" + selection + "\n"
         after_merge(issue, report, review, commit, files, pr, post, earlier, shape_note)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
@@ -458,7 +464,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                 except common.LoopError:
                     pr = None
                 note_after_merge(issue, project, report, review, result.commit, landed.files, pr,
-                                 earlier=earlier, shape_note=shape_note)
+                                 earlier=earlier, shape_note=shape_note, selection=tails[0] if tails else "")
                 return Result("merged", result.reason)
             elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,
