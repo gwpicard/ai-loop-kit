@@ -172,6 +172,10 @@ def snapshot(st):
         say("refused: no Factory issue to write the board on\nnext: run setup")
     st["closed"] = {i["number"] for i in listing("closed", "number")}
     st["prs"] = []
+    if st.get("branch") is not None:
+        found = json.loads(gh(["pr", "list", "--head", st["branch"], "--base", common.default_branch(st["project"]),
+                               "--state", "open", "--json", "url"]))
+        st["pr"] = (found or [{}])[0].get("url")
     try:
         pulls = json.loads(gh(["pr", "list", "--state", "all", "--limit", "500", "--json",
                                "number,baseRefName,state,closingIssuesReferences"]) or "[]")
@@ -906,6 +910,7 @@ def run(project):
                         settings_error = str(e)
                 cap = (3 * settings["Session minutes"] + 30) * 60
                 common.restore_loop_branch(project, settings["Loop branch"])
+                st.update(branch=settings["Loop branch"], project=project)
                 snapshot(st)
                 st["reaped"] = set()
                 reap(project, st, cap)
@@ -1074,6 +1079,8 @@ def main(argv):
             return 2
         running, builds = status.build_state(project, alive)
         print(status.render(status.read_events(project), now, since, running, builds, as_json=as_json))
+        if not as_json:
+            print(status.open_parks(project))
         return 0
     if cmd == "stop":
         if argv not in (["stop"], ["stop", "--now"]):
