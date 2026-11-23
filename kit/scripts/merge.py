@@ -71,13 +71,16 @@ def parse_verdict(text):
     """Return (verdict, head) from the last VERDICT block, or (None, None)."""
     lines = text.splitlines()
     for i in range(len(lines) - 1, -1, -1):
-        m = re.match(r"[\s*`]*VERDICT:[\s*`]*(\w+)([\s*`.,;:!]*)(.*)$", lines[i])
-        if m:
+        header = re.match(r"[\s*`]*VERDICT[*`]*:", lines[i])
+        if header:
+            m = re.match(r"[\s*`]*(\w+)([\s*`.,;:!]*)(.*)$", lines[i][header.end():])
+            if not m:
+                return None, None
             # Trailing words after the verdict word: a non-APPROVE verdict stands, an APPROVE does not.
             if m.group(3).strip("*` ") and m.group(1).upper() == "APPROVE":
                 return "UNCLEAR", None
             for line in lines[i + 1:i + 4]:
-                h = re.match(r"[\s*`]*HEAD:[\s*`]*([0-9a-fA-F]{7,40})[\s*`]*$", line)
+                h = re.match(r"[\s*`]*HEAD[*`]*:[\s*`]*([0-9a-fA-F]{7,40})[\s*`.,;:!]*$", line)
                 if h:
                     return m.group(1).upper(), h.group(1).lower()
             return m.group(1).upper(), None

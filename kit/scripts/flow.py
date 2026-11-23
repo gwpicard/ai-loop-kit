@@ -21,11 +21,21 @@ class Parked(Exception):
 
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
-    blocks = re.findall(r"^[\s*`]*%s:[*`]*[^\S\n]*\n(?:[^\S\n]*\n)*((?:(?![\s*`]*[A-Z-]+:)[^\S\n]*\S.*\n?)*)" % name, text, re.M)
-    items = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", l).strip()
-             for l in blocks[-1].splitlines()] if blocks else []
+    headers = list(re.finditer(r"^[ \t*`]*" + re.escape(name) + r"[*`]*:[*`]*[ \t]*$", text, re.M))
+    if not headers:
+        return []
+    items = []
+    for line in text[headers[-1].end():].splitlines():
+        if re.match(r"^[ \t*`]*[A-Z]+(?:[ -][A-Z]+)*[*`]*:", line) and "|" not in line:
+            break
+        if not line.strip():
+            if items:
+                break
+            continue
+        item = re.sub(r"^\s*[-*]\s+", "", line).strip()
+        items.append(re.sub(r"^\d+[.)]\s+", "", item))
     if name == "TESTS":
-        items = [re.sub(r"^`([^`]+)`.*", r"\1", i).strip("` ") for i in items]
+        items = [re.sub(r"^`([^`]+)`.*", r"\1", i.strip("* ")).strip("` ") for i in items]
     return [i for i in items if i]
 
 
