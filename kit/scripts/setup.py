@@ -1,5 +1,5 @@
 """Set up a project for the loop and migrate older settings. Safe to run again."""
-import argparse, json, os, pathlib, re, sys, time
+import argparse, json, os, pathlib, re, sys, tempfile, time
 import common, merge
 from common import LoopError, gh, git
 
@@ -87,13 +87,32 @@ def migrate_issue_paths(project, dry_run=False):
     return changed
 
 
-def migrate_plan(project, dry_run=False):
+def migrate_plan(project, dry_run=False, branch="loop/main"):
     """Preserve every non-empty section of PLAN.md in one inbox issue."""
     path = pathlib.Path(project, "PLAN.md")
     log = pathlib.Path(project, ".loop/migrations.log")
     title = "Find a home for the contents of PLAN.md"
-    if not path.exists() or log.exists() and title in log.read_text(encoding="utf-8"):
+    if log.exists() and title in log.read_text(encoding="utf-8"):
         return False
+    text, source = None, None
+    ref = "refs/heads/" + branch
+    if git(["ls-remote", "--heads", "origin", ref], cwd=project):
+        # Keep previews read-only, including the checkout's remote-tracking refs.
+        remote = git(["remote", "get-url", "origin"], cwd=project)
+        if os.path.exists(os.path.join(project, remote)):
+            remote = os.path.abspath(os.path.join(project, remote))
+        with tempfile.TemporaryDirectory(prefix="loop-plan-") as scratch:
+            git(["init", "--bare", scratch], cwd=project)
+            git(["fetch", "--depth=1", remote, ref], cwd=scratch)
+            if git(["ls-tree", "--name-only", "FETCH_HEAD", "--", "PLAN.md"], cwd=scratch):
+                text = git(["show", "FETCH_HEAD:PLAN.md"], cwd=scratch)
+                source = "origin/" + branch
+    if text is None:
+        if not path.exists():
+            return False
+        text = path.read_text(encoding="utf-8")
+        source = "checkout " + git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project)
+    print("PLAN.md: read from " + source, flush=True)
     homes = {
         "decisions": "Move to AGENTS.md when every agent needs the decision and no check can enforce it.",
         "product rules": "Move to AGENTS.md when every agent needs the rule and no check can enforce it.",
@@ -103,7 +122,6 @@ def migrate_plan(project, dry_run=False):
         "deviations": "Drop these notes; git keeps them.",
         "try it": "Move the steps to README.md and include them in each issue's hands-on check when needed.",
     }
-    text = path.read_text(encoding="utf-8")
     sections = re.split(r"^##[ \t]+(.+?)[ \t]*$", text, flags=re.M)
     body = "Decide where these contents belong. PLAN.md is unchanged.\n"
     intro = re.sub(r"\A\s*# [^\n]*\n", "", sections[0]).strip()
@@ -251,7 +269,7 @@ def setup(project=".", dry_run=False):
         change(project, "label " + name, "remove label " + name,
                lambda: gh(["label", "create", name, "--color", LABELS[name]]), dry_run)
         changes.append("label " + name)
-    if migrate_plan(project, dry_run):
+    if migrate_plan(project, dry_run, branch):
         changes.append("plan contents inbox issue")
     if migrate_issue_paths(project, dry_run):
         changes.append("protected paths issue headings")
