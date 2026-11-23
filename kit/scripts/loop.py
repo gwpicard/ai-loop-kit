@@ -155,7 +155,7 @@ def write_board(project, st, doing=None):
         st["factory"]["body"] = body
 
 
-def snapshot(st, branch=None, project="."):
+def snapshot(st):
     listing = lambda state, fields: json.loads(gh(
         ["issue", "list", "--state", state, "--limit", "500", "--json", fields]))
     opened = listing("open", "number,title,body,labels,updatedAt,milestone")
@@ -166,8 +166,8 @@ def snapshot(st, branch=None, project="."):
         say("refused: no Factory issue to write the board on\nnext: run setup")
     st["closed"] = {i["number"] for i in listing("closed", "number")}
     st["prs"] = []
-    if branch is not None:
-        found = json.loads(gh(["pr", "list", "--head", branch, "--base", common.default_branch(project),
+    if st.get("branch") is not None:
+        found = json.loads(gh(["pr", "list", "--head", st["branch"], "--base", common.default_branch(st["project"]),
                                "--state", "open", "--json", "url"]))
         st["pr"] = (found or [{}])[0].get("url")
     try:
@@ -903,7 +903,8 @@ def run(project):
                         settings_error = str(e)
                 cap = (3 * settings["Session minutes"] + 30) * 60
                 common.restore_loop_branch(project, settings["Loop branch"])
-                snapshot(st, settings["Loop branch"], project)
+                st.update(branch=settings["Loop branch"], project=project)
+                snapshot(st)
                 st["reaped"] = set()
                 reap(project, st, cap)
                 passed = st.pop("pass_reaped", None)
