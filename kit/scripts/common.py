@@ -700,6 +700,12 @@ def event(kind, root=".", **fields):
             f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s %s\n" % (fields["issue"], progress))
 
 
+def named_test_paths(text):
+    """Test paths mentioned in text, using the same definition as the merge checks."""
+    import merge
+    return sorted({p for p in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(p)})
+
+
 def park(issue, question, recommendation, project="."):
     """Hand an issue to the person: label needs-user, drop building, comment."""
     rule = None
@@ -723,9 +729,12 @@ def park(issue, question, recommendation, project="."):
     event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
+    warning = ("No test path was named in the question, so a yes cannot grant one.\n\n"
+               if re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I)
+               and not named_test_paths(question) else "")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
-       input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
-             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))
+       input="## Needs you\n\n%s\n\nRecommended: %s\n\n%sReply on this issue; "
+             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, warning, MARKER))
 
 
 def _version_key(text):
