@@ -223,7 +223,8 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(self.merge.call_args[0][:2], (7, "issue/7"))
         pushed = common.git(["ls-remote", "--heads", self.origin, "issue/7"])
         self.assertIn("refs/heads/issue/7", pushed)
-        self.assertNotIn(".loop-worktrees", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn(os.path.join(os.path.dirname(self.work), ".loop-worktrees"),
+                         common.git(["worktree", "list"], cwd=self.work))
 
     def test_changes_then_approve(self):
         self.build_scenario(reviewer=[CHANGES, APPROVE], builder=[
@@ -287,7 +288,8 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(r.status, "failed")
         self.assertIn("builder session", r.reason)
         self.assertIn("refs/heads/issue/7", common.git(["ls-remote", self.origin, "issue/7"]))
-        self.assertNotIn(".loop-worktrees", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn(os.path.join(os.path.dirname(self.work), ".loop-worktrees"),
+                         common.git(["worktree", "list"], cwd=self.work))
 
     def test_reuses_an_existing_origin_branch(self):
         run_git(["push", "origin", "main:issue/7"], self.work)
@@ -341,7 +343,8 @@ class FlowTest(FakeClaudeGh):
         self.assertEqual(r.status, "parked")
         self.assertIn("conflicts with loop/main in: app.py", r.reason)
         self.assertEqual(roles(self.claude_calls()), ["builder"])
-        self.assertNotIn(".loop-worktrees", common.git(["worktree", "list"], cwd=self.work))
+        self.assertNotIn(os.path.join(os.path.dirname(self.work), ".loop-worktrees"),
+                         common.git(["worktree", "list"], cwd=self.work))
 
     def test_conflict_markers_left_in_a_committed_merge_park(self):
         r = self.conflicted({"files": {"app.py": "<<<<<<< HEAD\nbranch\n=======\nloop\n>>>>>>> origin/loop/main\n"}})

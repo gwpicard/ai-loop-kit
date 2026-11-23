@@ -281,16 +281,31 @@ def _build_tree(issue, project, replies):
         if resume_merged(issue, project, branch, loop):
             return (result := Result("merged", "already merged"))
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
+        local = git(["rev-parse", "--verify", "refs/heads/" + branch], cwd=project, check=False)
+        source = "origin/" + (branch if remote else loop)
+        keep_local = False
+        if local and (not remote or git(["rev-list", source + ".." + local], cwd=project)):
+            if not remote or not git(["rev-list", local + ".." + source], cwd=project):
+                source, keep_local = local, True
+            else:
+                backup = "%s-local-%s" % (branch, time.time_ns())
+                git(["branch", backup, local], cwd=project)
+                folder = os.path.join(project, ".loop")
+                os.makedirs(folder, exist_ok=True)
+                with open(os.path.join(folder, "loop.out"), "a", encoding="utf-8") as f:
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ")
+                            + "kept divergent local branch as " + backup + "\n")
         git(["worktree", "remove", "--force", tree], cwd=project, check=False)
         git(["worktree", "prune"], cwd=project, check=False)
         if os.path.lexists(tree):  # not a worktree of this repository: keep it, out of the way
             os.rename(tree, "%s.stale-%s" % (tree, time.strftime("%Y%m%d-%H%M%S")))
-        git(["worktree", "add", "-B", branch, tree,
-             "origin/" + (branch if remote else loop)], cwd=project)
+        git(["worktree", "add", "-B", branch, tree, source], cwd=project)
+        if keep_local:
+            git(["push", "origin", branch], cwd=tree)
         if settings["Prepare command"] and (why := merge.run_in("Prepare", settings["Prepare command"], tree, "the worktree", 20)):
             raise common.LoopError(why)
         conflicts = []
-        if remote:  # the reused branch lacks what the loop branch gained since
+        if remote or keep_local:  # the reused branch lacks what the loop branch gained since
             try:
                 git(["merge", "--no-edit", "origin/" + loop], cwd=tree)
             except common.GitError:  # the merge stays open for the builder to finish
@@ -299,6 +314,13 @@ def _build_tree(issue, project, replies):
                     raise
         return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
+        try:
+            remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
+            base = "origin/" + (branch if remote else loop)
+            if git(["rev-list", base + "..refs/heads/" + branch], cwd=project):
+                git(["push", "origin", branch], cwd=project)
+        except common.LoopError as e:
+            return Result("failed", str(e))
         common.park(issue, *p.args, project=project)
         return Result("parked", p.args[0])
     except common.LoopError as e:
@@ -393,7 +415,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_module(p)
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
-            elif not (failed := tests("fails-first", start, common.files_command(settings, locked), 60, rnd=attempt,
+            elif not (failed := tests("fails-first", baseline, common.files_command(settings, locked), 60, rnd=attempt,
                                                 overlay=(tree, locked), prepare=settings["Prepare command"],
                                                 kinds=(kinds := []))):
                 why = "Your tests pass before any code exists. Make them fail for the right reason."

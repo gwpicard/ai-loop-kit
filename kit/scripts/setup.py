@@ -147,7 +147,7 @@ def migrate_plan(project, dry_run=False, branch="loop/main"):
             number = url.strip().rsplit("/", 1)[-1]
         change(project, title, "close inbox issue " + number + "; PLAN.md was left unchanged",
                lambda: None)
-    return True
+    return True if dry_run else number
 
 
 def migrate_settings(project, dry_run=False):
@@ -166,7 +166,11 @@ def migrate_settings(project, dry_run=False):
         if found.get(old) and not found.get(role):
             found[role] = "claude " + found[old]
     for prefix in ("Builder", "Reviewer"):
-        found.pop(prefix + " model", None)
+        old = prefix + " model"
+        if old in found:
+            print("notice: removed legacy setting %s; role settings now select the agent and model" % old,
+                  flush=True)
+            found.pop(old)
     for key in common.LIST_SETTINGS & found.keys():
         found[key] = [p.strip() for p in found[key].split(",") if p.strip()]
     for key in common.NUMERIC_SETTINGS & found.keys():
@@ -217,10 +221,16 @@ def missing(project, settings):
 def setup(project=".", dry_run=False):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
-    counts = {}
+    counts, plan_references = {}, []
+    agents_need_migration = False
     for name in ("AGENTS.md", "CLAUDE.md"):
         path = pathlib.Path(project, name)
         lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        plan_references.extend((name, line) for line in lines if "PLAN.md" in line)
+        if name == "AGENTS.md" and any(line.strip().lower() == "## loop" for line in lines):
+            agents_need_migration = (not pathlib.Path(project, "loop.json").exists() or
+                                    any(key == "Defect rounds" for _, key, _ in
+                                        common.setting_lines("\n".join(lines))))
         counts[name] = sum(len(line.split()) for line in lines
                            if not (name == "CLAUDE.md" and line.strip() == "@AGENTS.md"))
     if sum(counts.values()) > 1500:
@@ -234,6 +244,9 @@ def setup(project=".", dry_run=False):
     if refusal:
         say(refusal)
         return 1
+    if not dry_run and agents_need_migration and git(
+            ["--no-optional-locks", "status", "--porcelain", "--", "AGENTS.md"], cwd=project):
+        say("warning: AGENTS.md has uncommitted changes; migration uses those changes, not just the committed version")
     for version, migrate in MIGRATIONS:
         if migrate(project, dry_run):
             changes.append("migration " + version)
@@ -269,7 +282,8 @@ def setup(project=".", dry_run=False):
         change(project, "label " + name, "remove label " + name,
                lambda: gh(["label", "create", name, "--color", LABELS[name]]), dry_run)
         changes.append("label " + name)
-    if migrate_plan(project, dry_run, branch):
+    plan_issue = migrate_plan(project, dry_run, branch)
+    if plan_issue:
         changes.append("plan contents inbox issue")
     if migrate_issue_paths(project, dry_run):
         changes.append("protected paths issue headings")
@@ -316,6 +330,15 @@ def setup(project=".", dry_run=False):
     say("optional: " + ("; ".join("%s: %s" % (k, settings[k]) for k in ("Test files command", "Prepare command", "Check command", "Smoke command") if settings[k]) or "no Check or Smoke command set") + "; Session minutes: %g; Parallel: %d" % (settings["Session minutes"], settings["Parallel"]))
     say("advice: protect %s on GitHub (Settings, Branches) so only a pull request changes it" % base)
     say("summary: %d change(s), preflight %s" % (len(changes), "failed" if failure else "passed"))
+    if plan_issue:
+        say("next: place PLAN.md's contents using inbox issue %s before restarting the loop" % plan_issue)
+    for name, line in plan_references:
+        say('next: revise the instruction in %s that still names PLAN.md: "%s"' % (name, line))
+    if migrated is not None or plan_issue or any(c.startswith("migration ") for c in changes):
+        say("next: commit loop.json, AGENTS.md and .gitignore through a pull request into %s; "
+            "include any revised CLAUDE.md instructions" % base)
+        say("next: once the pull request merges, update the checkout with git pull, keeping any other uncommitted work safe")
+        say("next: merge %s into %s before restarting the loop" % (base, branch))
     return 1 if failure else 0
 
 

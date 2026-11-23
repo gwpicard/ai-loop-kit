@@ -345,6 +345,22 @@ def full_suite_due(project, settings):
     return count >= settings["Full suite every"] - 1
 
 
+def failure_report(project, log, branch):
+    """Quote at most 20 failure lines, or the last four lines when none are recognised."""
+    lines = Path(project, log).read_text(encoding="utf-8", errors="replace").splitlines()
+    failures = list(dict.fromkeys(line for line in lines if re.match(
+        r"^(?:FAIL:|ERROR:|FAIL\s+\S+\s+\d+\s+tests?\b)", line)))
+    excerpt = failures[:20] if failures else lines[-4:]
+    report = "\n%s output: %s\n%s" % (
+        branch, log, "\n".join("> " + line for line in excerpt))
+    if len(failures) > 20:
+        report += "\nFurther failures are in the full log."
+    tests = {re.sub(r"^(?:FAIL|ERROR):\s*", "", line).strip()
+             for line in failures if line.startswith(("FAIL:", "ERROR:"))}
+    modules = {line.split()[1] for line in failures if line.startswith("FAIL ")}
+    return report, tests or modules
+
+
 def merge(issue, branch, verdict_text, project="."):
     with common.timed("step", project, issue=issue, step="merge") as end:
         try:
@@ -390,14 +406,23 @@ def _merge(issue, branch, verdict_text, project):
             description = "Test command: full suite (%s)\n%s" % (why, description)
     common.say("Merge tests: " + description.replace("\n", "; "))
     kinds = []
+    log = ".loop/logs/%s-merge.log" % issue
+    baseline_log = ".loop/logs/%s-merge-baseline.log" % issue
     if failure := run_tests(project, sha, command, kinds=kinds,
-                            check=settings["Check command"], prepare=settings["Prepare command"]):
+                            check=settings["Check command"], prepare=settings["Prepare command"],
+                            log=os.path.join(project, log)):
+        report, failures = failure_report(project, log, "Issue branch")
         if full_suite and kinds and kinds[0][0] == "Test":
             if baseline_failure := run_tests(project, "origin/" + loop, settings["Test command"],
-                                            prepare=settings["Prepare command"]):
+                                            prepare=settings["Prepare command"],
+                                            log=os.path.join(project, baseline_log)):
+                baseline_report, baseline_failures = failure_report(project, baseline_log, "Loop branch")
+                comparison = ("Both branches have the same failing tests." if failures and failures == baseline_failures
+                              else "The branches have different failing tests." if failures and baseline_failures
+                              else "No comparable failing test sets were identified in both outputs.")
                 return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
-                               + baseline_failure, park=True)
-        return _refuse("test-command", failure)
+                               + baseline_failure + "\n" + comparison + report + baseline_report, park=True)
+        return _refuse("test-command", failure + report)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):
