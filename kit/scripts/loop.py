@@ -1092,6 +1092,10 @@ def main(argv):
         if problem:  # before the lock is taken
             say("refused: %s\nnext: run %s" % (problem, os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup.py")))
             return 1
+        problem = session.codex_probe(project, settings)
+        if problem:
+            say(problem)
+            return 1
         return run(project)
     except common.LoopError as e:
         say("refused: %s\nnext: run setup, then try again" % e)

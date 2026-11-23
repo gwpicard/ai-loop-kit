@@ -162,8 +162,8 @@ def _codex_hooks():
             'Stop = [{hooks = [%s]}]}' % (hook("guard.py"), hook("stop.py", TEST_TIMEOUT)))
 
 
-def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
-    """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
+def codex_sandbox_config(cwd, env, settings):
+    """Sandbox configuration shared by sessions and the startup probe."""
     common_dir = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
                                 capture_output=True, text=True).stdout.strip()
     # a worktree's .git points into the main checkout, so its commits need that folder writable;
@@ -173,20 +173,53 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
         for name in ("DARWIN_USER_TEMP_DIR", "DARWIN_USER_CACHE_DIR"):
             with contextlib.suppress(OSError):
                 candidates.append(subprocess.run(["getconf", name], capture_output=True, text=True).stdout.strip())
-    with contextlib.suppress(common.SettingsError):
-        candidates += [os.path.expanduser(p) for p in common.build_settings(cwd)["Codex writable roots"]]
+    candidates += [os.path.expanduser(p) for p in settings["Codex writable roots"]]
     folders = []
     for path in candidates:
         path = os.path.realpath(path) if path else ""
         if os.path.isdir(path) and path not in folders:
             folders.append(path)
-    roots = "sandbox_workspace_write.writable_roots=" + json.dumps(folders)
+    return ["-c", 'sandbox_mode="workspace-write"',
+            "-c", "sandbox_workspace_write.writable_roots=" + json.dumps(folders),
+            "-c", "sandbox_workspace_write.network_access=" + str(settings.get("Codex network", False)).lower()]
+
+
+def sandbox_refusal(text):
+    """Whether a diagnostic reports a sandbox permission refusal."""
+    return bool(re.search(r"sandbox", text, re.I) and re.search(
+        r"operation not permitted|permission denied|sandbox[^\n]*(?:blocked|refused|denied)", text, re.I))
+
+
+def codex_probe(project, settings):
+    """Run the targeted test command once without spending a model turn."""
+    import merge
+
+    if not any(settings[role][0] == "codex" for role in common.ROLES):
+        return None
+    files = [p for p in common.git(["ls-files", "-z"], cwd=project).split("\0") if merge.is_test_module(p)]
+    command = common.files_command(settings, files[:1])
+    env = common.build_env()
+    try:
+        p = subprocess.run(["codex", "sandbox"] + codex_sandbox_config(project, env, settings)
+                           + ["--", "sh", "-c", command], cwd=project, env=env,
+                           capture_output=True, text=True, timeout=TEST_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as error:
+        return "Codex sandbox probe failed: %s" % error
+    output = p.stdout + p.stderr
+    if p.returncode and sandbox_refusal("Codex sandbox:\n" + output):
+        return "Codex sandbox refused the test command:\n" + "\n".join(output.splitlines()[-60:])
+    return None
+
+
+def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
+    """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
+    config = codex_sandbox_config(cwd, env, common.build_settings(cwd))
     handle, last = tempfile.mkstemp(prefix="loop-codex-", dir=env.get("TMPDIR"))
     os.close(handle)
     def argv(resume):
         return (["codex", "exec"] + (["resume", resume] if resume else ["-s", "workspace-write"])
-                + ["-m", model, "-c", 'sandbox_mode="workspace-write"', "-c", roots,
-                   "-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
+                + ["-m", model] + config
+                + ["-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
     try:
         while True:
             common.wait_for_memory(project=env["LOOP_PROJECT"], issue=issue)

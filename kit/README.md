@@ -56,8 +56,11 @@ Test command run is slow), `Test files command`, `Prepare command`,
 `Parallel` (default 1).
 `Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings.
 Numeric settings take JSON numbers; `Full suite every` takes an integer of
-at least one. All other settings take strings. Unknown
-keys and values of the wrong type are refused. `Codex writable roots` lists
+at least one. `Codex network` takes a JSON boolean and defaults to false.
+Other settings take strings. Unknown keys and values of the wrong type are
+refused. Set `"Codex network": true` to enable network access in Codex
+sessions when the `Prepare command` fetches packages.
+`Codex writable roots` lists
 further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build

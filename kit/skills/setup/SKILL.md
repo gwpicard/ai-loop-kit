@@ -23,7 +23,11 @@ project root.
    strings for `Protected paths` and `Codex writable roots`, numbers for
    `Parallel`, `Idle hours`, `Max rounds`, `Session minutes` and
    `Full suite every` (an integer of at least one, default four), and strings
-   for the remaining settings.
+   for the remaining settings, except booleans such as `Codex network`.
+
+   For Codex roles, propose `"Codex network": true` when the `Prepare command`
+   fetches packages. It defaults to false and controls network access inside
+   the Codex sandbox.
 2. Tell the person what setup changes on GitHub (the loop labels, the loop
    branch, a pinned `Factory` issue) and ask the person to confirm before you
    run it.
