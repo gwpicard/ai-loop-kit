@@ -691,6 +691,14 @@ def event(kind, root=".", **fields):
                   project=os.path.basename(os.path.abspath(root)), **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+    progress = {"answered": "requeued on a reply", "merged": "merged", "parked": "parked"}.get(kind)
+    if (kind == "step" and fields.get("step") == "review" and fields.get("phase") == "end"
+            and fields.get("outcome") not in {None, "parked", "crashed"}):
+        progress = "review: " + fields["outcome"].upper()
+    if progress and "issue" in fields:
+        # Workers write stdout to build logs; progress also belongs in the supervisor's log.
+        with open(os.path.join(folder, "loop.out"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s %s\n" % (fields["issue"], progress))
 
 
 def named_test_paths(text):
