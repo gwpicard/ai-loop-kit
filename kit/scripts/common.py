@@ -36,6 +36,7 @@ DEFAULTS = {
     "Pass": "claude sonnet",
     "Protected paths": [".github/", ".claude/", ".githooks/", "loop.json", "loop.local.json"],
     "Codex writable roots": [],
+    "Codex network": False,
     "Red-team surfaces": [],
     "Idle hours": 12,
     "Max rounds": 3,
@@ -193,7 +194,9 @@ def codex_refusal(settings):
     if not any(l.split()[:1] == ["hooks"] for l in (ask(["features", "list"]) or "").splitlines()):
         return "%s, but this Codex has no hooks feature, so the guard cannot run" % who
     for args in (["exec"], ["exec", "resume"]):
-        words = re.findall(r"(?<![\w-])-{1,2}[A-Za-z][\w-]*", ask(args + ["--help"]) or "")
+        options = re.findall(r"^\s*(-{1,2}[A-Za-z][\w-]*(?:,\s*--[\w-]+)?)",
+                             ask(args + ["--help"]) or "", re.M)
+        words = re.findall(r"-{1,2}[A-Za-z][\w-]*", "\n".join(options))
         for flag in CODEX_FLAGS:
             if flag not in words and not (flag == "-s" and args[1:]):  # `exec resume` has no -s
                 return "%s, but `codex %s` has no %s flag" % (who, " ".join(args), flag)
@@ -213,7 +216,7 @@ def setting_lines(text):
 
 NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Test minutes", "Full suite every"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
-BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution"}
+BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution", "Codex network"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
 
 

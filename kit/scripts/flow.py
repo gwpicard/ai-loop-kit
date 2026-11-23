@@ -457,6 +457,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                         + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
                            if fixes else ""))
         verdict, _ = merge.parse_verdict(review)
+        if verdict != "APPROVE" and settings["Reviewer"][0] == "codex" and session.sandbox_refusal(review):
+            raise Parked("The Codex sandbox refused the review command.",
+                         "Resolve the sandbox refusal, then retry the review.")
         try:  # the person can follow the fix rounds; a failure to post never stops the build
             post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
         except common.GitHubError as e:
