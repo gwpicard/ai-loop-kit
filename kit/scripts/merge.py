@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 import common
 import status
@@ -14,6 +15,7 @@ from common import gh, git
 
 Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
 TEST_TIMEOUT = 1800
+FAILURE_LINES = 60
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "uv.lock", "cargo.lock", "go.sum", "gemfile.lock", "package.json",
@@ -266,6 +268,15 @@ def full_suite_due(project, settings):
     return count >= settings["Full suite every"] - 1
 
 
+def loop_test_result(project, settings, head):
+    """The latest full Test result for this loop head and command."""
+    for event in reversed(status.read_events(project)):
+        if (event["kind"] == "loop-test" and event.get("branch") == settings["Loop branch"]
+                and event.get("head") == head and event.get("command") == settings["Test command"]
+                and event.get("prepare") == settings["Prepare command"]):
+            return event
+
+
 def merge(issue, branch, verdict_text, project="."):
     with common.timed("step", project, issue=issue, step="merge") as end:
         try:
@@ -300,19 +311,42 @@ def _merge(issue, branch, verdict_text, project):
                        "workflow" if stop.startswith("workflow file") else
                        "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
     locked = locked_paths(info.get("comments", []))
+    loop_head = git(["rev-parse", "origin/" + loop], cwd=project)
+    saved = loop_test_result(project, settings, loop_head)
+    waiting = saved is not None and saved.get("outcome") == "fail"
     # Without the writer's test list, changed files alone may miss the issue's tests.
-    full_suite = not any(is_test_module(path) for path in locked) or full_suite_due(project, settings)
+    full_suite = not waiting and (not any(is_test_module(path) for path in locked)
+                                 or full_suite_due(project, settings))
     command = settings["Test command"] if full_suite else targeted_command(
         settings, project, "origin/" + loop, locked, sha)[0]
+    if waiting and "{files}" not in settings["Test files command"]:
+        command = ""  # no targeted command is available; the full run must wait
     kinds = []
-    if failure := run_tests(project, sha, command, kinds=kinds,
+    if failure := run_tests(project, sha, command, tail=FAILURE_LINES, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"]):
         if full_suite and kinds and kinds[0][0] == "Test":
-            if baseline_failure := run_tests(project, "origin/" + loop, settings["Test command"],
-                                            prepare=settings["Prepare command"]):
+            if saved is None:
+                baseline_kinds = []
+                baseline_failure = run_tests(project, loop_head, settings["Test command"],
+                                             tail=FAILURE_LINES, kinds=baseline_kinds,
+                                             prepare=settings["Prepare command"])
+                if not baseline_failure or baseline_kinds == [("Test", "failed")]:
+                    common.event("loop-test", project, branch=loop, head=loop_head,
+                                 command=settings["Test command"], prepare=settings["Prepare command"],
+                                 outcome="fail" if baseline_failure else "pass", reason=baseline_failure)
+            else:
+                baseline_failure = saved.get("reason")
+            if baseline_failure:
                 return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
                                + baseline_failure, park=True)
         return _refuse("test-command", failure)
+    if waiting:
+        reason = "waiting for loop branch %s at failing head %s to pass" % (loop, loop_head[:10])
+        line = "#%s: %s" % (issue, reason)
+        common.say(line)
+        with open(os.path.join(project, ".loop", "loop.out"), "a") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+        return _refuse("loop-head-failed", reason)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):

@@ -166,7 +166,7 @@ def revert_check(issue, project, tree, head, settings, locked, body):
     return "\n".join(listed) + "\n" if listed else ""
 
 
-Landed = collections.namedtuple("Landed", "result conflicts head review files")
+Landed = collections.namedtuple("Landed", "result conflicts head review files loop_head", defaults=(None,))
 
 
 def land(issue, branch, review, project, tree, settings):
@@ -176,6 +176,15 @@ def land(issue, branch, review, project, tree, settings):
     common.say("#%s: merging" % issue)
     with common.timed("step", project, issue=issue, step="merge") as end:
         landed = _land(issue, branch, review, project, tree, settings)
+        while landed.result and landed.result.rule == "loop-head-failed":
+            # Release the merge lock while waiting for the loop branch to change.
+            while True:
+                common.sleep(60)
+                git(["fetch", "--no-prune", "origin"], cwd=project)
+                current = git(["rev-parse", "origin/" + settings["Loop branch"]], cwd=project)
+                if current != landed.loop_head:
+                    break
+            landed = _land(issue, branch, landed.review, project, tree, settings)
         end.clear()
         if landed.conflicts:
             end["outcome"] = "conflict"
@@ -212,7 +221,7 @@ def _land(issue, branch, review, project, tree, settings):
             git(["fetch", "--no-prune", "origin"], cwd=project)
             if git(["rev-parse", "origin/" + loop], cwd=project) == based:
                 break
-    return Landed(result, [], head, review, files)
+    return Landed(result, [], head, review, files, based)
 
 
 def brief(role):
@@ -440,6 +449,8 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                 return Result("merged", result.reason)
             elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,
+                             "Fix the loop branch, then reply once it passes so the issue retries."
+                             if "already on the loop branch" in result.reason else
                              "Name the path in the issue body if the change is "
                              "intended, otherwise tell the loop what to change.")
             else:

@@ -152,10 +152,16 @@ runs the full suite if the issue has no posted list of locked test modules.
 
 Merge events record whether the full suite ran. The merge gate reads that
 history after a restart and resets the count after a successful full merge
-run or drain. If a due full suite fails, it runs once on the loop branch
-head. A failure there parks the issue as already present on the loop branch;
-otherwise the issue returns to its builder. The drain always runs the full
-suite before the pass and final pull request. A regression outside the
+run or drain. If a due full suite fails, it checks the loop branch head,
+reusing a saved full Test result for that head and command when available.
+A failure there parks the issue with up to 60 output lines from each failed
+command and a recommendation to fix the loop branch; otherwise the issue
+returns to its builder.
+
+Later merges on that failing head run targeted tests and the Check command.
+When those pass, they wait for the head to change without parking or running
+another full suite. A changed head follows the usual cadence. The drain
+always runs the full suite before the pass and final pull request. A regression outside the
 targeted tests may reach the loop branch before the next full run finds it.
 
 The fails-first step runs the locked tests. The builder's Stop hook runs
