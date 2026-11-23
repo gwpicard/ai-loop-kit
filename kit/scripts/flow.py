@@ -24,7 +24,7 @@ def push_issue(branch, tree):
     git(["fetch", "--no-prune", "origin"], cwd=tree)
     remote = "origin/" + branch
     if git(["branch", "-r", "--list", remote], cwd=tree):
-        missing = git(["log", "--format=%H %s", "HEAD.." + remote], cwd=tree)
+        missing = git(["log", "--format=%H %s", branch + ".." + remote], cwd=tree)
         if missing:
             raise Parked("The branch history was rewritten on %s. Remote commits missing locally:\n%s"
                          % (branch, missing),
@@ -314,7 +314,7 @@ def _build_tree(issue, project, replies):
             os.rename(tree, "%s.stale-%s" % (tree, time.strftime("%Y%m%d-%H%M%S")))
         git(["worktree", "add", "-B", branch, tree, source], cwd=project)
         if keep_local:
-            git(["push", "origin", branch], cwd=tree)
+            push_issue(branch, tree)
         if settings["Prepare command"] and (why := merge.run_in("Prepare", settings["Prepare command"], tree, "the worktree", 20)):
             raise common.LoopError(why)
         conflicts = []
@@ -331,7 +331,9 @@ def _build_tree(issue, project, replies):
             remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
             base = "origin/" + (branch if remote else loop)
             if git(["rev-list", base + "..refs/heads/" + branch], cwd=project):
-                git(["push", "origin", branch], cwd=project)
+                push_issue(branch, project)
+        except Parked as history:
+            p = history
         except common.LoopError as e:
             return Result("failed", str(e))
         common.park(issue, *p.args, project=project)
