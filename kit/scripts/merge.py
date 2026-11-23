@@ -156,7 +156,7 @@ def stop_reason(path, protected, project=".", ref=None):
 
 
 def test_imports(path, text):
-    """Dotted import names, including the modules named by from imports."""
+    """Dotted import names, including from imports and ancestor packages."""
     names = set()
     for node in ast.walk(ast.parse(text, filename=path)):
         if isinstance(node, ast.Import):
@@ -170,7 +170,9 @@ def test_imports(path, text):
                 names.add(prefix)
             names.update(".".join(filter(None, (prefix, alias.name)))
                          for alias in node.names if alias.name != "*")
-    return names
+    # Importing a submodule executes each ancestor package's initialiser.
+    return {".".join(name.split(".")[:i]) for name in names
+            for i in range(1, name.count(".") + 2)}
 
 
 def importing_tests(cwd, changed, selected, head=None):
