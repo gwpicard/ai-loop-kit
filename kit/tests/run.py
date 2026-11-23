@@ -85,8 +85,10 @@ def run_job(job):
     module, ids = job
     # Test modules may import the kit's scripts without importing helpers first.
     # The path is set in the child only, so the hooks the tests start do not inherit it.
-    code =("import sys, unittest; sys.path.insert(0, %r); "
-            "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
+    code =("import faulthandler, signal, sys, unittest; "
+            "faulthandler.enable(); faulthandler.register(signal.SIGUSR1, all_threads=True); "
+            "sys.path.insert(0, %r); "
+            "unittest.main(module=None, argv=['unittest'] + sys.argv[1:], verbosity=2)"
             % os.path.join(ROOT, "kit", "scripts"))
     # Drop the enclosing agent and project: tests choose their own guard mode,
     # disk-check volumes and event folders.
@@ -96,9 +98,16 @@ def run_job(job):
     try:
         out, err = p.communicate(timeout=JOB_TIMEOUT)
     except subprocess.TimeoutExpired:
-        kill_group(p.pid)
-        p.communicate()
-        return module, 1, 0, "%s: a test process ran longer than %d seconds and was killed\n" % (module, JOB_TIMEOUT)
+        try:
+            os.kill(p.pid, signal.SIGUSR1)
+        except ProcessLookupError:
+            pass
+        try:
+            out, err = p.communicate(timeout=1)  # let faulthandler write before killing the group
+        except subprocess.TimeoutExpired:
+            kill_group(p.pid)
+            out, err = p.communicate()
+        return module, 1, 0, "%s: hung after %g seconds\n%s%s" % (module, JOB_TIMEOUT, err, out)
     finally:
         kill_group(p.pid)  # nothing the tests started outlives them
         GROUPS.discard(p.pid)
