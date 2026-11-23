@@ -115,6 +115,10 @@ def progress_rows(st):
 
 
 def write_board(project, st, doing=None):
+    if not st["factory"]:
+        found = json.loads(gh(["issue", "list", "--state", "open", "--search", "Factory in:title",
+                               "--limit", "500", "--json", "number,title,body"]))
+        st["factory"] = next((i for i in found if i["title"] == "Factory"), None)
     of = lambda label: sorted((i for i in st["issues"] if label in i["labels"]),
                               key=lambda x: x["number"])
     row = lambda i, text: "- #%d %s: %s" % (i["number"], i["title"], text)
