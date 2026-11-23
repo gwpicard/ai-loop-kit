@@ -352,7 +352,10 @@ def failure_report(project, log, branch):
         branch, log, "\n".join("> " + line for line in excerpt))
     if len(failures) > 20:
         report += "\nFurther failures are in the full log."
-    return report, set(failures)
+    tests = {re.sub(r"^(?:FAIL|ERROR):\s*", "", line).strip()
+             for line in failures if line.startswith(("FAIL:", "ERROR:"))}
+    modules = {line.split()[1] for line in failures if line.startswith("FAIL ")}
+    return report, tests or modules
 
 
 def merge(issue, branch, verdict_text, project="."):
