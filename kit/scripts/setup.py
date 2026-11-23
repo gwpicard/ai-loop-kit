@@ -222,13 +222,15 @@ def setup(project=".", dry_run=False):
     """Run every step. Return the exit code; print one line per step."""
     changes, say = [], lambda line: print(line, flush=True)
     counts, plan_references = {}, []
-    agents_had_changes = False
+    agents_need_migration = False
     for name in ("AGENTS.md", "CLAUDE.md"):
         path = pathlib.Path(project, name)
         lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
         plan_references.extend((name, line) for line in lines if "PLAN.md" in line)
         if name == "AGENTS.md" and any(line.strip().lower() == "## loop" for line in lines):
-            agents_had_changes = bool(git(["status", "--porcelain", "--", name], cwd=project))
+            agents_need_migration = (not pathlib.Path(project, "loop.json").exists() or
+                                    any(key == "Defect rounds" for _, key, _ in
+                                        common.setting_lines("\n".join(lines))))
         counts[name] = sum(len(line.split()) for line in lines
                            if not (name == "CLAUDE.md" and line.strip() == "@AGENTS.md"))
     if sum(counts.values()) > 1500:
@@ -242,7 +244,8 @@ def setup(project=".", dry_run=False):
     if refusal:
         say(refusal)
         return 1
-    if agents_had_changes:
+    if not dry_run and agents_need_migration and git(
+            ["--no-optional-locks", "status", "--porcelain", "--", "AGENTS.md"], cwd=project):
         say("warning: AGENTS.md has uncommitted changes; migration uses those changes, not just the committed version")
     for version, migrate in MIGRATIONS:
         if migrate(project, dry_run):
