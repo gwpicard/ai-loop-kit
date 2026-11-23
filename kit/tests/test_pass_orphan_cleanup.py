@@ -21,7 +21,9 @@ class PassOrphanCleanupTest(fixes.BackgroundPassFixture):
                    "\"import time; time.sleep(30)\"], stdin=subprocess.DEVNULL, "
                    "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
                    "pathlib.Path(%r).write_text(str(p.pid)); "
-                   "pathlib.Path(%r).write_text(str(os.getpid())); "
+                   "leader = pathlib.Path(%r); "
+                   "leader.with_suffix('.tmp').write_text(str(os.getpid())); "
+                   "leader.with_suffix('.tmp').replace(leader); "
                    "%s" % (str(self.runtime / "hook-pid"), str(self.runtime / "leader-pid"),
                             "os._exit(0)" if completed else "time.sleep(30)"))
         self.agent(
