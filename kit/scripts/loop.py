@@ -696,7 +696,7 @@ def _drain(project, settings, st):
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
-                            prepare=settings["Prepare command"], full_suite=True)
+                            prepare=settings["Prepare command"])
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
@@ -990,10 +990,10 @@ def check(project):
         test, description = merge.targeted_command(
             settings, project, os.environ.get("LOOP_START"),
             os.environ.get("LOOP_LOCKED", "").splitlines())
-        for command in (test, settings["Check command"]):
+        for name, command in (("Test", test), ("Check", settings["Check command"])):
             if not command:
                 continue
-            code, output = common.run_shell(command, project, merge.TEST_TIMEOUT,
+            code, output = common.run_shell(command, project, merge.command_timeout(name, project),
                                             record=os.environ.get("LOOP_GROUPS"))
             if code != 0:
                 print("failed: %s%s" % (command, " (timed out)" if code is None else ""))
@@ -1073,14 +1073,6 @@ def main(argv):
         say("usage: loop.py run|stop|pause|resume|check|check-version|report|status [--since <time>]")
         return 2
     try:
-        try:
-            if sys.platform == "darwin":
-                subprocess.run(["taskpolicy", "-b", "-p", str(os.getpid())],
-                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                os.nice(10)
-        except (OSError, subprocess.CalledProcessError):
-            say("could not set background priority; continuing")
         if sys.platform == "darwin" and shutil.which("caffeinate"):
             subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
         settings = common.read_settings(project)

@@ -24,7 +24,7 @@ POLICY = '''#!PYTHON
 import os, pathlib, sys
 args = sys.argv[1:]
 priority = 'background' if '-b' in args else 'normal'
-if '-p' in args:
+if args[1:2] == ['-p']:
     pid = args[args.index('-p') + 1]
     pathlib.Path(os.environ['PRIORITY_STATE'], pid).write_text(priority)
 else:
@@ -45,10 +45,11 @@ while pid > 1:
         priority = marker.read_text()
         break
     pid = int(subprocess.check_output(['/bin/ps', '-o', 'ppid=', '-p', str(pid)], text=True))
-role = os.environ.get('LOOP_ROLE', '') if pathlib.Path(sys.argv[0]).name == 'claude' else sys.argv[1]
+is_agent = '-p' in sys.argv
+role = os.environ.get('LOOP_ROLE', '') if is_agent else sys.argv[1]
 with open(os.environ['PRIORITY_TRACE'], 'a') as output:
     output.write(json.dumps([role, priority]) + '\\n')
-if pathlib.Path(sys.argv[0]).name == 'claude':
+if is_agent:
     sys.stdin.read()
     print(json.dumps({'result': 'done', 'session_id': 'priority-fixture'}))
 '''
@@ -107,23 +108,26 @@ class FullSuitePriorityTimeoutTest(FakeGh):
                 mock.patch.object(loop.setup, 'missing', return_value=None), \
                 mock.patch.object(loop.shutil, 'which', side_effect=lambda name: None if name == 'caffeinate' else which(name)), \
                 mock.patch.object(loop, 'run', side_effect=supervisor), \
+                mock.patch.object(loop, 'say') as say, \
                 mock.patch.object(loop.os, 'getcwd', return_value=self.work):
-            self.assertEqual(loop.main(['run']), 0)
+            self.assertEqual(loop.main(['run']), 0, say.call_args_list)
         records = [json.loads(line) for line in self.trace.read_text().splitlines()]
         full = [priority for name, priority in records if name.startswith('full')]
         self.assertEqual(full, ['normal', 'normal'], records)
         self.assertEqual([priority for name, priority in records
                           if name in ('builder', 'reviewer')], ['background', 'background'], records)
         self.assertEqual([priority for name, priority in records
-                          if name in ('prepare', 'check')], ['background', 'background'], records)
+                          if name in ('prepare', 'check')], ['normal', 'normal'], records)
+        self.assertEqual(len(list(Path(os.environ['PRIORITY_STATE']).iterdir())), 2,
+                         'Only the two sessions may call taskpolicy')
 
-    def test_merge_clears_background_only_for_the_full_test_command(self):
+    def test_merge_background_sessions_leave_commands_at_normal_priority(self):
         def action():
             result = self.merge_candidate()
             self.assertTrue(result.ok, result.reason)
         self.from_background_loop(action)
 
-    def test_drain_clears_background_only_for_the_full_test_command(self):
+    def test_drain_background_sessions_leave_commands_at_normal_priority(self):
         def action():
             state = loop.new_state()
             with mock.patch.object(loop.report, 'render', return_value='Fixture report'), \
@@ -150,7 +154,7 @@ class FullSuitePriorityTimeoutTest(FakeGh):
             shlex.quote(sys.executable), shlex.quote('import time; time.sleep(30)')))
         self.assertRegex(reason.lower(), r'(?:limit|timeout)[^\n]*\b1(?:\.0+)?\s*(?:s\b|seconds?\b)')
         self.assertRegex(reason.lower(), r'elapsed[^\n]*\d+(?:\.\d+)?\s*(?:s\b|seconds?\b)|\d+(?:\.\d+)?\s*(?:s\b|seconds?\b)[^\n]*elapsed')
-        self.assertIn('TEST_TIMEOUT', reason, 'Name the existing control for the merge time limit')
+        self.assertIn('Test minutes', reason, 'Name the setting for the merge time limit')
 
     def test_timeout_refusal_keeps_a_bounded_tail_of_real_output(self):
         for stream, prefix in (('stdout', 'case-a'), ('stderr', 'case-b')):

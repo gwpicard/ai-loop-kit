@@ -8,7 +8,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import time
 
 import common
@@ -200,14 +199,26 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     return None
 
 
-def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None, normal_priority=False):
+def command_timeout(name, project):
+    """Keep the existing command budget; scale the Test budget by its configured minutes."""
+    if name != "Test":
+        return TEST_TIMEOUT
+    try:
+        minutes = common.build_settings(project).get("Test minutes", 30)
+    except common.SettingsError:
+        if os.path.exists(os.path.join(project, "loop.json")):
+            raise
+        minutes = 30  # Standalone command runners need no settings file.
+    return TEST_TIMEOUT * minutes / 30
+
+
+def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None, timeout=None):
     """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`.
     `kinds` collects (name, "timeout", "unrunnable" for exit 126 or 127, or "failed")."""
-    launch = command
-    if normal_priority and sys.platform == "darwin":
-        launch = "taskpolicy -B /bin/sh -c " + shlex.quote(command)
+    if timeout is None:
+        timeout = command_timeout(name, tree)
     started = time.time()
-    code, out = common.run_shell(launch, tree, TEST_TIMEOUT)
+    code, out = common.run_shell(command, tree, timeout)
     if log:
         with open(log, "a") as f:
             f.write("$ %s\n%s%s" % (command, out, "" if out.endswith("\n") or not out else "\n"))
@@ -218,20 +229,20 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
     if code is None:
         elapsed = time.time() - started - common.paused_seconds(common.project_of(tree), started)
         return ("the %s command timed out on %s (limit %s seconds, elapsed %.1f seconds; "
-                "controlled by merge.TEST_TIMEOUT):\n%s" %
-                (name, label, TEST_TIMEOUT, elapsed, "\n".join(out.strip().splitlines()[-TIMEOUT_TAIL:])))
+                "controlled by %s):\n%s" %
+                (name, label, timeout, elapsed, "Test minutes in loop.json" if name == "Test" else "merge.TEST_TIMEOUT",
+                 "\n".join(out.strip().splitlines()[-TIMEOUT_TAIL:])))
     if code != 0:
         return "the %s command failed on %s: %s" % (name, label, "\n".join(out.strip().splitlines()[-tail:]))
     if tails is not None:
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, full_suite=False):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, test_name="Test"):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
     `tails` collects the last line of each passing Test and Check command. `log` is a file
-    that is replaced by the full output of each command that ran; `where` receives the checkout path.
-    `full_suite` clears the inherited macOS background class for Test only."""
+    that is replaced by the full output of each command that ran; `where` receives the checkout path."""
     with common.scratch_tree(project, sha) as tree:
         if where is not None:
             where.append(tree)
@@ -242,11 +253,11 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
             if os.path.isfile(os.path.join(overlay[0], path)):
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
-        for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
+        for name, cmd in (("Prepare", prepare), (test_name, command), ("Check", check)):
             if cmd:
                 common.wait_for_disk(project)
             if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log,
-                                         normal_priority=full_suite and name == "Test")):
+                                         timeout=command_timeout(name, project))):
                 return failure
         return None
 
@@ -318,11 +329,11 @@ def _merge(issue, branch, verdict_text, project):
     command = settings["Test command"] if full_suite else targeted_command(
         settings, project, "origin/" + loop, locked, sha)[0]
     kinds = []
-    if failure := run_tests(project, sha, command, kinds=kinds, full_suite=full_suite,
+    if failure := run_tests(project, sha, command, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"]):
         if full_suite and kinds and kinds[0][0] == "Test":
             if baseline_failure := run_tests(project, "origin/" + loop, settings["Test command"],
-                                            prepare=settings["Prepare command"], full_suite=True):
+                                            prepare=settings["Prepare command"]):
                 return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
                                + baseline_failure, park=True)
         return _refuse("test-command", failure)
