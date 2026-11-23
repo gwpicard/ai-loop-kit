@@ -159,9 +159,13 @@ Step starts and ends, merges and parks also record `load` (the one-minute load
 average) and `pressure` (the macOS memory-pressure level, or null elsewhere
 or when the reading fails).
 
-`<plugin>/bin/loop status` reads only `.loop/` and checks local pids. It shows
+`<plugin>/bin/loop status` reads `.loop/` and checks local pids. It shows
 current activity, merges, parks, crashes, rule counts, stage times, agents and
-models from the last 12 hours, without GitHub or a session. `--since` accepts
+models from the last 12 hours, without a session. Its `Open parks` section
+reads every open `needs-user` issue and its latest park question from GitHub,
+regardless of the time window. If GitHub cannot be read, it reports that the
+section is unavailable. `--json` prints only the local throughput report.
+`--since` accepts
 `YYYY-MM-DD HH:MM`, `HH:MM` (today), or a duration such as `4h` or `90m`.
 Stage totals and medians use steps completed in the window; a merged issue's
 total minutes and review rounds use its full recorded history.
