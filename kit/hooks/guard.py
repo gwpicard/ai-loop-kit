@@ -57,6 +57,9 @@ SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[
 SHELLS = ("sh", "bash", "zsh", "dash")
 RUNNER = re.compile(r"(?:^|[;&|(`\n])\s*(?:\w+=\S+\s+)*(?:(?:\S*/)?env\s+(?:-\S+\s+|\w+=\S+\s+)*)?(?:\S*/)?(?:"
                     + "|".join(SHELLS) + r"|eval|xargs)(?=\s|$)")
+QUOTES = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*")''')
+SHELL_PROGRAM = re.compile(r"\s+(?:(?:--[\w-]+|-[a-zA-Z]+)\s+)*?"
+                           r"-[a-zA-Z]*c[a-zA-Z]*\s+(" + WORD + r")")
 REDIRECT = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*")|\d*>>?(&)?\|?\s*('''
                       + WORD + r")|\btee\s+(" + WORD + r"(?:[ \t]+" + WORD + r")*)")
 
@@ -235,6 +238,12 @@ def check_role_command(command, role, cwd):
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
+    masked = QUOTES.sub(lambda m: "_" * len(m.group()), command)
+    for runner in RUNNER.finditer(masked):
+        if os.path.basename(runner.group().split()[-1]) in SHELLS:
+            program = SHELL_PROGRAM.match(command, runner.end())
+            if program:
+                check_role_command(shlex.split(program.group(1))[0], role, cwd)
     for m in REDIRECT.finditer(command.replace("\\\n", "")):
         if m.group(1):
             expanded = substitutions(m.group(1)) if m.group(1).startswith('"') else ""
