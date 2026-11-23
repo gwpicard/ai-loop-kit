@@ -21,6 +21,7 @@ class Parked(Exception):
 
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
+    text = text.replace("\r\n", "\n")
     headers = list(re.finditer(r"^[ \t*`]*" + re.escape(name) + r"[*`]*:[*`]*[ \t]*$", text, re.M))
     if not headers:
         return []
