@@ -19,6 +19,7 @@ import time
 RETRY_WAITS = (5, 20, 60)
 RATE_LIMIT_CAP = 65 * 60
 TIMEOUT = 120
+STDERR_LINES = 20
 TRANSIENT = re.compile(
     r"HTTP 5\d\d|timed? ?out|connection (reset|refused)|no such host"
     r"|network is unreachable|unexpected EOF", re.I)
@@ -55,7 +56,7 @@ MARKER = "<!-- lite-loop -->"  # on every comment the loop posts; replies lack i
 
 
 class LoopError(Exception):
-    """An expected failure with a one-line message."""
+    """An expected failure with a bounded diagnostic message."""
 
 
 class GitHubError(LoopError):
@@ -315,7 +316,7 @@ def _wait_for_reset():
 
 def gh(args, input=None, retry=True):
     """Run gh and return stdout. Retries 5xx and network failures, waits out
-    a rate limit once, and raises GitHubError with one line otherwise.
+    a rate limit once, and raises GitHubError with the stderr tail otherwise.
     Pass retry=False for a write that is not safe to repeat."""
     waits, limited = list(RETRY_WAITS) if retry else [], not retry
     while True:
@@ -331,7 +332,7 @@ def gh(args, input=None, retry=True):
                 continue
         lines = err.strip().splitlines()
         raise GitHubError("gh %s failed: %s" % (
-            " ".join(args[:2]), lines[0] if lines else "exit %d" % code))
+            " ".join(args[:2]), "\n".join(lines[-STDERR_LINES:]) if lines else "exit %d" % code))
 
 
 def add_label(number, label):
@@ -407,7 +408,7 @@ def git(args, cwd=None, check=True):
     if check and p.returncode != 0:
         lines = p.stderr.strip().splitlines()
         raise GitError("git %s failed: %s" % (
-            " ".join(args[:2]), lines[0] if lines else "exit %d" % p.returncode))
+            " ".join(args[:2]), "\n".join(lines[-STDERR_LINES:]) if lines else "exit %d" % p.returncode))
     return p.stdout.rstrip("\n")
 
 
