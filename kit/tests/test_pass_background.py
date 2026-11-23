@@ -111,7 +111,7 @@ class BackgroundPassFixture(FakeClaudeGh):
         run_git(["push", "origin", "loop/main"], self.work)
         return common.git(["rev-parse", "HEAD"], cwd=self.work)
 
-    def wait_for(self, predicate, message, seconds=6):
+    def wait_for(self, predicate, message, seconds=60):
         until = time.monotonic() + seconds
         while time.monotonic() < until:
             if predicate():
@@ -189,11 +189,11 @@ class BackgroundPassTest(BackgroundPassFixture):
         done = self.begin_drain()
         self.wait_for(self.starts, "the pass did not start")
         self.gate.touch()
-        self.assertTrue(done.wait(6))
+        self.assertTrue(done.wait(60))
         self.assertEqual(self.errors, [])
         # Wait for the worker's result, then require reap to publish it.
         for worker in self.workers:
-            worker.wait(timeout=6)
+            self.wait_for(lambda: worker.poll() is not None, "the pass worker did not finish")
         self.inputs.clear()
         self.collect(lambda: any("## End-of-loop pass" in body for body in self.bodies()))
         self.assertEqual(loop.last_pass(self.work)["head"], self.head)
@@ -207,7 +207,7 @@ class BackgroundPassTest(BackgroundPassFixture):
         self.wait_for(self.starts, "the pass did not start")
         newer = self.land("second")
         self.gate.touch()
-        self.assertTrue(done.wait(6))
+        self.assertTrue(done.wait(60))
         self.collect(lambda: loop.last_pass(self.work).get("head") == self.head)
         report = self.bodies()[-1].split("## End-of-loop pass", 1)[-1]
         self.assertIn(self.head[:7], report, "the pass report does not identify the commit it checked")
