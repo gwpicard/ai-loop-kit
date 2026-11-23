@@ -7,8 +7,10 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shlex
 import shutil
 import subprocess
+import time
 
 import common
 import status
@@ -16,6 +18,7 @@ from common import gh, git
 
 Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
 TEST_TIMEOUT = 1800
+TIMEOUT_TAIL = 60
 TARGETED_MODULE_CAP = 40
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
@@ -275,10 +278,26 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
     return None
 
 
-def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None):
+def command_timeout(name, project):
+    """Keep the existing command budget; scale the Test budget by its configured minutes."""
+    if name != "Test":
+        return TEST_TIMEOUT
+    try:
+        minutes = common.build_settings(project).get("Test minutes", 30)
+    except common.SettingsError:
+        if os.path.exists(os.path.join(project, "loop.json")):
+            raise
+        minutes = 30  # Standalone command runners need no settings file.
+    return TEST_TIMEOUT * minutes / 30
+
+
+def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None, timeout=None):
     """Run one named command in `tree`. Return None or a reason; a pass adds its last line to `tails`.
     `kinds` collects (name, "timeout", "unrunnable" for exit 126 or 127, or "failed")."""
-    code, out = common.run_shell(command, tree, TEST_TIMEOUT)
+    if timeout is None:
+        timeout = command_timeout(name, tree)
+    started = time.time()
+    code, out = common.run_shell(command, tree, timeout)
     if log:
         with open(log, "a") as f:
             f.write("$ %s\n%s%s" % (command, out, "" if out.endswith("\n") or not out else "\n"))
@@ -287,14 +306,18 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None)
     if kinds is not None and code != 0:
         kinds.append((name, "timeout" if code is None else "unrunnable" if code in (126, 127) else "failed"))
     if code is None:
-        return "the %s command timed out on %s" % (name, label)
+        elapsed = time.time() - started - common.paused_seconds(common.project_of(tree), started)
+        return ("the %s command timed out on %s (limit %s seconds, elapsed %.1f seconds; "
+                "controlled by %s):\n%s" %
+                (name, label, timeout, elapsed, "Test minutes in loop.json" if name == "Test" else "merge.TEST_TIMEOUT",
+                 "\n".join(out.strip().splitlines()[-TIMEOUT_TAIL:])))
     if code != 0:
         return "the %s command failed on %s: %s" % (name, label, "\n".join(out.strip().splitlines()[-tail:]))
     if tails is not None:
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, test_name="Test"):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
     `tails` collects the last line of each passing Test and Check command. `log` is a file
@@ -309,10 +332,11 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
             if os.path.isfile(os.path.join(overlay[0], path)):
                 os.makedirs(os.path.dirname(os.path.join(tree, path)), exist_ok=True)
                 shutil.copy(os.path.join(overlay[0], path), os.path.join(tree, path))
-        for name, cmd in (("Prepare", prepare), ("Test", command), ("Check", check)):
+        for name, cmd in (("Prepare", prepare), (test_name, command), ("Check", check)):
             if cmd:
                 common.wait_for_disk(project)
-            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log)):
+            if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log,
+                                         timeout=command_timeout(name, project))):
                 return failure
         return None
 

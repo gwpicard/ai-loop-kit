@@ -51,11 +51,12 @@ Optional keys in the same JSON object: `Loop branch` (default `loop/main`),
 default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
-Test command run is slow), `Test files command`, `Prepare command`,
+Test command run is slow), `Test minutes` (default 30, the Test command time
+limit), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command`, `Full suite every` (default 4) and
 `Parallel` (default 1).
 `Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings.
-Numeric settings take JSON numbers; `Full suite every` takes an integer of
+Numeric settings take JSON numbers; `Full suite every` and `Test minutes` take integers of
 at least one. All other settings take strings. Unknown
 keys and values of the wrong type are refused. `Codex writable roots` lists
 further folders that a Codex session may write to, in addition to the
@@ -114,8 +115,20 @@ reports those that are set; none is required.
 builds one issue at a time. Each build is a separate process in its own
 worktree, so a crash or a hang in one cannot stop the loop or the others.
 
-The loop runs at background priority so builds favour efficiency cores on
-macOS and keep the machine responsive.
+The loop starts agent sessions at background priority so they favour
+efficiency cores on macOS and keep the machine responsive. Every Claude and
+Codex session, including the pass and summary, starts with `taskpolicy -b`
+on macOS when available. Otherwise, the session process uses `os.nice(10)`.
+Commands started by a session inherit its priority. The supervisor stays at
+normal priority, so the Test, Check, Prepare and Smoke commands it schedules
+run at normal priority. The full suite at merge and drain runs at normal
+priority to avoid the slowdown from using efficiency cores alone.
+
+`Test minutes` in `loop.json` sets the Test command time limit at merge,
+drain and targeted checks. It defaults to 30 minutes and takes a whole number
+of at least one. At merge and drain, a timeout refusal reports the limit,
+elapsed time excluding pauses and up to 60 lines from the end of its output.
+Prepare, Check and Smoke commands keep their 30-minute limits.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
