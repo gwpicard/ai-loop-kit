@@ -42,6 +42,7 @@ DEFAULTS = {
     "Max rounds": 3,
     "Full suite every": 4,
     "Session minutes": 45,
+    "Test minutes": 30,
     "Check command": "",
     "Smoke command": "",
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
@@ -213,7 +214,7 @@ def setting_lines(text):
             yield line, m.group(1), m.group(2).replace("`", "").strip()
 
 
-NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Full suite every"}
+NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Test minutes", "Full suite every"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
 BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution", "Codex network"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
@@ -253,7 +254,7 @@ def validate_settings(found, filename, local=False):
             raise SettingsError("%s: wrong type for '%s'" % (filename, key))
         if key in NUMERIC_SETTINGS:
             if not math.isfinite(value) or value < 0 or (
-                    key in {"Parallel", "Max rounds", "Full suite every"} and (value < 1 or value != int(value))):
+                    key in {"Parallel", "Max rounds", "Full suite every", "Test minutes"} and (value < 1 or value != int(value))):
                 raise SettingsError("%s: invalid number for '%s'" % (filename, key))
     if not local and not found.get("Test command"):
         raise SettingsError("%s: missing 'Test command'" % filename)
@@ -284,7 +285,7 @@ def read_settings(root="."):
         settings.update(found)
     for role in ROLES:
         settings[role] = tuple(settings[role].split())
-    for key in ("Max rounds", "Parallel", "Full suite every"):
+    for key in ("Max rounds", "Parallel", "Full suite every", "Test minutes"):
         settings[key] = int(settings[key])
     return settings
 
@@ -596,8 +597,8 @@ def _run_shell(command, cwd, timeout, record=None):
         return p.returncode, out
     except subprocess.TimeoutExpired:
         os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
-        p.communicate()
-        return None, ""
+        out, _ = p.communicate()
+        return None, out
     finally:
         # Pass cleanup also needs groups whose command exited before its children.
         if record and not os.environ.get("LOOP_PASS_GROUPS"):
