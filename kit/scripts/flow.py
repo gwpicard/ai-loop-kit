@@ -27,7 +27,7 @@ def parse_block(text, name="TESTS"):
         return []
     items = []
     for line in text[headers[-1].end():].splitlines():
-        if re.fullmatch(r"[ \t*`]*[A-Z]+(?:[ -][A-Z]+)*[*`]*:[*`]*[ \t]*", line):
+        if re.match(r"[ \t*`]*[A-Z]+(?:[ -][A-Z]+)*[*`]*:", line):
             break
         if not line.strip():
             if items:
