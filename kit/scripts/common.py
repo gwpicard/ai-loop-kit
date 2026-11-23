@@ -457,7 +457,7 @@ def project_of(cwd):
 def paused_seconds(project, since, issue=None):
     """Seconds since `since` that the loop spent paused: finished pauses are listed in `.loop/pauses`
     by `loop resume`, a pause in progress is the `.loop/paused` mark. With `issue`, include its memory
-    waits from `.loop/builds/<issue>.memory`: a start alone is still waiting, a pair is finished."""
+    and loop-head waits: a start alone is still waiting, a pair is finished."""
     now, total = time.time(), 0.0
     if project is None:
         return total
@@ -469,14 +469,15 @@ def paused_seconds(project, since, issue=None):
         with open(os.path.join(project, ".loop", "paused")) as f:
             spans.append((json.load(f)["since"], now))
     if issue is not None:
-        waits = {}
-        with contextlib.suppress(OSError, ValueError):
-            with open(build_file(project, issue, "memory")) as f:
-                for line in f:
-                    values = list(map(float, line.split()))
-                    if values:
-                        waits[values[0]] = values[1] if len(values) > 1 else now
-        spans.extend(waits.items())
+        for kind in ("memory", "loop-wait"):
+            waits = {}
+            with contextlib.suppress(OSError, ValueError):
+                with open(build_file(project, issue, kind)) as f:
+                    for line in f:
+                        values = list(map(float, line.split()))
+                        if values:
+                            waits[values[0]] = values[1] if len(values) > 1 else now
+            spans.extend(waits.items())
     until = since
     for begin, end in sorted(spans):
         total += max(0.0, min(end, now) - max(begin, until))

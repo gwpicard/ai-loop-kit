@@ -483,7 +483,7 @@ def reap(project, st, cap=None, stopped=False):
                 del st["deaths"][number]
                 st["attempts"].pop(number, None)
         finally:
-            for kind in ("step", "result", "pid", "attempt", "memory"):
+            for kind in ("step", "result", "pid", "attempt", "memory", "loop-wait"):
                 with contextlib.suppress(OSError):
                     os.remove(common.build_file(project, number, kind))
 

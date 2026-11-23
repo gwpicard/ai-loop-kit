@@ -178,12 +178,20 @@ def land(issue, branch, review, project, tree, settings):
         landed = _land(issue, branch, review, project, tree, settings)
         while landed.result and landed.result.rule == "loop-head-failed":
             # Release the merge lock while waiting for the loop branch to change.
-            while True:
-                common.sleep(60)
-                git(["fetch", "--no-prune", "origin"], cwd=project)
-                current = git(["rev-parse", "origin/" + settings["Loop branch"]], cwd=project)
-                if current != landed.loop_head:
-                    break
+            path = common.build_file(project, issue, "loop-wait")
+            began = time.time()
+            with open(path, "a") as f:
+                f.write("%s\n" % began)
+            try:
+                while True:
+                    common.sleep(60)
+                    git(["fetch", "--no-prune", "origin"], cwd=project)
+                    current = git(["rev-parse", "origin/" + settings["Loop branch"]], cwd=project)
+                    if current != landed.loop_head:
+                        break
+            finally:
+                with open(path, "a") as f:
+                    f.write("%s %s\n" % (began, time.time()))
             landed = _land(issue, branch, landed.review, project, tree, settings)
         end.clear()
         if landed.conflicts:
