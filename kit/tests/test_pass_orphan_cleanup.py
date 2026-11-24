@@ -46,8 +46,11 @@ class PassOrphanCleanupTest(fixes.BackgroundPassFixture):
             self.wait_for(lambda: (self.runtime / "hook-returned").exists(), "the hook did not return")
         else:
             os.kill(leader, signal.SIGKILL)
-        self.wait_for(lambda: leader not in loop.process_table()
-                      or loop.process_table()[leader][1].startswith("Z"), "the group leader did not exit")
+        def leader_ended():
+            row = loop.process_table().get(leader)
+            return row is None or row[1].startswith("Z")
+
+        self.wait_for(leader_ended, "the group leader did not exit")
         return child
 
     def test_crashed_worker_collection_ends_an_agent_group_without_its_leader(self):
