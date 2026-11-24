@@ -41,6 +41,23 @@ class KindContractTest(unittest.TestCase):
 
 
 class KindSchedulingTest(test_parallel.ParallelTest):
+    def wait_for_workers(self, first, second):
+        # Keep both workers alive until each has recorded its start.
+        rendezvous = '''
+if number in {%d, %d}:
+    until = time.monotonic() + 15
+    while True:
+        with open(os.path.join(project, ".loop", "fake.log")) as stream:
+            started = {int(line.split()[0]) for line in stream if line.split()[1] == "start"}
+        if {%d, %d} <= started:
+            break
+        if time.monotonic() >= until:
+            raise AssertionError("parallel workers did not both start")
+        time.sleep(0.01)
+''' % (first, second, first, second)
+        Path(self.script).write_text(test_parallel.FAKE_WORKER.replace(
+            'time.sleep(cfg.get("sleep", 0.5))', rendezvous))
+
     def test_one_extra_parallel_slot_skips_a_waiting_build(self):
         write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 1\n")
         self.world_of(issue(2, body="Kind: build"), issue(3),
@@ -70,13 +87,15 @@ class KindSchedulingTest(test_parallel.ParallelTest):
         write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 1\n")
         self.world_of(issue(2), issue(3, body="Kind: parallel\nDepends on: #2"),
                       issue(4, body="Depends on: #2\nKind: build"))
+        self.wait_for_workers(3, 4)
         self.run_it()
         self.assertEqual(self.merged(), {2, 3, 4})
-        self.assertGreaterEqual(self.at(3, "start"), self.at(2, "end"))
-        self.assertGreaterEqual(self.at(4, "start"), self.at(2, "end"))
-        self.assertLess(self.at(4, "start"), self.at(3, "end"),
+        order = [(number, what) for number, what, _ in self.events()]
+        self.assertGreater(order.index((3, "start")), order.index((2, "end")))
+        self.assertGreater(order.index((4, "start")), order.index((2, "end")))
+        self.assertLess(order.index((4, "start")), order.index((3, "end")),
                         "the unblocked parallel issue must leave room for a build")
-        self.assertLess(self.at(3, "start"), self.at(4, "end"))
+        self.assertLess(order.index((3, "start")), order.index((4, "end")))
 
     def test_parallel_work_obeys_load_and_memory_checks(self):
         for first, reason in ((2, "load average 9.0 is not below the 8 CPUs"),
@@ -85,21 +104,7 @@ class KindSchedulingTest(test_parallel.ParallelTest):
                 write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 1\n")
                 self.world_of(issue(first), issue(first + 1, body="Kind: parallel"),
                               issue(first + 2, body="Depends on: #%d" % first))
-                # Keep both workers alive until each has recorded its start.
-                rendezvous = '''
-if number != %d:
-    until = time.monotonic() + 15
-    while True:
-        with open(os.path.join(project, ".loop", "fake.log")) as stream:
-            started = {int(line.split()[0]) for line in stream if line.split()[1] == "start"}
-        if {%d, %d} <= started:
-            break
-        if time.monotonic() >= until:
-            raise AssertionError("parallel workers did not both start")
-        time.sleep(0.01)
-''' % (first, first + 1, first + 2)
-                Path(self.script).write_text(test_parallel.FAKE_WORKER.replace(
-                    'time.sleep(cfg.get("sleep", 0.5))', rendezvous))
+                self.wait_for_workers(first + 1, first + 2)
                 self.headroom.side_effect = lambda: (
                     reason if first not in self.merged()
                     or (first, "end") not in [(n, what) for n, what, _ in self.events()]
