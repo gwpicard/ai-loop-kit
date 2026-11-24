@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.1.2 (24 November 2026)
+
+The Codex start check that 3.1.1 added no longer runs a project test. It checks
+inside the sandbox only that the test program starts and that the project folder
+is writable, so a test that runs `ps`, or a test tool whose cache sits outside
+the project, no longer stops the loop before it builds anything. No setup run is
+needed.
+See [the 3.1.2 release notes](docs/release-notes/v3.1.2.md).
+
 ## 3.1.1 (24 November 2026)
 
 Only agent sessions now run at background priority; the Test, Check, Prepare
