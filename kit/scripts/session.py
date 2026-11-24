@@ -200,13 +200,59 @@ def sandbox_refusal(text):
 
 
 def codex_probe(project, settings):
-    """Run the targeted test command once without spending a model turn."""
-    import merge
-
+    """Check the test program and worktree writes without running project tests."""
     if not any(settings.get(role, ("claude",))[0] == "codex" for role in common.ROLES):
         return None
-    files = [p for p in common.git(["ls-files", "-z"], cwd=project).split("\0") if merge.is_test_module(p)]
-    command = common.files_command(settings, files[:1])
+    source = common.files_command(settings, [])
+    words = shlex.shlex(source, posix=True)
+    words.whitespace_split = True
+    words.commenters = ""
+    # Keep assignment values and the program word for the shell to expand.
+    prefix, end = "", 0
+    for word in words:
+        start, end = end, words.instream.tell()
+        raw = source[start:end].strip()
+        if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", word) or word == "env":
+            prefix += raw + " "
+        else:
+            program = raw
+            break
+    else:
+        return "Codex sandbox probe failed: no test program"
+    write = ('import os, tempfile\n'
+             'try:\n'
+             '    fd, path = tempfile.mkstemp(prefix=".loop-probe-", dir=".")\n'
+             '    os.close(fd)\n'
+             '    os.remove(path)\n'
+             'except OSError as error:\n'
+             '    raise SystemExit("sandbox: worktree write denied: " + str(error))\n')
+    command = '''import os, re, shlex, shutil, subprocess, sys
+def python(name):
+    return re.search(r"(?:^|-)python(?:[0-9]+(?:\\.[0-9]+)*)?$", os.path.basename(name))
+try:
+    path = shutil.which(sys.argv[1])
+    if not path:
+        raise OSError("test program is missing or not executable")
+    runtime = [path]
+    if not python(path) and os.path.basename(path) not in ("sh", "bash", "dash", "zsh", "ksh"):
+        with open(path, "rb") as source:
+            line = source.readline(4096).decode(errors="replace")
+        runtime = shlex.split(line[2:]) if line.startswith("#!") else []
+    name = runtime[0] if runtime else ""
+    if os.path.basename(name) == "env":
+        name = next((arg for arg in runtime[1:] if not arg.startswith("-") and "=" not in arg), "")
+    if python(name):
+        probe = runtime + ["-c", sys.argv[2]]
+    elif os.path.basename(name) in ("sh", "bash", "dash", "zsh", "ksh"):
+        probe = runtime + ["-c", shlex.join([sys.executable, "-c", sys.argv[2]])]
+    else:
+        # An arbitrary runner may execute tests even with --version or --help.
+        probe = [sys.executable, "-c", sys.argv[2]]
+    sys.exit(subprocess.run(probe).returncode)
+except OSError as error:
+    raise SystemExit("sandbox: test program refused: " + str(error))
+'''
+    command = prefix + shlex.join([sys.executable, "-c", command]) + " " + program + " " + shlex.quote(write)
     env = common.build_env()
     try:
         p = subprocess.run(["codex", "sandbox"] + codex_sandbox_config(project, env, settings)
@@ -215,7 +261,7 @@ def codex_probe(project, settings):
     except (OSError, subprocess.SubprocessError) as error:
         return "Codex sandbox probe failed: %s" % error
     output = p.stdout + p.stderr
-    if p.returncode and sandbox_refusal("Codex sandbox:\n" + output):
+    if p.returncode and sandbox_refusal(output):
         return "Codex sandbox refused the test command:\n" + "\n".join(output.splitlines()[-60:])
     return None
 
