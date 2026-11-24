@@ -10,7 +10,7 @@ from kit.tests import run
 
 class HungProcessTest(unittest.TestCase):
     def test_faulthandler_is_enabled_inside_test_process(self):
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as folder:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as folder:
             Path(folder, "handler_tests.py").write_text(
                 "import faulthandler, unittest\n"
                 "class HandlerTest(unittest.TestCase):\n"
@@ -23,7 +23,7 @@ class HungProcessTest(unittest.TestCase):
             self.assertEqual(count, 1, output)
 
     def hung_job(self, method):
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as folder:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as folder:
             Path(folder, "sleeping_tests.py").write_text(
                 "import threading, time, unittest\n"
                 "def waiting_worker():\n"

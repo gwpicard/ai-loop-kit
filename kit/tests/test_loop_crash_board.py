@@ -14,7 +14,7 @@ import loop
 
 class CrashBoardTest(unittest.TestCase):
     def test_first_snapshot_failure_resolves_factory_and_writes_crash_reason(self):
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as folder:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as folder:
             root = Path(folder)
             (root / "loop.json").write_text(json.dumps({"Test command": "true"}))
             edits, queries = [], []
