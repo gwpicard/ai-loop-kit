@@ -86,8 +86,9 @@ It links to milestone progress rather than reproducing the whole backlog.
 The supervisor rewrites it from GitHub state, so no dashboard server is
 needed. Notifications are not built.
 
-The local status command reports activity, timings and recent events
-without GitHub or an agent session. The report command summarises merged
+The status command reports local activity, timings and recent events without
+an agent session. Its open parks section reads current parked questions
+from GitHub, regardless of the event window. The report command summarises merged
 issues using git refs, local events and read-only GitHub calls for build
 notes. The final pull request includes that report.
 

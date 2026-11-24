@@ -1,4 +1,4 @@
-"""Local loop history and current activity, without GitHub or sessions."""
+"""Local loop history and current activity, plus open parks from GitHub."""
 from collections import Counter
 from datetime import datetime
 import json
@@ -6,10 +6,33 @@ from pathlib import Path
 import re
 from statistics import median
 
+import common
+
 
 STAGES = {"test-writer": "test writer", "fails-first": "fails-first", "builder": "builder",
           "tests": "pre-review test run", "review": "reviewer", "fix": "fix", "merge": "merge",
           "drain": "drain", "pass": "pass"}
+
+
+def open_parks(project):
+    """Current parked questions, independent of the local event window."""
+    if not Path(project, "loop.json").is_file():
+        return "Open parks: unavailable (no loop.json)"
+    try:
+        opened = json.loads(common.gh(["issue", "list", "--state", "open", "--label", "needs-user",
+                                       "--limit", "1000000", "--json", "number"],
+                                      retry=False, timeout=15, cwd=project))
+        lines = ["Open parks:" + ("" if opened else " none")]
+        for issue in sorted(opened, key=lambda i: i["number"]):
+            comments = json.loads(common.gh(["issue", "view", str(issue["number"]), "--json", "comments"],
+                                            retry=False, timeout=15, cwd=project))["comments"]
+            parks = [c["body"] for c in comments
+                     if c["body"].startswith("## Needs you") and common.MARKER in c["body"]]
+            question = (parks[-1].splitlines() + ["", ""])[2] if parks else "park question not found"
+            lines.append("  #%d: %s" % (issue["number"], question))
+        return "\n".join(lines)
+    except (common.GitHubError, OSError, ValueError, KeyError, TypeError):
+        return "Open parks: unavailable (could not read GitHub)"
 
 
 def event_time(value):

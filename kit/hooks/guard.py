@@ -9,7 +9,7 @@ apply_patch calls, and the guard refuses a payload or an error it cannot parse.
 
 Everywhere: no push to main, master or the default branch (LOOP_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
-content. When LOOP_ROLE is set, also: no git push, merge, checkout, switch,
+content. Missing guard modules refuse all calls. When LOOP_ROLE is set, also: no git push, merge, checkout, switch,
 restore, apply or branch -f, no gh, no write to a path in LOOP_LOCKED (newline
 separated) or to a tracked test file (except an exact path in LOOP_ALLOWED,
 for the builder only). Builders cannot write paths on the stops list unless
@@ -34,25 +34,34 @@ try:
     import common
     import merge  # the one definition of a test file
 except Exception as e:
-    sys.stderr.write("guard: cannot load, allowing the call: %s\n" % e)
-    sys.exit(0)
+    sys.stderr.write("refused: the guard cannot load its modules: %s\nrule: guard-load\n"
+                     "next: restore the guard modules before continuing\n" % e)
+    sys.exit(2)
 
 SECRETS = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\bgh[pousr]_[A-Za-z0-9]{20,}"
     r"|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b"
     r"|\bsk-ant-[A-Za-z0-9_-]{10,}|\bxox[abprs]-[A-Za-z0-9-]{10,}")
-GIT = r"\bgit(?:(?:\s|\\\n)+(?:-C(?:\s|\\\n)+\S+|-c(?:\s|\\\n)+\S+|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:\s|\\\n)+\S+|--\S+|-[A-Za-z]+))*(?:\s|\\\n)+"
+WORD = r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\\[^\n]|[^\s;&|<>()'"\\])+'''
+GIT = (r"\bgit(?:(?:\s|\\\n)+(?:-(?:C|c)(?:\s|\\\n)+" + WORD
+       + r"|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:\s|\\\n)+"
+       + WORD + r"|--\S+|-[A-Za-z]+))*(?:\s|\\\n)+")
 DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
 PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$))|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
-GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
-QUOTED = re.compile(r"'[^']*'")
+GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*"
+                r"(?:(?:\w+=\S+|(?:\S*/)?(?:env|sudo)(?:\s+-\S+)*)\s+)*"
+                r"[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[^']*'|"(?:\\.|[^"\\])*"|\n''')
 SHELLS = ("sh", "bash", "zsh", "dash")
 RUNNER = re.compile(r"(?:^|[;&|(`\n])\s*(?:\w+=\S+\s+)*(?:(?:\S*/)?env\s+(?:-\S+\s+|\w+=\S+\s+)*)?(?:\S*/)?(?:"
                     + "|".join(SHELLS) + r"|eval|xargs)(?=\s|$)")
-REDIRECT = re.compile(r"\d*>>?(&)?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
+QUOTES = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*")''')
+SHELL_PROGRAM = re.compile(r"\s+(?:(?:--[\w-]+|-[a-zA-Z]+)\s+)*?"
+                           r"-[a-zA-Z]*c[a-zA-Z]*\s+(" + WORD + r")")
+REDIRECT = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*")|\d*>>?(&)?\|?\s*('''
+                      + WORD + r")|\btee\s+(" + WORD + r"(?:[ \t]+" + WORD + r")*)")
 
 
 class Refuse(Exception):
@@ -117,6 +126,50 @@ def check_path(path, role, cwd):
                      "leave existing tests alone; add a new test file if needed")
 
 
+def substitution_end(text, start, backtick=False):
+    pos, depth, quote = start, 1, ""
+    while pos < len(text):
+        char = text[pos]
+        if char == "\\" and quote != "'":
+            pos += 2
+            continue
+        if backtick:
+            if char == "`":
+                return text[start:pos], pos + 1
+        elif quote:
+            if char == quote:
+                quote = ""
+            elif quote == '"' and text.startswith("$(", pos):
+                _, pos = substitution_end(text, pos + 2)
+                continue
+        elif char in "'\"`":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if not depth:
+                return text[start:pos], pos + 1
+        pos += 1
+    return text[start:], pos
+
+
+def substitutions(text):
+    """Extract commands expanded in an unquoted heredoc, preserving shell quotes."""
+    commands, pos = [], 0
+    while pos < len(text):
+        if text[pos] == "\\":
+            pos += 2
+            continue
+        if text.startswith("$(", pos) or text[pos] == "`":
+            backtick = text[pos] == "`"
+            command, pos = substitution_end(text, pos + (1 if backtick else 2), backtick)
+            commands.append(command)
+            continue
+        pos += 1
+    return "\n".join(commands)
+
+
 def role_commands(command):
     command = command.replace("\\\n", "")
     parts, pending, pos = [], [], 0
@@ -127,12 +180,15 @@ def role_commands(command):
         parts.append(command[pos:m.start()])
         pos = m.end()
         if m.group(3):
-            pending.append((m.group(1), m.group(3)))
+            pending.append((m.group(1), m.group(3), bool(m.group(2))))
             parts.append("<<_ ")
         elif m.group() == "\n":
             parts.append("\n")
-            for strip, word in pending:
+            for strip, word, quoted in pending:
                 end = re.search(r"(?m)^" + (r"\t*" if strip else "") + re.escape(word) + r"(?:\n|$)", command[pos:])
+                if not quoted:
+                    body = command[pos:pos + end.start()] if end else command[pos:]
+                    parts.append("\n" + role_commands(substitutions(body)) + "\n")
                 pos = pos + end.end() if end else len(command)
             pending.clear()
         elif m.group().startswith('"') and ("$(" in m.group() or "`" in m.group()):
@@ -182,12 +238,26 @@ def check_role_command(command, role, cwd):
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
-    for m in REDIRECT.finditer(QUOTED.sub(lambda q: q.group(0).replace(">", "_"), command)):  # a quoted > is text, but a quoted target stays
-        target = (m.group(2) or m.group(3)).strip("'\"")
-        if m.group(1) and re.fullmatch(r"\d+-?|-", target):  # >&2 and >&- duplicate or close a descriptor
-            continue
-        if target and target != "/dev/null" and not target.startswith("&"):
-            check_path(target, role, cwd)
+    masked = QUOTES.sub(lambda m: "_" * len(m.group()), command)
+    for runner in RUNNER.finditer(masked):
+        if os.path.basename(runner.group().split()[-1]) in SHELLS:
+            program = SHELL_PROGRAM.match(command, runner.end())
+            if program:
+                check_role_command(shlex.split(program.group(1))[0], role, cwd)
+    for m in REDIRECT.finditer(command.replace("\\\n", "")):
+        if m.group(1):
+            expanded = substitutions(m.group(1)) if m.group(1).startswith('"') else ""
+            if expanded:
+                check_role_command(expanded, role, cwd)
+            continue  # quoted arguments are data; redirect targets are matched separately
+        targets = shlex.split(m.group(3) or m.group(4))
+        for target in targets:
+            if m.group(4) and target.startswith("-"):
+                continue
+            if m.group(2) and re.fullmatch(r"\d+-?|-", target):  # >&2 and >&- duplicate or close a descriptor
+                continue
+            if target and target != "/dev/null":
+                check_path(target, role, cwd)
 
 
 PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)
