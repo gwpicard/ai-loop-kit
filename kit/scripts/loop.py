@@ -951,8 +951,11 @@ def run(project):
                 write_board(project, st)
             except Exception as e:
                 error = (type(e), str(e))
-                error_count = error_count + 1 if error == last_error else 1
-                last_error = error
+                if isinstance(e, (common.GitHubError, OSError)):
+                    last_error, error_count = None, 0
+                else:
+                    error_count = error_count + 1 if error == last_error else 1
+                    last_error = error
                 if error_count >= ERROR_LIMIT:
                     reason = "stopped after %d identical failed cycles: %s: %s" % (error_count, type(e).__name__, e)
                     trace = traceback.format_exc()
@@ -966,7 +969,7 @@ def run(project):
                         say("the board was not updated: %s" % board_error)
                     return 1
                 say("problem, will check again: %s: %s" % (type(e).__name__, e))
-                wait_stop(stop, min(POLL, 1))
+                wait_stop(stop, POLL)
                 continue
             else:
                 last_error, error_count = None, 0
