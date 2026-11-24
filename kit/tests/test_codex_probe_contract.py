@@ -55,7 +55,9 @@ os.execv(sys.executable, [sys.executable] + sys.argv[1:])
         program_calls = self.calls("PROGRAM_CALLS")
         self.assertTrue(program_calls, "the configured test program must start")
         for call in program_calls:
-            self.assertEqual(call, {"sandbox": "1", "cwd": self.work}, text)
+            self.assertEqual(
+                dict(call, cwd=os.path.realpath(call["cwd"])),
+                {"sandbox": "1", "cwd": os.path.realpath(self.work)}, text)
         self.assertTrue(self.calls("WRITE_CALLS"),
                         "the probe must attempt a write inside the worktree")
         self.assertEqual(len(self.calls("SANDBOX_CALLS")), 1)
