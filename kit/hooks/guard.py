@@ -46,7 +46,12 @@ WORD = r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\\[^\n]|[^\s;&|<>()'"\\])+'''
 GIT = (r"\bgit(?:(?:\s|\\\n)+(?:-(?:C|c)(?:\s|\\\n)+" + WORD
        + r"|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:\s|\\\n)+"
        + WORD + r"|--\S+|-[A-Za-z]+))*(?:\s|\\\n)+")
-DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
+DELETE = re.compile(
+    r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete"
+    r"|(?=[\s\S]*\brmtree\b)[\s\S]*?(?:^|[;&|(`\n]"
+    r"|\b(?:sh|bash|zsh|dash)\s+(?:-\S+\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+['\"]?)\s*"
+    r"(?:(?:\w+=\S+|(?:\S*/)?(?:env|sudo)(?:\s+-\S+)*)\s+)*"
+    r"(?:\S*/)?python(?:[23](?:\.\d+)*)?(?=[\s;<|&]|$)")
 PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$))|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
