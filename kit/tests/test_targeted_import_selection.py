@@ -219,6 +219,11 @@ class HistoricalSelectionTest(unittest.TestCase):
         )
         for commit, expected in cases:
             with self.subTest(commit=commit), tempfile.TemporaryDirectory() as folder:
+                for ref in (commit, commit + "^"):
+                    result = subprocess.run(["git", "cat-file", "-e", ref + "^{commit}"],
+                                            cwd=ROOT, capture_output=True)
+                    if result.returncode:
+                        self.skipTest("Historical commit unavailable: " + ref)
                 # Copy historical blobs, without changing this worktree or its refs.
                 archive = subprocess.check_output(["git", "archive", commit + "^"], cwd=ROOT)
                 with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
