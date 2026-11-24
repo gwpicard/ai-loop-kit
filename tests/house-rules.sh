@@ -164,6 +164,13 @@ LIST
     pass "no kit or extras code imports or depends on the Agent SDK or an API client"
   fi
 
+  # Parse test code so planted source strings and fake tool names stay harmless.
+  if python3 "$HERE/test-portability.py" "$root"; then
+    pass "kit tests do not require TMPDIR or unguarded macOS tools"
+  else
+    fail "kit tests contain Linux portability faults"
+  fi
+
   [ "$failures" -eq 0 ]
 }
 
