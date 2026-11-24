@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import sys
 import unittest
 from unittest import mock
@@ -107,6 +108,48 @@ class SandboxStartTest(FakeCodexCheck):
         self.assertEqual(code, 1, text)
         self.assertEqual(queues, 0, text)
         self.assertIn("Codex sandbox refused the test command", text)
+
+    def test_script_runner_body_is_never_executed(self):
+        for shebang, body in (("#!/bin/sh -e", "printf ran > tests-ran\n"),
+                              ("#!PYTHON", "open('tests-ran', 'w').close()\n")):
+            for targeted in (True, False):
+                with self.subTest(shebang=shebang, targeted=targeted):
+                    marker = Path(self.work, "tests-ran")
+                    runner = Path(self.work, "run-tests")
+                    write_exe(str(runner), shebang + "\n" + body)
+                    path = Path(self.work, "loop.json")
+                    settings = json.loads(path.read_text())
+                    settings["Test command"] = "./run-tests"
+                    settings["Test files command"] = "./run-tests {files}" if targeted else ""
+                    path.write_text(json.dumps(settings))
+                    code, text, queues = self.start()
+                    self.assertEqual(code, 0, text)
+                    self.assertEqual(queues, 1, text)
+                    self.assertFalse(marker.exists(), "startup ran the script runner's test body")
+
+    def test_leading_environment_assignments_reach_the_probe_program(self):
+        program = Path(self.tmp, "bin/assigned-python")
+        write_exe(str(program), '''#!PYTHON
+import os, sys
+assert os.environ["PYTHONDONTWRITEBYTECODE"] == "1"
+assert os.environ["PROBE_VALUE"] == os.environ["PROBE_EXPECTED"]
+with open(os.environ["ASSIGNED_CALLS"], "a") as output:
+    output.write(os.environ.get("INSIDE_TEST_SANDBOX", "") + "\\n")
+os.execv(sys.executable, [sys.executable] + sys.argv[1:])
+''')
+        os.environ["ASSIGNED_CALLS"] = str(Path(self.tmp, "assigned-calls"))
+        os.environ["PROBE_EXPECTED"] = "a value with spaces"
+        path = Path(self.work, "loop.json")
+        settings = json.loads(path.read_text())
+        settings["Test files command"] = (
+            'PYTHONDONTWRITEBYTECODE=1 PROBE_VALUE="$PROBE_EXPECTED" '
+            + shlex.quote(str(program)) + " probe.py {files}")
+        path.write_text(json.dumps(settings))
+        code, text, queues = self.start()
+        self.assertEqual(code, 0, text)
+        self.assertEqual(queues, 1, text)
+        self.assertEqual(Path(os.environ["ASSIGNED_CALLS"]).read_text(), "1\n")
+        self.assertEqual(self.calls("PROBE_CALLS"), [], text)
 
     def test_a_worktree_write_refusal_stops_the_queue(self):
         program = Path(self.tmp, "bin/refusing-python")
