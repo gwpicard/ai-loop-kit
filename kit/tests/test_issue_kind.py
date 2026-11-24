@@ -85,13 +85,32 @@ class KindSchedulingTest(test_parallel.ParallelTest):
                 write_settings(os.path.join(self.work, "loop.json"), AGENTS + "Parallel: 1\n")
                 self.world_of(issue(first), issue(first + 1, body="Kind: parallel"),
                               issue(first + 2, body="Depends on: #%d" % first))
-                self.headroom.side_effect = lambda: reason if first not in self.merged() else None
+                # Keep both workers alive until each has recorded its start.
+                rendezvous = '''
+if number != %d:
+    until = time.monotonic() + 15
+    while True:
+        with open(os.path.join(project, ".loop", "fake.log")) as stream:
+            started = {int(line.split()[0]) for line in stream if line.split()[1] == "start"}
+        if {%d, %d} <= started:
+            break
+        if time.monotonic() >= until:
+            raise AssertionError("parallel workers did not both start")
+        time.sleep(0.01)
+''' % (first, first + 1, first + 2)
+                Path(self.script).write_text(test_parallel.FAKE_WORKER.replace(
+                    'time.sleep(cfg.get("sleep", 0.5))', rendezvous))
+                self.headroom.side_effect = lambda: (
+                    reason if first not in self.merged()
+                    or (first, "end") not in [(n, what) for n, what, _ in self.events()]
+                    else None)
                 self.run_it()
-                self.assertGreaterEqual(self.at(first + 1, "start"), self.at(first, "end"),
+                order = [(number, what) for number, what, _ in self.events()]
+                self.assertGreater(order.index((first + 1, "start")), order.index((first, "end")),
                                         "parallel work must wait while the machine is busy")
-                self.assertLess(self.at(first + 2, "start"), self.at(first + 1, "end"),
+                self.assertLess(order.index((first + 2, "start")), order.index((first + 1, "end")),
                                 "parallel work must use the extra slot once headroom returns")
-                self.assertLess(self.at(first + 1, "start"), self.at(first + 2, "end"))
+                self.assertLess(order.index((first + 1, "start")), order.index((first + 2, "end")))
 
 
 class KindBoardTest(test_board_activity.BoardActivityTest):
