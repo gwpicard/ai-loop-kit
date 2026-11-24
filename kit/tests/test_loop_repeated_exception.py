@@ -16,7 +16,7 @@ import loop
 
 class RepeatedExceptionTest(unittest.TestCase):
     def run_errors(self, errors):
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as folder:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as folder:
             root = Path(folder)
             (root / "loop.json").write_text(json.dumps({"Test command": "true"}))
             calls, boards = [], []
