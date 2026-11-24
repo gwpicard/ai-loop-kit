@@ -125,8 +125,8 @@ def _pass(project, settings, since, tree, r):
             r["errors"].append("%s session: %s" % (name, e))
             return ""
     if settings.get("Smoke command"):
-        bad = merge.run_tests(project, sha, settings["Smoke command"], tail=5, prepare=settings["Prepare command"])
-        r["smoke"] = bad.replace("the Test command", "the Smoke command") if bad else "passed"
+        bad = merge.run_tests(project, sha, settings["Smoke command"], tail=5, prepare=settings["Prepare command"], test_name="Smoke")
+        r["smoke"] = bad or "passed"
         r["drift"] += [("Smoke command failed on the loop branch", r["smoke"], "")] if bad else []
     notes = []
     try:
