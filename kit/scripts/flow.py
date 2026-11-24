@@ -19,6 +19,19 @@ class Parked(Exception):
     pass
 
 
+def push_issue(branch, tree):
+    """Refuse rewritten remote history before pushing the issue branch."""
+    git(["fetch", "--no-prune", "origin"], cwd=tree)
+    remote = "origin/" + branch
+    if git(["branch", "-r", "--list", remote], cwd=tree):
+        missing = git(["log", "--format=%H %s", branch + ".." + remote], cwd=tree)
+        if missing:
+            raise Parked("The branch history was rewritten on %s. Remote commits missing locally:\n%s"
+                         % (branch, missing),
+                         "Restore the missing remote commits without rewriting pushed history, then retry.")
+    git(["push", "origin", branch], cwd=tree)
+
+
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
     blocks = re.findall(r"^[\s*`]*%s:[*`]*[^\S\n]*\n(?:[^\S\n]*\n)*((?:(?![\s*`]*[A-Z-]+:)[^\S\n]*\S.*\n?)*)" % name, text, re.M)
@@ -209,7 +222,7 @@ def _land(issue, branch, review, project, tree, settings):
                 return Landed(None, conflicts, old, review, [])
             head = git(["rev-parse", "HEAD"], cwd=tree)
             if head != old:
-                git(["push", "origin", branch], cwd=tree)
+                push_issue(branch, tree)
                 review = re.sub(r"(?m)^(\s*HEAD:\s*)[0-9a-fA-F]{7,40}", lambda m: m.group(1) + head, review)
             files = git(["diff", "--name-only", "origin/%s...%s" % (loop, head)], cwd=tree).splitlines()
             result = merge.merge(issue, branch, review, project)
@@ -290,7 +303,7 @@ def _build_tree(issue, project, replies):
             os.rename(tree, "%s.stale-%s" % (tree, time.strftime("%Y%m%d-%H%M%S")))
         git(["worktree", "add", "-B", branch, tree, source], cwd=project)
         if keep_local:
-            git(["push", "origin", branch], cwd=tree)
+            push_issue(branch, tree)
         if settings["Prepare command"] and (why := merge.run_in("Prepare", settings["Prepare command"], tree, "the worktree", 20)):
             raise common.LoopError(why)
         conflicts = []
@@ -307,7 +320,9 @@ def _build_tree(issue, project, replies):
             remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
             base = "origin/" + (branch if remote else loop)
             if git(["rev-list", base + "..refs/heads/" + branch], cwd=project):
-                git(["push", "origin", branch], cwd=project)
+                push_issue(branch, project)
+        except Parked as history:
+            p = history
         except common.LoopError as e:
             return Result("failed", str(e))
         common.park(issue, *p.args, project=project)
@@ -418,7 +433,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             text, _ = ask("test-writer", settings["Test writer"], rnd=attempt + 1, resume=writer, locked=locked,
                           extra=why + " Commit, and end with the TESTS: block again.")
             locked = parse_block(text)
-        git(["push", "origin", branch], cwd=tree)
+        push_issue(branch, tree)
         post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     report, sid = ask("builder", settings["Builder"], locked=locked)
@@ -454,7 +469,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         except common.GitHubError as e:
             common.event("note-failed", project, issue=issue, reason=str(e))
         if verdict == "APPROVE":
-            git(["push", "origin", branch], cwd=tree)
+            push_issue(branch, tree)
             landed = land(issue, branch, review, project, tree, settings)
             result, head, review = landed.result, landed.head, landed.review
             if landed.conflicts:  # the merge stays open in the tree for the builder's next pass
