@@ -1,4 +1,4 @@
-"""Probe the project's test command in the sandbox before starting the queue."""
+"""Probe sandbox capabilities before starting the queue."""
 import contextlib
 import io
 import json
@@ -24,9 +24,6 @@ PROBE = '''import json, os, sys
 with open(os.environ["PROBE_CALLS"], "a") as output:
     output.write(json.dumps({"sandbox": os.environ.get("INSIDE_TEST_SANDBOX"),
                              "files": sys.argv[1:]}) + "\\n")
-if os.environ.get("REFUSE_PROBE"):
-    print("sandbox: unable to make temporary file: Operation not permitted", file=sys.stderr)
-    sys.exit(1)
 '''
 
 
@@ -37,7 +34,6 @@ class SandboxStartTest(FakeCodexCheck):
             "argv = sys.argv[1:]\n", "argv = sys.argv[1:]\n" + SANDBOX, 1))
         os.environ["SANDBOX_CALLS"] = str(Path(self.tmp, "sandbox-calls"))
         os.environ["PROBE_CALLS"] = str(Path(self.tmp, "probe-calls"))
-        os.environ.pop("REFUSE_PROBE", None)
         settings = {"Test command": "false", "Test files command": "%s probe.py {files}" % sys.executable,
                     "Builder": "codex gpt-6", "Test writer": "codex gpt-6", "Reviewer": "codex gpt-6"}
         self.work, _ = make_repo(self.tmp, {"loop.json": json.dumps(settings), "probe.py": PROBE,
@@ -76,20 +72,24 @@ class SandboxStartTest(FakeCodexCheck):
         path = Path(os.environ[variable])
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
-    def test_start_runs_the_targeted_command_once_inside_the_sandbox(self):
+    def test_start_probes_once_without_running_project_tests(self):
         code, text, queues = self.start()
         self.assertEqual(code, 0, text)
         self.assertEqual(len(self.calls("SANDBOX_CALLS")), 1,
                          "loop run must probe Codex's sandbox once, even with several Codex roles")
-        probes = self.calls("PROBE_CALLS")
-        self.assertEqual(len(probes), 1, text)
-        self.assertEqual(probes[0]["sandbox"], "1")
-        self.assertNotIn("{files}", probes[0]["files"])
+        self.assertEqual(self.calls("PROBE_CALLS"), [], text)
         self.assertEqual(queues, 1)
         self.assertEqual(self.codex_calls(), [], "the probe must not spend a model turn")
 
     def test_a_sandbox_refusal_stops_startup_before_the_queue(self):
-        os.environ["REFUSE_PROBE"] = "1"
+        refusal = '''if argv[:1] == ["sandbox"]:
+    with open(os.environ["SANDBOX_CALLS"], "a") as output:
+        output.write(json.dumps({"argv": argv, "cwd": os.getcwd()}) + "\\n")
+    print("sandbox: unable to make temporary file: Operation not permitted", file=sys.stderr)
+    sys.exit(1)
+'''
+        write_exe(os.path.join(self.tmp, "bin/codex"), FAKE.replace(
+            "argv = sys.argv[1:]\n", "argv = sys.argv[1:]\n" + refusal, 1))
         code, text, queues = self.start()
         self.assertEqual(code, 1, "sandbox refusal must stop startup: " + text)
         self.assertIn("sandbox", text.lower())
@@ -97,6 +97,35 @@ class SandboxStartTest(FakeCodexCheck):
         self.assertEqual(queues, 0, text)
         self.assertNotIn("issue", text.lower())
         self.assertEqual(len(self.calls("SANDBOX_CALLS")), 1)
+
+    def test_a_program_that_cannot_start_stops_the_queue(self):
+        path = Path(self.work, "loop.json")
+        settings = json.loads(path.read_text())
+        settings["Test files command"] = "./missing-test-program {files}"
+        path.write_text(json.dumps(settings))
+        code, text, queues = self.start()
+        self.assertEqual(code, 1, text)
+        self.assertEqual(queues, 0, text)
+        self.assertIn("Codex sandbox refused the test command", text)
+
+    def test_a_worktree_write_refusal_stops_the_queue(self):
+        program = Path(self.tmp, "bin/refusing-python")
+        write_exe(str(program), '''#!PYTHON
+import sys
+if sys.argv[1:] == ["--version"]:
+    print("Python 3.13")
+else:
+    print("sandbox: worktree write denied: Operation not permitted", file=sys.stderr)
+    sys.exit(1)
+''')
+        path = Path(self.work, "loop.json")
+        settings = json.loads(path.read_text())
+        settings["Test files command"] = str(program) + " probe.py {files}"
+        path.write_text(json.dumps(settings))
+        code, text, queues = self.start()
+        self.assertEqual(code, 1, text)
+        self.assertEqual(queues, 0, text)
+        self.assertIn("Codex sandbox refused the test command", text)
 
 
 if __name__ == "__main__":

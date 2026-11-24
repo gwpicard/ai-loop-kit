@@ -200,22 +200,36 @@ def sandbox_refusal(text):
 
 
 def codex_probe(project, settings):
-    """Run the targeted test command once without spending a model turn."""
-    import merge
-
+    """Check the test program and worktree writes without running project tests."""
     if not any(settings.get(role, ("claude",))[0] == "codex" for role in common.ROLES):
         return None
-    files = [p for p in common.git(["ls-files", "-z"], cwd=project).split("\0") if merge.is_test_module(p)]
-    command = common.files_command(settings, files[:1])
+    program = shlex.split(common.files_command(settings, []))[0]
+    write = ('import os, tempfile\n'
+             'try:\n'
+             '    fd, path = tempfile.mkstemp(prefix=".loop-probe-", dir=".")\n'
+             '    os.close(fd)\n'
+             '    os.remove(path)\n'
+             'except OSError as error:\n'
+             '    raise SystemExit("sandbox: worktree write denied: " + str(error))\n')
+    command = ('import subprocess, sys\n'
+               'try:\n'
+               '    p = subprocess.run([sys.argv[1], "--version"], capture_output=True, text=True)\n'
+               'except OSError as error:\n'
+               '    raise SystemExit("sandbox: test program refused: " + str(error))\n'
+               'sys.stdout.write(p.stdout)\n'
+               'sys.stderr.write(p.stderr)\n'
+               'python = sys.argv[1] if (p.stdout + p.stderr).startswith("Python ") else sys.executable\n'
+               'check = subprocess.run([python, "-c", sys.argv[2]])\n'
+               'sys.exit(check.returncode or p.returncode)\n')
     env = common.build_env()
     try:
         p = subprocess.run(["codex", "sandbox"] + codex_sandbox_config(project, env, settings)
-                           + ["--", "sh", "-c", command], cwd=project, env=env,
+                           + ["--", sys.executable, "-c", command, program, write], cwd=project, env=env,
                            capture_output=True, text=True, timeout=TEST_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as error:
         return "Codex sandbox probe failed: %s" % error
     output = p.stdout + p.stderr
-    if p.returncode and sandbox_refusal("Codex sandbox:\n" + output):
+    if p.returncode and sandbox_refusal(output):
         return "Codex sandbox refused the test command:\n" + "\n".join(output.splitlines()[-60:])
     return None
 
