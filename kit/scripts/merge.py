@@ -350,68 +350,6 @@ def view(kind, number, field):
     return json.loads(gh([kind, "view", str(number), "--json", field]) or "{}")
 
 
-def requested(project, pull_request, settings, requester="person", expected_head=None):
-    """Merge delegated work, retaining GitHub's review and branch protection gates."""
-    try:
-        with common.merge_lock(project), common.settings_environment(settings):
-            pr = view("pr", pull_request,
-                      "number,url,state,baseRefName,headRefName,headRefOid,mergeable,isDraft,title")
-            if "://" in str(pull_request) and view("pr", pr["number"], "url").get("url") != pr.get("url"):
-                return _refuse("merge-repository", "the pull request must belong to this repository")
-            base, head = pr["baseRefName"], pr["headRefOid"]
-            if base not in {settings["Loop branch"], common.default_branch(project)}:
-                return _refuse("merge-base", "the base must be the loop branch or default branch")
-            if pr["state"] != "OPEN" or pr.get("isDraft") or pr.get("mergeable") != "MERGEABLE":
-                return _refuse("merge-state", "the pull request must be open, ready and conflict-free")
-            if expected_head and head != expected_head:
-                return _refuse("merge-head", "the pull request head has changed since the drain")
-            number = str(pr["number"])
-            # Never request automatic branch deletion, including repository-wide deletion.
-            repository = json.loads(gh(["api", "repos/{owner}/{repo}"]))
-            if repository.get("delete_branch_on_merge") is not False:
-                return _refuse("branch-deletion", "turn off Automatically delete head branches before merging")
-            git(["fetch", "--no-prune", "origin"], cwd=project)
-            git(["fetch", "--no-prune", "origin", head], cwd=project)
-            if git(["rev-parse", "--verify", "FETCH_HEAD^{commit}"], cwd=project) != head:
-                return _refuse("merge-head", "the fetched pull request head does not match its SHA")
-            baseline = git(["rev-parse", "origin/" + base], cwd=project)
-            if base == settings["Loop branch"]:
-                with common.scratch_tree(project, head) as tree:
-                    git(["merge", "--no-edit", baseline], cwd=tree)
-                    for name, command in (("Prepare", settings["Prepare command"]),
-                                          ("Test", settings["Test command"]),
-                                          ("Check", settings["Check command"])):
-                        if command and (failure := run_in(name, command, tree, "merged result",
-                                                          timeout=command_timeout(name, project))):
-                            return _refuse("test-command", failure)
-                git(["fetch", "--no-prune", "origin"], cwd=project)
-                if git(["rev-parse", "origin/" + base], cwd=project) != baseline:
-                    return _refuse("merge-base", "the loop branch changed during testing; try again")
-            else:
-                try:
-                    checks = json.loads(gh(["pr", "checks", number, "--required", "--json", "name,bucket"]))
-                except common.GitHubError as error:
-                    if "no required checks" not in str(error).lower():
-                        return _refuse("required-checks", str(error))
-                    checks = []
-                if any(check.get("bucket") != "pass" for check in checks):
-                    return _refuse("required-checks", "required checks are failing or pending")
-            gh(["pr", "merge", number, "--squash", "--subject", pr["title"],
-                "--body", squash_body(project, base, head, settings),
-                "--match-head-commit", head], retry=False)
-            merged = view("pr", number, "state,mergeCommit")
-            if merged.get("state") != "MERGED":
-                return _refuse("merge-refused", "the pull request is not merged")
-            commit = (merged.get("mergeCommit") or {}).get("oid") or "unknown"
-            common.event("merged-by-request", project, pull_request=pr["number"],
-                         requester=requester, commit=commit, branch=base)
-            gh(["pr", "comment", number, "--body-file", "-"],
-               input="Merged at %s's request as %s.\n\n%s" % (requester, commit, common.MARKER), retry=False)
-            return Result(True, False, "merged as " + commit, commit)
-    except (common.LoopError, ValueError, KeyError) as error:
-        return _refuse("merge-refused", str(error))
-
-
 def full_suite_due(project, settings):
     """Count successful merges since the last full run, including across restarts."""
     if "{files}" not in settings["Test files command"]:

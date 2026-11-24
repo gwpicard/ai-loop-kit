@@ -6,9 +6,8 @@ description: Start, stop and watch the AI Loop Kit factory that builds ready iss
 # Run the loop
 
 The loop builds issues labelled `ready`, reviews them and merges them into
-the loop branch. This skill starts, stops and reads it, and carries out
-delegated merges. Never build, review or merge by hand, and never push to
-the default branch.
+the loop branch. This skill only starts, stops and reads it. Never build,
+review or merge by hand, and never push to the default branch.
 
 `<plugin>` is this skill's plugin folder, two levels up.
 
@@ -79,20 +78,6 @@ their words on it with `gh issue comment`. The loop reads the reply,
 queues the issue again and passes the reply to the next build.
 
 ## After a drain
-
-When the person asks you to merge a pull request, run
-`<plugin>/bin/loop merge <pull request>` without asking again. For the final
-pull request with `Final merge: on request`, you may instead post `merge`
-alone on a line as the person's request. The command accepts only the loop
-branch or default branch as the base, checks the merge gates and records
-the request. If it refuses, resolve the cause within the standing rules.
-Never publish releases, move a release branch, force-push or delete branches.
-
-`Final merge` defaults to `person`, which leaves the final merge to the
-person. `on request` reads a collaborator's standalone `merge` comment each
-cycle and waits for required checks and a conflict-free pull request.
-`when green` delegates the merge after a passing drain and required checks,
-once the end-of-loop pass has finished.
 
 When every `ready` issue waits on an open `needs-user` dependency and no
 build is running, the loop keeps reading replies until 60 minutes after the
