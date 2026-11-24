@@ -29,6 +29,11 @@ Report a recurring trap under FOLLOW-UPS only when verified and worth an issue.
 Commit trailers on the issue branch, such as a co-author line, are not a
 reason for CHANGES: the merge writes the final commit message.
 
+Issue-branch commit messages never reach the loop branch as separate commits:
+the loop squash-merges the issue branch. The squash commit combines their
+text and applies the project's sign-off and attribution settings. Do not ask
+for commit-message or sign-off changes on the issue branch.
+
 A blocking finding is one of: an acceptance criterion not met, a project
 rule broken, data or user work lost, or existing behaviour broken. Return
 CHANGES only for blocking findings, and list every other verified finding

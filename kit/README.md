@@ -6,7 +6,8 @@ short guide and `docs/DESIGN.md` explains why the kit works this way.
 A continuous factory for building software with Claude Code while you are
 away. You shape and approve work with Claude. A loop on your computer builds
 each approved issue, has a second session review it and merges it into a
-loop branch. You merge that branch into your default branch yourself.
+loop branch. You merge that branch into your default branch yourself, or
+delegate the final merge through `Final merge`.
 
 The loop never asks for input. It parks an issue for a product choice or a
 decision reserved for a person by the kit's stops or `AGENTS.md`.
@@ -53,8 +54,8 @@ default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 (default 45, the wall-clock limit of one Claude session; raise it when one
 Test command run is slow), `Test minutes` (default 30, the Test command time
 limit), `Test files command`, `Prepare command`,
-`Check command`, `Smoke command`, `Full suite every` (default 4) and
-`Parallel` (default 1).
+`Check command`, `Smoke command`, `Full suite every` (default 4),
+`Parallel` (default 1) and `Final merge` (default `person`).
 `Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings.
 Numeric settings take JSON numbers; `Full suite every` and `Test minutes`
 take integers of at least one. `Codex network` takes a JSON boolean and defaults to false.
@@ -66,6 +67,24 @@ further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
 tool's cache, such as `~/Library/Caches/org.swift.swiftpm` for SwiftPM.
+
+`Final merge` takes `person`, `on request` or `when green`. `person` stays
+the default: the loop leaves the final pull request for you to merge.
+With `on request`, a collaborator with write access comments `merge`, alone
+on a line, on the final pull request. The loop checks at its next cycle and
+merges once required checks pass and conflicts are cleared. Its comment names
+the requester and merge commit. With `when green`, the loop merges after a
+passing drain, once required checks pass and the end-of-loop pass has finished.
+
+On your instruction, a session uses `<plugin>/bin/loop merge <pull request>`
+without asking again. The command accepts the number or URL of a pull request
+whose base is the loop branch or default branch. For the default branch, required checks
+must pass; for the loop branch, the full Test command and Check command must
+pass on the combined result. Both paths squash with the project's `Sign-off`
+and `Agent attribution` settings, retain GitHub's branch protection, and
+record a `merged-by-request` event naming the pull request. Neither deletes
+branches. Delegated merges refuse repositories with automatic head branch
+deletion enabled; change that setting yourself before retrying.
 
 `Red-team surfaces` names the parts of the project the end-of-loop pass
 attacks, such as a command, an input format or a screen. The pass uses at
@@ -402,8 +421,8 @@ the worktrees and issue branches left. Outside services are on the stops list.
   fakes and fixtures, are test support files. They are not locked or passed
   to the Test files command; changes to them appear in the report's risk flags.
 - An issue is built only if a collaborator with write access added `ready`.
-- The loop never merges into the default branch; it only opens a pull
-  request. Branch protection is what stops any other path.
+- Final merges stay with the person by default. Delegated merges use the
+  required checks and GitHub's branch protection.
 
 The guard hook is an early warning that matches the text of a command, so it
 can be routed around. It is registered for the loop's own sessions (through

@@ -16,7 +16,7 @@ import merge
 
 class BranchRestorationTest(unittest.TestCase):
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"])
+        self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.work, self.origin = make_repo(self.folder.name, {
             "loop.json": json.dumps({"Test command": "true", "Idle hours": 12}),

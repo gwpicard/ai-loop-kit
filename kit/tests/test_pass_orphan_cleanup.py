@@ -30,7 +30,7 @@ class PassOrphanCleanupTest(fixes.BackgroundPassFixture):
             "sys.path.insert(0, %r)\nimport common, shlex\n"
             "(root / 'agent-pid').write_text(str(os.getpid()))\n"
             "command = [sys.executable, '-c', %r]\n" % (loop.HERE, command)
-            + ("common.run_shell(shlex.join(command), os.getcwd(), 60, record=os.environ['LOOP_GROUPS'])\n"
+            + ("common.run_shell('exec ' + shlex.join(command), os.getcwd(), 60, record=os.environ['LOOP_GROUPS'])\n"
                "(root / 'hook-returned').touch()\ntime.sleep(30)\n"
                if hook else "os.execv(sys.executable, command)\n"))
         self.addCleanup(self.end_agents)

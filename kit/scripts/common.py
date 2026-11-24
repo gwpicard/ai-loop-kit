@@ -19,6 +19,7 @@ import time
 RETRY_WAITS = (5, 20, 60)
 RATE_LIMIT_CAP = 65 * 60
 TIMEOUT = 120
+STDERR_LINES = 20
 TRANSIENT = re.compile(
     r"HTTP 5\d\d|timed? ?out|connection (reset|refused)|no such host"
     r"|network is unreachable|unexpected EOF", re.I)
@@ -30,6 +31,7 @@ CODEX_FLAGS = ("-s", "-m", "-c", "--json", "-o", "--dangerously-bypass-hook-trus
 
 DEFAULTS = {
     "Loop branch": "loop/main",
+    "Final merge": "person",
     "Builder": "claude sonnet",
     "Test writer": "claude sonnet",
     "Reviewer": "claude sonnet",
@@ -57,7 +59,7 @@ MARKER = "<!-- lite-loop -->"  # on every comment the loop posts; replies lack i
 
 
 class LoopError(Exception):
-    """An expected failure with a one-line message."""
+    """An expected failure with a bounded diagnostic message."""
 
 
 class GitHubError(LoopError):
@@ -252,6 +254,8 @@ def validate_settings(found, filename, local=False):
                  if key in LIST_SETTINGS else isinstance(value, str))
         if not valid:
             raise SettingsError("%s: wrong type for '%s'" % (filename, key))
+        if key == "Final merge" and value not in ("person", "on request", "when green"):
+            raise SettingsError("%s: 'Final merge' must be person, on request or when green" % filename)
         if key in NUMERIC_SETTINGS:
             if not math.isfinite(value) or value < 0 or (
                     key in {"Parallel", "Max rounds", "Full suite every", "Test minutes"} and (value < 1 or value != int(value))):
@@ -333,7 +337,7 @@ def _wait_for_reset():
 
 def gh(args, input=None, retry=True, *, timeout=None, cwd=None):
     """Run gh and return stdout. Retries 5xx and network failures, waits out
-    a rate limit once, and raises GitHubError with one line otherwise.
+    a rate limit once, and raises GitHubError with the stderr tail otherwise.
     Pass retry=False for a write that is not safe to repeat."""
     waits, limited = list(RETRY_WAITS) if retry else [], not retry
     options = {}
@@ -354,7 +358,7 @@ def gh(args, input=None, retry=True, *, timeout=None, cwd=None):
                 continue
         lines = err.strip().splitlines()
         raise GitHubError("gh %s failed: %s" % (
-            " ".join(args[:2]), lines[0] if lines else "exit %d" % code))
+            " ".join(args[:2]), " | ".join(lines[-STDERR_LINES:]) if lines else "exit %d" % code))
 
 
 def add_label(number, label):
@@ -430,7 +434,7 @@ def git(args, cwd=None, check=True):
     if check and p.returncode != 0:
         lines = p.stderr.strip().splitlines()
         raise GitError("git %s failed: %s" % (
-            " ".join(args[:2]), lines[0] if lines else "exit %d" % p.returncode))
+            " ".join(args[:2]), " | ".join(lines[-STDERR_LINES:]) if lines else "exit %d" % p.returncode))
     return p.stdout.rstrip("\n")
 
 
