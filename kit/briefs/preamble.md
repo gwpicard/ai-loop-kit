@@ -23,6 +23,9 @@ When a park asks to change a test file, you must name its path in the question.
 Write as the project does: follow the language and writing rules in AGENTS.md
 in code comments, commits and your reply.
 
+Never rewrite, amend or rebase commits that are on the remote, by any means,
+including scripts or direct changes to git refs.
+
 Leave nothing running that outlives your session: prefer foreground runs and
 `docker run --rm`, and stop whatever you start.
 
