@@ -374,6 +374,9 @@ def requested(project, pull_request, settings, requester="person", expected_head
             if repository.get("delete_branch_on_merge") is not False:
                 return _refuse("branch-deletion", "turn off Automatically delete head branches before merging")
             git(["fetch", "--no-prune", "origin"], cwd=project)
+            git(["fetch", "--no-prune", "origin", head], cwd=project)
+            if git(["rev-parse", "--verify", "FETCH_HEAD^{commit}"], cwd=project) != head:
+                return _refuse("merge-head", "the fetched pull request head does not match its SHA")
             baseline = git(["rev-parse", "origin/" + base], cwd=project)
             if base == settings["Loop branch"]:
                 with common.scratch_tree(project, head) as tree:
