@@ -79,37 +79,31 @@ class LoopBackgroundPriorityTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return recorded, result.stdout + result.stderr
 
-    def test_mac_sets_background_qos_for_its_own_pid_before_starting(self):
+    def test_mac_keeps_supervisor_at_normal_priority(self):
         events, output = self.command("darwin")
         starts = [value for kind, value in events if kind == "started"]
         self.assertEqual(len(starts), 1, output)
-        self.assertEqual(events, [["taskpolicy", ["-b", "-p", str(starts[0])]],
-                                  ["started", starts[0]]],
-                         "Set background QoS on the loop itself before starting work")
+        self.assertEqual(events, [["started", starts[0]]],
+                         "Only session children enter background priority")
 
-    def test_other_systems_lower_niceness_before_starting(self):
+    def test_other_systems_keep_supervisor_niceness(self):
         for platform in ("linux", "freebsd"):
             with self.subTest(platform=platform):
                 events, output = self.command(platform)
                 starts = [value for kind, value in events if kind == "started"]
                 self.assertEqual(len(starts), 1, output)
-                self.assertEqual(events, [["nice", 10], ["started", starts[0]]],
-                                 "Call os.nice(10) before starting work")
+                self.assertEqual(events, [["started", starts[0]]],
+                                 "Only session children change niceness")
 
-    def test_missing_or_failed_taskpolicy_logs_one_line_and_still_starts(self):
+    def test_supervisor_does_not_need_taskpolicy(self):
         for policy in ("missing", "failed"):
             with self.subTest(policy=policy):
                 events, output = self.command("darwin", policy)
                 self.assertEqual(sum(kind == "started" for kind, _ in events), 1,
                                  "A priority failure must not prevent startup: " + output)
                 lines = [value for kind, value in events if kind == "log"]
-                self.assertEqual(len(lines), 1,
-                                 "Log one line for unavailable background priority: " + output)
-                self.assertEqual(len(lines[0].splitlines()), 1)
-                self.assertRegex(lines[0].lower(), r"taskpolicy|background|priority")
-                if policy == "failed":
-                    self.assertEqual(events[0][0], "taskpolicy",
-                                     "Attempt the fake before reporting its failure")
+                self.assertEqual(lines, [], output)
+                self.assertTrue(all(kind == "started" for kind, _ in events), events)
 
     def test_readme_explains_background_priority_and_its_reason_in_one_sentence(self):
         text = " ".join((KIT / "README.md").read_text(encoding="utf-8").split())
@@ -117,7 +111,7 @@ class LoopBackgroundPriorityTest(unittest.TestCase):
         matches = [sentence for sentence in sentences
                    if re.search(r"background[- ]priority", sentence)
                    and "loop" in sentence]
-        self.assertTrue(matches, "Document that the loop runs at background priority")
+        self.assertTrue(matches, "Document that the loop starts sessions at background priority")
         self.assertTrue(any(re.search(r"efficiency cores|fans?|quiet|responsive", sentence)
                             for sentence in matches),
                         "Explain why in the same sentence")
