@@ -56,7 +56,9 @@ PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$))|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
 GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*"
-                r"(?:(?:\w+=\S+|(?:\S*/)?(?:env|sudo)(?:\s+-\S+)*)\s+)*"
+                r"(?:(?:\w+=\S+|(?:\S*/)?env(?:\s+(?:-[uC]|--(?:unset|chdir))\s+\S+|\s+-\S+)*"
+                r"|(?:\S*/)?sudo(?:\s+(?:-[ughpCRDTrt]|--(?:user|group|host|prompt|close-from|chroot|chdir|command-timeout|role|type))"
+                r"\s+\S+|\s+-\S+)*)\s+)*"
                 r"[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[^']*'|"(?:\\.|[^"\\])*"|\n''')
 SHELLS = ("sh", "bash", "zsh", "dash")
