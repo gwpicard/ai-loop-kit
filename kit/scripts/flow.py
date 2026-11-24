@@ -19,6 +19,19 @@ class Parked(Exception):
     pass
 
 
+def push_issue(branch, tree):
+    """Refuse rewritten remote history before pushing the issue branch."""
+    git(["fetch", "--no-prune", "origin"], cwd=tree)
+    remote = "origin/" + branch
+    if git(["branch", "-r", "--list", remote], cwd=tree):
+        missing = git(["log", "--format=%H %s", branch + ".." + remote], cwd=tree)
+        if missing:
+            raise Parked("The branch history was rewritten on %s. Remote commits missing locally:\n%s"
+                         % (branch, missing),
+                         "Restore the missing remote commits without rewriting pushed history, then retry.")
+    git(["push", "origin", branch], cwd=tree)
+
+
 def parse_block(text, name="TESTS"):
     """Items in the last `NAME:` block of a reply, without bullets or numbers."""
     blocks = re.findall(r"^[\s*`]*%s:[*`]*[^\S\n]*\n(?:[^\S\n]*\n)*((?:(?![\s*`]*[A-Z-]+:)[^\S\n]*\S.*\n?)*)" % name, text, re.M)
@@ -86,9 +99,15 @@ def after_merge(issue, report, review, commit, files, pr, post=True, earlier=(),
                  ["issue", "list", "--state", "open", "--limit", "500", "--json", "title"]) or "[]")))
 
 
-def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=(), shape_note=""):
+def note_after_merge(issue, project, report, review, commit, files, pr, post=True, earlier=(), shape_note="",
+                     selection=""):
     """after_merge that never undoes a merge: any error is logged."""
     try:
+        selection = next((e.get("test_selection", "") for e in reversed(merge.status.read_events(project))
+                          if e.get("kind") == "merged" and e.get("issue") == issue
+                          and e.get("commit") == commit), selection)
+        if selection:
+            shape_note += "\nTest selection:\n" + selection + "\n"
         after_merge(issue, report, review, commit, files, pr, post, earlier, shape_note)
     except Exception as e:
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
@@ -203,7 +222,7 @@ def _land(issue, branch, review, project, tree, settings):
                 return Landed(None, conflicts, old, review, [])
             head = git(["rev-parse", "HEAD"], cwd=tree)
             if head != old:
-                git(["push", "origin", branch], cwd=tree)
+                push_issue(branch, tree)
                 review = re.sub(r"(?m)^(\s*HEAD:\s*)[0-9a-fA-F]{7,40}", lambda m: m.group(1) + head, review)
             files = git(["diff", "--name-only", "origin/%s...%s" % (loop, head)], cwd=tree).splitlines()
             result = merge.merge(issue, branch, review, project)
@@ -264,16 +283,31 @@ def _build_tree(issue, project, replies):
         if resume_merged(issue, project, branch, loop):
             return (result := Result("merged", "already merged"))
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
+        local = git(["rev-parse", "--verify", "refs/heads/" + branch], cwd=project, check=False)
+        source = "origin/" + (branch if remote else loop)
+        keep_local = False
+        if local and (not remote or git(["rev-list", source + ".." + local], cwd=project)):
+            if not remote or not git(["rev-list", local + ".." + source], cwd=project):
+                source, keep_local = local, True
+            else:
+                backup = "%s-local-%s" % (branch, time.time_ns())
+                git(["branch", backup, local], cwd=project)
+                folder = os.path.join(project, ".loop")
+                os.makedirs(folder, exist_ok=True)
+                with open(os.path.join(folder, "loop.out"), "a", encoding="utf-8") as f:
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ")
+                            + "kept divergent local branch as " + backup + "\n")
         git(["worktree", "remove", "--force", tree], cwd=project, check=False)
         git(["worktree", "prune"], cwd=project, check=False)
         if os.path.lexists(tree):  # not a worktree of this repository: keep it, out of the way
             os.rename(tree, "%s.stale-%s" % (tree, time.strftime("%Y%m%d-%H%M%S")))
-        git(["worktree", "add", "-B", branch, tree,
-             "origin/" + (branch if remote else loop)], cwd=project)
+        git(["worktree", "add", "-B", branch, tree, source], cwd=project)
+        if keep_local:
+            push_issue(branch, tree)
         if settings["Prepare command"] and (why := merge.run_in("Prepare", settings["Prepare command"], tree, "the worktree", 20)):
             raise common.LoopError(why)
         conflicts = []
-        if remote:  # the reused branch lacks what the loop branch gained since
+        if remote or keep_local:  # the reused branch lacks what the loop branch gained since
             try:
                 git(["merge", "--no-edit", "origin/" + loop], cwd=tree)
             except common.GitError:  # the merge stays open for the builder to finish
@@ -282,6 +316,15 @@ def _build_tree(issue, project, replies):
                     raise
         return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
     except Parked as p:
+        try:
+            remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
+            base = "origin/" + (branch if remote else loop)
+            if git(["rev-list", base + "..refs/heads/" + branch], cwd=project):
+                push_issue(branch, project)
+        except Parked as history:
+            p = history
+        except common.LoopError as e:
+            return Result("failed", str(e))
         common.park(issue, *p.args, project=project)
         return Result("parked", p.args[0])
     except common.LoopError as e:
@@ -376,7 +419,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             if not locked or any(not os.path.isfile(os.path.join(tree, p)) or not merge.is_test_module(p)
                                  for p in locked):
                 why = "Name every test file you wrote, each an existing test file, in the TESTS: block."
-            elif not (failed := tests("fails-first", start, common.files_command(settings, locked), 60, rnd=attempt,
+            elif not (failed := tests("fails-first", baseline, common.files_command(settings, locked), 60, rnd=attempt,
                                                 overlay=(tree, locked), prepare=settings["Prepare command"],
                                                 kinds=(kinds := []))):
                 why = "Your tests pass before any code exists. Make them fail for the right reason."
@@ -390,7 +433,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             text, _ = ask("test-writer", settings["Test writer"], rnd=attempt + 1, resume=writer, locked=locked,
                           extra=why + " Commit, and end with the TESTS: block again.")
             locked = parse_block(text)
-        git(["push", "origin", branch], cwd=tree)
+        push_issue(branch, tree)
         post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     report, sid = ask("builder", settings["Builder"], locked=locked)
@@ -418,12 +461,15 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                         + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
                            if fixes else ""))
         verdict, _ = merge.parse_verdict(review)
+        if verdict != "APPROVE" and settings["Reviewer"][0] == "codex" and session.sandbox_refusal(review):
+            raise Parked("The Codex sandbox refused the review command.",
+                         "Resolve the sandbox refusal, then retry the review.")
         try:  # the person can follow the fix rounds; a failure to post never stops the build
             post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
         except common.GitHubError as e:
             common.event("note-failed", project, issue=issue, reason=str(e))
         if verdict == "APPROVE":
-            git(["push", "origin", branch], cwd=tree)
+            push_issue(branch, tree)
             landed = land(issue, branch, review, project, tree, settings)
             result, head, review = landed.result, landed.head, landed.review
             if landed.conflicts:  # the merge stays open in the tree for the builder's next pass
@@ -436,7 +482,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                 except common.LoopError:
                     pr = None
                 note_after_merge(issue, project, report, review, result.commit, landed.files, pr,
-                                 earlier=earlier, shape_note=shape_note)
+                                 earlier=earlier, shape_note=shape_note, selection=tails[0] if tails else "")
                 return Result("merged", result.reason)
             elif result.park:
                 raise Parked("The loop refused to merge: %s." % result.reason,

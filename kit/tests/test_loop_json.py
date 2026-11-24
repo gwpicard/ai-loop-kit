@@ -287,6 +287,7 @@ class JsonLoopTest(unittest.TestCase):
                         ("loop.stray_workers", {"return_value": []}),
                         ("loop.clean_up", {"return_value": None}),
                         ("loop.sync_default", {"return_value": False}),
+                        ("common.restore_loop_branch", {"return_value": None}),
                         ("loop.drain", {"return_value": None}),
                         ("common.ready_is_trusted", {"return_value": True}),
                         ("common.add_label", {"return_value": None}),

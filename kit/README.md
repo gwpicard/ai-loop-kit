@@ -38,6 +38,10 @@ delete nothing.
 
 ## Set up a project
 
+Turn off "Automatically delete head branches" in the repository's Settings,
+General, Pull Requests. Otherwise, merging the loop's final pull request
+deletes the loop branch.
+
 Commit `loop.json` at the project root:
 
     {"Test command": "<the command that runs your tests>"}
@@ -47,13 +51,17 @@ Optional keys in the same JSON object: `Loop branch` (default `loop/main`),
 default `claude sonnet`; the agent is `claude` or `codex`), `Protected paths`,
 `Idle hours` (default 12) and `Max rounds` (default 3), `Session minutes`
 (default 45, the wall-clock limit of one Claude session; raise it when one
-Test command run is slow), `Test files command`, `Prepare command`,
+Test command run is slow), `Test minutes` (default 30, the Test command time
+limit), `Test files command`, `Prepare command`,
 `Check command`, `Smoke command`, `Full suite every` (default 4) and
 `Parallel` (default 1).
 `Protected paths`, `Codex writable roots` and `Red-team surfaces` are lists of strings.
-Numeric settings take JSON numbers; `Full suite every` takes an integer of
-at least one. All other settings take strings. Unknown
-keys and values of the wrong type are refused. `Codex writable roots` lists
+Numeric settings take JSON numbers; `Full suite every` and `Test minutes`
+take integers of at least one. `Codex network` takes a JSON boolean and defaults to false.
+Other settings take strings. Unknown keys and values of the wrong type are
+refused. Set `"Codex network": true` to enable network access in Codex
+sessions when the `Prepare command` fetches packages.
+`Codex writable roots` lists
 further folders that a Codex session may write to, in addition to the
 worktree, the git folder and the temp and cache folders; a leading `~` is
 expanded and a folder that does not exist is left out. Use it for a build
@@ -87,11 +95,18 @@ every fresh checkout, before any test run, so the Test command need not
 embed it.
 
 In a build tree, `<plugin>/bin/loop check` selects the issue's locked tests
-and test files changed since the session's start commit, then runs the Check
-command. It prints one pass line, or the failing command and at most 60 lines
-of its output. Without a Test files command it runs the Test command. With
+and test files changed since the session's start commit, plus tests that
+import changed modules, then runs the Check command. It prints one pass line,
+or the failing command and at most 60 lines of its output. Without a Test
+files command it runs the Test command. With
 a Test files command and no selected files, it skips tests and still runs
 the Check command.
+
+Python selection parses imports, including relative and `from` imports.
+It also follows imports of test support files and selected test modules.
+For other languages or invalid
+Python, it selects tests mentioning the changed file's base name without its
+extension. When the selection exceeds 40 modules, it runs the full Test command.
 
 `Check command` is the project's guardrails (lint baseline, size budgets,
 architecture tests). It runs after every Test command run, and a failure
@@ -103,8 +118,20 @@ reports those that are set; none is required.
 builds one issue at a time. Each build is a separate process in its own
 worktree, so a crash or a hang in one cannot stop the loop or the others.
 
-The loop runs at background priority so builds favour efficiency cores on
-macOS and keep the machine responsive.
+The loop starts agent sessions at background priority so they favour
+efficiency cores on macOS and keep the machine responsive. Every Claude and
+Codex session, including the pass and summary, starts with `taskpolicy -b`
+on macOS when available. Otherwise, the session process uses `os.nice(10)`.
+Commands started by a session inherit its priority. The supervisor stays at
+normal priority, so the Test, Check, Prepare and Smoke commands it schedules
+run at normal priority. The full suite at merge and drain runs at normal
+priority to avoid the slowdown from using efficiency cores alone.
+
+`Test minutes` in `loop.json` sets the Test command time limit at merge,
+drain and targeted checks. It defaults to 30 minutes and takes a whole number
+of at least one. At merge and drain, a timeout refusal reports the limit,
+elapsed time excluding pauses and up to 60 lines from the end of its output.
+Prepare, Check and Smoke commands keep their 30-minute limits.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
 are closed, labels it `building` first, and starts another only while the
@@ -148,9 +175,13 @@ Step starts and ends, merges and parks also record `load` (the one-minute load
 average) and `pressure` (the macOS memory-pressure level, or null elsewhere
 or when the reading fails).
 
-`<plugin>/bin/loop status` reads only `.loop/` and checks local pids. It shows
+`<plugin>/bin/loop status` reads `.loop/` and checks local pids. It shows
 current activity, merges, parks, crashes, rule counts, stage times, agents and
-models from the last 12 hours, without GitHub or a session. `--since` accepts
+models from the last 12 hours, without a session. Its `Open parks` section
+reads every open `needs-user` issue and its latest park question from GitHub,
+regardless of the time window. If GitHub cannot be read, it reports that the
+section is unavailable. `--json` prints only the local throughput report.
+`--since` accepts
 `YYYY-MM-DD HH:MM`, `HH:MM` (today), or a duration such as `4h` or `90m`.
 Stage totals and medians use steps completed in the window; a merged issue's
 total minutes and review rounds use its full recorded history.
@@ -177,7 +208,12 @@ write scratch files in the system temp folder, never inside the project.
 With a Test files command set, `Full suite every` sets the merge interval
 for the full Test command: four by default, or one to run it at every merge.
 Other merges run the Test files command on the locked tests and test modules
-changed against the loop branch, then the Check command. Each run uses
+changed against the loop branch, plus the importers and base-name matches
+described above, then the Check command. When the selection exceeds 40 modules,
+the merge runs the full Test command.
+
+The merge's log line and build note list extra modules with the import or
+base-name mention that selected each one. Each run uses
 `merge.py`'s fresh checkout of the reviewed commit. Path checks and the test
 lock run first, so a refusal costs no test run.
 
@@ -195,8 +231,8 @@ A regression outside the targeted tests may be found only at the next full run.
 
 The tests are proven to fail with the Test files command, by assertion, on
 the locked files only. The builder runs the Test files command while it works.
-The Stop hook runs the locked tests and the test modules changed since the
-issue started, then the Check command. It records which tests ran. After the
+The Stop hook runs the same selection as `loop check`, then the Check
+command. It records which tests ran. After the
 builder or a fix pass, the loop reuses that result if it was for the head
 commit, and otherwise runs the same targeted set in a fresh checkout. Without
 a Test files command, these steps use the full Test command.

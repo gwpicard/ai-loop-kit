@@ -4,11 +4,13 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 import common
 
@@ -78,14 +80,30 @@ def age(pid):
 
 def reap_groups(path, since):
     """Kill the process groups a Stop hook listed in `path` and still left running; return a line per process.
-    A group is skipped unless its leader is alive, leads the group and started after `since`."""
+    Marked groups need a surviving member with the inherited ownership token.
+    Older records require a live leader that started after `since`."""
     try:
         with open(path) as f:
-            groups = [int(g) for g in f.read().split()]
+            groups = [g.partition(":") for g in f.read().split()]
+        groups = [(int(g), token) for g, _, token in groups]
     except (OSError, ValueError):
         return []
-    seen = {g: age(g) for g in groups if g > 1 and g != os.getpgrp()}
-    mine = [g for g, a in seen.items() if a and a[0] == g and a[1] <= time.time() - since + 2]
+    marked = any(token for _, token in groups)
+    # Inspect environments only to verify ownership; never include them in cleanup logs.
+    rows = subprocess.run(["ps", "eww", "-A", "-o", "pgid=,command="],
+                          capture_output=True, text=True).stdout.splitlines() if marked else []
+    mine = []
+    for g, token in groups:
+        if g <= 1 or g == os.getpgrp():
+            continue
+        if token:
+            owned = any(row.split()[:1] == [str(g)] and "LOOP_GROUP_TOKEN=" + token in row.split()[1:]
+                        for row in rows)
+        else:
+            a = age(g)
+            owned = a and a[0] == g and a[1] <= time.time() - since + 2
+        if owned:
+            mine.append(g)
     return [line for g in mine for line in reap(g)]
 
 
@@ -98,9 +116,12 @@ def _wait_seconds(text):
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     before, began = docker_state(), time.time()
-    handle, groups = tempfile.mkstemp(prefix="loop-groups-", dir=env.get("TMPDIR"))
+    registry = env.get("LOOP_PASS_GROUPS")
+    handle, groups = tempfile.mkstemp(prefix="pass-hooks-" if registry else "loop-groups-",
+                                    dir=os.path.dirname(registry) if registry else env.get("TMPDIR"))
     os.close(handle)
-    env = dict(env, LOOP_GROUPS=groups)
+    token = uuid.uuid4().hex if registry else None
+    env = dict(env, LOOP_GROUPS=groups, **({"LOOP_GROUP_TOKEN": token} if token else {}))
     project_of_cwd = env.get("LOOP_PROJECT") or common.project_of(cwd)
     # files, not pipes: a leftover child that holds a pipe open must not block the wait
     with tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as fin, \
@@ -108,7 +129,16 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
             tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as ferr:
         fin.write(prompt)
         fin.seek(0)
-        p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
+        background = sys.platform == "darwin" and shutil.which("taskpolicy")
+        launch = [background, "-b"] + argv if background else argv
+        def child_setup():
+            if registry:
+                common._record(registry, os.getpid(), True, token)
+            if not background:
+                with contextlib.suppress(OSError):
+                    os.nice(10)
+        p = subprocess.Popen(launch, cwd=cwd, env=env, text=True, start_new_session=True,
+                             preexec_fn=child_setup,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:
             common.wait_limited(p.wait, limit, project_of_cwd)
@@ -119,6 +149,8 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
         with contextlib.suppress(OSError):
             os.remove(groups)
         p.wait()
+        if registry:
+            common._record(registry, p.pid, False)
         out, err = (f.seek(0) or f.read() for f in (fout, ferr))
     swept = sweep(before, cwd)
     SWEPT.setdefault(issue, []).extend(swept)
@@ -139,8 +171,8 @@ def _codex_hooks():
             'Stop = [{hooks = [%s]}]}' % (hook("guard.py"), hook("stop.py", TEST_TIMEOUT)))
 
 
-def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
-    """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
+def codex_sandbox_config(cwd, env, settings):
+    """Sandbox configuration shared by sessions and the startup probe."""
     common_dir = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd,
                                 capture_output=True, text=True).stdout.strip()
     # a worktree's .git points into the main checkout, so its commits need that folder writable;
@@ -150,20 +182,53 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
         for name in ("DARWIN_USER_TEMP_DIR", "DARWIN_USER_CACHE_DIR"):
             with contextlib.suppress(OSError):
                 candidates.append(subprocess.run(["getconf", name], capture_output=True, text=True).stdout.strip())
-    with contextlib.suppress(common.SettingsError):
-        candidates += [os.path.expanduser(p) for p in common.build_settings(cwd)["Codex writable roots"]]
+    candidates += [os.path.expanduser(p) for p in settings["Codex writable roots"]]
     folders = []
     for path in candidates:
         path = os.path.realpath(path) if path else ""
         if os.path.isdir(path) and path not in folders:
             folders.append(path)
-    roots = "sandbox_workspace_write.writable_roots=" + json.dumps(folders)
+    return ["-c", 'sandbox_mode="workspace-write"',
+            "-c", "sandbox_workspace_write.writable_roots=" + json.dumps(folders),
+            "-c", "sandbox_workspace_write.network_access=" + str(settings.get("Codex network", False)).lower()]
+
+
+def sandbox_refusal(text):
+    """Whether a diagnostic reports a sandbox permission refusal."""
+    return bool(re.search(r"sandbox", text, re.I) and re.search(
+        r"operation not permitted|permission denied|sandbox[^\n]*(?:blocked|refused|denied)", text, re.I))
+
+
+def codex_probe(project, settings):
+    """Run the targeted test command once without spending a model turn."""
+    import merge
+
+    if not any(settings.get(role, ("claude",))[0] == "codex" for role in common.ROLES):
+        return None
+    files = [p for p in common.git(["ls-files", "-z"], cwd=project).split("\0") if merge.is_test_module(p)]
+    command = common.files_command(settings, files[:1])
+    env = common.build_env()
+    try:
+        p = subprocess.run(["codex", "sandbox"] + codex_sandbox_config(project, env, settings)
+                           + ["--", "sh", "-c", command], cwd=project, env=env,
+                           capture_output=True, text=True, timeout=TEST_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as error:
+        return "Codex sandbox probe failed: %s" % error
+    output = p.stdout + p.stderr
+    if p.returncode and sandbox_refusal("Codex sandbox:\n" + output):
+        return "Codex sandbox refused the test command:\n" + "\n".join(output.splitlines()[-60:])
+    return None
+
+
+def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
+    """One `codex exec` session, or `codex exec resume`; return (reply text, session id)."""
+    config = codex_sandbox_config(cwd, env, common.build_settings(cwd))
     handle, last = tempfile.mkstemp(prefix="loop-codex-", dir=env.get("TMPDIR"))
     os.close(handle)
     def argv(resume):
         return (["codex", "exec"] + (["resume", resume] if resume else ["-s", "workspace-write"])
-                + ["-m", model, "-c", 'sandbox_mode="workspace-write"', "-c", roots,
-                   "-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
+                + ["-m", model] + config
+                + ["-c", "hooks=" + _codex_hooks(), "--dangerously-bypass-hook-trust", "--json", "-o", last, "-"])
     try:
         while True:
             common.wait_for_memory(project=env["LOOP_PROJECT"], issue=issue)

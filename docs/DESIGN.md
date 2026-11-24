@@ -86,8 +86,9 @@ It links to milestone progress rather than reproducing the whole backlog.
 The supervisor rewrites it from GitHub state, so no dashboard server is
 needed. Notifications are not built.
 
-The local status command reports activity, timings and recent events
-without GitHub or an agent session. The report command summarises merged
+The status command reports local activity, timings and recent events without
+an agent session. Its open parks section reads current parked questions
+from GitHub, regardless of the event window. The report command summarises merged
 issues using git refs, local events and read-only GitHub calls for build
 notes. The final pull request includes that report.
 
@@ -144,11 +145,20 @@ pass.
 
 With a Test files command set, the guard refuses the full Test command in
 all four roles: builder, reviewer, test writer and pass. The full suite is
-reserved for merge and drain. At merge, targeted tests and the Check command
+reserved for merge and drain, except when the selection cap below is exceeded.
+At merge, targeted tests and the Check command
 run unless a full suite is due. `Full suite every` defaults to four merges;
 setting it to one runs the full suite at every merge. Without a Test files
 command containing `{files}`, every merge runs the full suite. A merge also
 runs the full suite if the issue has no posted list of locked test modules.
+
+Targeted selection also includes tests that import changed Python modules,
+including test support files, and importers of any selected test module.
+It parses imports without running project code. Other languages and invalid
+Python use mentions of the changed file's base name without its extension.
+When the selection exceeds 40 modules, the merge or session check runs the
+full suite. The merge log and build
+note list extra modules and why each was selected.
 
 Merge events record whether the full suite ran. The merge gate reads that
 history after a restart and resets the count after a successful full merge
@@ -159,7 +169,8 @@ suite before the pass and final pull request. A regression outside the
 targeted tests may reach the loop branch before the next full run finds it.
 
 The fails-first step runs the locked tests. The builder's Stop hook runs
-the locked tests and changed test files, then the Check command, and refuses
+the same selection from the locked tests and changes since the session's
+start commit, then the Check command, and refuses
 completion on failure. Its record identifies the commit and tests run; the
 flow reuses it only for that head, otherwise repeating the targeted checks
 in a fresh checkout. Builders use `loop check` for the same selection and

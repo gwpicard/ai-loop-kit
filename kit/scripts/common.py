@@ -10,6 +10,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ import time
 RETRY_WAITS = (5, 20, 60)
 RATE_LIMIT_CAP = 65 * 60
 TIMEOUT = 120
+STDERR_LINES = 20
 TRANSIENT = re.compile(
     r"HTTP 5\d\d|timed? ?out|connection (reset|refused)|no such host"
     r"|network is unreachable|unexpected EOF", re.I)
@@ -35,11 +37,13 @@ DEFAULTS = {
     "Pass": "claude sonnet",
     "Protected paths": [".github/", ".claude/", ".githooks/", "loop.json", "loop.local.json"],
     "Codex writable roots": [],
+    "Codex network": False,
     "Red-team surfaces": [],
     "Idle hours": 12,
     "Max rounds": 3,
     "Full suite every": 4,
     "Session minutes": 45,
+    "Test minutes": 30,
     "Check command": "",
     "Smoke command": "",
     "Test files command": "",  # {files} stands for the paths; empty means the Test command
@@ -54,7 +58,7 @@ MARKER = "<!-- lite-loop -->"  # on every comment the loop posts; replies lack i
 
 
 class LoopError(Exception):
-    """An expected failure with a one-line message."""
+    """An expected failure with a bounded diagnostic message."""
 
 
 class GitHubError(LoopError):
@@ -70,6 +74,16 @@ class SettingsError(LoopError):
 
 
 def say(text):
+    # Shell redirection with > leaves an offset that can overwrite worker log entries.
+    try:
+        fd = sys.stdout.fileno()
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            if not flags & os.O_APPEND:
+                sys.stdout.flush()
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_APPEND)
+    except (AttributeError, OSError, ValueError):
+        pass  # Captured output and pipes need no append flag.
     for line in str(text).splitlines():
         print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
 
@@ -181,7 +195,9 @@ def codex_refusal(settings):
     if not any(l.split()[:1] == ["hooks"] for l in (ask(["features", "list"]) or "").splitlines()):
         return "%s, but this Codex has no hooks feature, so the guard cannot run" % who
     for args in (["exec"], ["exec", "resume"]):
-        words = re.findall(r"(?<![\w-])-{1,2}[A-Za-z][\w-]*", ask(args + ["--help"]) or "")
+        options = re.findall(r"^\s*(-{1,2}[A-Za-z][\w-]*(?:,\s*--[\w-]+)?)",
+                             ask(args + ["--help"]) or "", re.M)
+        words = re.findall(r"-{1,2}[A-Za-z][\w-]*", "\n".join(options))
         for flag in CODEX_FLAGS:
             if flag not in words and not (flag == "-s" and args[1:]):  # `exec resume` has no -s
                 return "%s, but `codex %s` has no %s flag" % (who, " ".join(args), flag)
@@ -199,9 +215,9 @@ def setting_lines(text):
             yield line, m.group(1), m.group(2).replace("`", "").strip()
 
 
-NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Full suite every"}
+NUMERIC_SETTINGS = {"Parallel", "Idle hours", "Max rounds", "Session minutes", "Test minutes", "Full suite every"}
 LIST_SETTINGS = {"Protected paths", "Codex writable roots", "Red-team surfaces"}
-BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution"}
+BOOLEAN_SETTINGS = {"Sign-off", "Agent attribution", "Codex network"}
 _BUILD_SETTINGS = contextvars.ContextVar("build_settings", default=None)
 
 
@@ -239,7 +255,7 @@ def validate_settings(found, filename, local=False):
             raise SettingsError("%s: wrong type for '%s'" % (filename, key))
         if key in NUMERIC_SETTINGS:
             if not math.isfinite(value) or value < 0 or (
-                    key in {"Parallel", "Max rounds", "Full suite every"} and (value < 1 or value != int(value))):
+                    key in {"Parallel", "Max rounds", "Full suite every", "Test minutes"} and (value < 1 or value != int(value))):
                 raise SettingsError("%s: invalid number for '%s'" % (filename, key))
     if not local and not found.get("Test command"):
         raise SettingsError("%s: missing 'Test command'" % filename)
@@ -270,19 +286,33 @@ def read_settings(root="."):
         settings.update(found)
     for role in ROLES:
         settings[role] = tuple(settings[role].split())
-    for key in ("Max rounds", "Parallel", "Full suite every"):
+    for key in ("Max rounds", "Parallel", "Full suite every", "Test minutes"):
         settings[key] = int(settings[key])
     return settings
 
 
 # GitHub
 
-def _run_gh(args, input=None):
+def warn_delete_branch_on_merge(project, emit):
+    """Probe once with a short timeout; this advice must not hold up startup."""
+    try:
+        result = gh(["api", "repos/{owner}/{repo}", "--jq", ".delete_branch_on_merge"],
+                    retry=False, timeout=2, cwd=project)
+        if result.strip() == "true":
+            emit('warning: in Settings, General, Pull Requests, turn off '
+                 '"Automatically delete head branches": merging the final pull request '
+                 'deletes the loop branch.')
+    except Exception:
+        return
+
+
+def _run_gh(args, input=None, *, timeout=None, cwd=None):
+    timeout = TIMEOUT if timeout is None else timeout
     try:
         p = subprocess.run(["gh"] + list(args), input=input, text=True,
-                           capture_output=True, timeout=TIMEOUT)
+                           capture_output=True, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
-        return 124, "", "gh timed out after %s seconds" % TIMEOUT
+        return 124, "", "gh timed out after %s seconds" % timeout
     except OSError as e:
         raise GitHubError("cannot run gh: %s" % e)
     return p.returncode, p.stdout, p.stderr
@@ -302,13 +332,18 @@ def _wait_for_reset():
     return True
 
 
-def gh(args, input=None, retry=True):
+def gh(args, input=None, retry=True, *, timeout=None, cwd=None):
     """Run gh and return stdout. Retries 5xx and network failures, waits out
-    a rate limit once, and raises GitHubError with one line otherwise.
+    a rate limit once, and raises GitHubError with the stderr tail otherwise.
     Pass retry=False for a write that is not safe to repeat."""
     waits, limited = list(RETRY_WAITS) if retry else [], not retry
+    options = {}
+    if timeout is not None:
+        options["timeout"] = timeout
+    if cwd is not None:
+        options["cwd"] = cwd
     while True:
-        code, out, err = _run_gh(args, input)
+        code, out, err = _run_gh(args, input, **options)
         if code == 0:
             return out
         if TRANSIENT.search(err) and waits:
@@ -320,7 +355,7 @@ def gh(args, input=None, retry=True):
                 continue
         lines = err.strip().splitlines()
         raise GitHubError("gh %s failed: %s" % (
-            " ".join(args[:2]), lines[0] if lines else "exit %d" % code))
+            " ".join(args[:2]), " | ".join(lines[-STDERR_LINES:]) if lines else "exit %d" % code))
 
 
 def add_label(number, label):
@@ -396,16 +431,17 @@ def git(args, cwd=None, check=True):
     if check and p.returncode != 0:
         lines = p.stderr.strip().splitlines()
         raise GitError("git %s failed: %s" % (
-            " ".join(args[:2]), lines[0] if lines else "exit %d" % p.returncode))
+            " ".join(args[:2]), " | ".join(lines[-STDERR_LINES:]) if lines else "exit %d" % p.returncode))
     return p.stdout.rstrip("\n")
 
 
-def _record(path, pid, add):
-    """Add a process group id to the list in `path`, or take it off."""
+def _record(path, pid, add, token=None):
+    """Add a process group id and optional ownership token to `path`, or take it off."""
     try:
         pids = open(path).read().split() if os.path.exists(path) else []
         with open(path, "w") as f:
-            f.write("".join(p + "\n" for p in [p for p in pids if p != str(pid)] + [str(pid)] * add))
+            entry = str(pid) + (":" + token if token else "")
+            f.write("".join(p + "\n" for p in [p for p in pids if p.split(":", 1)[0] != str(pid)] + [entry] * add))
     except OSError:
         pass
 
@@ -540,25 +576,33 @@ def run_shell(command, cwd, timeout, record=None):
 
 
 def _run_shell(command, cwd, timeout, record=None):
-    """Run a shell command in its own process group. Return (exit code, output); the code is None on timeout.
-    With `record`, the group id is listed in that file while the command runs, so whoever
-    ends the caller can also end the command. Before it starts, the command waits at critical memory
+    """Run a shell command in its own process group, or in the pass worker's group.
+    Return (exit code, output); the code is None on timeout outside a pass worker.
+    A pass command timeout ends the worker and its commands; the supervisor reports the error.
+    With `record`, the group id is listed so whoever ends the caller can also end the command.
+    Pass records remain until session cleanup, including commands whose children outlive them.
+    Before it starts, the command waits at critical memory
     pressure for at most ten minutes; the wait is outside `timeout`."""
     wait_for_memory(project_of(cwd))
     wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
-    p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=True,
+    # Pass commands share the worker's lifetime, including an external kill.
+    pass_worker = os.environ.get("LOOP_PASS_WORKER") == str(os.getpid())
+    token = os.environ.get("LOOP_GROUP_TOKEN")
+    p = subprocess.Popen(command, shell=True, cwd=cwd, env=build_env(), text=True, errors="replace", start_new_session=not pass_worker,
+                         preexec_fn=(lambda: _record(record, os.getpid(), True, token)) if record and os.environ.get("LOOP_PASS_GROUPS") else None,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
-        _record(record, p.pid, True)
+        _record(record, p.pid, True, token)
     try:
         out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd))
         return p.returncode, out
     except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)
-        p.communicate()
-        return None, ""
+        os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
+        out, _ = p.communicate()
+        return None, out
     finally:
-        if record:
+        # Pass cleanup also needs groups whose command exited before its children.
+        if record and not os.environ.get("LOOP_PASS_GROUPS"):
             _record(record, p.pid, False)
 
 
@@ -582,6 +626,27 @@ def read_passed(project, session_id):
 def default_branch(project):
     ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
     return ref.replace("origin/", "", 1) or "main"
+
+
+def restore_loop_branch(project, branch):
+    """Restore a missing remote branch, preserving its last known commit."""
+    if git(["ls-remote", "--heads", "origin", "refs/heads/" + branch], cwd=project):
+        return
+    git(["fetch", "--no-prune", "origin"], cwd=project)
+    source = "origin/" + branch
+    commit = git(["rev-parse", "--verify", "refs/remotes/" + source + "^{commit}"],
+                 cwd=project, check=False)
+    if not commit:
+        source = "origin/" + default_branch(project)
+        commit = git(["rev-parse", "--verify", "refs/remotes/" + source + "^{commit}"], cwd=project)
+    git(["push", "origin", commit + ":refs/heads/" + branch], cwd=project)
+    folder = os.path.join(project, ".loop")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "loop.out")
+    line = "restored %s from %s at %s" % (branch, source, commit)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+    event("loop-branch-restored", project, branch=branch, source=source, commit=commit)
 
 
 @contextlib.contextmanager
@@ -630,6 +695,20 @@ def event(kind, root=".", **fields):
                   project=os.path.basename(os.path.abspath(root)), **fields)
     with open(os.path.join(folder, "events.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+    progress = {"answered": "requeued on a reply", "merged": "merged", "parked": "parked"}.get(kind)
+    if (kind == "step" and fields.get("step") == "review" and fields.get("phase") == "end"
+            and fields.get("outcome") not in {None, "parked", "crashed"}):
+        progress = "review: " + fields["outcome"].upper()
+    if progress and "issue" in fields:
+        # Workers write stdout to build logs; progress also belongs in the supervisor's log.
+        with open(os.path.join(folder, "loop.out"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s %s\n" % (fields["issue"], progress))
+
+
+def named_test_paths(text):
+    """Test paths mentioned in text, using the same definition as the merge checks."""
+    import merge
+    return sorted({p for p in re.findall(r"[\w./-]+\.\w+", text) if merge.is_test_file(p)})
 
 
 def park(issue, question, recommendation, project="."):
@@ -655,9 +734,12 @@ def park(issue, question, recommendation, project="."):
     event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
+    warning = ("No test path was named in the question, so a yes cannot grant one.\n\n"
+               if re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I)
+               and not named_test_paths(question) else "")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,
-       input="## Needs you\n\n%s\n\nRecommended: %s\n\nReply on this issue; "
-             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, MARKER))
+       input="## Needs you\n\n%s\n\nRecommended: %s\n\n%sReply on this issue; "
+             "the loop picks up your reply.\n\n%s\n" % (question, recommendation, warning, MARKER))
 
 
 def _version_key(text):
