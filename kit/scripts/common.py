@@ -30,6 +30,7 @@ CODEX_FLAGS = ("-s", "-m", "-c", "--json", "-o", "--dangerously-bypass-hook-trus
 
 DEFAULTS = {
     "Loop branch": "loop/main",
+    "Final merge": "person",
     "Builder": "claude sonnet",
     "Test writer": "claude sonnet",
     "Reviewer": "claude sonnet",
@@ -252,6 +253,8 @@ def validate_settings(found, filename, local=False):
                  if key in LIST_SETTINGS else isinstance(value, str))
         if not valid:
             raise SettingsError("%s: wrong type for '%s'" % (filename, key))
+        if key == "Final merge" and value not in ("person", "on request", "when green"):
+            raise SettingsError("%s: 'Final merge' must be person, on request or when green" % filename)
         if key in NUMERIC_SETTINGS:
             if not math.isfinite(value) or value < 0 or (
                     key in {"Parallel", "Max rounds", "Full suite every", "Test minutes"} and (value < 1 or value != int(value))):

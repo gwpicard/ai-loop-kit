@@ -708,8 +708,10 @@ def _drain(project, settings, st):
     loop, base = settings["Loop branch"], common.default_branch(project)
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
+    st["drain_head"] = head
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
                             prepare=settings["Prepare command"])
+    st["drained_head"] = None if failed else head
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
@@ -745,6 +747,40 @@ def _drain(project, settings, st):
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
     return failed
+
+
+def final_merge(project, settings, st):
+    """Poll delegated final merges even after the drain has finished."""
+    policy = settings.get("Final merge", "person")
+    if policy == "person" or st.get("building") or st.get("pass"):
+        return
+    loop, base = settings["Loop branch"], common.default_branch(project)
+    found = json.loads(gh(["pr", "list", "--head", loop, "--base", base,
+                           "--state", "open", "--json", "number,headRefOid"]))
+    for pr in found:
+        requester = "Final merge: when green"
+        head = pr.get("headRefOid")
+        if policy == "when green":
+            if not head or st.get("drained_head") != head:
+                continue
+        else:
+            comments = merge.view("pr", pr["number"], "comments").get("comments", [])
+            requester = None
+            for comment in reversed(comments):
+                if not re.search(r"^merge\r?$", comment.get("body") or "", re.M):
+                    continue
+                actor = (comment.get("author") or {}).get("login")
+                if actor and common.has_write(actor):
+                    requester = actor
+                    break
+            if not requester:
+                continue
+        result = merge.requested(project, pr["number"], settings, requester, expected_head=head)
+        if result.ok:
+            st["pr"] = None
+            st["last"] = result.reason
+        else:
+            say("final merge waiting: " + result.reason)
 
 
 OWN_LOG = re.compile(r"(build-\d+|(\d+|pass)-[a-z]+(-[a-z]+)*-\d+)\.log")  # its own logs only: 1.x left piece-* and run-* logs in .loop/logs
@@ -939,10 +975,13 @@ def run(project):
                     conflict = st["conflict"]
                     dirty = sync_default(project, settings["Loop branch"], st) or dirty
                     dirty = dirty or conflict != st["conflict"]
+                    dirty = dirty or st.get("drain_head") != git(
+                        ["rev-parse", "origin/" + settings["Loop branch"]], cwd=project)
                     if dirty:
                         with common.settings_environment(settings):
                             drain(project, settings, st)
                         dirty = False
+                final_merge(project, settings, st)
                 if time.time() - built >= settings["Idle hours"] * 3600:
                     reason = "nothing built for %g hours" % settings["Idle hours"]
                     say("exiting: nothing built for %g hours" % settings["Idle hours"])
@@ -1047,6 +1086,15 @@ def check(project):
 
 def main(argv):
     project, cmd = os.getcwd(), (argv or [""])[0]
+    if cmd == "merge":
+        if len(argv) != 2 or argv[1].startswith("-"):
+            return say("usage: loop merge <pull request>") or 2
+        try:
+            result = merge.requested(project, argv[1], common.read_settings(project))
+        except common.LoopError as error:
+            return say("refused: " + str(error)) or 1
+        say(result.reason if result.ok else "refused: " + result.reason)
+        return 0 if result.ok else 1
     if cmd == "check":
         if len(argv) != 1:
             print("usage: loop check")
@@ -1107,7 +1155,7 @@ def main(argv):
             return say(refusal) or 1
         common.record_kit_version(project)
     if cmd != "run":
-        say("usage: loop.py run|stop|pause|resume|check|check-version|report|status [--since <time>]")
+        say("usage: loop.py run|stop|pause|resume|check|check-version|merge|report|status [--since <time>]")
         return 2
     try:
         if sys.platform == "darwin" and shutil.which("caffeinate"):
