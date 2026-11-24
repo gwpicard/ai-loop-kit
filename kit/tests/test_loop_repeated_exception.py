@@ -83,8 +83,11 @@ from kit.tests.test_settings_build_retention import BuildRetentionTest
 import loop
 original = loop.main
 def main(argv):
-    with mock.patch.object(loop, "snapshot", side_effect=TypeError("snapshot fixture regression")):
-        return original(argv)
+    with mock.patch.object(loop, "snapshot", side_effect=TypeError("snapshot fixture regression")), \
+            mock.patch.object(loop, "wait_stop") as wait:
+        result = original(argv)
+        assert wait.call_args_list == [mock.call(mock.ANY, loop.POLL)] * (loop.ERROR_LIMIT - 1)
+        return result
 with mock.patch.object(loop, "main", side_effect=main):
     suite = unittest.TestSuite([BuildRetentionTest("test_serial_build_keeps_settings_after_local_file_fails")])
     result = unittest.TextTestRunner(verbosity=2).run(suite)
