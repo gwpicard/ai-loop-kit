@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.1.1 (24 November 2026)
+
+Only agent sessions now run at background priority; the Test, Check, Prepare
+and Smoke commands run at normal priority, and a new `loop.json` setting,
+`Test minutes` (default 30), sets the Test command's time limit. Targeted
+merges also run the test modules that import the changed code, and a failed
+merge keeps its test output in `.loop/logs/<issue>-merge.log` and quotes the
+failing tests. The loop stops after the same error ends three cycles in a row,
+but GitHub and network errors never count towards that stop. The end-of-loop
+pass runs in its own worker beside builds, the loop restores its branch when
+it is missing on GitHub, and setup and the loop warn when "Automatically
+delete head branches" is on.
+
+Test files named like `EditorTests.swift`, `FooSpec.scala`, `foo_tests.rs`,
+`login-test.js` or `TestFoo.java` are recognised as tests. When the loop
+branch holds a `PLAN.md`, setup migrates it from there and lists what is left;
+`loop status` shows open parks, and a resumed build keeps unpushed commits. A
+new `Codex network` setting gives Codex sessions network access, and the loop
+stops at start when the Codex sandbox refuses the tests. An issue whose pushed
+commits a session rewrote parks with the missing commits named. A reply to a
+park says whether it granted a test change, `loop.out` records each issue's
+progress, and squash commits drop session links. No setup run is needed.
+See [the 3.1.1 release notes](docs/release-notes/v3.1.1.md).
+
 ## 3.1.0 (22 November 2026)
 
 In a project whose `Test files command` contains `{files}`, the loop now runs

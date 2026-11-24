@@ -1,6 +1,6 @@
 # AI Loop Kit: design
 
-Version 3.0.0. This describes what the kit in `kit/` does, how it works and
+Version 3.1.1. This describes what the kit in `kit/` does, how it works and
 why. Command details and settings are in `kit/README.md`; history lives in
 the git tags and `CHANGELOG.md`.
 
