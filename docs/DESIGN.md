@@ -9,7 +9,8 @@ the git tags and `CHANGELOG.md`.
 A continuous factory for building software while you are away. You shape
 work into GitHub issues and approve it once. The loop builds, tests,
 reviews and merges each approved issue into a loop branch. You review the
-batch and merge its final pull request into the project's default branch.
+batch and merge its final pull request into the project's default branch,
+or delegate that merge through the `Final merge` setting.
 Shaping can continue in another session while the loop runs.
 
 Every session works towards a goal without asking you questions or waiting
@@ -45,6 +46,13 @@ required. `Loop branch` defaults to `loop/main`; `Max rounds` to three;
 select an agent and model per role, each defaulting to Claude Sonnet.
 Each role can use Claude or Codex. The loop skill shows these choices before
 each start.
+
+`Final merge` defaults to `person`. `on request` lets a collaborator with
+write access request the final merge with a standalone `merge` line in a comment;
+`when green` delegates it after a passing drain. Both wait for required
+checks and a conflict-free pull request. A session instructed to merge uses
+`loop merge`, which tests the combined result for a loop-branch merge or
+requires passing required checks for a default-branch merge, and records the request.
 
 The git-ignored `loop.local.json` may override only `Parallel` and
 `Idle hours`, whose defaults are one build and 12 hours. The supervisor
