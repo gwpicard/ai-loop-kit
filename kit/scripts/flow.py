@@ -448,7 +448,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         if passed[0] == head:
             tails = passed[1]
         else:
-            command, description = merge.targeted_command(settings, tree, start, locked)
+            command, description = merge.targeted_command(settings, tree, start, locked, session=True)
             tails.append(description)
             feedback = tests("tests", head, command, 80, rnd=rnd, check=settings["Check command"],
                                        prepare=settings["Prepare command"], tails=tails)

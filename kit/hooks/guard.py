@@ -6,6 +6,8 @@ It reads the tool call as JSON on stdin. Exit 2 refuses the call and prints
 any input it cannot parse: the guard never blocks on its own error. A Codex
 session (LOOP_AGENT=codex) is the exception: it sends shell commands and
 apply_patch calls, and the guard refuses a payload or an error it cannot parse.
+If its modules cannot load, it refuses calls when LOOP_ROLE is set and
+otherwise allows the call with a warning.
 
 Everywhere: no push to main, master or the default branch (LOOP_DEFAULT_BRANCH
 names it), no force push, no recursive delete, no secret shape in written
@@ -34,6 +36,10 @@ try:
     import common
     import merge  # the one definition of a test file
 except Exception as e:
+    if os.environ.get("LOOP_ROLE"):
+        sys.stderr.write("refused: the guard cannot load: %s\nrule: guard-error\n"
+                         "next: repair the guard before continuing\n" % e)
+        sys.exit(2)
     sys.stderr.write("guard: cannot load, allowing the call: %s\n" % e)
     sys.exit(0)
 
@@ -41,18 +47,27 @@ SECRETS = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\bgh[pousr]_[A-Za-z0-9]{20,}"
     r"|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b"
     r"|\bsk-ant-[A-Za-z0-9_-]{10,}|\bxox[abprs]-[A-Za-z0-9-]{10,}")
-GIT = r"\bgit(?:(?:\s|\\\n)+(?:-C(?:\s|\\\n)+\S+|-c(?:\s|\\\n)+\S+|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:\s|\\\n)+\S+|--\S+|-[A-Za-z]+))*(?:\s|\\\n)+"
+SHELL_WORD = r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\\.|[^\s;&|<>()'"\\])+'''
+GIT = (r"\bgit(?:(?:\s|\\\n)+(?:-(?:C|c)(?:\s|\\\n)+" + SHELL_WORD
+       + r"|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:\s|\\\n)+"
+       + SHELL_WORD + r"|--\S+|-[A-Za-z]+))*(?:\s|\\\n)+")
 DELETE = re.compile(r"\brm\s+(?:[^\s;&|]+\s+)*?(?:-\w*[rR]\w*|--recursive)(?=[\s;&|)}`'\"]|$)|\bfind\b.*-delete|\brmtree\b")
 PUSH = re.compile(GIT + r"push\b((?:\\\n|[^;&|\n])*)")
 FORCE = re.compile(r"(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force\S*|--mirror|--all|\+[^\s'\")]*)(?=[\s'\")]|$)")
 ROLE_GIT = re.compile(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$))|checkout|switch|restore|apply|branch\s+(?:-\w*f|--force))\b")
-GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
-QUOTED = re.compile(r"'[^']*'")
+GH = re.compile(r"(?<![\w./-])gh\b|(?:^|[;&|(`\n]|\$\()\s*"
+                r"(?:(?:\w+=\S+|(?:\S*/)?env(?:\s+(?:-[uC]|--(?:unset|chdir))\s+\S+|\s+-\S+)*"
+                r"|(?:\S*/)?sudo(?:\s+(?:-[ughpCRDTrt]|--(?:user|group|host|prompt|close-from|chroot|chdir|command-timeout|role|type))"
+                r"\s+\S+|\s+-\S+)*)\s+)*"
+                r"[^\s;&|()`]*/gh(?=\s|$)")  # a path to gh counts only as the command, not as an argument
 SHELL_DATA = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|'[^']*'|"(?:\\.|[^"\\])*"|\n''')
 SHELLS = ("sh", "bash", "zsh", "dash")
 RUNNER = re.compile(r"(?:^|[;&|(`\n])\s*(?:\w+=\S+\s+)*(?:(?:\S*/)?env\s+(?:-\S+\s+|\w+=\S+\s+)*)?(?:\S*/)?(?:"
                     + "|".join(SHELLS) + r"|eval|xargs)(?=\s|$)")
-REDIRECT = re.compile(r"\d*>>?(&)?\|?\s*([^\s;&|<>()]+)|\btee\s+(?:-\S+\s+)*([^\s;&|<>()]+)")
+REDIRECT = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*")|\d*>>?(&)?\|?\s*('''
+                      + SHELL_WORD + r")|\btee\s+(" + SHELL_WORD
+                      + r"(?:[ \t]+" + SHELL_WORD + r")*)")
+SUBSTITUTION = re.compile(r"(?<!\\)(?:\$\((?:[^()]|\([^()]*\))*\)|`(?:\\.|[^`\\])*`)")
 
 
 class Refuse(Exception):
@@ -127,12 +142,16 @@ def role_commands(command):
         parts.append(command[pos:m.start()])
         pos = m.end()
         if m.group(3):
-            pending.append((m.group(1), m.group(3)))
+            pending.append((m.group(1), m.group(2), m.group(3)))
             parts.append("<<_ ")
         elif m.group() == "\n":
             parts.append("\n")
-            for strip, word in pending:
+            for strip, quoted, word in pending:
                 end = re.search(r"(?m)^" + (r"\t*" if strip else "") + re.escape(word) + r"(?:\n|$)", command[pos:])
+                body = command[pos:pos + end.start()] if end else command[pos:]
+                if not quoted:
+                    parts.extend("\n" + role_commands(s.group()) + "\n"
+                                 for s in SUBSTITUTION.finditer(body))
                 pos = pos + end.end() if end else len(command)
             pending.clear()
         elif m.group().startswith('"') and ("$(" in m.group() or "`" in m.group()):
@@ -182,12 +201,21 @@ def check_role_command(command, role, cwd):
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
-    for m in REDIRECT.finditer(QUOTED.sub(lambda q: q.group(0).replace(">", "_"), command)):  # a quoted > is text, but a quoted target stays
-        target = (m.group(2) or m.group(3)).strip("'\"")
-        if m.group(1) and re.fullmatch(r"\d+-?|-", target):  # >&2 and >&- duplicate or close a descriptor
+    for m in REDIRECT.finditer(command):
+        if m.group(1):  # quoted arguments are data, not redirections
             continue
-        if target and target != "/dev/null" and not target.startswith("&"):
-            check_path(target, role, cwd)
+        targets = shlex.split(m.group(3) or m.group(4))
+        options = bool(m.group(4))
+        for target in targets:
+            if options and target == "--":
+                options = False
+                continue
+            if options and target.startswith("-"):
+                continue
+            if m.group(2) and re.fullmatch(r"\d+-?|-", target):  # >&2 and >&- duplicate or close a descriptor
+                continue
+            if target and target != "/dev/null":
+                check_path(target, role, cwd)
 
 
 PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)

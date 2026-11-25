@@ -27,10 +27,6 @@ def run(command, cwd, timeout=None):
     return common.run_shell(command, cwd, timeout or TIMEOUT, record=os.environ.get("LOOP_GROUPS"))
 
 
-def passed_path(project, session_id):
-    return os.path.join(project, ".loop", "passed-" + session_id)
-
-
 def unchanged_since_pass(project, session_id, cwd):
     """True when HEAD is the commit that last passed for this session and the tree is clean."""
     try:
@@ -62,10 +58,15 @@ def problem(role, cwd, project, session_id=""):
         settings = common.build_settings(project)
         if session_id and unchanged_since_pass(project, session_id, cwd):
             return None
+        cached = common.read_check_pass(cwd, settings)
+        if cached is not None:
+            if session_id:
+                common.write_passed(project, session_id, common.git(["rev-parse", "HEAD"], cwd=cwd), cached)
+            return None
         timeout = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
         try:
             test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
-                                                       os.environ.get("LOOP_LOCKED", "").splitlines())
+                                                       os.environ.get("LOOP_LOCKED", "").splitlines(), session=True)
         except common.GitError as e:
             return "Cannot select test files. Restore the session's start commit before finishing: %s" % e
         tails = [description]
@@ -80,9 +81,7 @@ def problem(role, cwd, project, session_id=""):
             if command:
                 tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
         if session_id and not common.git(["status", "--porcelain", "--", ".", ":!.loop"], cwd=cwd).strip():
-            os.makedirs(os.path.dirname(passed_path(project, session_id)), exist_ok=True)
-            with open(passed_path(project, session_id), "w") as f:
-                f.write("\n".join([common.git(["rev-parse", "HEAD"], cwd=cwd).strip()] + tails) + "\n")
+            common.write_passed(project, session_id, common.git(["rev-parse", "HEAD"], cwd=cwd).strip(), tails)
     start = os.environ.get("LOOP_START")
     if role == "test-writer" and start:
         added = common.git(["diff", "--name-only", "--diff-filter=A", start + "..HEAD"], cwd=cwd)
