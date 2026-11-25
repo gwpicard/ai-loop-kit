@@ -23,6 +23,10 @@ runs `loop check`; the reviewer reads the Stop hook's result and runs nothing
 unless a finding needs it; merge runs the full suite once; the pass runs only
 its candidates.
 
+With a Test files command set, a builder session runs only targeted tests;
+the merge runs the full suite. Never park to ask for a longer test limit or
+a wider test scope.
+
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts at the named paths, keeping both intents, test the files
 involved, and commit the merge with `git add` and `git commit` (never `git

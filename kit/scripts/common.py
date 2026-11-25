@@ -613,6 +613,42 @@ def files_command(settings, files):
     return settings["Test files command"].replace("{files}", " ".join(shlex.quote(f) for f in files))
 
 
+def check_pass_state(cwd, settings):
+    """Identify a clean session check, including its worktree and selection inputs."""
+    if git(["status", "--porcelain", "--", ".", ":!.loop"], cwd=cwd).strip():
+        return None
+    return {"cwd": os.path.realpath(cwd), "head": git(["rev-parse", "HEAD"], cwd=cwd),
+            "start": os.environ.get("LOOP_START"),
+            "locked": sorted(set(os.environ.get("LOOP_LOCKED", "").splitlines())),
+            "settings": json.dumps(settings, sort_keys=True)}
+
+
+def check_pass_path():
+    runtime = os.environ.get("LOOP_TMPDIR")
+    return os.path.join(runtime, "loop-check-passed.json") if runtime else None
+
+
+def read_check_pass(cwd, settings):
+    """Return the build's loop check output only while its clean state still matches."""
+    path = check_pass_path()
+    if path:
+        try:
+            with open(path) as f:
+                record = json.load(f)
+            if record["state"] and record["state"] == check_pass_state(cwd, settings):
+                return record["tails"]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return None
+
+
+def write_passed(project, session_id, head, tails):
+    path = os.path.join(project, ".loop", "passed-" + session_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join([head] + tails) + "\n")
+
+
 def read_passed(project, session_id):
     """(commit, output tails) the Stop hook recorded when its commands last passed for the session."""
     try:

@@ -1025,9 +1025,14 @@ def check(project):
     """Run the session's targeted tests and guardrails with bounded output."""
     try:
         settings = common.build_settings(project)
+        path = common.check_pass_path()
+        if path and os.path.exists(path):
+            os.unlink(path)
+        state = common.check_pass_state(project, settings) if path else None
         test, description = merge.targeted_command(
             settings, project, os.environ.get("LOOP_START"),
-            os.environ.get("LOOP_LOCKED", "").splitlines())
+            os.environ.get("LOOP_LOCKED", "").splitlines(), session=True)
+        tails = [description]
         for name, command in (("Test", test), ("Check", settings["Check command"])):
             if not command:
                 continue
@@ -1041,6 +1046,10 @@ def check(project):
                 for line in lines[-CHECK_OUTPUT_LINES:]:
                     print(line)
                 return 1
+            tails.append("%s command passed: %s" % (name, (output.strip().splitlines() or ["no output"])[-1]))
+        if state and state == common.check_pass_state(project, settings):
+            with open(path, "w") as f:
+                json.dump({"state": state, "tails": tails}, f)
     except (common.LoopError, OSError) as e:
         print("failed: %s" % e)
         return 1

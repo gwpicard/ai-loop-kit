@@ -225,21 +225,28 @@ def importing_tests(cwd, changed, selected, head=None):
     return causes
 
 
-def targeted_command(settings, cwd, start, locked, head=None):
+def targeted_command(settings, cwd, start, locked, head=None, session=False):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
     changed = git(["diff", "-z", "--name-only", start]
                   + ([head] if head else []) + ["--"], cwd=cwd).split("\0") if start else []
     files = {p for p in list(locked) + changed if is_test_module(p)}
+    mandatory = files.copy()
     causes = importing_tests(cwd, changed, files, head) if start else {}
+    note = ""
+    if session and len(files) > TARGETED_MODULE_CAP:
+        mandatory.intersection_update(files)
+        files = mandatory | set(list(causes)[:max(0, TARGETED_MODULE_CAP - len(mandatory))])
+        causes = {path: reason for path, reason in causes.items() if path in files}
+        note = "; merge runs the full suite"
     files = sorted(files)
     extra = "".join("\n%s: %s" % (path, causes[path]) for path in sorted(causes))
-    if len(files) > TARGETED_MODULE_CAP:
+    if not session and len(files) > TARGETED_MODULE_CAP:
         return settings["Test command"], "Test command: full suite (%d modules exceed cap %d)%s" % (
             len(files), TARGETED_MODULE_CAP, extra)
     if not files:  # an empty list would run the whole suite
         return "", "Test files command: no test files to run"
-    return common.files_command(settings, files), "Test files command: " + ", ".join(files) + extra
+    return common.files_command(settings, files), "Test files command: " + ", ".join(files) + note + extra
 
 
 def check_diff(project, base, sha, protected, allowed, locked, baseline=None):

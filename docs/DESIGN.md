@@ -145,7 +145,7 @@ pass.
 
 With a Test files command set, the guard refuses the full Test command in
 all four roles: builder, reviewer, test writer and pass. The full suite is
-reserved for merge and drain, except when the selection cap below is exceeded.
+reserved for merge and drain.
 At merge, targeted tests and the Check command
 run unless a full suite is due. `Full suite every` defaults to four merges;
 setting it to one runs the full suite at every merge. Without a Test files
@@ -156,8 +156,10 @@ Targeted selection also includes tests that import changed Python modules,
 including test support files, and importers of any selected test module.
 It parses imports without running project code. Other languages and invalid
 Python use mentions of the changed file's base name without its extension.
-When the selection exceeds 40 modules, the merge or session check runs the
-full suite. The merge log and build
+When the selection exceeds 40 modules, the merge runs the full suite.
+Session checks retain all locked and changed test modules, then add importing
+tests in selection order until the cap is reached. Locked and changed tests
+may exceed the cap. The merge log and build
 note list extra modules and why each was selected.
 
 Merge events record whether the full suite ran. The merge gate reads that
@@ -174,7 +176,10 @@ start commit, then the Check command, and refuses
 completion on failure. Its record identifies the commit and tests run; the
 flow reuses it only for that head, otherwise repeating the targeted checks
 in a fresh checkout. Builders use `loop check` for the same selection and
-the Check command, with bounded failure output. Reviewers read the Stop
+the Check command, with bounded failure output. A clean pass records the
+commit and selection inputs in the build's temporary folder. The Stop hook
+reuses that pass at the same commit with a clean tree and matching inputs,
+and records it for the session. Reviewers read the Stop
 hook's result and run checks only when a finding needs verification.
 The pass validates candidate failing tests with targeted checks and the
 Check command.
