@@ -439,9 +439,10 @@ def _record(path, pid, add, token=None):
     """Add a process group id and optional ownership token to `path`, or take it off."""
     try:
         pids = open(path).read().split() if os.path.exists(path) else []
-        with open(path, "w") as f:
+        with open(path, "w" if add else "r+") as f:
             entry = str(pid) + (":" + token if token else "")
             f.write("".join(p + "\n" for p in [p for p in pids if p.split(":", 1)[0] != str(pid)] + [entry] * add))
+            f.truncate()
     except OSError:
         pass
 
@@ -535,13 +536,20 @@ def build_environment(project, issue=None):
     finally:
         _BUILD_TEMP.reset(token)
         _BUILD.reset(build)
-        if not os.path.islink(path) and os.path.isdir(path) and os.path.samestat(created, os.stat(path)):
-            for name in os.listdir(path):
-                if name.startswith("session-"):
-                    for prefix in ("passed-", "stop-"):
-                        with contextlib.suppress(FileNotFoundError):
-                            os.remove(os.path.join(project, ".loop", prefix + name[len("session-"):]))
-            shutil.rmtree(path)
+        try:
+            if not os.path.islink(path) and os.path.isdir(path) and os.path.samestat(created, os.stat(path)):
+                for name in os.listdir(path):
+                    if name.startswith("session-"):
+                        for prefix in ("passed-", "stop-"):
+                            with contextlib.suppress(FileNotFoundError):
+                                os.remove(os.path.join(project, ".loop", prefix + name[len("session-"):]))
+                shutil.rmtree(path)
+        except OSError as error:
+            with contextlib.suppress(OSError):
+                os.makedirs(os.path.join(project, ".loop"), exist_ok=True)
+                with open(os.path.join(project, ".loop", "loop.out"), "a", encoding="utf-8") as f:
+                    line = "could not remove build temporary folder %s: %s" % (path, error)
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
 
 
 def wait_for_disk(project, reason="", **fields):
