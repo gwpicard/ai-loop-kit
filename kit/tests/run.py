@@ -90,10 +90,10 @@ def run_job(job):
             "sys.path.insert(0, %r); "
             "unittest.main(module=None, argv=['unittest'] + sys.argv[1:], verbosity=2)"
             % os.path.join(ROOT, "kit", "scripts"))
-    # Drop the enclosing agent and project: tests choose their own guard mode,
+    # Drop the enclosing agent, role and project: tests choose their own guard mode,
     # disk-check volumes and event folders.
     p = subprocess.Popen([sys.executable, "-c", code] + ids, cwd=ROOT, text=True, start_new_session=True,
-                         env=dict({k: v for k, v in os.environ.items() if k not in {"LOOP_AGENT", "LOOP_PROJECT", "LOOP_BUILD_SETTINGS"}}, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                         env=dict({k: v for k, v in os.environ.items() if k not in {"LOOP_AGENT", "LOOP_ROLE", "LOOP_PROJECT", "LOOP_BUILD_SETTINGS"}}, **QUIET), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     GROUPS.add(p.pid)
     try:
         out, err = p.communicate(timeout=JOB_TIMEOUT)
