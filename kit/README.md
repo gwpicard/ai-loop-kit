@@ -106,7 +106,14 @@ Python selection parses imports, including relative and `from` imports.
 It also follows imports of test support files and selected test modules.
 For other languages or invalid
 Python, it selects tests mentioning the changed file's base name without its
-extension. When the selection exceeds 40 modules, it runs the full Test command.
+extension. When the selection exceeds 40 modules, session checks retain all
+locked and changed test modules, then add importing tests in selection order
+until the cap is reached. Locked and changed tests may exceed the cap. The
+merge runs the full Test command when its selection exceeds the cap.
+
+After `loop check` passes with a clean tree, the Stop hook reuses its result
+at the same commit with matching selection inputs and settings. A new commit
+or uncommitted changes require another run.
 
 `Check command` is the project's guardrails (lint baseline, size budgets,
 architecture tests). It runs after every Test command run, and a failure
