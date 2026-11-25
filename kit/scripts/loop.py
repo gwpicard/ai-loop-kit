@@ -465,6 +465,8 @@ def reap(project, st, cap=None, stopped=False):
             with open(common.build_file(project, number, "result")) as f:
                 st["last"] = json.load(f)["last"]
             st["reaped"].add(number)  # a build that left a result: this cycle's labels predate it
+            if st["last"].startswith("#%d merged:" % number):
+                st["closed"].add(number)  # release dependants when the snapshot predates the merge
             if st["last"].startswith("#%d parked" % number):  # the list may predate the park
                 for i in st["issues"]:
                     if i["number"] == number:
