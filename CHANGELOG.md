@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.3 (25 November 2026)
+
+With a `Test files command` set, builder sessions no longer fall back to the
+full Test command when the selection exceeds 40 test modules: `loop check` and
+the Stop hook run the locked and changed test files and as many importing tests
+as the cap allows, and the merge still runs the full suite. The Stop hook no
+longer repeats a `loop check` that passed at the same commit with a clean tree.
+The guard now checks quoted and prefixed command forms, and refuses calls in a
+loop session when it cannot load. A failed clean-up after a timeout is written
+to `loop.out` instead of replacing the timeout as the reported reason. An issue that
+depends on a merged issue can start in the same cycle. No setup run is needed.
+
+See [the 3.1.3 release notes](docs/release-notes/v3.1.3.md).
+
 ## 3.1.2 (24 November 2026)
 
 The Codex start check that 3.1.1 added no longer runs a project test. It checks
