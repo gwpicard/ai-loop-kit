@@ -88,11 +88,10 @@ class SessionTargetedCapTest(unittest.TestCase):
                 self.assertEqual(fixture.merge.commands(), fixture.expected())
 
     def test_mandatory_files_can_exceed_the_cap_in_both_session_entry_points(self):
-        fixture = SessionFixture(self, mandatory=43)
-        for entry in (fixture.check, fixture.stop):
-            with self.subTest(entry=entry.__name__):
-                fixture.merge.trace.write_text("")
-                result = entry()
+        for entry in ("check", "stop"):
+            with self.subTest(entry=entry):
+                fixture = SessionFixture(self, mandatory=43)
+                result = getattr(fixture, entry)()
                 self.assert_allowed(result)
                 self.assertEqual(fixture.merge.commands(), fixture.expected())
 
