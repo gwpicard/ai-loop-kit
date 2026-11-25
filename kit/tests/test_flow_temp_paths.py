@@ -8,10 +8,26 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+NAMES = ['test_happy_path',
+         'test_session_crash_fails_and_cleans_up',
+         'test_an_unfinished_merge_parks_and_names_the_paths']
 
 
 class FlowTempPathsTest(unittest.TestCase):
     def test_flow_passes_under_build_temp_paths_and_still_detects_leaked_worktrees(self):
+        code = textwrap.dedent("""
+            import sys
+            import unittest
+            sys.path.insert(0, 'kit/scripts')
+            from kit.tests.test_flow import FlowTest
+
+            names = %r
+            suite = unittest.TestSuite(FlowTest(name) for name in names)
+            result = unittest.TextTestRunner().run(suite)
+            failed = len(result.failures) + len(result.errors)
+            print('%%d failed,' %% failed)
+            sys.exit(not result.wasSuccessful())
+        """) % NAMES
         with tempfile.TemporaryDirectory() as folder:
             for parts in ((".loop-worktrees", "build-temp"),
                           ("loop-build-example", ".loop-worktrees", "nested")):
@@ -20,8 +36,8 @@ class FlowTempPathsTest(unittest.TestCase):
                 env = dict(os.environ, TMPDIR=str(temp), TMP=str(temp), TEMP=str(temp))
                 with self.subTest(temp=temp):
                     result = subprocess.run(
-                        [sys.executable, "kit/tests/run.py", "kit/tests/test_flow.py"],
-                        cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
+                        [sys.executable, "-c", code],
+                        cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertIn("0 failed,", result.stdout)
 
@@ -35,9 +51,7 @@ class FlowTempPathsTest(unittest.TestCase):
                 from kit.tests.test_flow import FlowTest
                 import common
 
-                names = ['test_happy_path',
-                         'test_session_crash_fails_and_cleans_up',
-                         'test_an_unfinished_merge_parks_and_names_the_paths']
+                names = %r
                 real_git = common.git
                 skipped = []
                 def leave_worktree(args, *pos, **kwargs):
@@ -57,9 +71,9 @@ class FlowTempPathsTest(unittest.TestCase):
                 for test, traceback in result.failures:
                     assert 'kit/tests/test_flow.py' in traceback, traceback
                     assert 'AssertionError' in traceback, traceback
-            """)
+            """) % NAMES
             result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
-                                    capture_output=True, text=True, timeout=180)
+                                    capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
