@@ -1,4 +1,9 @@
-"""Fake projects choose their own cache without changing the enclosing loop's."""
+"""Fake projects choose their own cache without changing the enclosing loop's.
+
+This fixture regression check exercises existing production cache forwarding.
+The revert check retains the fake-Codex fixture change, so this test also passes
+with the production cache-location change reverted.
+"""
 import json
 import os
 from pathlib import Path
