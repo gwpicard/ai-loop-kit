@@ -612,7 +612,7 @@ def summary(project, settings, head, landed):
             pass_.batch_lines(project, "origin/" + base, loop, notes, head=head)
         except (ValueError, common.GitHubError):  # unreadable build notes only thin the evidence
             pass
-        with common.scratch_tree(project, head) as tree:
+        with common.cache_environment(project), common.scratch_tree(project, head) as tree:
             prompt = flow.brief("pr-summary") + (
                 "\n\nLoop branch: %s\nTest command: %s\nBatch diff: git diff origin/%s...HEAD\n\nBuild notes:\n\n%s\n" % (
                     loop, settings["Test command"], base, "\n\n".join(notes)))
