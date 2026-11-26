@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.1.4 (26 November 2026)
+
+Each build's temporary folder moves from `../.loop-worktrees/loop-build-*` to
+`../loop-tmp/loop-build-*`, so the `TMPDIR`, `TMP`, `TEMP` and `LOOP_TMPDIR`
+the loop passes to sessions and commands no longer contain a hidden folder,
+and a project that rejects such paths should no longer fail only inside the
+loop. The end-of-loop pass now has its own temporary folder there too. Each
+build, drain and end-of-loop pass also receives `LOOP_CACHE_DIR`, a locked
+folder under `../.loop-cache/<project>/` that survives the build's worktrees,
+so a project that points its tools at it can keep compiler output, such as
+Xcode's DerivedData, between builds. The loop never deletes these cache
+folders. No setup run or new setting is needed.
+
+See [the 3.1.4 release notes](docs/release-notes/v3.1.4.md).
+
 ## 3.1.3 (25 November 2026)
 
 With a `Test files command` set, builder sessions no longer fall back to the
