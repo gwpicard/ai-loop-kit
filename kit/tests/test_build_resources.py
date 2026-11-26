@@ -67,7 +67,7 @@ class BuildResourcesTest(FakeClaudeGh):
                     self.assertEqual(Path(inherited), temp)
                     self.assertFalse(Path(created).exists())
                 self.assertFalse(temp.exists())
-                self.assertEqual(temp.parent.resolve(), Path(self.work).parent.joinpath(".loop-worktrees").resolve())
+                self.assertEqual(temp.parent.resolve(), Path(self.work).parent.joinpath("loop-tmp").resolve())
 
     def test_every_step_and_terminal_event_records_load_and_pressure(self):
         pr = {"number": 9, "state": "MERGED", "mergeCommit": {"oid": "abc"}}
@@ -96,12 +96,13 @@ class BuildResourcesTest(FakeClaudeGh):
                         self.assertEqual(event["load"], 1.25, event)
                         self.assertEqual(event["pressure"], pressure, event)
 
-    def test_spotlight_exclusion_covers_build_temp_files_in_worktrees_folder(self):
+    def test_spotlight_exclusion_covers_build_temp_and_worktree_folders(self):
         readme = Path(__file__).resolve().parents[1].joinpath("README.md").read_text()
         paragraphs = [" ".join(p.split()) for p in readme.split("\n\n")]
         guidance = [p for p in paragraphs if "Spotlight" in p and "Search Privacy" in p]
         self.assertTrue(guidance, "the reference must explain the Spotlight exclusion")
         paragraph = " ".join(guidance)
         self.assertIn(".loop-worktrees", paragraph)
+        self.assertIn("loop-tmp/loop-build-*", paragraph)
         self.assertRegex(paragraph.lower(), r"\btemp(?:orary)?\b",
-                         "explain that build temporary files live in the excluded worktrees folder")
+                         "explain that build temporary files live within the excluded parent folder")
