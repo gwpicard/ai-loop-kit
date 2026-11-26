@@ -25,14 +25,15 @@ def main(argv):
     project, settings, head, since = argv[0], json.loads(argv[1]), argv[2], argv[3]
     os.environ["LOOP_PASS_WORKER"] = str(os.getpid())
     needed = json.loads(argv[4]) if len(argv) > 4 else True
-    saved = result(project, settings, head, since) if needed else loop.last_pass(project)
-    base = common.default_branch(project)
-    landed = common.git(["log", "--format=- %s", "origin/%s..%s" % (base, head)], cwd=project)
-    with common.settings_environment(settings):
-        saved["summary"] = loop.summary(project, settings, head, landed)
-    path = common.build_file(project, "pass", "result")
-    with open(path, "w") as f:
-        json.dump(saved, f)
+    with common.build_environment(project):
+        saved = result(project, settings, head, since) if needed else loop.last_pass(project)
+        base = common.default_branch(project)
+        landed = common.git(["log", "--format=- %s", "origin/%s..%s" % (base, head)], cwd=project)
+        with common.settings_environment(settings):
+            saved["summary"] = loop.summary(project, settings, head, landed)
+        path = common.build_file(project, "pass", "result")
+        with open(path, "w") as f:
+            json.dump(saved, f)
     return 0
 
 
