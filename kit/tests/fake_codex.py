@@ -52,6 +52,7 @@ if "-o" in argv:
 class FakeCodexGh(FakeClaudeGh):
     def setUp(self):
         super().setUp()
+        os.environ.pop("LOOP_CACHE_DIR", None)
         write_exe(os.path.join(self.tmp, "bin", "codex"), FAKE_CODEX)
         self.codex_path = os.path.join(self.tmp, "codex.json")
         os.environ["FAKE_CODEX_SCENARIO"] = self.codex_path
