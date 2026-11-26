@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from kit.tests.fake_claude import FakeClaudeGh
-from kit.tests.helpers import make_repo, run_git, write_exe
+from kit.tests.helpers import make_repo, write_exe
 import common
 import loop
 
@@ -13,7 +13,7 @@ import loop
 class SummaryCacheTest(FakeClaudeGh):
     def test_summary_holds_its_own_cache_instead_of_inheriting_the_drains_folder(self):
         work, _ = make_repo(self.tmp, {"loop.json": json.dumps({"Test command": "true"})})
-        head = run_git(["rev-parse", "HEAD"], work)
+        head = common.git(["rev-parse", "HEAD"], cwd=work)
         settings = common.read_settings(work)
         self.scenario([{"match": "", "responses": [{"stdout": "[]"}]}])
         reply = "## Summary\n\nChanged.\n\n## Evidence\n\nChecked.\n\n## Merge danger\n\nReversible."
