@@ -525,7 +525,7 @@ def record_session(session_id, env):
 
 @contextlib.contextmanager
 def build_environment(project, issue=None):
-    folder = os.path.join(os.path.dirname(os.path.abspath(project)), ".loop-worktrees")
+    folder = os.path.join(os.path.dirname(os.path.abspath(project)), "loop-tmp")
     os.makedirs(folder, exist_ok=True)
     path = tempfile.mkdtemp(prefix="loop-build-", dir=folder)
     created = os.stat(path)

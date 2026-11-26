@@ -154,9 +154,16 @@ On a Mac, Spotlight indexes every new worktree, log and test repository the
 loop creates, competing with builds for the processor. Add the folder that
 holds your projects and `.loop-worktrees` (by default the parent folder of
 the project) to System Settings, Spotlight, Search Privacy. Build temporary
-files also live in `.loop-worktrees`, beside the build worktrees. Without this
-exclusion, you may see `mds_stores` and `mds` near the top of Activity Monitor
-and a high load average, which also holds back a second build.
+files live in `loop-tmp/loop-build-*`. The `loop-tmp` folder sits beside the
+project and `.loop-worktrees`, on the same volume. Without this exclusion,
+you may see `mds_stores` and `mds` near the top of Activity Monitor and a high
+load average, which also holds back a second build.
+
+The loop passes each build's temporary folder as `TMPDIR`, `TMP`, `TEMP` and
+`LOOP_TMPDIR` to sessions and the Test, Check, Prepare and Smoke commands,
+then removes it after the build. The visible `loop-tmp` folder keeps the kit
+from adding hidden components to temporary paths; keep the project's parent
+path free of hidden components too. Build worktrees stay in `.loop-worktrees`.
 
 Before a build or a test command starts, the loop checks free space on the
 project volume and in the temp folder. With less than 2 GB free, it prints a
