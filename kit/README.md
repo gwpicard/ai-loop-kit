@@ -134,6 +134,24 @@ normal priority, so the Test, Check, Prepare and Smoke commands it schedules
 run at normal priority. The full suite at merge and drain runs at normal
 priority to avoid the slowdown from using efficiency cores alone.
 
+Each build, drain and end-of-loop pass receives `LOOP_CACHE_DIR`, an existing
+folder under `<parent>/.loop-cache/<project>/`, where `<parent>` holds
+`.loop-worktrees`. A build keeps the same folder for its sessions and all
+commands, including checks in scratch trees and merge tests. An exclusive
+lock holds the folder until the operation ends, so concurrent operations
+use different folders. A later operation reuses an available folder, even
+if its previous holder exited without cleanup. Codex sessions can write to
+their cache folder.
+
+The loop never deletes these folders. Deleting a cache folder resets its
+contents; do so when no operation is using it. For Xcode, a Makefile can
+point DerivedData at the cache, with `.build/DerivedData` as the fallback
+when `LOOP_CACHE_DIR` is unset or empty:
+
+    DERIVED := $(if $(LOOP_CACHE_DIR),$(LOOP_CACHE_DIR)/DerivedData,.build/DerivedData)
+
+Pass the quoted path to `xcodebuild` with `-derivedDataPath "$(DERIVED)"`.
+
 `Test minutes` in `loop.json` sets the Test command time limit at merge,
 drain and targeted checks. It defaults to 30 minutes and takes a whole number
 of at least one. At merge and drain, a timeout refusal reports the limit,

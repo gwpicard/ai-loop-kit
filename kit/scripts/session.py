@@ -177,7 +177,7 @@ def codex_sandbox_config(cwd, env, settings):
                                 capture_output=True, text=True).stdout.strip()
     # a worktree's .git points into the main checkout, so its commits need that folder writable;
     # build tools also write to the temp and cache folders, and to any the project names
-    candidates = [common_dir, env.get("TMPDIR", "")]
+    candidates = [common_dir, env.get("TMPDIR", ""), env.get("LOOP_CACHE_DIR", "")]
     if sys.platform == "darwin":
         for name in ("DARWIN_USER_TEMP_DIR", "DARWIN_USER_CACHE_DIR"):
             with contextlib.suppress(OSError):
