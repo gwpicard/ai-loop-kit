@@ -134,6 +134,24 @@ normal priority, so the Test, Check, Prepare and Smoke commands it schedules
 run at normal priority. The full suite at merge and drain runs at normal
 priority to avoid the slowdown from using efficiency cores alone.
 
+Each build, drain and end-of-loop pass receives `LOOP_CACHE_DIR`, an existing
+folder under `<parent>/.loop-cache/<project>/`, where `<parent>` holds
+`.loop-worktrees`. A build keeps the same folder for its sessions and all
+commands, including checks in scratch trees and merge tests. An exclusive
+lock holds the folder until the operation ends, so concurrent operations
+use different folders. A later operation reuses an available folder, even
+if its previous holder exited without cleanup. Codex sessions can write to
+their cache folder.
+
+The loop never deletes these folders. Deleting a cache folder resets its
+contents; do so when no operation is using it. For Xcode, a Makefile can
+point DerivedData at the cache, with `.build/DerivedData` as the fallback
+when `LOOP_CACHE_DIR` is unset or empty:
+
+    DERIVED := $(if $(LOOP_CACHE_DIR),$(LOOP_CACHE_DIR)/DerivedData,.build/DerivedData)
+
+Pass the quoted path to `xcodebuild` with `-derivedDataPath "$(DERIVED)"`.
+
 `Test minutes` in `loop.json` sets the Test command time limit at merge,
 drain and targeted checks. It defaults to 30 minutes and takes a whole number
 of at least one. At merge and drain, a timeout refusal reports the limit,
@@ -154,9 +172,16 @@ On a Mac, Spotlight indexes every new worktree, log and test repository the
 loop creates, competing with builds for the processor. Add the folder that
 holds your projects and `.loop-worktrees` (by default the parent folder of
 the project) to System Settings, Spotlight, Search Privacy. Build temporary
-files also live in `.loop-worktrees`, beside the build worktrees. Without this
-exclusion, you may see `mds_stores` and `mds` near the top of Activity Monitor
-and a high load average, which also holds back a second build.
+files live in `loop-tmp/loop-build-*`. The `loop-tmp` folder sits beside the
+project and `.loop-worktrees`, on the same volume. Without this exclusion,
+you may see `mds_stores` and `mds` near the top of Activity Monitor and a high
+load average, which also holds back a second build.
+
+The loop passes each build's temporary folder as `TMPDIR`, `TMP`, `TEMP` and
+`LOOP_TMPDIR` to sessions and the Test, Check, Prepare and Smoke commands,
+then removes it after the build. The visible `loop-tmp` folder keeps the kit
+from adding hidden components to temporary paths; keep the project's parent
+path free of hidden components too. Build worktrees stay in `.loop-worktrees`.
 
 Before a build or a test command starts, the loop checks free space on the
 project volume and in the temp folder. With less than 2 GB free, it prints a
