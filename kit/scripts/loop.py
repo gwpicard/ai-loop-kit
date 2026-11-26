@@ -634,6 +634,8 @@ def drain(project, settings, st):
         end["outcome"] = "fail"
         failed = _drain(project, settings, st)
         end["outcome"] = "fail" if failed else "pass"
+        if failed:
+            end["reason"] = failed
 
 
 def start_pass(project, settings, st, head, since, pass_needed=True):
@@ -710,8 +712,14 @@ def _drain(project, settings, st):
     loop, base = settings["Loop branch"], common.default_branch(project)
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
+    log = ".loop/logs/drain.log"
     failed = merge.run_tests(project, head, settings["Test command"], check=settings["Check command"],
-                            prepare=settings["Prepare command"])
+                            prepare=settings["Prepare command"], log=os.path.join(project, log))
+    diagnostics = None
+    if failed:
+        diagnostics = merge.failure_report(project, log, "Loop branch")[0].strip()
+        say("drain failed: " + diagnostics.replace("\n", "; "))
+        failed += "\n" + diagnostics
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
@@ -746,7 +754,7 @@ def _drain(project, settings, st):
             "--body-file", "-"], retry=False, input=body)
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
-    return failed
+    return diagnostics
 
 
 OWN_LOG = re.compile(r"(build-\d+|(\d+|pass)-[a-z]+(-[a-z]+)*-\d+)\.log")  # its own logs only: 1.x left piece-* and run-* logs in .loop/logs
