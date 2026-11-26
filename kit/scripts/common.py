@@ -507,14 +507,42 @@ def wait_limited(wait, limit, project):
 
 MIN_DISK_FREE = 2 * 1024 ** 3
 _BUILD_TEMP = contextvars.ContextVar("build_temp", default="")
+_BUILD_CACHE = contextvars.ContextVar("build_cache", default="")
 
 
 def build_env():
     path = _BUILD_TEMP.get()
     env = dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, LOOP_TMPDIR=path) if path else dict(os.environ)
+    if _BUILD_CACHE.get():
+        env["LOOP_CACHE_DIR"] = _BUILD_CACHE.get()
     if _BUILD_SETTINGS.get() is not None:
         env["LOOP_BUILD_SETTINGS"] = json.dumps(_BUILD_SETTINGS.get())
     return env
+
+
+@contextlib.contextmanager
+def cache_environment(project):
+    """Lease the first available persistent cache until this operation ends."""
+    project = os.path.abspath(project)
+    folder = os.path.join(os.path.dirname(project), ".loop-cache", os.path.basename(project))
+    os.makedirs(folder, exist_ok=True)
+    slot = 1
+    while True:
+        # Keep locks beside the cache folders so deleting a cache only resets its contents.
+        with open(os.path.join(folder, "%s.lock" % slot), "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                slot += 1
+                continue
+            path = os.path.join(folder, str(slot))
+            os.makedirs(path, exist_ok=True)
+            token = _BUILD_CACHE.set(path)
+            try:
+                yield
+            finally:
+                _BUILD_CACHE.reset(token)
+            return
 
 
 def record_session(session_id, env):

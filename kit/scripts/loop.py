@@ -628,7 +628,7 @@ def summary(project, settings, head, landed):
 
 
 def drain(project, settings, st):
-    with common.timed("drain", project) as end:
+    with common.cache_environment(project), common.timed("drain", project) as end:
         if st.get("factory"):
             write_board(project, st)
         end["outcome"] = "fail"
