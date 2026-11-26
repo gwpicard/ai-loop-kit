@@ -30,7 +30,7 @@ class SummaryCacheTest(FakeClaudeGh):
             cache = Path(common.build_env()["LOOP_CACHE_DIR"])
             caches.append(cache)
             self.assertTrue(cache.is_dir())
-            self.assertTrue(cache.is_relative_to(Path(work).parent / ".loop-cache" / Path(work).name))
+            self.assertTrue(cache.is_relative_to(Path(work).parent / "loop-cache" / Path(work).name))
             with common.cache_environment(work):
                 self.assertNotEqual(Path(common.build_env()["LOOP_CACHE_DIR"]), cache,
                                     "the summary must hold its cache during the session")
