@@ -97,7 +97,7 @@ def run_pass(project, settings, since_ref, head=None):
     # Run on a fixed commit when supplied; return (report dict, Markdown report).
     project = os.path.abspath(project)
     r = dict({k: [] for k, _ in TITLES}, smoke="not set", sessions=0)
-    with common.settings_environment(settings), common.timed("pass", project) as end:
+    with common.settings_environment(settings), common.cache_environment(project), common.timed("pass", project) as end:
         try:
             with common.scratch_tree(project, head or "origin/" + settings["Loop branch"]) as tree:
                 _pass(project, settings, since_ref, tree, r)
