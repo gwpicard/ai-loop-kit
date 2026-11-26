@@ -135,13 +135,18 @@ run at normal priority. The full suite at merge and drain runs at normal
 priority to avoid the slowdown from using efficiency cores alone.
 
 Each build, drain and end-of-loop pass receives `LOOP_CACHE_DIR`, an existing
-folder under `<parent>/.loop-cache/<project>/`, where `<parent>` holds
+folder under `<parent>/loop-cache/<project>/`, where `<parent>` holds
 `.loop-worktrees`. A build keeps the same folder for its sessions and all
 commands, including checks in scratch trees and merge tests. An exclusive
 lock holds the folder until the operation ends, so concurrent operations
 use different folders. A later operation reuses an available folder, even
 if its previous holder exited without cleanup. Codex sessions can write to
 their cache folder.
+
+The cache location adds no hidden path components; keep the project's parent
+path free of hidden components too. If an old `.loop-cache/<project>/` folder
+exists, the loop leaves it untouched, starts a new cache and records once in
+`.loop/loop.out` that you can remove the old folder by hand.
 
 The loop never deletes these folders. Deleting a cache folder resets its
 contents; do so when no operation is using it. For Xcode, a Makefile can
