@@ -717,7 +717,10 @@ def _drain(project, settings, st):
                             prepare=settings["Prepare command"], log=os.path.join(project, log))
     diagnostics = None
     if failed:
-        diagnostics = merge.failure_report(project, log, "Loop branch")[0].strip()
+        try:
+            diagnostics = merge.failure_report(project, log, "Loop branch")[0].strip()
+        except OSError as error:
+            diagnostics = "%s\nCould not read %s: %s" % (failed, log, error)
         say("drain failed: " + diagnostics.replace("\n", "; "))
         failed += "\n" + diagnostics
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
