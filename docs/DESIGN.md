@@ -192,9 +192,13 @@ Loop sessions also cannot push, merge, switch branches or use GitHub's CLI.
 Reviewers write scratch files only in the system temporary folder; pass
 sessions write only in their runtime folder. These command checks are early warnings,
 not a sandbox: merge-time diff checks and branch protection provide further
-boundaries. For git and GitHub CLI restrictions, the guard ignores quoted
-text and heredoc bodies unless the command invokes `sh`, `bash`, `zsh`,
-`dash`, `eval` or `xargs`, directly or through `env`.
+boundaries.
+
+For git and GitHub CLI restrictions, the guard ignores ordinary quoted text
+and heredoc bodies unless the command invokes `sh`, `bash`, `zsh`, `dash`,
+`eval` or `xargs`. It also reads code passed to `python`, `python3`, `node`
+and the shells by `-c`, `-e`, a heredoc or a here-string, including behind
+`env` or `uv run`.
 A builder's first write to an unapproved stop path is refused;
 `setup.py` is a manifest only at the root or beside `pyproject.toml` or `setup.cfg`.
 
