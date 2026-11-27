@@ -241,13 +241,21 @@ def settings_environment(settings):
         _BUILD_SETTINGS.reset(token)
 
 
-def build_settings(root="."):
+def build_settings(root=".", refresh=False):
     settings = _BUILD_SETTINGS.get()
     if settings is None and os.environ.get("LOOP_BUILD_SETTINGS"):
         settings = json.loads(os.environ["LOOP_BUILD_SETTINGS"])
         for role in ROLES:
             settings[role] = tuple(settings[role])
-    return settings if settings is not None else read_settings(root)
+    if settings is None:
+        return read_settings(root)
+    if refresh:
+        try:
+            checkout = read_settings(root)
+        except SettingsError:
+            checkout = settings
+        settings, _, _ = loop_settings(root, checkout)
+    return settings
 
 
 def validate_settings(found, filename, local=False):
@@ -278,19 +286,22 @@ def validate_settings(found, filename, local=False):
                                 % (filename, role, ", ".join(AGENTS)))
 
 
-def read_settings(root="."):
+def read_settings(root=".", ref=None):
     """Read validated project settings and the machine's optional overrides."""
     settings = {k: list(v) if isinstance(v, list) else v for k, v in DEFAULTS.items()}
     for filename in ("loop.json", "loop.local.json"):
-        path = os.path.join(root, filename)
+        path = ref + ":" + filename if ref and filename == "loop.json" else os.path.join(root, filename)
         try:
-            with open(path, encoding="utf-8") as f:
-                found = json.load(f)
+            if ref and filename == "loop.json":
+                found = json.loads(git(["show", path], cwd=root))
+            else:
+                with open(path, encoding="utf-8") as f:
+                    found = json.load(f)
         except FileNotFoundError:
             if filename == "loop.local.json":
                 continue
             raise SettingsError("%s: missing file and 'Test command'; run setup" % path)
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, GitError) as e:
             raise SettingsError("%s: cannot read settings: %s" % (path, e))
         validate_settings(found, path, local=filename == "loop.local.json")
         settings.update(found)
@@ -299,6 +310,26 @@ def read_settings(root="."):
     for key in ("Max rounds", "Parallel", "Full suite every", "Test minutes"):
         settings[key] = int(settings[key])
     return settings
+
+
+def loop_settings(root, checkout=None, refresh=False):
+    """Select the loop branch's settings, retaining checkout branch and local overrides."""
+    checkout = read_settings(root) if checkout is None else checkout
+    if not os.path.exists(os.path.join(root, ".git")):
+        return checkout, "checkout", None
+    ref = "origin/" + checkout["Loop branch"]
+    if refresh and git(["rev-parse", "--verify", ref + "^{commit}"], cwd=root, check=False):
+        git(["fetch", "--no-prune", "origin"], cwd=root)
+    blob = git(["rev-parse", "--verify", ref + ":loop.json"], cwd=root, check=False)
+    if not blob or blob in (git(["rev-parse", "--verify", "HEAD:loop.json"], cwd=root, check=False),
+                            git(["hash-object", "--", "loop.json"], cwd=root, check=False)):
+        return checkout, "checkout", None
+    try:
+        settings = read_settings(root, ref=ref)
+    except SettingsError as error:
+        return checkout, "checkout", str(error)
+    settings["Loop branch"] = checkout["Loop branch"]
+    return settings, ref, None
 
 
 # GitHub

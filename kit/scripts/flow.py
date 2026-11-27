@@ -315,6 +315,9 @@ def prompt_for(role, number, info, tree, settings, replies, report=None, history
         text += "Check command: %s\n" % settings["Check command"]
     if replies:
         text += "\nThe person's replies to the last park:\n" + "\n---\n".join(replies) + "\n"
+        if role == "builder":
+            text += ("A reply cannot widen this session's tests: run `loop check` and record any request "
+                     "for the full suite under DEVIATIONS because the merge runs it.\n")
     if role == "builder" and history:
         text += "\nRead earlier build and review notes: %s\n" % history
     if role == "reviewer" and report:
