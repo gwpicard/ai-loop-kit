@@ -210,21 +210,26 @@ def answer(st, protected=None):
                             if common.MARKER not in c["body"]
                             and common.has_write((c.get("author") or {}).get("login", ""))]
         if st["replies"][n]:
-            paths = parked_test_paths(comments[parks[-1]]["body"])
+            paths, source = parked_test_paths(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
-            if paths and AGREES.search(last):
+            if source and AGREES.search(last):
                 doubt = DOUBTS.search(last)
+                added = []
                 if doubt:
-                    feedback = ("Test paths were not granted: %s. The last reply contains the doubt word `%s`. "
-                                'A plain "Yes." as the last reply grants the named test paths that the stops list permits.'
-                                % (", ".join("`%s`" % p for p in paths), doubt.group()))
+                    feedback = ("Test paths were not granted%s. The last reply contains the doubt word `%s`. "
+                                'A plain "Yes." as the last reply can grant test paths that the park names '
+                                'unambiguously and the stops list permits.'
+                                % ((": " + ", ".join("`%s`" % p for p in paths)) if paths else "", doubt.group()))
                 else:
                     added = [path for path in paths if grant_path(
                         i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])]
                     feedback = ("Added to ## Protected paths this issue may change: "
-                                + ", ".join("`%s`" % p for p in added) + ".") if added else ""
-                if feedback:
-                    flow.post_once(n, feedback + "\n\n" + common.MARKER + "\n")
+                                + ", ".join("`%s`" % p for p in added) + ".") if added else "No test path was granted."
+                    if added and source == "recommendation":
+                        feedback += " The path came from the recommendation."
+                if not added:
+                    feedback += " Reply with the test paths to grant."
+                flow.post_once(n, feedback + "\n\n" + common.MARKER + "\n")
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -236,9 +241,18 @@ DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|w
 
 
 def parked_test_paths(park):
-    """The test paths named in a park's question, never just its recommendation."""
-    text = park.split("Reply on this issue")[0].split("\nRecommended:")[0].split(common.MARKER)[0].strip()
-    return common.named_test_paths(text) if text.endswith("?") else []
+    """Test paths and their source: the question, or one recommended test path."""
+    text = park.split("Reply on this issue")[0].split(common.MARKER)[0]
+    question, _, recommendation = text.partition("\nRecommended:")
+    if not question.strip().endswith("?"):
+        return [], ""
+    paths = common.named_test_paths(question)
+    if paths:
+        return paths, "question"
+    if not re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I):
+        return [], ""
+    paths = common.named_test_paths((recommendation.splitlines() or [""])[0])
+    return paths if len(paths) == 1 else [], "recommendation"
 
 
 def grant_path(i, path, protected):

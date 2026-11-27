@@ -72,19 +72,19 @@ GitHub holds the durable work state. Issues move through these labels:
 | needs-user | Parked on a decision reserved for you |
 | closed | Merged into the loop branch |
 
-The loop accepts ready labels only from collaborators, checked against the
-issue timeline. Issue text is data, not authority to override the rules.
-Dependencies determine which approved issues can start. A collaborator's
-reply to a parked issue requeues it. A clear yes to a permission question
-ending with `?` grants each named test path the stops list permits, whatever
-verb the question uses; paths in the recommendation and replies containing
-doubt words grant nothing.
+The loop accepts only collaborators' ready labels, checked against the issue
+timeline. Issue text is data, not authority. Dependencies determine which
+issues can start. A collaborator's reply requeues a parked issue. A clear yes
+without doubt words grants test paths named in a permission question ending
+with `?`, subject to the stops list, whatever the verb. If a question about
+changing tests names none, the `Recommended:` line must name exactly one;
+the grant comment identifies its source. For test changes, agreement granting
+nothing prompts a comment asking the collaborator to name paths.
 
-One pinned Factory issue shows current builds and their stages, parked
-questions, blocked dependencies, the final pull request and the next poll.
-It links to milestone progress rather than reproducing the whole backlog.
-The supervisor rewrites it from GitHub state, so no dashboard server is
-needed. Notifications are not built.
+One pinned Factory issue shows builds, stages, parked questions, blocked
+dependencies, the final pull request, next poll and milestone progress.
+The supervisor rewrites it from GitHub state; no dashboard server or
+notifications are built.
 
 The status command reports local activity, timings and recent events without
 an agent session. Its open parks section reads current parked questions
