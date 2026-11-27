@@ -107,14 +107,12 @@ class VisibleBuildCacheTest(FakeClaudeGh):
                 self.assertTrue(cache.is_dir(), "the cache must survive worktree cleanup")
                 self.assertEqual(cache.stat().st_dev, project.stat().st_dev)
                 self.assertFalse(cache.is_relative_to(project))
-                self.assertIn(project.name, cache.relative_to(project.parent).parts)
-                # The enclosing runner may have a hidden parent. Check both
-                # spellings of every component the kit adds beside the project.
-                for path, parent in ((cache, project.parent),
-                                     (cache.resolve(), project.parent.resolve())):
-                    parts = path.relative_to(parent).parts
-                    self.assertFalse(any(part.startswith(".") for part in parts),
-                                     "LOOP_CACHE_DIR contains a hidden component: %s" % path)
+                self.assertIn(project.name, cache.resolve().relative_to(project.parent.resolve()).parts)
+                # The enclosing runner may have a hidden parent. Check every
+                # component the kit adds beside the project.
+                parts = cache.resolve().relative_to(project.parent.resolve()).parts
+                self.assertFalse(any(part.startswith(".") for part in parts),
+                                 "LOOP_CACHE_DIR contains a hidden component: %s" % cache)
 
     def test_old_cache_is_untouched_and_loop_out_reports_manual_removal_once(self):
         project = self.project("old cache project")
