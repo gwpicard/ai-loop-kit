@@ -60,7 +60,8 @@ def sweep(before, cwd):
 
 def reap(pgid):
     """Kill what is left in the session's process group; return a line per process."""
-    ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True).stdout
+    ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="],
+                        capture_output=True, text=True, errors="replace").stdout
     left = ["left running, killed: " + l.split(None, 1)[1].strip() for l in ps.splitlines() if l.split()[:1] == [str(pgid)]]
     with contextlib.suppress(OSError):
         os.killpg(pgid, signal.SIGKILL)
@@ -91,7 +92,7 @@ def reap_groups(path, since):
     marked = any(token for _, token in groups)
     # Inspect environments only to verify ownership; never include them in cleanup logs.
     rows = subprocess.run(["ps", "eww", "-A", "-o", "pgid=,command="],
-                          capture_output=True, text=True).stdout.splitlines() if marked else []
+                          capture_output=True, text=True, errors="replace").stdout.splitlines() if marked else []
     mine = []
     for g, token in groups:
         if g <= 1 or g == os.getpgrp():
