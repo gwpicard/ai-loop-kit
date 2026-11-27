@@ -65,7 +65,8 @@ def problem(role, cwd, project, session_id=""):
             if session_id:
                 common.write_passed(project, session_id, common.git(["rev-parse", "HEAD"], cwd=cwd), cached)
             return None
-        timeout = common.targeted_budget(settings)
+        timeout = (common.targeted_budget(settings) if settings["Test files command"]
+                   else max(TIMEOUT, settings["Session minutes"] * 20))
         files = []
         try:
             test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
