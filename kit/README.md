@@ -245,10 +245,17 @@ When a park's permission question ends with `?` and names test paths, a
 collaborator can reply "yes", whatever verb the question uses. The loop adds
 each path the stops list permits to the issue's
 `## Protected paths this issue may change` and requeues it.
-Paths named only in the recommendation and protected paths are never granted
-by a reply. A reply that does not clearly agree or contains a doubt word,
-or the loop's own comment, grants nothing. The reviewer may
-write scratch files in the system temp folder, never inside the project.
+
+If a question about a test change names no test path, the loop grants the
+recommended test path when the `Recommended:` line names exactly one. The
+grant comment says when the path came from the recommendation. An agreeing
+reply about a test change that grants no path receives one comment asking it
+to name the paths.
+
+Protected paths are never granted by a reply. A reply that does not clearly
+agree or contains a doubt word, or the loop's own comment, grants nothing.
+The reviewer may write scratch files in the system temp folder, never inside
+the project.
 
 ## The fast path
 

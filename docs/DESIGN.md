@@ -77,8 +77,11 @@ issue timeline. Issue text is data, not authority to override the rules.
 Dependencies determine which approved issues can start. A collaborator's
 reply to a parked issue requeues it. A clear yes to a permission question
 ending with `?` grants each named test path the stops list permits, whatever
-verb the question uses; paths in the recommendation and replies containing
-doubt words grant nothing.
+verb the question uses. If a question about a test change names no test path,
+the loop uses the recommendation only when it names exactly one. The grant
+comment identifies that source. Replies containing doubt words grant nothing.
+An agreeing reply about a test change that grants no path receives a comment
+asking it to name the test paths.
 
 One pinned Factory issue shows current builds and their stages, parked
 questions, blocked dependencies, the final pull request and the next poll.
