@@ -31,7 +31,7 @@ class CacheLocationContractTest(unittest.TestCase):
                 self.assertEqual(marker.read_bytes(), b"inherited output\n")
                 self.assertNotIn(str(inherited), values)
                 self.assertNotIn("", values)
-                hidden = {value: [part for part in Path(value).relative_to(project.parent).parts
+                hidden = {value: [part for part in Path(value).resolve().relative_to(project.parent.resolve()).parts
                                   if part.startswith(".")] for value in values}
                 self.assertFalse(any(hidden.values()),
                                  "commands and sessions need visible cache components: %r" % hidden)
