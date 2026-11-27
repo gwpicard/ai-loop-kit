@@ -19,7 +19,9 @@ the issue allows them. The reviewer role writes nothing in the project (scratch 
 temp folder are fine; the pass role writes only under .loop/pass/).
 
 Known limits: the guard reads code passed by `-c`, `-e`, a heredoc or a
-here-string, but cannot see commands assembled at run time, code in files,
+here-string and, in loop sessions, the first script operand when it is new,
+changed since LOOP_START or outside the project. It cannot see commands
+assembled at run time, code in files generated or fetched at run time,
 or code that a test or a project script runs. It checks literal text and is
 an early warning. The diff check in merge.py and branch protection on the
 default branch provide further protection. A bare `git push` from main is
@@ -30,6 +32,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 
@@ -73,7 +76,8 @@ SUBSTITUTION = re.compile(r"(?<!\\)(?:\$\((?:[^()]|\([^()]*\))*\)|`(?:\\.|[^`\\]
 INPUT = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|<<<|[;&|()\n]|'''
                    + SHELL_WORD)
 CODE_STRING = r'''(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")'''
-CODE_LITERALS = re.compile(CODE_STRING + r"(?:\s*,\s*" + CODE_STRING + r")*")
+# Also join a command and its literal argv, as in spawnSync("git", ["push"]).
+CODE_LITERALS = re.compile(CODE_STRING + r"(?:\s*,\s*(?:\[\s*)?" + CODE_STRING + r")*")
 
 
 class Refuse(Exception):
@@ -97,8 +101,8 @@ def interpreter(words):
     return bool(words) and os.path.basename(words[0]) in ("python", "python3", "node") + SHELLS
 
 
-def interpreter_inputs(command):
-    """Read inline interpreter arguments and stdin without evaluating code."""
+def interpreter_inputs(command, scripts=False):
+    """Read inline code, or first script operands, without evaluating code."""
     command = command.replace("\\\n", "")
     words, pending, pos, here_string = [], [], 0, False
     while pos < len(command):
@@ -114,7 +118,7 @@ def interpreter_inputs(command):
                 end = re.search(r"(?m)^" + (r"\t*" if strip else "") + re.escape(delimiter)
                                 + r"(?:\n|$)", command[pos:])
                 body = command[pos:pos + end.start()] if end else command[pos:]
-                if executable:
+                if executable and not scripts:
                     yield body
                 pos = pos + end.end() if end else len(command)
             words, pending, here_string = [], [], False
@@ -127,8 +131,14 @@ def interpreter_inputs(command):
                 word = shlex.split(token)[0]
             except (ValueError, IndexError):
                 continue  # incomplete shell text is still checked by the raw rules
-            if here_string or (interpreter(words) and words
-                               and re.fullmatch(r"-[a-zA-Z]*[ce][a-zA-Z]*", words[-1])):
+            if scripts:
+                if (not words and word.startswith("./") or
+                        len(words) == 1 and os.path.basename(words[0]) in
+                        ("bash", "sh", "zsh", "python3", "python", "node")
+                        and not word.startswith("-")):
+                    yield word
+            elif here_string or (interpreter(words) and words
+                                 and re.fullmatch(r"-[a-zA-Z]*[ce][a-zA-Z]*", words[-1])):
                 yield word
             here_string = False
             words.append(word)
@@ -136,19 +146,23 @@ def interpreter_inputs(command):
 
 def interpreter_commands(command, full=False):
     for code in interpreter_inputs(command):
-        yield code
-        for m in CODE_LITERALS.finditer(code):
-            try:
-                literals = [ast.literal_eval(s) for s in re.findall(CODE_STRING, m.group())]
-            except (ValueError, SyntaxError):
-                continue
-            yield from literals
-            # A named file after the Test command makes a targeted run. Do not
-            # match a prefix of a list that has further string literals.
-            if len(literals) > 1 and (not full or (
-                    code[:m.start()].rstrip().endswith("[")
-                    and re.match(r'''[^'"\]]*\]''', code[m.end():]))):
-                yield shlex.join(literals)
+        yield from code_commands(code, full)
+
+
+def code_commands(code, full=False):
+    yield code
+    for m in CODE_LITERALS.finditer(code):
+        try:
+            literals = [ast.literal_eval(s) for s in re.findall(CODE_STRING, m.group())]
+        except (ValueError, SyntaxError):
+            continue
+        yield from literals
+        # A named file after the Test command makes a targeted run. Do not
+        # match a prefix of a list that has further string literals.
+        if len(literals) > 1 and (not full or (
+                code[:m.start()].rstrip().endswith("[")
+                and re.match(r'''[^'"\]]*\]''', code[m.end():]))):
+            yield shlex.join(literals)
 
 
 def check_everyone(command):
@@ -266,14 +280,53 @@ def full_test_files(command, template, cwd):
     return bool(modules) and set(modules.values()) <= chosen
 
 
-def check_role_command(command, role, cwd):
+def check_full_test(commands, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
     if role in ("builder", "reviewer", "test-writer", "pass") and files and any(
             s.strip() == os.environ.get("LOOP_TEST_COMMAND") or full_test_files(s, files, cwd)
-            for c in (command, *interpreter_commands(command, full=True))
+            for c in commands
             for s in re.split(r"&&|\|\||[;|\n]", c)):
         raise Refuse("full-test", "the full Test command is reserved for merge",
                      "use <plugin>/bin/loop check; for selected files, use the Test files command: " + files)
+
+
+def check_session_scripts(command, role, cwd):
+    paths = list(interpreter_inputs(command, scripts=True))
+    if not paths:
+        return
+    top = os.path.realpath(common.git(["rev-parse", "--show-toplevel"], cwd, check=False) or cwd)
+    start = os.environ.get("LOOP_START")
+    for path in paths:
+        full = os.path.realpath(os.path.join(cwd, path))
+        if not os.path.isfile(full):
+            continue
+        with open(full, "rb") as script:
+            content = script.read()
+        rel = os.path.relpath(full, top)
+        if (start and rel != ".." and not rel.startswith(".." + os.sep)
+                and common.git(["ls-files", "--", rel], top, check=False)):
+            original = subprocess.run(["git", "show", start + ":" + rel], cwd=top,
+                                      capture_output=True, timeout=common.TIMEOUT)
+            if original.returncode == 0 and original.stdout == content:
+                continue
+        code = content.decode("utf-8", errors="replace")
+        try:
+            commands = list(code_commands(code))
+            if any(DELETE.search(c) for c in commands):
+                raise Refuse("recursive-delete", "a recursive delete is not allowed",
+                             "leave scratch space in the temporary folder; park if the issue needs this outcome")
+            if re.search(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$)))\b", "\n".join(commands)):
+                raise Refuse("role-git", "git push and merge are not allowed in a %s session" % role,
+                             "commit on your branch; the loop pushes and merges")
+            check_full_test(code_commands(code, full=True), role, cwd)
+        except Refuse as r:
+            r.reason = "%s: %s" % (path, r.reason)
+            raise
+
+
+def check_role_command(command, role, cwd):
+    check_full_test((command, *interpreter_commands(command, full=True)), role, cwd)
+    check_session_scripts(command, role, cwd)
     executable = "\n".join((role_commands(command), *interpreter_commands(command)))
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
