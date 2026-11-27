@@ -72,6 +72,53 @@ def fixes_of(review):
     return [l.strip() for l in tail.splitlines() if re.match(r"\s*\d+[.)]\s", l)]
 
 
+def retry_report(issue, project):
+    """Recover the last available builder report without starting another session."""
+    logs = os.path.join(project, ".loop", "logs")
+    try:
+        names = [(int(m[1]), name) for name in os.listdir(logs) if
+                 (m := re.fullmatch(r"%s-builder-(\d+)\.log" % issue, name))]
+    except OSError:
+        names = []
+    report = ""
+    for _, name in sorted(names, reverse=True):
+        try:
+            with open(os.path.join(logs, name), encoding="utf-8", errors="replace") as f:
+                saved = f.read()
+        except OSError:
+            continue
+        replies = []
+        for output in re.findall(r"^--- (?:claude|codex)[^\n]*\n(.*?)^--- stderr\n", saved, re.M | re.S):
+            try:
+                events = [json.loads(output)]
+            except ValueError:
+                events = []
+                for line in output.splitlines():
+                    try:
+                        events.append(json.loads(line))
+                    except ValueError:
+                        pass
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                item = event.get("item")
+                text = (event.get("result") if event.get("type") == "result" and not event.get("is_error") else
+                        item.get("text") if event.get("type") == "item.completed" and isinstance(item, dict)
+                        and item.get("type") == "agent_message" else "")
+                if isinstance(text, str) and re.search(r"^[\s*`]*(?:BUILT|DEVIATIONS):", text, re.M):
+                    replies.append(text)
+        if replies:
+            report = replies[-1]
+            break
+    built = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.M | re.S)
+    summary = (built.group(1).strip() if built else "") or (
+        "The original builder summary is unavailable in the saved session logs.")
+    deviations = "\n".join(parse_block(report, "DEVIATIONS")) or (
+        "Unknown: the original deviation status is unavailable in the saved session logs.")
+    return ("BUILT:\nRetried the merge using the last approving review. No new builder or reviewer session ran.\n\n"
+            + summary + "\nDEVIATIONS:\n" + deviations + "\n")
+
+
 def after_merge(issue, report, review, commit, files, pr, post=True, earlier=(), shape_note=""):
     """Post the build note, then the pull request body, then the follow-ups of
     every review round (`earlier` holds those before the approving `review`)
@@ -448,7 +495,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), 
         push_issue(branch, tree)
         post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
-    report, sid = ("", None) if retry_review else ask("builder", settings["Builder"], locked=locked)
+    report, sid = (retry_report(issue, project), None) if retry_review else ask("builder", settings["Builder"], locked=locked)
     feedback, fixes, earlier = "", [], []  # fixes: the last review's numbered fixes, when it returned CHANGES
     rnd, review_rounds, merge_fixes = 0, 0, 0
     merge_failure = ""
