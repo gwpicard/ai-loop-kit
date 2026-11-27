@@ -148,6 +148,7 @@ class FlowTempPathsCleanupTest(unittest.TestCase):
                 import shlex
                 import subprocess
                 import sys
+                import time
                 sys.path[:0] = [%r, %r]
                 from kit.tests.test_flow import FlowTest
                 import common
@@ -184,6 +185,23 @@ class FlowTempPathsCleanupTest(unittest.TestCase):
                         if calls == int(os.environ['FLOW_CLEANUP_CHILD']):
                             kwargs['timeout'] = 2
                             kwargs['env'] = dict(kwargs['env'], FLOW_CLEANUP_SLOW='1')
+                            original_popen = subprocess.Popen
+                            def ready_popen(*args, **kwargs):
+                                process = original_popen(*args, **kwargs)
+                                # Start the command timeout after startup, so imports
+                                # and resource checks cannot consume the probe's budget.
+                                started = Path(os.environ['FLOW_CLEANUP_STARTED'])
+                                deadline = time.monotonic() + 8
+                                while not started.exists() and process.poll() is None:
+                                    if time.monotonic() >= deadline:
+                                        break
+                                    time.sleep(0.01)
+                                return process
+                            subprocess.Popen = ready_popen
+                            try:
+                                return original_run(*args, **kwargs)
+                            finally:
+                                subprocess.Popen = original_popen
                     return original_run(*args, **kwargs)
                 subprocess.run = run
             """) % (str(ROOT), str(ROOT / 'kit/scripts'), str(ROOT), NAMES))
