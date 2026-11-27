@@ -737,6 +737,7 @@ def _drain(project, settings, st):
             diagnostics = "%s\nCould not read %s: %s" % (failed, log, error)
         say("drain failed: " + diagnostics.replace("\n", "; "))
         failed += "\n" + diagnostics
+    git(["fetch", "--no-prune", "origin", base + ":refs/remotes/origin/" + base], cwd=project)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
@@ -767,10 +768,17 @@ def _drain(project, settings, st):
     if found:
         gh(["pr", "edit", str(found[0]["number"]), "--body-file", "-"], input=body)
     elif landed:  # a failed create is found by the next check, not repeated
-        gh(["pr", "create", "--base", base, "--head", loop, "--title", "Loop branch into " + base,
-            "--body-file", "-"], retry=False, input=body)
+        try:
+            gh(["pr", "create", "--base", base, "--head", loop, "--title", "Loop branch into " + base,
+                "--body-file", "-"], retry=False, input=body)
+        except common.GitHubError as error:
+            if "no commits between" not in str(error).lower():
+                raise
+            landed = ""
     st["pr"] = (find() or [{}])[0].get("url")
-    st["last"] = "drained: " + (failed or "tests pass")
+    st["last"] = "drained: " + (failed or ("tests pass" if landed else "nothing to merge"))
+    if not landed and not failed:
+        say(st["last"])
     return diagnostics
 
 
