@@ -273,20 +273,26 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
             why = "existing test file changed"
         if why:
             return "%s: %s" % (why, path)
+    names = (git(["ls-tree", "-r", "--name-only", "-z", baseline or sha], cwd=project).split("\0")
+             if locked and git(["config", "--bool", "core.ignorecase"], cwd=project, check=False) == "true" else [])
     for path in locked:
         if path in allowed or not is_test_module(path):
             continue
+        aliases = [name for name in names if name.casefold() == path.casefold()]
+        tracked = aliases[0] if path not in names and len(aliases) == 1 else path
+        if tracked in allowed:
+            continue
         first = baseline or git(["log", "--diff-filter=A", "--reverse", "--format=%H",
-                                 base + ".." + sha, "--", path], cwd=project).split("\n")[0]
+                                 base + ".." + sha, "--", tracked], cwd=project).split("\n")[0]
         if not first:
             continue
-        if baseline and subprocess.run(["git", "cat-file", "-e", first + ":" + path], cwd=project).returncode:
+        if baseline and subprocess.run(["git", "cat-file", "-e", first + ":" + tracked], cwd=project).returncode:
             continue  # the writer's final commit does not hold it
-        a, b = [subprocess.run(["git", "show", ref + ":" + path], cwd=project,
+        a, b = [subprocess.run(["git", "show", ref + ":" + tracked], cwd=project,
                                capture_output=True) for ref in (first, sha)]
         if b.returncode != 0:
             return "locked test deleted: " + path
-        modes = [git(["ls-tree", ref, "--", path], cwd=project).split()[:1]
+        modes = [git(["ls-tree", ref, "--", tracked], cwd=project).split()[:1]
                  for ref in (first, sha)]
         if a.stdout != b.stdout or modes[0] != modes[1]:
             return "locked test modified: " + path

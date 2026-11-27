@@ -485,7 +485,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), 
 
     posted = max([int(n) for c in info.get("comments", []) for n in
                   re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
-    locked = merge.locked_paths(merge.lock_comments(info.get("comments", []), branch))
+    lock_comments = merge.lock_comments(info.get("comments", []), branch)
+    locked = merge.locked_paths(lock_comments)
+    locked_baseline = merge.locked_baseline(lock_comments)
     parks = [c.get("body") or "" for c in info.get("comments", [])
              if (c.get("body") or "").startswith("## Needs you") and common.MARKER in (c.get("body") or "")]
     retry_review = ""
@@ -527,8 +529,9 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), 
             text, _ = ask("test-writer", settings["Test writer"], rnd=attempt + 1, resume=writer, locked=locked,
                           extra=why + " Commit, and end with the TESTS: block again.")
             locked = parse_block(text)
+        locked_baseline = git(["rev-parse", "HEAD"], cwd=tree)
         push_issue(branch, tree)
-        post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
+        post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + locked_baseline
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     report, sid = (retry_report(issue, project), None) if retry_review else ask("builder", settings["Builder"], locked=locked)
     feedback, fixes, earlier = "", [], []  # fixes: the last review's numbered fixes, when it returned CHANGES
@@ -580,6 +583,15 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), 
                 common.say("#%s: %s" % (issue, timed_out["line"]))
                 with open(os.path.join(project, ".loop", "loop.out"), "a", encoding="utf-8") as f:
                     f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s: %s\n" % (issue, timed_out["line"]))
+            if stop := merge.check_diff(tree, "origin/" + settings["Loop branch"], head,
+                                       settings["Protected paths"], allowed, locked, locked_baseline):
+                feedback = ("The builder diff was refused: " + stop
+                            + "\nRevert that change or, if the issue needs it, park and name the path.")
+                if (merge_fixes == 2 if merge_failure else review_rounds == settings["Max rounds"]):
+                    path = stop.rsplit(": ", 1)[-1]
+                    raise Parked("The builder diff is still refused: %s.\nMay the builder change %s?" % (stop, path),
+                                 "Revert the change, or approve the path if the issue requires it.")
+                continue
             reverted = revert_check(issue, project, tree, head, settings, locked, info.get("body") or "")
             review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
                             extra="\nLatest test result: "
