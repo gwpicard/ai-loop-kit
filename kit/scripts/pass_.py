@@ -42,7 +42,8 @@ def failing(project, sha, test, tree, path, prepare="", check="", files=""):
         return None, bad
     try:
         command = common.files_command({"Test command": test, "Test files command": files}, [rel])
-        why = merge.run_tests(project, sha, command, tail=60, overlay=(base, [rel]), prepare=prepare)
+        why = merge.run_tests(project, sha, command, tail=60, overlay=(base, [rel]), prepare=prepare,
+                              test_name="Test files" if files else "Test")
     except OSError as e:
         return None, "the file could not be copied: %s" % e
     if not why:

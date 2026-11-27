@@ -657,19 +657,19 @@ def wait_for_disk(project, reason="", deadline=None, **fields):
         sleep(deadline_timeout(60, deadline))
 
 
-def run_shell(command, cwd, timeout, record=None, deadline=None):
+def run_shell(command, cwd, timeout, record=None, deadline=None, name="shell"):
     out = ""
     try:
-        code, out = _run_shell(command, cwd, timeout, record, deadline)
+        code, out = _run_shell(command, cwd, timeout, record, deadline, name)
         if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
             wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device", deadline=deadline)
-            code, out = _run_shell(command, cwd, timeout, record, deadline)
+            code, out = _run_shell(command, cwd, timeout, record, deadline, name)
         return code, out
     except subprocess.TimeoutExpired:
         return None, out
 
 
-def _run_shell(command, cwd, timeout, record=None, deadline=None):
+def _run_shell(command, cwd, timeout, record=None, deadline=None, name="shell"):
     """Run a shell command in its own process group, or in the pass worker's group.
     Return (exit code, output); the code is None on timeout outside a pass worker.
     A pass command timeout ends the worker and its commands; the supervisor reports the error.
@@ -689,12 +689,20 @@ def _run_shell(command, cwd, timeout, record=None, deadline=None):
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True, token)
+    started = time.time()
     try:
         out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd),
                               **({"deadline": deadline} if deadline else {}))
         return p.returncode, out
     except subprocess.TimeoutExpired:
-        os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
+        try:
+            if pass_worker:
+                project = project_of(cwd)
+                elapsed = time.time() - started - paused_seconds(project, started)
+                with open(build_file(project, "pass", "timeout"), "w") as f:
+                    json.dump(dict(name=name, command=command, limit=timeout, elapsed=elapsed), f)
+        finally:
+            os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
         out, _ = p.communicate()
         return None, out
     finally:

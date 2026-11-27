@@ -299,7 +299,7 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
 
 def command_timeout(name, project):
     """Keep the existing command budget; scale the Test budget by its configured minutes."""
-    if name != "Test":
+    if name not in ("Test", "Test files"):
         return TEST_TIMEOUT
     try:
         minutes = common.build_settings(project).get("Test minutes", 30)
@@ -316,7 +316,7 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
     if timeout is None:
         timeout = command_timeout(name, tree)
     started = time.time()
-    code, out = common.run_shell(command, tree, timeout)
+    code, out = common.run_shell(command, tree, timeout, name=name)
     if log:
         with open(log, "a") as f:
             f.write("$ %s\n%s%s" % (command, out, "" if out.endswith("\n") or not out else "\n"))
@@ -328,7 +328,7 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
         elapsed = time.time() - started - common.paused_seconds(common.project_of(tree), started)
         return ("the %s command timed out on %s (limit %s seconds, elapsed %.1f seconds; "
                 "controlled by %s):\n%s" %
-                (name, label, timeout, elapsed, "Test minutes in loop.json" if name == "Test" else "merge.TEST_TIMEOUT",
+                (name, label, timeout, elapsed, "Test minutes in loop.json" if name in ("Test", "Test files") else "merge.TEST_TIMEOUT",
                  "\n".join(out.strip().splitlines()[-TIMEOUT_TAIL:])))
     if code != 0:
         return "the %s command failed on %s: %s" % (name, label, "\n".join(out.strip().splitlines()[-tail:]))
