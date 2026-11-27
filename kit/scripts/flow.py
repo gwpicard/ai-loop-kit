@@ -366,7 +366,10 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                       + "\n".join(shapecheck.warnings(found)))
         post_once(issue, shape_note + "\n\n" + common.MARKER + "\n")
 
+    builder_timed_out = False
+
     def ask(role, who, report=None, resume=None, extra="", locked=(), step=None, rnd=None):
+        nonlocal builder_timed_out
         if role == "builder":
             locked = [p for p in locked if p not in allowed]
         prompt = (extra.strip() if resume else
@@ -377,10 +380,23 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             fields["round"] = rnd
         common.say("#%s: %s (%s %s)" % (issue, fields["step"], who[0], who[1]))
         with common.timed("step", project, **fields) as end:
-            text, sid = session.run(role, prompt, tree, who[1], project, issue,
-                                    agent=who[0], resume=resume, locked=locked,
-                                    start=baseline if role == "builder" else start,
-                                    allowed=allowed if role == "builder" else ())
+            session_start = git(["rev-parse", "HEAD"], cwd=tree)
+            if role == "builder":
+                builder_timed_out = False
+            try:
+                text, sid = session.run(role, prompt, tree, who[1], project, issue,
+                                       agent=who[0], resume=resume, locked=locked,
+                                       start=baseline if role == "builder" else start,
+                                       allowed=allowed if role == "builder" else ())
+            except session.SessionTimeout as e:
+                built = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", e.text, re.S | re.M)
+                if (role != "builder" or not built or not built.group(1).strip()
+                        or not git(["rev-list", session_start + "..HEAD"], cwd=tree)
+                        or git(["status", "--porcelain", "--", ".", ":!.loop"], cwd=tree)):
+                    raise
+                text, sid = e.text, e.sid
+                builder_timed_out = True
+                common.say("#%s: builder session timed out after BUILT; continuing with tests and review" % issue)
             stop = re.search(r"^[\s*`]*PARK:\s*(.+?)(?:\s*\|\s*(.+))?$", text, re.M)
             if stop:
                 end["outcome"] = "parked"
@@ -457,7 +473,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                               extra="\n\nFix these, test the files you touch, commit. The Stop hook checks them "
                               "when you finish:\n" + feedback, locked=locked)
         head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
-        passed = common.read_passed(project, sid)  # the Stop hook's pass for this very commit stands
+        passed = ("", []) if builder_timed_out else common.read_passed(project, sid)
         if passed[0] == head:
             tails = passed[1]
         else:

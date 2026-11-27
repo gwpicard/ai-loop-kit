@@ -6,6 +6,7 @@ a new test file, is told to continue. Blocks are limited and counted in
 import json
 import os
 import sys
+import time
 
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
@@ -18,7 +19,7 @@ except Exception as e:
 # Blocks are counted per session id: a builder resumed for fix rounds keeps its
 # id, so the limit of 3 is shared across all its rounds, not reset each round.
 LIMITS = {"builder": 3, "test-writer": 2}
-TIMEOUT = 600  # least time per command; it grows with the session limit
+TIMEOUT = 600  # usual minimum per command, capped by the session time left
 
 
 def run(command, cwd, timeout=None):
@@ -63,7 +64,7 @@ def problem(role, cwd, project, session_id=""):
             if session_id:
                 common.write_passed(project, session_id, common.git(["rev-parse", "HEAD"], cwd=cwd), cached)
             return None
-        timeout = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
+        command_limit = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
         try:
             test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
                                                        os.environ.get("LOOP_LOCKED", "").splitlines(), session=True)
@@ -72,8 +73,17 @@ def problem(role, cwd, project, session_id=""):
         tails = [description]
         for name, command in (("Test files" if settings["Test files command"] else "Test", test),
                               ("Check", settings["Check command"])):
+            timeout, capped = command_limit, False
+            if os.environ.get("LOOP_SESSION_BEGAN") and os.environ.get("LOOP_SESSION_LIMIT"):
+                began = float(os.environ["LOOP_SESSION_BEGAN"])
+                left = began + float(os.environ["LOOP_SESSION_LIMIT"]) + common.paused_seconds(project, began) - time.time()
+                timeout, capped = min(command_limit, left), left <= command_limit
+                if timeout <= 0:
+                    return None
             code, out = run(command, cwd, timeout) if command else (0, "")
             if code is None:
+                if capped:
+                    return None
                 return "The %s command timed out after %d seconds. Make it finish." % (name, timeout)
             if code:
                 return "The %s command fails. Fix it, commit, then finish. Last 60 lines:\n%s" % (
