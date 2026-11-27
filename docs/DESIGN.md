@@ -78,8 +78,8 @@ issues can start. A collaborator's reply requeues a parked issue. A clear yes
 without doubt words grants test paths named in a permission question ending
 with `?`, subject to the stops list, whatever the verb. If a question about
 changing tests names none, the `Recommended:` line must name exactly one;
-the grant comment identifies its source. Agreement granting nothing
-receives a comment asking the reply to name the test paths.
+the grant comment identifies its source. For test changes, agreement granting
+nothing prompts a comment asking the collaborator to name paths.
 
 One pinned Factory issue shows builds, stages, parked questions, blocked
 dependencies, the final pull request, next poll and milestone progress.
