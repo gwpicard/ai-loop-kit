@@ -134,14 +134,14 @@ reports those that are set; none is required.
 builds one issue at a time. Each build is a separate process in its own
 worktree, so a crash or a hang in one cannot stop the loop or the others.
 
-The loop starts agent sessions at background priority so they favour
-efficiency cores on macOS and keep the machine responsive. Every Claude and
-Codex session, including the pass and summary, starts with `taskpolicy -b`
-on macOS when available. Otherwise, the session process uses `os.nice(10)`.
-Commands started by a session inherit its priority. The supervisor stays at
-normal priority, so the Test, Check, Prepare and Smoke commands it schedules
-run at normal priority. The full suite at merge and drain runs at normal
-priority to avoid the slowdown from using efficiency cores alone.
+The loop starts all Claude and Codex agent sessions, including the pass and
+summary, with `os.nice(10)` to keep the machine responsive. On macOS this
+lowers CPU priority without entering the background class. Test and Check
+commands started by `loop check` and the Stop hook inherit the raised
+niceness but run outside the macOS background class. The supervisor keeps
+normal priority, as do the Test, Check, Prepare and Smoke commands it starts.
+The full suite at merge and drain runs at normal priority to avoid the
+background class slowdown.
 
 Each build, drain and end-of-loop pass receives `LOOP_CACHE_DIR`, an existing
 folder under `<parent>/loop-cache/<project>/`, where `<parent>` holds
