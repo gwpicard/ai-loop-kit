@@ -61,7 +61,7 @@ def run_flow(code, env, folder):
                     stopped.add(pgid)
                 processes = subprocess.run(
                     ['ps', '-A', '-o', 'pgid=,stat='], capture_output=True,
-                    text=True, check=True, timeout=5).stdout.splitlines()
+                    text=True, errors="replace", check=True, timeout=5).stdout.splitlines()
                 alive = {int(parts[0]) for line in processes if (parts := line.split())
                          and not parts[1].startswith('Z')} & groups
                 if not alive and {int(line) for line in Path(journal.name).read_text().splitlines()} == stopped:

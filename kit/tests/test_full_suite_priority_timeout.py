@@ -44,7 +44,7 @@ while pid > 1:
     if marker.exists():
         priority = marker.read_text()
         break
-    pid = int(subprocess.check_output(['/bin/ps', '-o', 'ppid=', '-p', str(pid)], text=True))
+    pid = int(subprocess.check_output(['/bin/ps', '-o', 'ppid=', '-p', str(pid)], text=True, errors="replace"))
 is_agent = '-p' in sys.argv
 role = os.environ.get('LOOP_ROLE', '') if is_agent else sys.argv[1]
 with open(os.environ['PRIORITY_TRACE'], 'a') as output:
