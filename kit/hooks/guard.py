@@ -18,12 +18,14 @@ for the builder only). Builders cannot write paths on the stops list unless
 the issue allows them. The reviewer role writes nothing in the project (scratch files in the system
 temp folder are fine; the pass role writes only under .loop/pass/).
 
-Known limits: this is a regular-expression check on the raw command, so it can
-be routed around (a script, an alias, an unusual spelling). It is an early
-warning, not the line. The real lines are the diff check in merge.py and
-branch protection on the default branch. A bare `git push` from main is not
-caught, because the guard does not ask git which branch is checked out.
+Known limits: the guard reads code passed by `-c`, `-e`, a heredoc or a
+here-string, but cannot see commands assembled at run time, code in files,
+or code that a test or a project script runs. It checks literal text and is
+an early warning. The diff check in merge.py and branch protection on the
+default branch provide further protection. A bare `git push` from main is
+not caught, because the guard does not ask git which branch is checked out.
 """
+import ast
 import json
 import os
 import re
@@ -68,6 +70,10 @@ REDIRECT = re.compile(r'''('[^']*'|"(?:\\.|[^"\\])*")|\d*>>?(&)?\|?\s*('''
                       + SHELL_WORD + r")|\btee\s+(" + SHELL_WORD
                       + r"(?:[ \t]+" + SHELL_WORD + r")*)")
 SUBSTITUTION = re.compile(r"(?<!\\)(?:\$\((?:[^()]|\([^()]*\))*\)|`(?:\\.|[^`\\])*`)")
+INPUT = re.compile(r'''(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([^\s'";&|<>()]+)\2|<<<|[;&|()\n]|'''
+                   + SHELL_WORD)
+CODE_STRING = r'''(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")'''
+CODE_LITERALS = re.compile(CODE_STRING + r"(?:\s*,\s*" + CODE_STRING + r")*")
 
 
 class Refuse(Exception):
@@ -76,14 +82,84 @@ class Refuse(Exception):
         self.rule, self.reason, self.step = rule, reason, step
 
 
+def interpreter(words):
+    words = list(words)
+    while words and re.fullmatch(r"\w+=\S*", words[0]):
+        words.pop(0)
+    if words and os.path.basename(words[0]) == "env":
+        words.pop(0)
+        while words and (words[0].startswith("-") or re.fullmatch(r"\w+=\S*", words[0])):
+            option = words.pop(0)
+            if option in ("-u", "-C", "--unset", "--chdir") and words:
+                words.pop(0)
+    if len(words) >= 2 and os.path.basename(words[0]) == "uv" and words[1] == "run":
+        words = words[2:]
+    return bool(words) and os.path.basename(words[0]) in ("python", "python3", "node") + SHELLS
+
+
+def interpreter_inputs(command):
+    """Read inline interpreter arguments and stdin without evaluating code."""
+    command = command.replace("\\\n", "")
+    words, pending, pos, here_string = [], [], 0, False
+    while pos < len(command):
+        m = INPUT.search(command, pos)
+        if not m:
+            break
+        pos = m.end()
+        token = m.group()
+        if m.group(3):
+            pending.append((m.group(1), m.group(3), interpreter(words)))
+        elif token == "\n":
+            for strip, delimiter, executable in pending:
+                end = re.search(r"(?m)^" + (r"\t*" if strip else "") + re.escape(delimiter)
+                                + r"(?:\n|$)", command[pos:])
+                body = command[pos:pos + end.start()] if end else command[pos:]
+                if executable:
+                    yield body
+                pos = pos + end.end() if end else len(command)
+            words, pending, here_string = [], [], False
+        elif token in (";", "&", "|", "(", ")"):
+            words, here_string = [], False
+        elif token == "<<<":
+            here_string = interpreter(words)
+        else:
+            try:
+                word = shlex.split(token)[0]
+            except (ValueError, IndexError):
+                continue  # incomplete shell text is still checked by the raw rules
+            if here_string or (interpreter(words) and words
+                               and re.fullmatch(r"-[a-zA-Z]*[ce][a-zA-Z]*", words[-1])):
+                yield word
+            here_string = False
+            words.append(word)
+
+
+def interpreter_commands(command, full=False):
+    for code in interpreter_inputs(command):
+        yield code
+        for m in CODE_LITERALS.finditer(code):
+            try:
+                literals = [ast.literal_eval(s) for s in re.findall(CODE_STRING, m.group())]
+            except (ValueError, SyntaxError):
+                continue
+            yield from literals
+            # A named file after the Test command makes a targeted run. Do not
+            # match a prefix of a list that has further string literals.
+            if len(literals) > 1 and (not full or (
+                    code[:m.start()].rstrip().endswith("[")
+                    and re.match(r'''[^'"\]]*\]''', code[m.end():]))):
+                yield shlex.join(literals)
+
+
 def check_everyone(command):
-    if DELETE.search(command):
+    commands = [command, *interpreter_commands(command)]
+    if any(DELETE.search(c) for c in commands):
         raise Refuse("recursive-delete", "a recursive delete is not allowed",
                      "delete named files one at a time, or report it")
     branches = "|".join(["main", "master"] + [
         re.escape(b) for b in [os.environ.get("LOOP_DEFAULT_BRANCH", "")] if b])
     protected = re.compile(r"(?:^|[\s:'\"=]|refs/heads/)(?:%s)(?=[\s'\")]|$)" % branches)
-    for m in PUSH.finditer(command):
+    for m in PUSH.finditer("\n".join(commands)):
         if FORCE.search(m.group(1)):
             raise Refuse("force-push", "a force, mirror or all-branch push is not allowed",
                          "push a normal fast-forward of your own branch")
@@ -194,10 +270,11 @@ def check_role_command(command, role, cwd):
     files = os.environ.get("LOOP_TEST_FILES_COMMAND")
     if role in ("builder", "reviewer", "test-writer", "pass") and files and any(
             s.strip() == os.environ.get("LOOP_TEST_COMMAND") or full_test_files(s, files, cwd)
-            for s in re.split(r"&&|\|\||[;|\n]", command)):
+            for c in (command, *interpreter_commands(command, full=True))
+            for s in re.split(r"&&|\|\||[;|\n]", c)):
         raise Refuse("full-test", "the full Test command is reserved for merge",
                      "use <plugin>/bin/loop check; for selected files, use the Test files command: " + files)
-    executable = role_commands(command)
+    executable = "\n".join((role_commands(command), *interpreter_commands(command)))
     if ROLE_GIT.search(executable) or GH.search(executable):
         raise Refuse("role-git", "git push, merge, branch changes and gh are not allowed in a %s session" % role,
                      "commit on your branch; the loop pushes and merges")
@@ -234,7 +311,7 @@ def check_codex(data, role, cwd):
             if len(command) == 3 and os.path.basename(command[0]) in SHELLS and re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", command[1]):
                 command = command[2]
             else:
-                command = " ".join(command)
+                command = shlex.join(command)
         if not isinstance(command, str) or not command.strip():
             raise unparsed("this shell command")
         check_everyone(command)
