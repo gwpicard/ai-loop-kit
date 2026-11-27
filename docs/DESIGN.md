@@ -164,11 +164,18 @@ note list extra modules and why each was selected.
 
 Merge events record whether the full suite ran. The merge gate reads that
 history after a restart and resets the count after a successful full merge
-run or drain. If a due full suite fails, it runs once on the loop branch
-head. A failure there parks the issue as already present on the loop branch;
-otherwise the issue returns to its builder. The drain always runs the full
-suite before the pass and final pull request. A regression outside the
-targeted tests may reach the loop branch before the next full run finds it.
+run or drain. When a merge Test command fails, the gate reruns the named
+failing modules present on the loop branch head with the Test files command.
+Without selectable modules or a Test files command, it runs the full Test
+command there instead.
+
+Failures isolated to the issue return to the builder with diagnostics, any
+hung-test stack and, when modules can be selected, a targeted rerun command.
+Shared failures are listed separately; if no new failure can be isolated,
+the issue parks. Two merge test fix rounds are available apart from the review limit.
+The drain always runs the full suite before the pass and final pull request.
+A regression outside the targeted tests may reach the loop branch before
+the next full run finds it.
 
 The fails-first step runs the locked tests. The builder's Stop hook runs
 the same selection from the locked tests and changes since the session's

@@ -16,7 +16,7 @@ import common
 import status
 from common import gh, git
 
-Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
+Result = collections.namedtuple("Result", "ok park reason commit rule test_fix", defaults=(None, False))
 TEST_TIMEOUT = 1800
 TIMEOUT_TAIL = 60
 TARGETED_MODULE_CAP = 40
@@ -66,8 +66,8 @@ def squash_body(project, loop, sha, settings):
     return "\n\n".join(messages + ([sign_off] if sign_off else []))
 
 
-def _refuse(rule, reason, park=False):
-    return Result(False, park, reason, None, rule)
+def _refuse(rule, reason, park=False, test_fix=False):
+    return Result(False, park, reason, None, rule, test_fix)
 
 
 def parse_verdict(text):
@@ -373,20 +373,44 @@ def full_suite_due(project, settings):
     return count >= settings["Full suite every"] - 1
 
 
+FailureReport = collections.namedtuple("FailureReport", "report failures modules diagnostics")
+
+
 def failure_report(project, log, branch):
-    """Quote at most 20 failure lines, or the last four lines when none are recognised."""
+    """Extract failure identities and module names once, with bounded and full diagnostics."""
     lines = Path(project, log).read_text(encoding="utf-8", errors="replace").splitlines()
-    failures = list(dict.fromkeys(line for line in lines if re.match(
-        r"^(?:FAIL:|ERROR:|FAIL\s+\S+\s+\d+\s+tests?\b)", line)))
+    failures, names, hung = [], set(), None
+    for i, line in enumerate(lines):
+        if re.match(r"^(?:FAIL:|ERROR:|FAIL\s+\S+\s+\d+\s+tests?\b)", line):
+            failures.append(line)
+            if line.startswith("FAIL "):
+                names.add(line.split()[1])
+            elif identity := re.search(r"\(([^)]+)\)", line):
+                names.add(identity.group(1))
+        elif match := re.match(r"^(\S+): hung after ", line):
+            names.add(match.group(1))
+            if hung is None:
+                hung = i
+    failures = list(dict.fromkeys(failures))
     excerpt = failures[:20] if failures else lines[-4:]
-    report = "\n%s output: %s\n%s" % (
-        branch, log, "\n".join("> " + line for line in excerpt))
+    heading = "\n%s output: %s\n" % (branch, log)
+    report = heading + "\n".join("> " + line for line in excerpt)
     if len(failures) > 20:
         report += "\nFurther failures are in the full log."
     tests = {re.sub(r"^(?:FAIL|ERROR):\s*", "", line).strip()
              for line in failures if line.startswith(("FAIL:", "ERROR:"))}
     modules = {line.split()[1] for line in failures if line.startswith("FAIL ")}
-    return report, tests or modules
+    diagnostics = heading + "\n".join("> " + line for line in (failures or lines[-4:]))
+    if hung is not None:
+        diagnostics += "\n" + "\n".join("> " + line for line in lines[hung:])
+    return FailureReport(report, tests or modules, names, diagnostics)
+
+
+def failing_modules(project, sha, names):
+    """Resolve extracted names against test modules in the specified commit."""
+    paths = git(["ls-tree", "-rz", "--name-only", sha], cwd=project).split("\0")
+    return sorted(path for path in paths if is_test_module(path) and any(
+        PurePosixPath(path).stem in name.replace("/", ".").split(".") for name in names))
 
 
 def merge(issue, branch, verdict_text, project="."):
@@ -439,18 +463,45 @@ def _merge(issue, branch, verdict_text, project):
     if failure := run_tests(project, sha, command, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"],
                             log=os.path.join(project, log)):
-        report, failures = failure_report(project, log, "Issue branch")
-        if full_suite and kinds and kinds[0][0] == "Test":
-            if baseline_failure := run_tests(project, "origin/" + loop, settings["Test command"],
-                                            prepare=settings["Prepare command"],
-                                            log=os.path.join(project, baseline_log)):
-                baseline_report, baseline_failures = failure_report(project, baseline_log, "Loop branch")
+        issue_report = failure_report(project, log, "Issue branch")
+        if kinds and kinds[0][0] == "Test":
+            modules = failing_modules(project, sha, issue_report.modules)
+            baseline = git(["rev-parse", "origin/" + loop], cwd=project)
+            present = set(git(["ls-tree", "-rz", "--name-only", baseline], cwd=project).split("\0"))
+            selected = [path for path in modules if path in present]
+            targeted = bool(modules and "{files}" in settings["Test files command"])
+            baseline_command = common.files_command(settings, selected) if targeted else settings["Test command"]
+            # An issue-only module has no baseline to run; an empty selection must not run the full suite.
+            baseline_failure = run_tests(project, baseline, baseline_command if selected or not targeted else "",
+                                         prepare=settings["Prepare command"], kinds=(baseline_kinds := []),
+                                         log=os.path.join(project, baseline_log))
+            shared = ""
+            if baseline_failure:
+                baseline_report = failure_report(project, baseline_log, "Loop branch")
+                failures, baseline_failures = issue_report.failures, baseline_report.failures
                 comparison = ("Both branches have the same failing tests." if failures and failures == baseline_failures
                               else "The branches have different failing tests." if failures and baseline_failures
                               else "No comparable failing test sets were identified in both outputs.")
-                return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
-                               + baseline_failure + "\n" + comparison + report + baseline_report, park=True)
-        return _refuse("test-command", failure + report)
+                new_modules = set(modules) - set(failing_modules(project, baseline, baseline_report.modules))
+                if (not targeted or not baseline_failures or not (failures - baseline_failures or new_modules)
+                        or baseline_kinds != [("Test", "failed")]):
+                    return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
+                                   + baseline_failure + "\n" + comparison + issue_report.report
+                                   + baseline_report.report, park=True)
+                shared = ("\nAlready failing on the loop branch; these failures are not yours to fix:"
+                          + baseline_report.diagnostics)
+            rerun = ("\nRerun these modules with the Test files command: "
+                     + common.files_command(settings, modules) + "\nModules: " + ", ".join(modules)
+                     + ". Do not run the full Test command." if targeted else
+                     "\nNo targeted rerun could be selected. Use loop check for the configured session checks.")
+            comparison = ""
+            if not shared:
+                comparison = ("\nThe loop branch passes the selected failing modules." if selected and targeted else
+                              "\nThe named failing modules are absent from the loop branch, so no baseline tests were run."
+                              if targeted else "\nThe full Test command passes on the loop branch.")
+            return _refuse("test-command", failure + issue_report.diagnostics + shared + comparison + rerun,
+                           test_fix=True)
+        return _refuse("test-command", failure + issue_report.report)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):

@@ -439,7 +439,19 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
     report, sid = ask("builder", settings["Builder"], locked=locked)
     feedback, fixes, earlier = "", [], []  # fixes: the last review's numbered fixes, when it returned CHANGES
-    for rnd in range(1, settings["Max rounds"] + 1):
+    rnd, review_rounds, merge_fixes = 0, 0, 0
+    merge_failure = ""
+    while review_rounds < settings["Max rounds"] or merge_failure:
+        rnd += 1
+        if merge_failure:
+            if merge_fixes == 2:
+                latest = "\nLatest fix feedback:\n" + feedback if feedback != "The merge was refused: " + merge_failure else ""
+                raise Parked("The build still needs a fix after two merge test fix rounds. Last merge test failure:\n"
+                             + merge_failure + latest,
+                             "Investigate the failing tests in the merge log and reply with the required fix.")
+            merge_fixes += 1
+        else:
+            review_rounds += 1
         if feedback:
             report, sid = ask("builder", settings["Builder"], step="fix", rnd=rnd, resume=sid,
                               extra="\n\nFix these, test the files you touch, commit. The Stop hook checks them "
@@ -491,6 +503,8 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                              "intended, otherwise tell the loop what to change.")
             else:
                 feedback = "The merge was refused: " + result.reason
+                if result.test_fix:
+                    merge_failure = result.reason
         else:
             feedback = review if verdict else "The review had no VERDICT block."
             if verdict:
