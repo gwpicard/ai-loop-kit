@@ -191,6 +191,15 @@ hook's result and run checks only when a finding needs verification.
 The pass validates candidate failing tests with targeted checks and the
 Check command.
 
+`loop check`, the builder's Stop hook and the loop's tests step limit the
+Test files command to one third of `Session minutes`, with a ten-minute
+minimum. A timeout warns that the command may be running more than the
+named files. The build retains it for that worktree and HEAD:
+`loop check`, Stop and the loop's tests step do not run commands again there.
+The loop records the timeout in its events and log, and passes the warning
+to the reviewer. A timeout does not count as a test pass; merge keeps its
+existing test policy.
+
 ## Boundaries and recovery
 
 `kit/hooks/guard.py` refuses recognised recursive deletes, force pushes,

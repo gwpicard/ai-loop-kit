@@ -225,7 +225,7 @@ def importing_tests(cwd, changed, selected, head=None):
     return causes
 
 
-def targeted_command(settings, cwd, start, locked, head=None, session=False):
+def targeted_command(settings, cwd, start, locked, head=None, session=False, selected=None):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
     changed = git(["diff", "-z", "--name-only", start]
@@ -240,6 +240,8 @@ def targeted_command(settings, cwd, start, locked, head=None, session=False):
         causes = {path: reason for path, reason in causes.items() if path in files}
         note = "; merge runs the full suite"
     files = sorted(files)
+    if selected is not None:
+        selected.extend(files)
     extra = "".join("\n%s: %s" % (path, causes[path]) for path in sorted(causes))
     if not session and len(files) > TARGETED_MODULE_CAP:
         return settings["Test command"], "Test command: full suite (%d modules exceed cap %d)%s" % (
@@ -321,7 +323,7 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, test_name="Test"):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, test_name="Test", test_timeout=None):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
     `tails` collects the last line of each passing Test and Check command. `log` is a file
@@ -340,7 +342,8 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
             if cmd:
                 common.wait_for_disk(project)
             if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log,
-                                         timeout=command_timeout(name, project))):
+                                         timeout=test_timeout if name == test_name and test_timeout is not None
+                                         else command_timeout(name, project))):
                 return failure
         return None
 
