@@ -17,7 +17,8 @@ def result(project, settings, head, since):
     heading, separator, rest = text.partition("\n")
     text = heading + "\n\nCommit: `%s`.\n" % head + separator + rest
     return dict(head=since if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"),
-                text=text, defects=len(report.get("confirmed", [])),
+                text=text, sessions=report.get("sessions", 0), reason="; ".join(report.get("errors", [])),
+                defects=len(report.get("confirmed", [])),
                 inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
 
 
