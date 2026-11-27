@@ -118,13 +118,13 @@ _MEMORY_HELD = contextvars.ContextVar("memory_held", default=False)
 _BUILD = contextvars.ContextVar("build", default=(None, None))
 
 
-def pressure_level():
+def pressure_level(timeout=10):
     """The macOS memory-pressure level (1 normal, 2 warning, 4 critical), or None when it cannot be read."""
     if sys.platform != "darwin":
         return None
     try:
         out = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, timeout=timeout).stdout
         return int(out.strip())
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
@@ -137,14 +137,24 @@ def build_count(project):
         return 0
 
 
-def wait_for_memory(project=None, issue=None):
+def deadline_timeout(timeout, deadline):
+    """Cap a timeout at a callable deadline's time left, or refuse expired work."""
+    if deadline is None:
+        return timeout
+    left = deadline()
+    if left <= 0:
+        raise subprocess.TimeoutExpired("session deadline", 0)
+    return min(timeout, left)
+
+
+def wait_for_memory(project=None, issue=None, deadline=None):
     """Wait at most ten minutes at critical pressure, only with more than one build running."""
     root, number = _BUILD.get()
     project = project or root or project_of(".")
     issue = issue if issue is not None else number or os.environ.get("LOOP_ISSUE")
     if _MEMORY_HELD.get() or not project or build_count(project) <= 1:
         return
-    level = pressure_level()
+    level = pressure_level(timeout=deadline_timeout(10, deadline)) if deadline else pressure_level()
     if level != 4:
         return
     began = time.time()
@@ -166,8 +176,8 @@ def wait_for_memory(project=None, issue=None):
                 with open(os.path.join(project, ".loop", "loop.out"), "a") as f:
                     f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
                 return
-            sleep(min(PRESSURE_POLL, left))
-            level = pressure_level()
+            sleep(deadline_timeout(min(PRESSURE_POLL, left), deadline))
+            level = pressure_level(timeout=deadline_timeout(10, deadline)) if deadline else pressure_level()
         say("memory wait ended after %d minutes" % ((time.time() - began) // 60))
     finally:
         record(time.time())
@@ -490,13 +500,14 @@ def paused_seconds(project, since, issue=None):
     return total
 
 
-def wait_limited(wait, limit, project):
+def wait_limited(wait, limit, project, deadline=None):
     """Call `wait(timeout)` until it returns, as `wait(limit)` would, but leave paused time out of `limit`.
     The wait sleeps to the deadline without polling: a paused waiter is frozen, finds its deadline passed
     on resume and looks again. Raises subprocess.TimeoutExpired when the unpaused time passes `limit`."""
     start = time.time()
     while True:
         left = start + limit + paused_seconds(project, start) - time.time()
+        left = deadline_timeout(left, deadline)
         if left <= 0:
             raise subprocess.TimeoutExpired("wait", limit)
         try:
@@ -591,9 +602,10 @@ def build_environment(project, issue=None):
                     f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
 
 
-def wait_for_disk(project, reason="", **fields):
+def wait_for_disk(project, reason="", deadline=None, **fields):
     reported, recorded = False, False
     while True:
+        deadline_timeout(60, deadline)
         low = [p for p in (project, build_env().get("TMPDIR") or tempfile.gettempdir())
                if shutil.disk_usage(p).free < MIN_DISK_FREE]
         if not low and (reported or not reason):
@@ -611,27 +623,33 @@ def wait_for_disk(project, reason="", **fields):
             except OSError as e:
                 if e.errno != errno.ENOSPC:
                     raise
-        sleep(60)
+        sleep(deadline_timeout(60, deadline))
 
 
-def run_shell(command, cwd, timeout, record=None):
-    code, out = _run_shell(command, cwd, timeout, record)
-    if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
-        wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device")
-        code, out = _run_shell(command, cwd, timeout, record)
-    return code, out
+def run_shell(command, cwd, timeout, record=None, deadline=None):
+    out = ""
+    try:
+        code, out = _run_shell(command, cwd, timeout, record, deadline)
+        if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
+            wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device", deadline=deadline)
+            code, out = _run_shell(command, cwd, timeout, record, deadline)
+        return code, out
+    except subprocess.TimeoutExpired:
+        return None, out
 
 
-def _run_shell(command, cwd, timeout, record=None):
+def _run_shell(command, cwd, timeout, record=None, deadline=None):
     """Run a shell command in its own process group, or in the pass worker's group.
     Return (exit code, output); the code is None on timeout outside a pass worker.
     A pass command timeout ends the worker and its commands; the supervisor reports the error.
     With `record`, the group id is listed so whoever ends the caller can also end the command.
     Pass records remain until session cleanup, including commands whose children outlive them.
     Before it starts, the command waits at critical memory
-    pressure for at most ten minutes; the wait is outside `timeout`."""
-    wait_for_memory(project_of(cwd))
-    wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
+    pressure for at most ten minutes; resource waits are outside `timeout`,
+    but share the optional callable deadline with launches and retries."""
+    wait_for_memory(project_of(cwd), deadline=deadline)
+    wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, deadline=deadline)
+    timeout = deadline_timeout(timeout, deadline)
     # Pass commands share the worker's lifetime, including an external kill.
     pass_worker = os.environ.get("LOOP_PASS_WORKER") == str(os.getpid())
     token = os.environ.get("LOOP_GROUP_TOKEN")
@@ -641,7 +659,8 @@ def _run_shell(command, cwd, timeout, record=None):
     if record:
         _record(record, p.pid, True, token)
     try:
-        out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd))
+        out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd),
+                              **({"deadline": deadline} if deadline else {}))
         return p.returncode, out
     except subprocess.TimeoutExpired:
         os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)

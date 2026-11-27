@@ -27,6 +27,14 @@ class SessionError(common.LoopError):
     pass
 
 
+class SessionTimeout(SessionError):
+    """A session deadline with its captured reply available to the flow."""
+    def __init__(self, role, limit, text, sid, stderr=""):
+        super().__init__("%s session timed out after %g minutes" % (role, limit / 60))
+        self.text, self.sid = text, sid
+        self.stderr = stderr
+
+
 def docker(args):
     """Output lines of a docker command, or None when docker is missing or fails."""
     try:
@@ -116,6 +124,7 @@ def _wait_seconds(text):
 
 
 def _exec(argv, prompt, cwd, env, log, role, issue, limit):
+    """Capture and clean up a session, raising SessionTimeout with its output on expiry."""
     before, began = docker_state(), time.time()
     registry = env.get("LOOP_PASS_GROUPS")
     handle, groups = tempfile.mkstemp(prefix="pass-hooks-" if registry else "loop-groups-",
@@ -135,14 +144,15 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
                 common._record(registry, os.getpid(), True, token)
             with contextlib.suppress(OSError):
                 os.nice(10)
+        env = dict(env, LOOP_SESSION_BEGAN=str(time.time()), LOOP_SESSION_LIMIT=str(limit))
         p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
                              preexec_fn=child_setup,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:
             common.wait_limited(p.wait, limit, project_of_cwd)
-            problem = None
+            timed_out = False
         except subprocess.TimeoutExpired:
-            problem = "%s session timed out after %g minutes" % (role, limit / 60)
+            timed_out = True
         left = reap(p.pid) + reap_groups(groups, began)
         with contextlib.suppress(OSError):
             os.remove(groups)
@@ -155,8 +165,8 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
     with open(log, "a", encoding="utf-8") as f:
         f.write("--- %s\n%s\n--- stderr\n%s\n" % (" ".join(argv[:3]), out, err)
                 + "".join("--- cleanup: %s\n" % l for l in left + swept))
-    if problem:
-        raise SessionError(problem)
+    if timed_out:
+        raise SessionTimeout(role, limit, out, None, err)
     return out, err, p.returncode
 
 
@@ -276,7 +286,10 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
     try:
         while True:
             common.wait_for_memory(project=env["LOOP_PROJECT"], issue=issue)
-            out, err, code = _exec(argv(resume), prompt, cwd, env, log, role, issue, limit)
+            try:
+                out, err, code = _exec(argv(resume), prompt, cwd, env, log, role, issue, limit)
+            except SessionTimeout as e:
+                out, err, code = e.text, e.stderr, None
             events = []
             for line in out.splitlines():
                 with contextlib.suppress(ValueError):
@@ -299,6 +312,8 @@ def _codex(role, prompt, cwd, model, env, log, issue, resume, limit, record):
                 text = next((str(e.get("item", {}).get("text") or "") for e in reversed(events)
                              if e.get("type") == "item.completed"
                              and e.get("item", {}).get("type") == "agent_message"), "")
+            if code is None:
+                raise SessionTimeout(role, limit, text, thread, err)
             problem = "\n".join(str(e.get("message") or "") for e in events if e.get("type") == "error") or err
             if code and LIMIT.search(problem + text):
                 wait = _wait_seconds(problem + text)
@@ -347,8 +362,11 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
                 "Stop": [{"hooks": [hook("stop.py", timeout=TEST_TIMEOUT)]}]}})]
     while True:
         common.wait_for_memory(project=project, issue=issue)
-        out, err, code = _exec(argv + (["--resume", resume] if resume else []),
-                               prompt, cwd, env, log, role, issue, settings["Session minutes"] * 60)
+        try:
+            out, err, code = _exec(argv + (["--resume", resume] if resume else []),
+                                   prompt, cwd, env, log, role, issue, settings["Session minutes"] * 60)
+        except SessionTimeout as e:
+            out, err, code = e.text, e.stderr, None
         try:
             data = json.loads(out)
         except ValueError:
@@ -363,6 +381,8 @@ def run(role, prompt, cwd, model, project, issue, resume=None, locked=(), start=
         record(**counts)
         common.record_session((data or {}).get("session_id"), env)
         text = str(data.get("result") or "") if data else out + err
+        if code is None:
+            raise SessionTimeout(role, settings["Session minutes"] * 60, text, (data or {}).get("session_id"), err)
         if LIMIT.search(text) and (not data or data.get("is_error") or code):
             wait = _wait_seconds(text)
             common.say("%s session hit the Claude usage limit; waiting %d minutes, "
