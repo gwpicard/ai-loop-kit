@@ -9,16 +9,17 @@ import loop
 import pass_
 
 
-def result(project, settings, head, since):
+def result(project, settings, head, since, outcome=None):
     try:
         report, text = pass_.run_pass(project, settings, since, head=head)
     except Exception as e:
         report, text = {"errors": [str(e)]}, "## End-of-loop pass\n\nThe pass did not run: %s: %s\n" % (type(e).__name__, e)
     heading, separator, rest = text.partition("\n")
     text = heading + "\n\nCommit: `%s`.\n" % head + separator + rest
+    if outcome is not None:
+        outcome.update(sessions=report.get("sessions", 0), reason="; ".join(report.get("errors", [])))
     return dict(head=since if report.get("errors") else head, time=time.strftime("%Y-%m-%d %H:%M"),
-                text=text, sessions=report.get("sessions", 0), reason="; ".join(report.get("errors", [])),
-                defects=len(report.get("confirmed", [])),
+                text=text, defects=len(report.get("confirmed", [])),
                 inbox=sum(i.endswith("(inbox)") for i in report.get("issues", [])))
 
 
@@ -27,7 +28,9 @@ def main(argv):
     os.environ["LOOP_PASS_WORKER"] = str(os.getpid())
     needed = json.loads(argv[4]) if len(argv) > 4 else True
     with common.build_environment(project):
-        saved = result(project, settings, head, since) if needed else loop.last_pass(project)
+        outcome = {}
+        saved = result(project, settings, head, since, outcome) if needed else loop.last_pass(project)
+        saved.update(outcome)
         base = common.default_branch(project)
         landed = common.git(["log", "--format=- %s", "origin/%s..%s" % (base, head)], cwd=project)
         with common.settings_environment(settings):

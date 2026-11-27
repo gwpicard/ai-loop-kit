@@ -693,6 +693,7 @@ def reap_pass(project, st, stopped=False):
             saved = json.load(f)
         if not isinstance(saved, dict) or not isinstance(saved.get("text"), str):
             raise ValueError("invalid pass result")
+        reason = saved.pop("reason", "")
     except (OSError, ValueError):
         reason = "worker ended with exit code %s and no result" % proc.returncode
         try:
@@ -703,7 +704,9 @@ def reap_pass(project, st, stopped=False):
         except (OSError, ValueError, KeyError, TypeError):
             pass
         saved = dict(head=running["since"], text="## End-of-loop pass\n\nCommit: `%s`.\n\n"
-                     "The pass failed: %s.\n" % (running["head"], reason), reason=reason)
+                     "The pass failed: %s.\n" % (running["head"], reason))
+    count = re.search(r"^## End-of-loop pass \((\d+) sessions\)", saved["text"])
+    sessions = saved.pop("sessions", int(count[1]) if count else 0)
     with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
         json.dump(saved, f)
     # Keep the result pending until GitHub accepts the refreshed body.
@@ -721,10 +724,10 @@ def reap_pass(project, st, stopped=False):
         gh(["pr", "edit", number, "--body-file", "-"], input=body + "\n\n" + saved["text"])
     st.pop("pass", None)
     st["pass_reaped"] = running["head"]
-    if saved.get("reason"):
-        say("end-of-loop pass failed: " + " ".join(saved["reason"].splitlines()))
+    if reason:
+        say("end-of-loop pass failed: " + " ".join(reason.splitlines()))
     else:
-        say("end-of-loop pass finished (%d sessions)" % saved.get("sessions", 0))
+        say("end-of-loop pass finished (%d sessions)" % sessions)
     for kind in ("result", "pid", "timeout"):
         with contextlib.suppress(OSError):
             os.remove(common.build_file(project, "pass", kind))
