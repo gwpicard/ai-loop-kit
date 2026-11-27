@@ -256,11 +256,20 @@ lock run first, so a refusal costs no test run.
 
 The merge count comes from `.loop/events.jsonl`, where each merge records
 `full_suite`, and survives restarts. A successful full merge run or drain
-resets it. If a due full Test command fails, the gate runs it once on the
-loop branch head. If that also fails, the issue parks with an explanation
-that the failure was already on the loop branch; otherwise it returns to
-the builder. Without a Test files command containing `{files}`, every merge
-runs the full suite. A merge also runs the full suite when the issue has no
+resets it. After any merge Test failure, the gate reruns the named failing
+modules present on the loop branch head with the Test files command. Without
+selectable modules or a Test files command containing `{files}`, it runs the
+full Test command there instead.
+
+An isolated failure returns to the builder with the failing lines, any
+hung-test stack, the merge log path and, when modules can be selected, a targeted
+rerun command. Shared failures are listed separately as already failing on the
+loop branch and outside the builder's work; if no new failure can be isolated,
+the issue parks. After two unsuccessful merge test fix rounds, counted apart
+from `Max rounds`, it parks with the latest diagnostics.
+
+Without a Test files command containing `{files}`, every merge runs the full
+suite. A merge also runs the full suite when the issue has no
 posted list of locked test modules, since changed files alone may omit tests
 that cover the issue.
 The drain always runs the full suite before the pass and final pull request.
