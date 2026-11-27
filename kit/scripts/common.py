@@ -763,9 +763,13 @@ def read_passed(project, session_id):
         return None, []
 
 
-def default_branch(project):
+def default_branch(project, refresh=False):
+    """Name the default branch, optionally fetching its latest commits."""
     ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
-    return ref.replace("origin/", "", 1) or "main"
+    branch = ref.replace("origin/", "", 1) or "main"
+    if refresh:
+        git(["fetch", "--no-prune", "origin", branch + ":refs/remotes/origin/" + branch], cwd=project)
+    return branch
 
 
 def restore_loop_branch(project, branch):

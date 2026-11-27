@@ -723,7 +723,7 @@ def reap_pass(project, st, stopped=False):
 
 def _drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
-    loop, base = settings["Loop branch"], common.default_branch(project)
+    loop = settings["Loop branch"]
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
     log = ".loop/logs/drain.log"
@@ -737,6 +737,7 @@ def _drain(project, settings, st):
             diagnostics = "%s\nCould not read %s: %s" % (failed, log, error)
         say("drain failed: " + diagnostics.replace("\n", "; "))
         failed += "\n" + diagnostics
+    base = common.default_branch(project, refresh=True)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
@@ -767,10 +768,17 @@ def _drain(project, settings, st):
     if found:
         gh(["pr", "edit", str(found[0]["number"]), "--body-file", "-"], input=body)
     elif landed:  # a failed create is found by the next check, not repeated
-        gh(["pr", "create", "--base", base, "--head", loop, "--title", "Loop branch into " + base,
-            "--body-file", "-"], retry=False, input=body)
+        try:
+            gh(["pr", "create", "--base", base, "--head", loop, "--title", "Loop branch into " + base,
+                "--body-file", "-"], retry=False, input=body)
+        except common.GitHubError as error:
+            if "no commits between" not in str(error).lower():
+                raise
+            landed = ""
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
+    if not landed and not failed:
+        say("drained: nothing to merge")
     return diagnostics
 
 
