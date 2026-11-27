@@ -776,9 +776,9 @@ def _drain(project, settings, st):
                 raise
             landed = ""
     st["pr"] = (find() or [{}])[0].get("url")
-    st["last"] = "drained: " + (failed or ("tests pass" if landed else "nothing to merge"))
+    st["last"] = "drained: " + (failed or "tests pass")
     if not landed and not failed:
-        say(st["last"])
+        say("drained: nothing to merge")
     return diagnostics
 
 
