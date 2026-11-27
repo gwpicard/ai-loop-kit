@@ -446,6 +446,13 @@ def _merge(issue, branch, verdict_text, project):
         return _refuse("review-verdict", "the review verdict is %s, not APPROVE" % (verdict or "missing"))
     git(["fetch", "--no-prune", "origin"], cwd=project)
     common.restore_loop_branch(project, loop)
+    settings = common.build_settings(project, refresh=True)
+    with common.settings_environment(settings):
+        return _merge_head(issue, branch, verdict_text, project, settings, head)
+
+
+def _merge_head(issue, branch, verdict_text, project, settings, head):
+    loop = settings["Loop branch"]
     sha = git(["rev-parse", "--verify", "origin/" + branch], cwd=project)
     if not head or not sha.startswith(head):
         return _refuse("review-head", "the branch head %s is not the reviewed commit %s"
