@@ -190,13 +190,13 @@ def test_imports(path, text):
 def importing_tests(cwd, changed, selected, head=None):
     """Select test importers to a fixed point without executing project code."""
     paths = git(["ls-tree", "-rz", "--name-only", head] if head else
-                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd).split("\0")
+                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=cwd).split("\0")
     tests = {}
     for path in sorted(set(paths)):
         if not is_test_module(path):
             continue
         if head:
-            text = git(["show", head + ":" + path], cwd)
+            text = git(["show", head + ":" + path], cwd=cwd)
         else:
             try:
                 text = Path(cwd, path).read_text(encoding="utf-8", errors="replace")
