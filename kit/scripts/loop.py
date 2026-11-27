@@ -1038,19 +1038,29 @@ def check(project):
     """Run the session's targeted tests and guardrails with bounded output."""
     try:
         settings = common.build_settings(project)
+        cached = common.read_targeted_timeout(project)
+        if cached is not None:
+            print(cached["line"])
+            return 0
         path = common.check_pass_path()
         if path and os.path.exists(path):
             os.unlink(path)
         state = common.check_pass_state(project, settings) if path else None
+        files = []
         test, description = merge.targeted_command(
             settings, project, os.environ.get("LOOP_START"),
-            os.environ.get("LOOP_LOCKED", "").splitlines(), session=True)
+            os.environ.get("LOOP_LOCKED", "").splitlines(), session=True, selected=files)
         tails = [description]
         for name, command in (("Test", test), ("Check", settings["Check command"])):
             if not command:
                 continue
-            code, output = common.run_shell(command, project, merge.command_timeout(name, project),
+            targeted = name == "Test" and bool(settings["Test files command"])
+            timeout = common.targeted_budget(settings) if targeted else merge.command_timeout(name, project)
+            code, output = common.run_shell(command, project, timeout,
                                             record=os.environ.get("LOOP_GROUPS"))
+            if code is None and targeted:
+                print(common.write_targeted_timeout(project, files, timeout)["line"])
+                return 0
             if code != 0:
                 print("failed: %s%s" % (command, " (timed out)" if code is None else ""))
                 lines = output.strip().splitlines()
