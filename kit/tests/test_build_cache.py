@@ -219,7 +219,7 @@ class BuildCacheTest(FakeClaudeGh):
         self.assertEqual(len(paths), 1, "one operation must keep the same cache across its trees")
         self.assertTrue(all(row["exists"] for row in rows), "create the cache before running commands")
         path = Path(next(iter(paths))).resolve()
-        parent = Path(self.work).parent / ".loop-cache" / Path(self.work).name
+        parent = Path(self.work).parent / "loop-cache" / Path(self.work).name
         self.assertTrue(path.is_relative_to(parent.resolve()), (path, parent))
         self.assertNotEqual(path, parent.resolve(), "each build needs a folder within the project cache")
         return path
@@ -313,7 +313,7 @@ class BuildCacheTest(FakeClaudeGh):
         self.fixture()
         for name in ("cache", "cache with spaces"):
             with self.subTest(folder=name):
-                cache = Path(self.work).parent / ".loop-cache" / Path(self.work).name / name
+                cache = Path(self.work).parent / "loop-cache" / Path(self.work).name / name
                 cache.mkdir(parents=True)
                 args = session.codex_sandbox_config(
                     self.work, {"LOOP_CACHE_DIR": str(cache)}, common.read_settings(self.work))
@@ -329,7 +329,7 @@ class BuildCacheTest(FakeClaudeGh):
         passages = [s for s in sections if "LOOP_CACHE_DIR" in s]
         self.assertEqual(len(passages), 1, "keep the cache guidance in one place")
         passage = " ".join(passages[0].split()).replace("`", "")
-        for pattern in (r"\.loop-cache[/\\]<project>", r"\.loop-worktrees", r"\bparent\b",
+        for pattern in (r"loop-cache[/\\]<project>", r"\.loop-worktrees", r"\bparent\b",
                         r"(?i)(?:never|does not|doesn't) (?:delet|remov)", r"(?i)delet.*reset",
                         r"Xcode", r"LOOP_CACHE_DIR(?:\)|(?::-[^}]*)?\})?/DerivedData",
                         r"\.build\}?/DerivedData",

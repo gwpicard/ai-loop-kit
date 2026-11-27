@@ -524,8 +524,19 @@ def build_env():
 def cache_environment(project):
     """Lease the first available persistent cache until this operation ends."""
     project = os.path.abspath(project)
-    folder = os.path.join(os.path.dirname(project), ".loop-cache", os.path.basename(project))
+    parent, name = os.path.dirname(project), os.path.basename(project)
+    folder = os.path.join(parent, "loop-cache", name)
     os.makedirs(folder, exist_ok=True)
+    old = os.path.join(parent, ".loop-cache", name)
+    if os.path.isdir(old):
+        logs = os.path.join(project, ".loop")
+        os.makedirs(logs, exist_ok=True)
+        notice = "old cache folder %s is unused and can be removed by hand" % old
+        with open(os.path.join(logs, "loop.out"), "a+", encoding="utf-8") as log:
+            fcntl.flock(log, fcntl.LOCK_EX)
+            log.seek(0)
+            if not any(line.rstrip().endswith(notice) for line in log):
+                log.write(time.strftime("%Y-%m-%d %H:%M:%S ") + notice + "\n")
     slot = 1
     while True:
         # Keep locks beside the cache folders so deleting a cache only resets its contents.
