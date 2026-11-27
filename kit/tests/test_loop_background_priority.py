@@ -84,7 +84,7 @@ class LoopBackgroundPriorityTest(unittest.TestCase):
         starts = [value for kind, value in events if kind == "started"]
         self.assertEqual(len(starts), 1, output)
         self.assertEqual(events, [["started", starts[0]]],
-                         "Only session children enter background priority")
+                         "Only session children change niceness")
 
     def test_other_systems_keep_supervisor_niceness(self):
         for platform in ("linux", "freebsd"):
@@ -105,15 +105,14 @@ class LoopBackgroundPriorityTest(unittest.TestCase):
                 self.assertEqual(lines, [], output)
                 self.assertTrue(all(kind == "started" for kind, _ in events), events)
 
-    def test_readme_explains_background_priority_and_its_reason_in_one_sentence(self):
+    def test_readme_explains_session_niceness_and_its_reason_in_one_sentence(self):
         text = " ".join((KIT / "README.md").read_text(encoding="utf-8").split())
         sentences = re.split(r"(?<=[.!?])\s+", text.lower())
         matches = [sentence for sentence in sentences
-                   if re.search(r"background[- ]priority", sentence)
+                   if "os.nice(10)" in sentence
                    and "loop" in sentence]
-        self.assertTrue(matches, "Document that the loop starts sessions at background priority")
-        self.assertTrue(any(re.search(r"efficiency cores|fans?|quiet|responsive", sentence)
-                            for sentence in matches),
+        self.assertTrue(matches, "Document that the loop starts sessions with raised niceness")
+        self.assertTrue(any("responsive" in sentence for sentence in matches),
                         "Explain why in the same sentence")
 
 

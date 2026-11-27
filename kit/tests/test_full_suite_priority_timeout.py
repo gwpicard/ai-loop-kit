@@ -91,7 +91,7 @@ class FullSuitePriorityTimeoutTest(FakeGh):
     def merge_candidate(self):
         return merge.merge(1, 'candidate', 'VERDICT: APPROVE\nHEAD: ' + self.sha, self.work)
 
-    def from_background_loop(self, action):
+    def from_loop(self, action):
         # Run the real loop dispatcher; replace only preflight and queue work.
         which = shutil.which
 
@@ -115,19 +115,19 @@ class FullSuitePriorityTimeoutTest(FakeGh):
         full = [priority for name, priority in records if name.startswith('full')]
         self.assertEqual(full, ['normal', 'normal'], records)
         self.assertEqual([priority for name, priority in records
-                          if name in ('builder', 'reviewer')], ['background', 'background'], records)
+                          if name in ('builder', 'reviewer')], ['normal', 'normal'], records)
         self.assertEqual([priority for name, priority in records
                           if name in ('prepare', 'check')], ['normal', 'normal'], records)
-        self.assertEqual(len(list(Path(os.environ['PRIORITY_STATE']).iterdir())), 2,
-                         'Only the two sessions may call taskpolicy')
+        self.assertEqual(len(list(Path(os.environ['PRIORITY_STATE']).iterdir())), 0,
+                         'Neither sessions nor commands may call taskpolicy')
 
-    def test_merge_background_sessions_leave_commands_at_normal_priority(self):
+    def test_merge_session_priority_leaves_commands_at_normal_priority(self):
         def action():
             result = self.merge_candidate()
             self.assertTrue(result.ok, result.reason)
-        self.from_background_loop(action)
+        self.from_loop(action)
 
-    def test_drain_background_sessions_leave_commands_at_normal_priority(self):
+    def test_drain_session_priority_leaves_commands_at_normal_priority(self):
         def action():
             state = loop.new_state()
             with mock.patch.object(loop.report, 'render', return_value='Fixture report'), \
@@ -135,7 +135,7 @@ class FullSuitePriorityTimeoutTest(FakeGh):
                     mock.patch.object(loop, 'decisions', return_value=''):
                 loop.drain(self.work, common.read_settings(self.work), state)
             self.assertEqual(state['last'], 'drained: tests pass')
-        self.from_background_loop(action)
+        self.from_loop(action)
 
     def timeout_refusal(self, command):
         Path(self.work, 'loop.json').write_text(json.dumps({'Test command': command}))
@@ -172,11 +172,11 @@ class FullSuitePriorityTimeoutTest(FakeGh):
                 lines = re.findall(re.escape(prefix) + r'-\d{3}', reason)
                 self.assertLessEqual(len(set(lines)), 60, 'Keep at most 60 distinct output lines')
 
-    def test_readme_explains_which_steps_keep_background_priority_and_why(self):
+    def test_readme_explains_which_steps_use_raised_niceness_and_why(self):
         text = ' '.join((KIT / 'README.md').read_text().lower().replace('`', '').split())
         requirements = (
-            (r'(?:builds|agent sessions)[^.]*background|background[^.]*(?:builds|agent sessions)',
-             'Say which work keeps background priority'),
+            (r'agent sessions[^.]*os\.nice\(10\)',
+             'Say that agent sessions use raised niceness'),
             (r'(?:full suite|full test command)[^.]*normal priority|normal priority[^.]*(?:full suite|full test command)',
              'Say that the full suite runs at normal priority'),
             (r'(?:full suite|full test command)[^.]*(?:efficiency cores|time limit|timeout|slow|short|once per merge)',

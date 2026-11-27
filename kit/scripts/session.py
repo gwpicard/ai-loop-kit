@@ -138,16 +138,13 @@ def _exec(argv, prompt, cwd, env, log, role, issue, limit):
             tempfile.TemporaryFile("w+", dir=env.get("TMPDIR")) as ferr:
         fin.write(prompt)
         fin.seek(0)
-        background = sys.platform == "darwin" and shutil.which("taskpolicy")
-        launch = [background, "-b"] + argv if background else argv
         def child_setup():
             if registry:
                 common._record(registry, os.getpid(), True, token)
-            if not background:
-                with contextlib.suppress(OSError):
-                    os.nice(10)
+            with contextlib.suppress(OSError):
+                os.nice(10)
         env = dict(env, LOOP_SESSION_BEGAN=str(time.time()), LOOP_SESSION_LIMIT=str(limit))
-        p = subprocess.Popen(launch, cwd=cwd, env=env, text=True, start_new_session=True,
+        p = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
                              preexec_fn=child_setup,
                              stdin=fin, stdout=fout, stderr=ferr)
         try:

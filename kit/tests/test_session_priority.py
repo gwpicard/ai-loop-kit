@@ -49,7 +49,7 @@ class SessionPriorityTest(FakeCodexGh):
     def records(self):
         return [json.loads(line) for line in self.trace.read_text().splitlines()]
 
-    def test_mac_wraps_both_agents_for_all_roles_and_summary(self):
+    def test_mac_raises_niceness_for_both_agents_for_all_roles_and_summary(self):
         before = os.nice(0)
         with mock.patch.object(session.sys, 'platform', 'darwin'):
             for agent in ('claude', 'codex'):
@@ -57,11 +57,14 @@ class SessionPriorityTest(FakeCodexGh):
                                     ('pass', 1), ('pass', 'summary')]:
                     self.run_agent(agent, role, issue)
         records = self.records()
-        self.assertEqual(records[::2], [['-b', agent] for agent in ('claude', 'codex') for _ in range(5)])
-        self.assertTrue(all(value == 'yes %d' % before for _, value in records[1::2]), records)
+        self.assertEqual(len(records), 10, 'Sessions must not call taskpolicy')
+        self.assertEqual([role for role, _ in records],
+                         ['builder', 'test-writer', 'reviewer', 'pass', 'pass'] * 2)
+        self.assertTrue(all(value == 'no %d' % min(19, before + 10)
+                            for _, value in records), records)
         self.assertEqual(os.nice(0), before, 'The supervisor must keep its priority')
 
-    def test_fallback_changes_niceness_only_in_session_children(self):
+    def test_niceness_does_not_need_taskpolicy_on_any_system(self):
         before = os.nice(0)
         which = shutil.which
         for platform in ('darwin', 'linux'):

@@ -874,7 +874,8 @@ def park(issue, question, recommendation, project="."):
     event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
-    warning = ("No test path was named in the question, so a yes cannot grant one.\n\n"
+    warning = ("No test path was named in the question, so a yes cannot grant one unless "
+               "the recommendation names exactly one test path.\n\n"
                if re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I)
                and not named_test_paths(question) else "")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,

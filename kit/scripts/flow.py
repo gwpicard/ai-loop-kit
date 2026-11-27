@@ -72,6 +72,53 @@ def fixes_of(review):
     return [l.strip() for l in tail.splitlines() if re.match(r"\s*\d+[.)]\s", l)]
 
 
+def retry_report(issue, project):
+    """Recover the last available builder report without starting another session."""
+    logs = os.path.join(project, ".loop", "logs")
+    try:
+        names = [(int(m[1]), name) for name in os.listdir(logs) if
+                 (m := re.fullmatch(r"%s-builder-(\d+)\.log" % issue, name))]
+    except OSError:
+        names = []
+    report = ""
+    for _, name in sorted(names, reverse=True):
+        try:
+            with open(os.path.join(logs, name), encoding="utf-8", errors="replace") as f:
+                saved = f.read()
+        except OSError:
+            continue
+        replies = []
+        for output in re.findall(r"^--- (?:claude|codex)[^\n]*\n(.*?)^--- stderr\n", saved, re.M | re.S):
+            try:
+                events = [json.loads(output)]
+            except ValueError:
+                events = []
+                for line in output.splitlines():
+                    try:
+                        events.append(json.loads(line))
+                    except ValueError:
+                        pass
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                item = event.get("item")
+                text = (event.get("result") if event.get("type") == "result" and not event.get("is_error") else
+                        item.get("text") if event.get("type") == "item.completed" and isinstance(item, dict)
+                        and item.get("type") == "agent_message" else "")
+                if isinstance(text, str) and re.search(r"^[\s*`]*(?:BUILT|DEVIATIONS):", text, re.M):
+                    replies.append(text)
+        if replies:
+            report = replies[-1]
+            break
+    built = re.search(r"^[\s*`]*BUILT:\s*(.*?)(?=^[\s*`]*DEVIATIONS:|\Z)", report, re.M | re.S)
+    summary = (built.group(1).strip() if built else "") or (
+        "The original builder summary is unavailable in the saved session logs.")
+    deviations = "\n".join(parse_block(report, "DEVIATIONS")) or (
+        "Unknown: the original deviation status is unavailable in the saved session logs.")
+    return ("BUILT:\nRetried the merge using the last approving review. No new builder or reviewer session ran.\n\n"
+            + summary + "\nDEVIATIONS:\n" + deviations + "\n")
+
+
 def after_merge(issue, report, review, commit, files, pr, post=True, earlier=(), shape_note=""):
     """Post the build note, then the pull request body, then the follow-ups of
     every review round (`earlier` holds those before the approving `review`)
@@ -307,6 +354,7 @@ def _build_tree(issue, project, replies):
             push_issue(branch, tree)
         if settings["Prepare command"] and (why := merge.run_in("Prepare", settings["Prepare command"], tree, "the worktree", 20)):
             raise common.LoopError(why)
+        before_catchup = git(["rev-parse", "HEAD"], cwd=tree) if remote or keep_local else ""
         conflicts = []
         if remote or keep_local:  # the reused branch lacks what the loop branch gained since
             try:
@@ -315,7 +363,7 @@ def _build_tree(issue, project, replies):
                 conflicts = git(["diff", "--name-only", "--diff-filter=U"], cwd=tree, check=False).splitlines()
                 if not conflicts:
                     raise
-        return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts))
+        return (result := _build(issue, project, settings, info, tree, branch, replies, conflicts, before_catchup))
     except Parked as p:
         try:
             remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
@@ -341,7 +389,7 @@ def _build_tree(issue, project, replies):
             common.git(["branch", "-D", branch], cwd=project, check=False)
 
 
-def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
+def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), before_catchup=""):
     start = git(["rev-parse", "HEAD"], cwd=tree)
     baseline = git(["merge-base", "HEAD", "origin/" + settings["Loop branch"]], cwd=tree)
     notes = [c.get("body") or "" for c in info.get("comments", [])
@@ -419,6 +467,16 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
     posted = max([int(n) for c in info.get("comments", []) for n in
                   re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
     locked = merge.locked_paths(info.get("comments", []))
+    parks = [c.get("body") or "" for c in info.get("comments", [])
+             if (c.get("body") or "").startswith("## Needs you") and common.MARKER in (c.get("body") or "")]
+    retry_review = ""
+    if replies and not conflicts and parks and parks[-1].startswith("## Needs you\n\nThe loop refused to merge"):
+        approved = next((n for n in reversed(notes) if n.startswith("## Review, round ")
+                         and common.MARKER in n and merge.parse_verdict(n)[0] == "APPROVE"), "")
+        if before_catchup and merge.parse_verdict(approved)[1] == before_catchup:
+            # Only the clean catch-up may change an already approved head.
+            retry_review = re.sub(r"(?m)^([ \t*`]*HEAD:[ \t*`]*)[0-9a-fA-F]{7,40}",
+                                  lambda m: m.group(1) + start, approved)
     if conflicts:
         ask("builder", settings["Builder"], step="conflicts", locked=locked, extra=(
             "\n\nFirst task: the branch is in the middle of merging %s and conflicts in: %s. Resolve the "
@@ -429,7 +487,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
             raise Parked("The issue branch conflicts with %s in: %s, and the builder did not finish the merge."
                          % (settings["Loop branch"], ", ".join(conflicts)), "Reply with how to resolve it.")
     rerun = git(["branch", "-r", "--list", "origin/" + branch], cwd=project) and locked
-    if not rerun:
+    if not rerun and not retry_review:
         text, writer = ask("test-writer", settings["Test writer"])
         locked = parse_block(text)
         for attempt in (1, 2):
@@ -453,68 +511,72 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
         push_issue(branch, tree)
         post_once(issue, "TESTS:\n" + "\n".join(locked) + "\n\nCommit: " + git(["rev-parse", "HEAD"], cwd=tree)
                   + "\n\n" + common.MARKER + "\n")  # where merge.py reads them
-    report, sid = ask("builder", settings["Builder"], locked=locked)
+    report, sid = (retry_report(issue, project), None) if retry_review else ask("builder", settings["Builder"], locked=locked)
     feedback, fixes, earlier = "", [], []  # fixes: the last review's numbered fixes, when it returned CHANGES
     rnd, review_rounds, merge_fixes = 0, 0, 0
     merge_failure = ""
-    while review_rounds < settings["Max rounds"] or merge_failure:
-        rnd += 1
-        if merge_failure:
-            if merge_fixes == 2:
-                latest = "\nLatest fix feedback:\n" + feedback if feedback != "The merge was refused: " + merge_failure else ""
-                raise Parked("The build still needs a fix after two merge test fix rounds. Last merge test failure:\n"
-                             + merge_failure + latest,
-                             "Investigate the failing tests in the merge log and reply with the required fix.")
-            merge_fixes += 1
+    while retry_review or review_rounds < settings["Max rounds"] or merge_failure:
+        if retry_review:
+            review, retry_review = retry_review, ""
+            verdict, tails = "APPROVE", []
         else:
-            review_rounds += 1
-        if feedback:
-            report, sid = ask("builder", settings["Builder"], step="fix", rnd=rnd, resume=sid,
-                              extra="\n\nFix these, test the files you touch, commit. The Stop hook checks them "
-                              "when you finish:\n" + feedback, locked=locked)
-        head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
-        timed_out = None if builder_timed_out else common.read_targeted_timeout(tree)
-        passed = ("", []) if builder_timed_out else common.read_passed(project, sid)
-        if timed_out is not None:
-            tails = ["Test files command: " + ", ".join(timed_out["files"])]
-        elif passed[0] == head:
-            tails = passed[1]
-        else:
-            files, kinds = [], []
-            command, description = merge.targeted_command(settings, tree, start, locked, session=True, selected=files)
-            tails.append(description)
-            budget = common.targeted_budget(settings) if settings["Test files command"] else None
-            feedback = tests("tests", head, command, 80, rnd=rnd, check=settings["Check command"],
-                                       prepare=settings["Prepare command"], tails=tails, kinds=kinds,
-                                       test_timeout=budget)
-            if budget is not None and ("Test", "timeout") in kinds:
-                timed_out = common.write_targeted_timeout(tree, files, budget)
-                feedback = ""
+            rnd += 1
+            if merge_failure:
+                if merge_fixes == 2:
+                    latest = "\nLatest fix feedback:\n" + feedback if feedback != "The merge was refused: " + merge_failure else ""
+                    raise Parked("The build still needs a fix after two merge test fix rounds. Last merge test failure:\n"
+                                 + merge_failure + latest,
+                                 "Investigate the failing tests in the merge log and reply with the required fix.")
+                merge_fixes += 1
+            else:
+                review_rounds += 1
             if feedback:
-                continue
-        if timed_out is not None:
-            tails.append(timed_out["line"])
-            common.event("targeted-timeout", project, issue=issue, files=timed_out["files"],
-                         seconds=timed_out["seconds"])
-            common.say("#%s: %s" % (issue, timed_out["line"]))
-            with open(os.path.join(project, ".loop", "loop.out"), "a", encoding="utf-8") as f:
-                f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s: %s\n" % (issue, timed_out["line"]))
-        reverted = revert_check(issue, project, tree, head, settings, locked, info.get("body") or "")
-        review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
-                        extra="\nLatest test result: "
-                        + ("targeted run timed out on this commit. " if timed_out else "passed on this commit. ")
-                        + " | ".join(tails) + "\n"
-                        + reverted
-                        + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
-                           if fixes else ""))
-        verdict, _ = merge.parse_verdict(review)
-        if verdict != "APPROVE" and settings["Reviewer"][0] == "codex" and session.sandbox_refusal(review):
-            raise Parked("The Codex sandbox refused the review command.",
-                         "Resolve the sandbox refusal, then retry the review.")
-        try:  # the person can follow the fix rounds; a failure to post never stops the build
-            post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
-        except common.GitHubError as e:
-            common.event("note-failed", project, issue=issue, reason=str(e))
+                report, sid = ask("builder", settings["Builder"], step="fix", rnd=rnd, resume=sid,
+                                  extra="\n\nFix these, test the files you touch, commit. The Stop hook checks them "
+                                  "when you finish:\n" + feedback, locked=locked)
+            head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
+            timed_out = None if builder_timed_out else common.read_targeted_timeout(tree)
+            passed = ("", []) if builder_timed_out else common.read_passed(project, sid)
+            if timed_out is not None:
+                tails = ["Test files command: " + ", ".join(timed_out["files"])]
+            elif passed[0] == head:
+                tails = passed[1]
+            else:
+                files, kinds = [], []
+                command, description = merge.targeted_command(settings, tree, start, locked, session=True, selected=files)
+                tails.append(description)
+                budget = common.targeted_budget(settings) if settings["Test files command"] else None
+                feedback = tests("tests", head, command, 80, rnd=rnd, check=settings["Check command"],
+                                           prepare=settings["Prepare command"], tails=tails, kinds=kinds,
+                                           test_timeout=budget)
+                if budget is not None and ("Test", "timeout") in kinds:
+                    timed_out = common.write_targeted_timeout(tree, files, budget)
+                    feedback = ""
+                if feedback:
+                    continue
+            if timed_out is not None:
+                tails.append(timed_out["line"])
+                common.event("targeted-timeout", project, issue=issue, files=timed_out["files"],
+                             seconds=timed_out["seconds"])
+                common.say("#%s: %s" % (issue, timed_out["line"]))
+                with open(os.path.join(project, ".loop", "loop.out"), "a", encoding="utf-8") as f:
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s: %s\n" % (issue, timed_out["line"]))
+            reverted = revert_check(issue, project, tree, head, settings, locked, info.get("body") or "")
+            review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
+                            extra="\nLatest test result: "
+                            + ("targeted run timed out on this commit. " if timed_out else "passed on this commit. ")
+                            + " | ".join(tails) + "\n"
+                            + reverted
+                            + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
+                               if fixes else ""))
+            verdict, _ = merge.parse_verdict(review)
+            if verdict != "APPROVE" and settings["Reviewer"][0] == "codex" and session.sandbox_refusal(review):
+                raise Parked("The Codex sandbox refused the review command.",
+                             "Resolve the sandbox refusal, then retry the review.")
+            try:  # the person can follow the fix rounds; a failure to post never stops the build
+                post_once(issue, "## Review, round %d\n\n%s\n\n%s\n" % (posted + rnd, review.strip(), common.MARKER))
+            except common.GitHubError as e:
+                common.event("note-failed", project, issue=issue, reason=str(e))
         if verdict == "APPROVE":
             push_issue(branch, tree)
             landed = land(issue, branch, review, project, tree, settings)
