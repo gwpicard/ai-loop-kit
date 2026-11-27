@@ -160,6 +160,21 @@ def note_after_merge(issue, project, report, review, commit, files, pr, post=Tru
         common.event("note-failed", project, issue=issue, reason=str(e) or type(e).__name__)
 
 
+def issue_branch(issue, loop):
+    """Keep each reopening after a merge on its own branch, including retries."""
+    branch = "issue/%s" % issue
+    prs = json.loads(gh(["pr", "list", "--head", branch, "--base", loop, "--state", "merged",
+                         "--json", "mergedAt"]) or "[]")
+    merged = [p["mergedAt"] for p in prs if p.get("mergedAt")]
+    if merged:
+        timeline = gh(["api", "--paginate", "repos/{owner}/{repo}/issues/%s/timeline" % issue])
+        reopened = max((e["created_at"] for page in common._json_values(timeline) for e in page
+                        if e.get("event") == "reopened" and e.get("created_at")), default="")
+        if reopened and max(merged) < reopened:
+            branch += "-reopened-" + re.sub(r"\D", "", reopened)
+    return branch
+
+
 def resume_merged(issue, project, branch, loop):
     """A crash after the merge: if the pull request is merged and the issue has
     no build note, post it now. Return True when the pull request was merged."""
@@ -328,6 +343,7 @@ def _build_tree(issue, project, replies):
     try:
         info = json.loads(gh(["issue", "view", str(issue), "--json", "title,body,comments"]))
         git(["fetch", "--no-prune", "origin"], cwd=project)
+        branch = issue_branch(issue, loop)
         if resume_merged(issue, project, branch, loop):
             return (result := Result("merged", "already merged"))
         remote = git(["branch", "-r", "--list", "origin/" + branch], cwd=project)
@@ -466,7 +482,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), 
 
     posted = max([int(n) for c in info.get("comments", []) for n in
                   re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
-    locked = merge.locked_paths(info.get("comments", []))
+    locked = merge.locked_paths(merge.lock_comments(info.get("comments", []), branch))
     parks = [c.get("body") or "" for c in info.get("comments", [])
              if (c.get("body") or "").startswith("## Needs you") and common.MARKER in (c.get("body") or "")]
     retry_review = ""
