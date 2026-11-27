@@ -79,7 +79,7 @@ class SessionProcessTextTest(FakeCodexGh):
         until = time.monotonic() + 5
         while True:
             state = subprocess.run(['/bin/ps', '-p', str(pid), '-o', 'stat='],
-                                   capture_output=True, text=True).stdout.strip()
+                                   capture_output=True, text=True, errors="replace").stdout.strip()
             if not state or state.startswith('Z') or time.monotonic() >= until:
                 break
             time.sleep(0.02)

@@ -22,7 +22,7 @@ import json, os, pathlib, subprocess, sys
 sys.stdin.read()
 folder = pathlib.Path(os.environ['SESSION_PRIORITY_FOLDER'])
 priority = subprocess.check_output(
-    ['/bin/ps', '-o', 'pri=,nice=', '-p', str(os.getpid())], text=True)
+    ['/bin/ps', '-o', 'pri=,nice=', '-p', str(os.getpid())], text=True, errors="replace")
 (folder / 'agent.json').write_text(json.dumps([int(n) for n in priority.split()]))
 result = subprocess.run(json.loads(os.environ['SESSION_PRIORITY_COMMAND']),
                         input=json.dumps({'session_id': 'priority-fixture'}),
@@ -52,7 +52,7 @@ class SessionCommandPriorityTest(FakeGh):
 
     def priority(self):
         return tuple(int(n) for n in subprocess.check_output(
-            ['/bin/ps', '-o', 'pri=,nice=', '-p', str(os.getpid())], text=True).split())
+            ['/bin/ps', '-o', 'pri=,nice=', '-p', str(os.getpid())], text=True, errors="replace").split())
 
     def launch(self, action, agent, targeted=False):
         folder = Path(self.tmp, '%s-%s-%s' % (action, agent, targeted))

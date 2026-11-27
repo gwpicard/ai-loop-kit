@@ -103,7 +103,7 @@ os.execv(%%r, [%%r] + sys.argv[1:])
 
 def table():
     """{pid: (ppid, state, command)} for every process."""
-    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,stat=,command="], capture_output=True, text=True).stdout
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,stat=,command="], capture_output=True, text=True, errors="replace").stdout
     rows = {}
     for line in out.splitlines():
         parts = line.split(None, 3)
