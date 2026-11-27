@@ -311,7 +311,7 @@ def check_codex(data, role, cwd):
             if len(command) == 3 and os.path.basename(command[0]) in SHELLS and re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", command[1]):
                 command = command[2]
             else:
-                command = " ".join(command)
+                command = shlex.join(command)
         if not isinstance(command, str) or not command.strip():
             raise unparsed("this shell command")
         check_everyone(command)
