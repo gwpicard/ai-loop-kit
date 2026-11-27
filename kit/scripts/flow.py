@@ -466,7 +466,7 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=(), 
 
     posted = max([int(n) for c in info.get("comments", []) for n in
                   re.findall(r"^## Review, round (\d+)", c.get("body") or "", re.M)] or [0])  # continue after a crash or a park
-    locked = merge.locked_paths(info.get("comments", []))
+    locked = merge.locked_paths(merge.lock_comments(info.get("comments", []), branch))
     parks = [c.get("body") or "" for c in info.get("comments", [])
              if (c.get("body") or "").startswith("## Needs you") and common.MARKER in (c.get("body") or "")]
     retry_review = ""

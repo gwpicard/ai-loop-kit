@@ -91,6 +91,15 @@ def _items(text):
     return [re.sub(r"^\d+[.)]\s+", "", p.strip()).lstrip("-* ").strip("` ") for p in text.splitlines()]
 
 
+def lock_comments(comments, branch):
+    """Keep locks from this reopening; undated comments retain their locks."""
+    reopened = re.fullmatch(r"issue/\d+-reopened-(\d+)", branch)
+    if not reopened:
+        return comments
+    return [c for c in comments if not c.get("createdAt")
+            or re.sub(r"\D", "", c["createdAt"]) >= reopened[1]]
+
+
 def locked_paths(comments):
     """Paths in every `TESTS:` block of the issue comments."""
     paths = []
@@ -442,14 +451,14 @@ def _merge(issue, branch, verdict_text, project):
         return _refuse("review-head", "the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
     info = view("issue", issue, "body,comments")
+    comments = lock_comments(info.get("comments", []), branch)
+    locked = locked_paths(comments)
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
-                      allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", [])),
-                      locked_baseline(info.get("comments", []))):
+                      allowed_paths(info.get("body") or ""), locked, locked_baseline(comments)):
         return _refuse("test-lock" if stop.startswith(("existing test", "locked test")) else
                        "protected-path" if stop.startswith("protected path") else
                        "workflow" if stop.startswith("workflow file") else
                        "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
-    locked = locked_paths(info.get("comments", []))
     # Without the writer's test list, changed files alone may miss the issue's tests.
     full_suite = not any(is_test_module(path) for path in locked) or full_suite_due(project, settings)
     command, description = targeted_command(settings, project, "origin/" + loop, locked, sha)
