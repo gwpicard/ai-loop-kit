@@ -31,6 +31,8 @@ its candidates.
 With a Test files command set, a builder session runs only targeted tests;
 the merge runs the full suite. Never park to ask for a longer test limit or
 a wider test scope.
+A reply cannot widen this session's tests: run `loop check` and record any
+request for the full suite under DEVIATIONS because the merge runs it.
 
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts at the named paths, keeping both intents, test the files
