@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.1.5 (27 November 2026)
+
+`LOOP_CACHE_DIR` now names a folder under `../loop-cache/<project>/` instead
+of `../.loop-cache/<project>/`, so the cache path contains no hidden folder.
+The new cache starts empty. The loop leaves the old folder untouched and
+writes once to `loop.out` that it can be removed by hand. A failed drain now
+keeps the output of the Prepare, Test and Check commands in
+`.loop/logs/drain.log`, and `loop.out` and the `drain` event quote up to 20
+failing lines. No setup run or new setting is needed.
+
+See [the 3.1.5 release notes](docs/release-notes/v3.1.5.md).
+
 ## 3.1.4 (26 November 2026)
 
 Each build's temporary folder moves from `../.loop-worktrees/loop-build-*` to
