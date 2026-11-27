@@ -915,6 +915,24 @@ def run(project):
     project = os.path.abspath(project)
     settings = common.read_settings(project)
     settings_error = None
+    settings_source = "checkout"
+
+    def reload_settings(refresh=False):
+        nonlocal settings, settings_error, settings_source
+        try:
+            selected, source, error = common.loop_settings(project, refresh=refresh)
+        except common.SettingsError as e:
+            if str(e) != settings_error:
+                say("keeping previous settings: %s" % e)
+                settings_error = str(e)
+            return
+        if error and error != settings_error:
+            say("settings: using loop.json from checkout; %s" % error)
+        elif source != settings_source:
+            say("settings: using loop.json from %s%s" % (
+                source, ", which differs from the checkout" if source != "checkout" else ""))
+        settings, settings_source, settings_error = selected, source, error
+
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
@@ -939,13 +957,7 @@ def run(project):
         common.warn_delete_branch_on_merge(project, say)
         while not os.path.exists(stop):
             try:
-                try:
-                    settings = common.read_settings(project)
-                    settings_error = None
-                except common.SettingsError as e:
-                    if str(e) != settings_error:
-                        say("keeping previous settings: %s" % e)
-                        settings_error = str(e)
+                reload_settings(refresh=True)
                 cap = (3 * settings["Session minutes"] + 30) * 60
                 common.restore_loop_branch(project, settings["Loop branch"])
                 st.update(branch=settings["Loop branch"], project=project)
@@ -975,6 +987,7 @@ def run(project):
                     dirty = sync_default(project, settings["Loop branch"], st) or dirty
                     dirty = dirty or conflict != st["conflict"]
                     if dirty:
+                        reload_settings()
                         with common.settings_environment(settings):
                             drain(project, settings, st)
                         dirty = False
