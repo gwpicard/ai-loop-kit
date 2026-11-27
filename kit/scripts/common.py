@@ -679,6 +679,44 @@ def files_command(settings, files):
     return settings["Test files command"].replace("{files}", " ".join(shlex.quote(f) for f in files))
 
 
+def targeted_budget(settings):
+    return max(600, settings["Session minutes"] * 20)
+
+
+def targeted_timeout_path():
+    runtime = build_env().get("LOOP_TMPDIR")
+    return os.path.join(runtime, "targeted-timeout.json") if runtime else None
+
+
+def read_targeted_timeout(cwd):
+    """A targeted timeout belongs to this build, worktree and HEAD, even with unsaved changes."""
+    path = targeted_timeout_path()
+    if path:
+        try:
+            with open(path) as f:
+                record = json.load(f)
+            if (record["cwd"] == os.path.realpath(cwd)
+                    and record["head"] == git(["rev-parse", "HEAD"], cwd=cwd)):
+                return record
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return None
+
+
+def write_targeted_timeout(cwd, files, seconds):
+    files = sorted(set(files))
+    line = ("The Test files command timed out after %g seconds for %d %s; "
+            "the project's Test files command may be running more than the named files."
+            % (seconds, len(files), "file" if len(files) == 1 else "files"))
+    record = dict(cwd=os.path.realpath(cwd), head=git(["rev-parse", "HEAD"], cwd=cwd),
+                  files=files, seconds=seconds, line=line)
+    path = targeted_timeout_path()
+    if path:
+        with open(path, "w") as f:
+            json.dump(record, f)
+    return record
+
+
 def check_pass_state(cwd, settings):
     """Identify a clean session check, including its worktree and selection inputs."""
     if git(["status", "--porcelain", "--", ".", ":!.loop"], cwd=cwd).strip():

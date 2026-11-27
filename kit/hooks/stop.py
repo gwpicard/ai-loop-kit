@@ -58,6 +58,8 @@ def problem(role, cwd, project, session_id=""):
     """Why the session may not stop yet, or None."""
     if role == "builder":
         settings = common.build_settings(project)
+        if common.read_targeted_timeout(cwd) is not None:
+            return None
         if session_id and unchanged_since_pass(project, session_id, cwd):
             return None
         cached = common.read_check_pass(cwd, settings)
@@ -65,15 +67,18 @@ def problem(role, cwd, project, session_id=""):
             if session_id:
                 common.write_passed(project, session_id, common.git(["rev-parse", "HEAD"], cwd=cwd), cached)
             return None
-        command_limit = max(TIMEOUT, settings["Session minutes"] * 20)  # a third of the session limit
+        command_limit = (common.targeted_budget(settings) if settings["Test files command"]
+                         else max(TIMEOUT, settings["Session minutes"] * 20))
         deadline = None
         if os.environ.get("LOOP_SESSION_BEGAN") and os.environ.get("LOOP_SESSION_LIMIT"):
             began = float(os.environ["LOOP_SESSION_BEGAN"])
             def deadline():
                 return began + float(os.environ["LOOP_SESSION_LIMIT"]) + common.paused_seconds(project, began) - time.time()
+        files = []
         try:
             test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
-                                                       os.environ.get("LOOP_LOCKED", "").splitlines(), session=True)
+                                                       os.environ.get("LOOP_LOCKED", "").splitlines(),
+                                                       session=True, selected=files)
         except common.GitError as e:
             return "Cannot select test files. Restore the session's start commit before finishing: %s" % e
         tails = [description]
@@ -87,6 +92,9 @@ def problem(role, cwd, project, session_id=""):
             code, out = run(command, cwd, timeout, deadline=deadline) if command else (0, "")
             if code is None:
                 if deadline and deadline() <= 0:
+                    return None
+                if name == "Test files":
+                    common.write_targeted_timeout(cwd, files, timeout)
                     return None
                 return "The %s command timed out after %d seconds. Make it finish." % (name, timeout)
             if code:

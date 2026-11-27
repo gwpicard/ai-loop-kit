@@ -115,9 +115,18 @@ After `loop check` passes with a clean tree, the Stop hook reuses its result
 at the same commit with matching selection inputs and settings. A new commit
 or uncommitted changes require another run.
 
+`loop check`, the builder's Stop hook and the loop's tests step limit the
+Test files command to one third of `Session minutes`, with a ten-minute
+minimum. A timeout reports the budget and file count, and warns that
+the project's Test files command may be running more than the named files.
+At the same HEAD in that build, `loop check`, Stop and the loop's tests step
+reuse the timeout without running commands. The loop records a
+`targeted-timeout` event and log line, and gives the warning to the reviewer.
+
 `Check command` is the project's guardrails (lint baseline, size budgets,
-architecture tests). It runs after every Test command run, and a failure
-counts like a test failure. `Smoke command` uses the real built artefact,
+architecture tests). It runs after each completed test run; a targeted
+timeout skips it. A failure counts like a test failure.
+`Smoke command` uses the real built artefact,
 such as the CLI on real input; only the end-of-loop pass runs it. Setup
 reports those that are set; none is required.
 
@@ -157,10 +166,11 @@ when `LOOP_CACHE_DIR` is unset or empty:
 
 Pass the quoted path to `xcodebuild` with `-derivedDataPath "$(DERIVED)"`.
 
-`Test minutes` in `loop.json` sets the Test command time limit at merge,
-drain and targeted checks. It defaults to 30 minutes and takes a whole number
-of at least one. At merge and drain, a timeout refusal reports the limit,
-elapsed time excluding pauses and up to 60 lines from the end of its output.
+`Test minutes` in `loop.json` sets the Test command time limit at merge
+and drain; the targeted checks above use their own budget. It defaults to
+30 minutes and takes a whole number of at least one. At merge and drain,
+a timeout refusal reports the limit, elapsed time excluding pauses and up
+to 60 lines from the end of its output.
 Prepare, Check and Smoke commands keep their 30-minute limits.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies

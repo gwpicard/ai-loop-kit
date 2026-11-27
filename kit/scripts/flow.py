@@ -473,19 +473,37 @@ def _build(issue, project, settings, info, tree, branch, replies, conflicts=()):
                               extra="\n\nFix these, test the files you touch, commit. The Stop hook checks them "
                               "when you finish:\n" + feedback, locked=locked)
         head, tails = git(["rev-parse", "HEAD"], cwd=tree), []
+        timed_out = None if builder_timed_out else common.read_targeted_timeout(tree)
         passed = ("", []) if builder_timed_out else common.read_passed(project, sid)
-        if passed[0] == head:
+        if timed_out is not None:
+            tails = ["Test files command: " + ", ".join(timed_out["files"])]
+        elif passed[0] == head:
             tails = passed[1]
         else:
-            command, description = merge.targeted_command(settings, tree, start, locked, session=True)
+            files, kinds = [], []
+            command, description = merge.targeted_command(settings, tree, start, locked, session=True, selected=files)
             tails.append(description)
+            budget = common.targeted_budget(settings) if settings["Test files command"] else None
             feedback = tests("tests", head, command, 80, rnd=rnd, check=settings["Check command"],
-                                       prepare=settings["Prepare command"], tails=tails)
+                                       prepare=settings["Prepare command"], tails=tails, kinds=kinds,
+                                       test_timeout=budget)
+            if budget is not None and ("Test", "timeout") in kinds:
+                timed_out = common.write_targeted_timeout(tree, files, budget)
+                feedback = ""
             if feedback:
                 continue
+        if timed_out is not None:
+            tails.append(timed_out["line"])
+            common.event("targeted-timeout", project, issue=issue, files=timed_out["files"],
+                         seconds=timed_out["seconds"])
+            common.say("#%s: %s" % (issue, timed_out["line"]))
+            with open(os.path.join(project, ".loop", "loop.out"), "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "#%s: %s\n" % (issue, timed_out["line"]))
         reverted = revert_check(issue, project, tree, head, settings, locked, info.get("body") or "")
         review, _ = ask("reviewer", settings["Reviewer"], rnd=rnd, report=report, locked=locked,
-                        extra="\nLatest test result: passed on this commit. " + " | ".join(tails) + "\n"
+                        extra="\nLatest test result: "
+                        + ("targeted run timed out on this commit. " if timed_out else "passed on this commit. ")
+                        + " | ".join(tails) + "\n"
                         + reverted
                         + ("\nThe previous review returned CHANGES with these fixes:\n" + "\n".join(fixes) + "\n"
                            if fixes else ""))
