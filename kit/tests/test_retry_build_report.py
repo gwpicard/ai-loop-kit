@@ -21,7 +21,7 @@ class RetryBuildReportTest(FakeGh):
         Path(self.work, "app.txt").write_text("reviewed work\n")
         run_git(["add", "app.txt"], self.work)
         run_git(["commit", "-qm", "Reviewed work"], self.work)
-        self.head = run_git(["rev-parse", "HEAD"], self.work)
+        self.head = common.git(["rev-parse", "HEAD"], cwd=self.work)
         run_git(["push", "origin", "issue/7"], self.work)
         run_git(["switch", "main"], self.work)
         comments = [{"body": body} for body in (
