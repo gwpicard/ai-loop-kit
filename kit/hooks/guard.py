@@ -311,14 +311,15 @@ def check_session_scripts(command, role, cwd):
                 continue
         code = content.decode("utf-8", errors="replace")
         try:
-            commands = list(code_commands(code))
+            commands = [*code_commands(code), *interpreter_commands(code)]
             if any(DELETE.search(c) for c in commands):
                 raise Refuse("recursive-delete", "a recursive delete is not allowed",
                              "leave scratch space in the temporary folder; park if the issue needs this outcome")
             if re.search(GIT + r"(?:push|merge(?!(?:-base|-tree)(?=\s|$)))\b", "\n".join(commands)):
                 raise Refuse("role-git", "git push and merge are not allowed in a %s session" % role,
                              "commit on your branch; the loop pushes and merges")
-            check_full_test(code_commands(code, full=True), role, cwd)
+            check_full_test((*code_commands(code, full=True),
+                             *interpreter_commands(code, full=True)), role, cwd)
         except Refuse as r:
             r.reason = "%s: %s" % (path, r.reason)
             raise
