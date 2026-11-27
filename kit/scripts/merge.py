@@ -280,6 +280,8 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
             continue
         aliases = [name for name in names if name.casefold() == path.casefold()]
         tracked = aliases[0] if path not in names and len(aliases) == 1 else path
+        if tracked in allowed:
+            continue
         first = baseline or git(["log", "--diff-filter=A", "--reverse", "--format=%H",
                                  base + ".." + sha, "--", tracked], cwd=project).split("\n")[0]
         if not first:
