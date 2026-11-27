@@ -723,7 +723,7 @@ def reap_pass(project, st, stopped=False):
 
 def _drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
-    loop, base = settings["Loop branch"], common.default_branch(project)
+    loop = settings["Loop branch"]
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
     log = ".loop/logs/drain.log"
@@ -737,7 +737,7 @@ def _drain(project, settings, st):
             diagnostics = "%s\nCould not read %s: %s" % (failed, log, error)
         say("drain failed: " + diagnostics.replace("\n", "; "))
         failed += "\n" + diagnostics
-    git(["fetch", "--no-prune", "origin", base + ":refs/remotes/origin/" + base], cwd=project)
+    base = common.default_branch(project, refresh=True)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
