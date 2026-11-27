@@ -6,6 +6,7 @@ a new test file, is told to continue. Blocks are limited and counted in
 import json
 import os
 import sys
+import time
 
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
@@ -18,13 +19,14 @@ except Exception as e:
 # Blocks are counted per session id: a builder resumed for fix rounds keeps its
 # id, so the limit of 3 is shared across all its rounds, not reset each round.
 LIMITS = {"builder": 3, "test-writer": 2}
-TIMEOUT = 600  # least time per command; it grows with the session limit
+TIMEOUT = 600  # usual minimum per command, capped by the session time left
 
 
-def run(command, cwd, timeout=None):
+def run(command, cwd, timeout=None, deadline=None):
     """Run a shell command. Return (exit code, output); the code is None on timeout. The command
     keeps a group of its own, listed in LOOP_GROUPS, so the loop ends it with the session."""
-    return common.run_shell(command, cwd, timeout or TIMEOUT, record=os.environ.get("LOOP_GROUPS"))
+    return common.run_shell(command, cwd, TIMEOUT if timeout is None else timeout,
+                            record=os.environ.get("LOOP_GROUPS"), deadline=deadline)
 
 
 def unchanged_since_pass(project, session_id, cwd):
@@ -65,8 +67,13 @@ def problem(role, cwd, project, session_id=""):
             if session_id:
                 common.write_passed(project, session_id, common.git(["rev-parse", "HEAD"], cwd=cwd), cached)
             return None
-        timeout = (common.targeted_budget(settings) if settings["Test files command"]
-                   else max(TIMEOUT, settings["Session minutes"] * 20))
+        command_limit = (common.targeted_budget(settings) if settings["Test files command"]
+                         else max(TIMEOUT, settings["Session minutes"] * 20))
+        deadline = None
+        if os.environ.get("LOOP_SESSION_BEGAN") and os.environ.get("LOOP_SESSION_LIMIT"):
+            began = float(os.environ["LOOP_SESSION_BEGAN"])
+            def deadline():
+                return began + float(os.environ["LOOP_SESSION_LIMIT"]) + common.paused_seconds(project, began) - time.time()
         files = []
         try:
             test, description = merge.targeted_command(settings, cwd, os.environ.get("LOOP_START"),
@@ -77,8 +84,15 @@ def problem(role, cwd, project, session_id=""):
         tails = [description]
         for name, command in (("Test files" if settings["Test files command"] else "Test", test),
                               ("Check", settings["Check command"])):
-            code, out = run(command, cwd, timeout) if command else (0, "")
+            timeout = command_limit
+            if deadline:
+                timeout = min(command_limit, deadline())
+                if timeout <= 0:
+                    return None
+            code, out = run(command, cwd, timeout, deadline=deadline) if command else (0, "")
             if code is None:
+                if deadline and deadline() <= 0:
+                    return None
                 if name == "Test files":
                     common.write_targeted_timeout(cwd, files, timeout)
                     return None
