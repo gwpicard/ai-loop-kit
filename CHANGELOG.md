@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.1.6 (28 November 2026)
+
+A change to a locked or existing test is now found when the builder step
+ends, before review, and a park that remains names the path. An agreeing
+reply grants a park's recommended test path when the question names none. A
+merge test failure that the loop branch does not share goes back to the
+builder with the failing tests, in up to two fix rounds counted separately
+from `Max rounds`.
+
+A builder that times out after its `BUILT:` report goes on to review, and the
+Stop hook stays within the session time left. A targeted run that outlasts
+one third of `Session minutes` is reported, not started again. On macOS,
+sessions start with a raised niceness instead of `taskpolicy -b`, so the tests
+they start no longer run in the macOS background class. The guard reads
+interpreter code and scripts the session wrote, changed or keeps outside the
+project, and a reply cannot widen a builder's tests.
+
+A retry after a merge refusal goes straight to the merge when the approved
+commit is unchanged. While the loop branch's `loop.json` differs from the
+checkout's, the loop uses the loop branch's file. The pass names a command
+that ran out of time, a reopened issue is rebuilt, and a drain that overlaps
+the final merge no longer fails. No setup run or new setting is needed.
+
+See [the 3.1.6 release notes](docs/release-notes/v3.1.6.md).
+
 ## 3.1.5 (27 November 2026)
 
 `LOOP_CACHE_DIR` now names a folder under `../loop-cache/<project>/` instead
