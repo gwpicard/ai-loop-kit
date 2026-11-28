@@ -10,7 +10,7 @@ The loop never asks for input. It parks an issue for a product choice or a
 decision reserved for a person by the kit's stops or `AGENTS.md`, and carries
 on with the rest.
 
-Version 3.1.5. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
+Version 3.1.6. The design and its reasons are in [docs/DESIGN.md](docs/DESIGN.md).
 The full settings reference is in [kit/README.md](kit/README.md).
 
 ## Install
