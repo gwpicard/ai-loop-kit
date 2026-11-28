@@ -16,7 +16,7 @@ import common
 import status
 from common import gh, git
 
-Result = collections.namedtuple("Result", "ok park reason commit rule", defaults=(None,))
+Result = collections.namedtuple("Result", "ok park reason commit rule test_fix", defaults=(None, False))
 TEST_TIMEOUT = 1800
 TIMEOUT_TAIL = 60
 TARGETED_MODULE_CAP = 40
@@ -66,8 +66,8 @@ def squash_body(project, loop, sha, settings):
     return "\n\n".join(messages + ([sign_off] if sign_off else []))
 
 
-def _refuse(rule, reason, park=False):
-    return Result(False, park, reason, None, rule)
+def _refuse(rule, reason, park=False, test_fix=False):
+    return Result(False, park, reason, None, rule, test_fix)
 
 
 def parse_verdict(text):
@@ -89,6 +89,15 @@ def parse_verdict(text):
 
 def _items(text):
     return [re.sub(r"^\d+[.)]\s+", "", p.strip()).lstrip("-* ").strip("` ") for p in text.splitlines()]
+
+
+def lock_comments(comments, branch):
+    """Keep locks from this reopening; undated comments retain their locks."""
+    reopened = re.fullmatch(r"issue/\d+-reopened-(\d+)", branch)
+    if not reopened:
+        return comments
+    return [c for c in comments if not c.get("createdAt")
+            or re.sub(r"\D", "", c["createdAt"]) >= reopened[1]]
 
 
 def locked_paths(comments):
@@ -181,13 +190,13 @@ def test_imports(path, text):
 def importing_tests(cwd, changed, selected, head=None):
     """Select test importers to a fixed point without executing project code."""
     paths = git(["ls-tree", "-rz", "--name-only", head] if head else
-                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd).split("\0")
+                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=cwd).split("\0")
     tests = {}
     for path in sorted(set(paths)):
         if not is_test_module(path):
             continue
         if head:
-            text = git(["show", head + ":" + path], cwd)
+            text = git(["show", head + ":" + path], cwd=cwd)
         else:
             try:
                 text = Path(cwd, path).read_text(encoding="utf-8", errors="replace")
@@ -225,7 +234,7 @@ def importing_tests(cwd, changed, selected, head=None):
     return causes
 
 
-def targeted_command(settings, cwd, start, locked, head=None, session=False):
+def targeted_command(settings, cwd, start, locked, head=None, session=False, selected=None):
     if not settings["Test files command"]:
         return settings["Test command"], "Test command: full suite"
     changed = git(["diff", "-z", "--name-only", start]
@@ -240,6 +249,8 @@ def targeted_command(settings, cwd, start, locked, head=None, session=False):
         causes = {path: reason for path, reason in causes.items() if path in files}
         note = "; merge runs the full suite"
     files = sorted(files)
+    if selected is not None:
+        selected.extend(files)
     extra = "".join("\n%s: %s" % (path, causes[path]) for path in sorted(causes))
     if not session and len(files) > TARGETED_MODULE_CAP:
         return settings["Test command"], "Test command: full suite (%d modules exceed cap %d)%s" % (
@@ -262,20 +273,26 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
             why = "existing test file changed"
         if why:
             return "%s: %s" % (why, path)
+    names = (git(["ls-tree", "-r", "--name-only", "-z", baseline or sha], cwd=project).split("\0")
+             if locked and git(["config", "--bool", "core.ignorecase"], cwd=project, check=False) == "true" else [])
     for path in locked:
         if path in allowed or not is_test_module(path):
             continue
+        aliases = [name for name in names if name.casefold() == path.casefold()]
+        tracked = aliases[0] if path not in names and len(aliases) == 1 else path
+        if tracked in allowed:
+            continue
         first = baseline or git(["log", "--diff-filter=A", "--reverse", "--format=%H",
-                                 base + ".." + sha, "--", path], cwd=project).split("\n")[0]
+                                 base + ".." + sha, "--", tracked], cwd=project).split("\n")[0]
         if not first:
             continue
-        if baseline and subprocess.run(["git", "cat-file", "-e", first + ":" + path], cwd=project).returncode:
+        if baseline and subprocess.run(["git", "cat-file", "-e", first + ":" + tracked], cwd=project).returncode:
             continue  # the writer's final commit does not hold it
-        a, b = [subprocess.run(["git", "show", ref + ":" + path], cwd=project,
+        a, b = [subprocess.run(["git", "show", ref + ":" + tracked], cwd=project,
                                capture_output=True) for ref in (first, sha)]
         if b.returncode != 0:
             return "locked test deleted: " + path
-        modes = [git(["ls-tree", ref, "--", path], cwd=project).split()[:1]
+        modes = [git(["ls-tree", ref, "--", tracked], cwd=project).split()[:1]
                  for ref in (first, sha)]
         if a.stdout != b.stdout or modes[0] != modes[1]:
             return "locked test modified: " + path
@@ -284,7 +301,7 @@ def check_diff(project, base, sha, protected, allowed, locked, baseline=None):
 
 def command_timeout(name, project):
     """Keep the existing command budget; scale the Test budget by its configured minutes."""
-    if name != "Test":
+    if name not in ("Test", "Test files"):
         return TEST_TIMEOUT
     try:
         minutes = common.build_settings(project).get("Test minutes", 30)
@@ -301,7 +318,7 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
     if timeout is None:
         timeout = command_timeout(name, tree)
     started = time.time()
-    code, out = common.run_shell(command, tree, timeout)
+    code, out = common.run_shell(command, tree, timeout, name=name)
     if log:
         with open(log, "a") as f:
             f.write("$ %s\n%s%s" % (command, out, "" if out.endswith("\n") or not out else "\n"))
@@ -313,7 +330,7 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
         elapsed = time.time() - started - common.paused_seconds(common.project_of(tree), started)
         return ("the %s command timed out on %s (limit %s seconds, elapsed %.1f seconds; "
                 "controlled by %s):\n%s" %
-                (name, label, timeout, elapsed, "Test minutes in loop.json" if name == "Test" else "merge.TEST_TIMEOUT",
+                (name, label, timeout, elapsed, "Test minutes in loop.json" if name in ("Test", "Test files") else "merge.TEST_TIMEOUT",
                  "\n".join(out.strip().splitlines()[-TIMEOUT_TAIL:])))
     if code != 0:
         return "the %s command failed on %s: %s" % (name, label, "\n".join(out.strip().splitlines()[-tail:]))
@@ -321,7 +338,7 @@ def run_in(name, command, tree, label, tail=1, tails=None, kinds=None, log=None,
         tails.append("%s command passed: %s" % (name, (out.strip().splitlines() or ["no output"])[-1]))
 
 
-def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, test_name="Test"):
+def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="", tails=None, kinds=None, log=None, where=None, test_name="Test", test_timeout=None):
     """Run the Prepare, Test and Check commands, in that order, in a fresh detached worktree
     at sha. overlay=(folder, paths) first copies those files in. Return None or a reason;
     `tails` collects the last line of each passing Test and Check command. `log` is a file
@@ -340,7 +357,8 @@ def run_tests(project, sha, command, tail=1, check="", overlay=None, prepare="",
             if cmd:
                 common.wait_for_disk(project)
             if cmd and (failure := run_in(name, cmd, tree, sha[:10], tail, tails if name != "Prepare" else None, kinds, log,
-                                         timeout=command_timeout(name, project))):
+                                         timeout=test_timeout if name == test_name and test_timeout is not None
+                                         else command_timeout(name, project))):
                 return failure
         return None
 
@@ -373,20 +391,44 @@ def full_suite_due(project, settings):
     return count >= settings["Full suite every"] - 1
 
 
+FailureReport = collections.namedtuple("FailureReport", "report failures modules diagnostics")
+
+
 def failure_report(project, log, branch):
-    """Quote at most 20 failure lines, or the last four lines when none are recognised."""
+    """Extract failure identities and module names once, with bounded and full diagnostics."""
     lines = Path(project, log).read_text(encoding="utf-8", errors="replace").splitlines()
-    failures = list(dict.fromkeys(line for line in lines if re.match(
-        r"^(?:FAIL:|ERROR:|FAIL\s+\S+\s+\d+\s+tests?\b)", line)))
+    failures, names, hung = [], set(), None
+    for i, line in enumerate(lines):
+        if re.match(r"^(?:FAIL:|ERROR:|FAIL\s+\S+\s+\d+\s+tests?\b)", line):
+            failures.append(line)
+            if line.startswith("FAIL "):
+                names.add(line.split()[1])
+            elif identity := re.search(r"\(([^)]+)\)", line):
+                names.add(identity.group(1))
+        elif match := re.match(r"^(\S+): hung after ", line):
+            names.add(match.group(1))
+            if hung is None:
+                hung = i
+    failures = list(dict.fromkeys(failures))
     excerpt = failures[:20] if failures else lines[-4:]
-    report = "\n%s output: %s\n%s" % (
-        branch, log, "\n".join("> " + line for line in excerpt))
+    heading = "\n%s output: %s\n" % (branch, log)
+    report = heading + "\n".join("> " + line for line in excerpt)
     if len(failures) > 20:
         report += "\nFurther failures are in the full log."
     tests = {re.sub(r"^(?:FAIL|ERROR):\s*", "", line).strip()
              for line in failures if line.startswith(("FAIL:", "ERROR:"))}
     modules = {line.split()[1] for line in failures if line.startswith("FAIL ")}
-    return report, tests or modules
+    diagnostics = heading + "\n".join("> " + line for line in (failures or lines[-4:]))
+    if hung is not None:
+        diagnostics += "\n" + "\n".join("> " + line for line in lines[hung:])
+    return FailureReport(report, tests or modules, names, diagnostics)
+
+
+def failing_modules(project, sha, names):
+    """Resolve extracted names against test modules in the specified commit."""
+    paths = git(["ls-tree", "-rz", "--name-only", sha], cwd=project).split("\0")
+    return sorted(path for path in paths if is_test_module(path) and any(
+        PurePosixPath(path).stem in name.replace("/", ".").split(".") for name in names))
 
 
 def merge(issue, branch, verdict_text, project="."):
@@ -410,19 +452,26 @@ def _merge(issue, branch, verdict_text, project):
         return _refuse("review-verdict", "the review verdict is %s, not APPROVE" % (verdict or "missing"))
     git(["fetch", "--no-prune", "origin"], cwd=project)
     common.restore_loop_branch(project, loop)
+    settings = common.build_settings(project, refresh=True)
+    with common.settings_environment(settings):
+        return _merge_head(issue, branch, verdict_text, project, settings, head)
+
+
+def _merge_head(issue, branch, verdict_text, project, settings, head):
+    loop = settings["Loop branch"]
     sha = git(["rev-parse", "--verify", "origin/" + branch], cwd=project)
     if not head or not sha.startswith(head):
         return _refuse("review-head", "the branch head %s is not the reviewed commit %s"
                        % (sha[:10], (head or "none")[:10]))
     info = view("issue", issue, "body,comments")
+    comments = lock_comments(info.get("comments", []), branch)
+    locked = locked_paths(comments)
     if stop := check_diff(project, "origin/" + loop, sha, settings["Protected paths"],
-                      allowed_paths(info.get("body") or ""), locked_paths(info.get("comments", [])),
-                      locked_baseline(info.get("comments", []))):
+                      allowed_paths(info.get("body") or ""), locked, locked_baseline(comments)):
         return _refuse("test-lock" if stop.startswith(("existing test", "locked test")) else
                        "protected-path" if stop.startswith("protected path") else
                        "workflow" if stop.startswith("workflow file") else
                        "settings" if stop.startswith("settings file") else "dependency", stop, park=True)
-    locked = locked_paths(info.get("comments", []))
     # Without the writer's test list, changed files alone may miss the issue's tests.
     full_suite = not any(is_test_module(path) for path in locked) or full_suite_due(project, settings)
     command, description = targeted_command(settings, project, "origin/" + loop, locked, sha)
@@ -439,18 +488,45 @@ def _merge(issue, branch, verdict_text, project):
     if failure := run_tests(project, sha, command, kinds=kinds,
                             check=settings["Check command"], prepare=settings["Prepare command"],
                             log=os.path.join(project, log)):
-        report, failures = failure_report(project, log, "Issue branch")
-        if full_suite and kinds and kinds[0][0] == "Test":
-            if baseline_failure := run_tests(project, "origin/" + loop, settings["Test command"],
-                                            prepare=settings["Prepare command"],
-                                            log=os.path.join(project, baseline_log)):
-                baseline_report, baseline_failures = failure_report(project, baseline_log, "Loop branch")
+        issue_report = failure_report(project, log, "Issue branch")
+        if kinds and kinds[0][0] == "Test":
+            modules = failing_modules(project, sha, issue_report.modules)
+            baseline = git(["rev-parse", "origin/" + loop], cwd=project)
+            present = set(git(["ls-tree", "-rz", "--name-only", baseline], cwd=project).split("\0"))
+            selected = [path for path in modules if path in present]
+            targeted = bool(modules and "{files}" in settings["Test files command"])
+            baseline_command = common.files_command(settings, selected) if targeted else settings["Test command"]
+            # An issue-only module has no baseline to run; an empty selection must not run the full suite.
+            baseline_failure = run_tests(project, baseline, baseline_command if selected or not targeted else "",
+                                         prepare=settings["Prepare command"], kinds=(baseline_kinds := []),
+                                         log=os.path.join(project, baseline_log))
+            shared = ""
+            if baseline_failure:
+                baseline_report = failure_report(project, baseline_log, "Loop branch")
+                failures, baseline_failures = issue_report.failures, baseline_report.failures
                 comparison = ("Both branches have the same failing tests." if failures and failures == baseline_failures
                               else "The branches have different failing tests." if failures and baseline_failures
                               else "No comparable failing test sets were identified in both outputs.")
-                return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
-                               + baseline_failure + "\n" + comparison + report + baseline_report, park=True)
-        return _refuse("test-command", failure + report)
+                new_modules = set(modules) - set(failing_modules(project, baseline, baseline_report.modules))
+                if (not targeted or not baseline_failures or not (failures - baseline_failures or new_modules)
+                        or baseline_kinds != [("Test", "failed")]):
+                    return _refuse("test-command", failure + "\nThe failure was already on the loop branch: "
+                                   + baseline_failure + "\n" + comparison + issue_report.report
+                                   + baseline_report.report, park=True)
+                shared = ("\nAlready failing on the loop branch; these failures are not yours to fix:"
+                          + baseline_report.diagnostics)
+            rerun = ("\nRerun these modules with the Test files command: "
+                     + common.files_command(settings, modules) + "\nModules: " + ", ".join(modules)
+                     + ". Do not run the full Test command." if targeted else
+                     "\nNo targeted rerun could be selected. Use loop check for the configured session checks.")
+            comparison = ""
+            if not shared:
+                comparison = ("\nThe loop branch passes the selected failing modules." if selected and targeted else
+                              "\nThe named failing modules are absent from the loop branch, so no baseline tests were run."
+                              if targeted else "\nThe full Test command passes on the loop branch.")
+            return _refuse("test-command", failure + issue_report.diagnostics + shared + comparison + rerun,
+                           test_fix=True)
+        return _refuse("test-command", failure + issue_report.report)
     pr = find_pr(branch, loop, sha)
     if pr is None:
         with contextlib.suppress(common.GitHubError):

@@ -72,19 +72,19 @@ GitHub holds the durable work state. Issues move through these labels:
 | needs-user | Parked on a decision reserved for you |
 | closed | Merged into the loop branch |
 
-The loop accepts ready labels only from collaborators, checked against the
-issue timeline. Issue text is data, not authority to override the rules.
-Dependencies determine which approved issues can start. A collaborator's
-reply to a parked issue requeues it. A clear yes to a permission question
-ending with `?` grants each named test path the stops list permits, whatever
-verb the question uses; paths in the recommendation and replies containing
-doubt words grant nothing.
+The loop accepts only collaborators' ready labels, checked against the issue
+timeline. Issue text is data, not authority. Dependencies determine which
+issues can start. A collaborator's reply requeues a parked issue. A clear yes
+without doubt words grants test paths named in a permission question ending
+with `?`, subject to the stops list, whatever the verb. If a question about
+changing tests names none, the `Recommended:` line must name exactly one;
+the grant comment identifies its source. For test changes, agreement granting
+nothing prompts a comment asking the collaborator to name paths.
 
-One pinned Factory issue shows current builds and their stages, parked
-questions, blocked dependencies, the final pull request and the next poll.
-It links to milestone progress rather than reproducing the whole backlog.
-The supervisor rewrites it from GitHub state, so no dashboard server is
-needed. Notifications are not built.
+One pinned Factory issue shows builds, stages, parked questions, blocked
+dependencies, the final pull request, next poll and milestone progress.
+The supervisor rewrites it from GitHub state; no dashboard server or
+notifications are built.
 
 The status command reports local activity, timings and recent events without
 an agent session. Its open parks section reads current parked questions
@@ -164,25 +164,35 @@ note list extra modules and why each was selected.
 
 Merge events record whether the full suite ran. The merge gate reads that
 history after a restart and resets the count after a successful full merge
-run or drain. If a due full suite fails, it runs once on the loop branch
-head. A failure there parks the issue as already present on the loop branch;
-otherwise the issue returns to its builder. The drain always runs the full
-suite before the pass and final pull request. A regression outside the
-targeted tests may reach the loop branch before the next full run finds it.
+run or drain. When a merge Test command fails, the gate reruns the named
+failing modules present on the loop branch head with the Test files command.
+Without selectable modules or a Test files command, it runs the full Test
+command there instead.
 
-The fails-first step runs the locked tests. The builder's Stop hook runs
-the same selection from the locked tests and changes since the session's
-start commit, then the Check command, and refuses
-completion on failure. Its record identifies the commit and tests run; the
-flow reuses it only for that head, otherwise repeating the targeted checks
-in a fresh checkout. Builders use `loop check` for the same selection and
-the Check command, with bounded failure output. A clean pass records the
-commit and selection inputs in the build's temporary folder. The Stop hook
-reuses that pass at the same commit with a clean tree and matching inputs,
-and records it for the session. Reviewers read the Stop
-hook's result and run checks only when a finding needs verification.
-The pass validates candidate failing tests with targeted checks and the
-Check command.
+Failures isolated to the issue return to the builder with diagnostics, any
+hung-test stack and, when modules can be selected, a targeted rerun command.
+Shared failures are listed separately; if no new failure can be isolated,
+the issue parks. Two merge test fix rounds are available apart from the review limit.
+The drain always runs the full suite before the pass and final pull request.
+A regression outside the targeted tests may reach the loop branch before
+the next full run finds it.
+
+The fails-first step runs the locked tests. `loop check` and the builder's
+Stop hook run tests selected from locked files and changes since the session's
+start commit, then the Check command. Failures block completion. A clean pass records the
+commit and selection inputs in the build's temporary folder. Stop reuses it
+at the same HEAD with a clean tree and matching inputs, and records it for
+the session.
+
+Flow reuses that record at the same HEAD or runs targeted checks in a fresh
+checkout. Reviewers read Stop's result, running checks only to verify findings.
+The pass validates candidate failing tests with targeted checks and the Check command.
+
+`loop check`, the builder's Stop hook and flow's tests step limit the Test
+files command to one third of `Session minutes`, with a ten-minute minimum.
+A timeout warns that the command may be running more than the named files.
+These checks reuse the timeout at that worktree and HEAD without running
+commands; flow reports it in events, logs and review. Merge keeps its existing test policy.
 
 ## Boundaries and recovery
 
@@ -192,9 +202,13 @@ Loop sessions also cannot push, merge, switch branches or use GitHub's CLI.
 Reviewers write scratch files only in the system temporary folder; pass
 sessions write only in their runtime folder. These command checks are early warnings,
 not a sandbox: merge-time diff checks and branch protection provide further
-boundaries. For git and GitHub CLI restrictions, the guard ignores quoted
-text and heredoc bodies unless the command invokes `sh`, `bash`, `zsh`,
-`dash`, `eval` or `xargs`, directly or through `env`.
+boundaries.
+
+For git and GitHub CLI restrictions, the guard ignores ordinary quoted text
+and heredoc bodies unless the command invokes `sh`, `bash`, `zsh`, `dash`,
+`eval` or `xargs`. It also reads code passed to `python`, `python3`, `node`
+and the shells by `-c`, `-e`, a heredoc or a here-string, including behind
+`env` or `uv run`.
 A builder's first write to an unapproved stop path is refused;
 `setup.py` is a manifest only at the root or beside `pyproject.toml` or `setup.cfg`.
 

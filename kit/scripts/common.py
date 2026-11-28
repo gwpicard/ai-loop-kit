@@ -118,13 +118,13 @@ _MEMORY_HELD = contextvars.ContextVar("memory_held", default=False)
 _BUILD = contextvars.ContextVar("build", default=(None, None))
 
 
-def pressure_level():
+def pressure_level(timeout=10):
     """The macOS memory-pressure level (1 normal, 2 warning, 4 critical), or None when it cannot be read."""
     if sys.platform != "darwin":
         return None
     try:
         out = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, timeout=timeout).stdout
         return int(out.strip())
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
@@ -137,14 +137,24 @@ def build_count(project):
         return 0
 
 
-def wait_for_memory(project=None, issue=None):
+def deadline_timeout(timeout, deadline):
+    """Cap a timeout at a callable deadline's time left, or refuse expired work."""
+    if deadline is None:
+        return timeout
+    left = deadline()
+    if left <= 0:
+        raise subprocess.TimeoutExpired("session deadline", 0)
+    return min(timeout, left)
+
+
+def wait_for_memory(project=None, issue=None, deadline=None):
     """Wait at most ten minutes at critical pressure, only with more than one build running."""
     root, number = _BUILD.get()
     project = project or root or project_of(".")
     issue = issue if issue is not None else number or os.environ.get("LOOP_ISSUE")
     if _MEMORY_HELD.get() or not project or build_count(project) <= 1:
         return
-    level = pressure_level()
+    level = pressure_level(timeout=deadline_timeout(10, deadline)) if deadline else pressure_level()
     if level != 4:
         return
     began = time.time()
@@ -166,8 +176,8 @@ def wait_for_memory(project=None, issue=None):
                 with open(os.path.join(project, ".loop", "loop.out"), "a") as f:
                     f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
                 return
-            sleep(min(PRESSURE_POLL, left))
-            level = pressure_level()
+            sleep(deadline_timeout(min(PRESSURE_POLL, left), deadline))
+            level = pressure_level(timeout=deadline_timeout(10, deadline)) if deadline else pressure_level()
         say("memory wait ended after %d minutes" % ((time.time() - began) // 60))
     finally:
         record(time.time())
@@ -231,13 +241,21 @@ def settings_environment(settings):
         _BUILD_SETTINGS.reset(token)
 
 
-def build_settings(root="."):
+def build_settings(root=".", refresh=False):
     settings = _BUILD_SETTINGS.get()
     if settings is None and os.environ.get("LOOP_BUILD_SETTINGS"):
         settings = json.loads(os.environ["LOOP_BUILD_SETTINGS"])
         for role in ROLES:
             settings[role] = tuple(settings[role])
-    return settings if settings is not None else read_settings(root)
+    if settings is None:
+        return read_settings(root)
+    if refresh:
+        try:
+            checkout = read_settings(root)
+        except SettingsError:
+            checkout = settings
+        settings, _, _ = loop_settings(root, checkout)
+    return settings
 
 
 def validate_settings(found, filename, local=False):
@@ -268,19 +286,22 @@ def validate_settings(found, filename, local=False):
                                 % (filename, role, ", ".join(AGENTS)))
 
 
-def read_settings(root="."):
+def read_settings(root=".", ref=None):
     """Read validated project settings and the machine's optional overrides."""
     settings = {k: list(v) if isinstance(v, list) else v for k, v in DEFAULTS.items()}
     for filename in ("loop.json", "loop.local.json"):
-        path = os.path.join(root, filename)
+        path = ref + ":" + filename if ref and filename == "loop.json" else os.path.join(root, filename)
         try:
-            with open(path, encoding="utf-8") as f:
-                found = json.load(f)
+            if ref and filename == "loop.json":
+                found = json.loads(git(["show", path], cwd=root))
+            else:
+                with open(path, encoding="utf-8") as f:
+                    found = json.load(f)
         except FileNotFoundError:
             if filename == "loop.local.json":
                 continue
             raise SettingsError("%s: missing file and 'Test command'; run setup" % path)
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, GitError) as e:
             raise SettingsError("%s: cannot read settings: %s" % (path, e))
         validate_settings(found, path, local=filename == "loop.local.json")
         settings.update(found)
@@ -289,6 +310,26 @@ def read_settings(root="."):
     for key in ("Max rounds", "Parallel", "Full suite every", "Test minutes"):
         settings[key] = int(settings[key])
     return settings
+
+
+def loop_settings(root, checkout=None, refresh=False):
+    """Select the loop branch's settings, retaining checkout branch and local overrides."""
+    checkout = read_settings(root) if checkout is None else checkout
+    if not os.path.exists(os.path.join(root, ".git")):
+        return checkout, "checkout", None
+    ref = "origin/" + checkout["Loop branch"]
+    if refresh and git(["rev-parse", "--verify", ref + "^{commit}"], cwd=root, check=False):
+        git(["fetch", "--no-prune", "origin"], cwd=root)
+    blob = git(["rev-parse", "--verify", ref + ":loop.json"], cwd=root, check=False)
+    if not blob or blob in (git(["rev-parse", "--verify", "HEAD:loop.json"], cwd=root, check=False),
+                            git(["hash-object", "--", "loop.json"], cwd=root, check=False)):
+        return checkout, "checkout", None
+    try:
+        settings = read_settings(root, ref=ref)
+    except SettingsError as error:
+        return checkout, "checkout", str(error)
+    settings["Loop branch"] = checkout["Loop branch"]
+    return settings, ref, None
 
 
 # GitHub
@@ -490,13 +531,14 @@ def paused_seconds(project, since, issue=None):
     return total
 
 
-def wait_limited(wait, limit, project):
+def wait_limited(wait, limit, project, deadline=None):
     """Call `wait(timeout)` until it returns, as `wait(limit)` would, but leave paused time out of `limit`.
     The wait sleeps to the deadline without polling: a paused waiter is frozen, finds its deadline passed
     on resume and looks again. Raises subprocess.TimeoutExpired when the unpaused time passes `limit`."""
     start = time.time()
     while True:
         left = start + limit + paused_seconds(project, start) - time.time()
+        left = deadline_timeout(left, deadline)
         if left <= 0:
             raise subprocess.TimeoutExpired("wait", limit)
         try:
@@ -591,9 +633,10 @@ def build_environment(project, issue=None):
                     f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
 
 
-def wait_for_disk(project, reason="", **fields):
+def wait_for_disk(project, reason="", deadline=None, **fields):
     reported, recorded = False, False
     while True:
+        deadline_timeout(60, deadline)
         low = [p for p in (project, build_env().get("TMPDIR") or tempfile.gettempdir())
                if shutil.disk_usage(p).free < MIN_DISK_FREE]
         if not low and (reported or not reason):
@@ -611,27 +654,33 @@ def wait_for_disk(project, reason="", **fields):
             except OSError as e:
                 if e.errno != errno.ENOSPC:
                     raise
-        sleep(60)
+        sleep(deadline_timeout(60, deadline))
 
 
-def run_shell(command, cwd, timeout, record=None):
-    code, out = _run_shell(command, cwd, timeout, record)
-    if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
-        wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device")
-        code, out = _run_shell(command, cwd, timeout, record)
-    return code, out
+def run_shell(command, cwd, timeout, record=None, deadline=None, name="shell"):
+    out = ""
+    try:
+        code, out = _run_shell(command, cwd, timeout, record, deadline, name)
+        if code != 0 and "no space left on device" in out.lower():  # once: the phrase may be a test's own output
+            wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, reason="No space left on device", deadline=deadline)
+            code, out = _run_shell(command, cwd, timeout, record, deadline, name)
+        return code, out
+    except subprocess.TimeoutExpired:
+        return None, out
 
 
-def _run_shell(command, cwd, timeout, record=None):
+def _run_shell(command, cwd, timeout, record=None, deadline=None, name="shell"):
     """Run a shell command in its own process group, or in the pass worker's group.
     Return (exit code, output); the code is None on timeout outside a pass worker.
     A pass command timeout ends the worker and its commands; the supervisor reports the error.
     With `record`, the group id is listed so whoever ends the caller can also end the command.
     Pass records remain until session cleanup, including commands whose children outlive them.
     Before it starts, the command waits at critical memory
-    pressure for at most ten minutes; the wait is outside `timeout`."""
-    wait_for_memory(project_of(cwd))
-    wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd)
+    pressure for at most ten minutes; resource waits are outside `timeout`,
+    but share the optional callable deadline with launches and retries."""
+    wait_for_memory(project_of(cwd), deadline=deadline)
+    wait_for_disk(os.environ.get("LOOP_PROJECT") or cwd, deadline=deadline)
+    timeout = deadline_timeout(timeout, deadline)
     # Pass commands share the worker's lifetime, including an external kill.
     pass_worker = os.environ.get("LOOP_PASS_WORKER") == str(os.getpid())
     token = os.environ.get("LOOP_GROUP_TOKEN")
@@ -640,11 +689,20 @@ def _run_shell(command, cwd, timeout, record=None):
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if record:
         _record(record, p.pid, True, token)
+    started = time.time()
     try:
-        out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd))
+        out, _ = wait_limited(lambda t: p.communicate(timeout=t), timeout, project_of(cwd),
+                              **({"deadline": deadline} if deadline else {}))
         return p.returncode, out
     except subprocess.TimeoutExpired:
-        os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
+        try:
+            if pass_worker:
+                project = project_of(cwd)
+                elapsed = time.time() - started - paused_seconds(project, started)
+                with open(build_file(project, "pass", "timeout"), "w") as f:
+                    json.dump(dict(name=name, command=command, limit=timeout, elapsed=elapsed), f)
+        finally:
+            os.killpg(os.getpgrp() if pass_worker else p.pid, signal.SIGKILL)
         out, _ = p.communicate()
         return None, out
     finally:
@@ -658,6 +716,44 @@ def files_command(settings, files):
     if not settings["Test files command"]:
         return settings["Test command"]
     return settings["Test files command"].replace("{files}", " ".join(shlex.quote(f) for f in files))
+
+
+def targeted_budget(settings):
+    return max(600, settings["Session minutes"] * 20)
+
+
+def targeted_timeout_path():
+    runtime = build_env().get("LOOP_TMPDIR")
+    return os.path.join(runtime, "targeted-timeout.json") if runtime else None
+
+
+def read_targeted_timeout(cwd):
+    """A targeted timeout belongs to this build, worktree and HEAD, even with unsaved changes."""
+    path = targeted_timeout_path()
+    if path:
+        try:
+            with open(path) as f:
+                record = json.load(f)
+            if (record["cwd"] == os.path.realpath(cwd)
+                    and record["head"] == git(["rev-parse", "HEAD"], cwd=cwd)):
+                return record
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return None
+
+
+def write_targeted_timeout(cwd, files, seconds):
+    files = sorted(set(files))
+    line = ("The Test files command timed out after %g seconds for %d %s; "
+            "the project's Test files command may be running more than the named files."
+            % (seconds, len(files), "file" if len(files) == 1 else "files"))
+    record = dict(cwd=os.path.realpath(cwd), head=git(["rev-parse", "HEAD"], cwd=cwd),
+                  files=files, seconds=seconds, line=line)
+    path = targeted_timeout_path()
+    if path:
+        with open(path, "w") as f:
+            json.dump(record, f)
+    return record
 
 
 def check_pass_state(cwd, settings):
@@ -706,9 +802,13 @@ def read_passed(project, session_id):
         return None, []
 
 
-def default_branch(project):
+def default_branch(project, refresh=False):
+    """Name the default branch, optionally fetching its latest commits."""
     ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=project, check=False)
-    return ref.replace("origin/", "", 1) or "main"
+    branch = ref.replace("origin/", "", 1) or "main"
+    if refresh:
+        git(["fetch", "--no-prune", "origin", branch + ":refs/remotes/origin/" + branch], cwd=project)
+    return branch
 
 
 def restore_loop_branch(project, branch):
@@ -817,7 +917,8 @@ def park(issue, question, recommendation, project="."):
     event("parked", project, issue=issue, reason=question, **({"rule": rule} if rule else {}))
     add_label(issue, "needs-user")
     remove_label(issue, "building")
-    warning = ("No test path was named in the question, so a yes cannot grant one.\n\n"
+    warning = ("No test path was named in the question, so a yes cannot grant one unless "
+               "the recommendation names exactly one test path.\n\n"
                if re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I)
                and not named_test_paths(question) else "")
     gh(["issue", "comment", str(issue), "--body-file", "-"], retry=False,

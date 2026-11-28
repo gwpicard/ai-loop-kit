@@ -68,7 +68,9 @@ sys.exit(int(failed))
         self.scenario([
             {"match": "pr list", "responses": [{"stdout": "[]"}]},
             {"match": "issue view", "responses": [{"stdout": json.dumps({
-                "title": "Change app behaviour", "body": "Change app behaviour.",
+                "title": "Change app behaviour",
+                "body": ("Change app behaviour.\n\n## Protected paths this issue may change\n\n"
+                         + EXISTING + "\n"),
                 "comments": []})}]},
             *[{"match": cmd, "responses": [{}]} for cmd in
               ("issue comment", "issue edit", "issue create")],

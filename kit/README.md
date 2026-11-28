@@ -115,9 +115,18 @@ After `loop check` passes with a clean tree, the Stop hook reuses its result
 at the same commit with matching selection inputs and settings. A new commit
 or uncommitted changes require another run.
 
+`loop check`, the builder's Stop hook and the loop's tests step limit the
+Test files command to one third of `Session minutes`, with a ten-minute
+minimum. A timeout reports the budget and file count, and warns that
+the project's Test files command may be running more than the named files.
+At the same HEAD in that build, `loop check`, Stop and the loop's tests step
+reuse the timeout without running commands. The loop records a
+`targeted-timeout` event and log line, and gives the warning to the reviewer.
+
 `Check command` is the project's guardrails (lint baseline, size budgets,
-architecture tests). It runs after every Test command run, and a failure
-counts like a test failure. `Smoke command` uses the real built artefact,
+architecture tests). It runs after each completed test run; a targeted
+timeout skips it. A failure counts like a test failure.
+`Smoke command` uses the real built artefact,
 such as the CLI on real input; only the end-of-loop pass runs it. Setup
 reports those that are set; none is required.
 
@@ -125,14 +134,14 @@ reports those that are set; none is required.
 builds one issue at a time. Each build is a separate process in its own
 worktree, so a crash or a hang in one cannot stop the loop or the others.
 
-The loop starts agent sessions at background priority so they favour
-efficiency cores on macOS and keep the machine responsive. Every Claude and
-Codex session, including the pass and summary, starts with `taskpolicy -b`
-on macOS when available. Otherwise, the session process uses `os.nice(10)`.
-Commands started by a session inherit its priority. The supervisor stays at
-normal priority, so the Test, Check, Prepare and Smoke commands it schedules
-run at normal priority. The full suite at merge and drain runs at normal
-priority to avoid the slowdown from using efficiency cores alone.
+The loop starts all Claude and Codex agent sessions, including the pass and
+summary, with `os.nice(10)` to keep the machine responsive. On macOS this
+lowers CPU priority without entering the background class. Test and Check
+commands started by `loop check` and the Stop hook inherit the raised
+niceness but run outside the macOS background class. The supervisor keeps
+normal priority, as do the Test, Check, Prepare and Smoke commands it starts.
+The full suite at merge and drain runs at normal priority to avoid the
+background class slowdown.
 
 Each build, drain and end-of-loop pass receives `LOOP_CACHE_DIR`, an existing
 folder under `<parent>/loop-cache/<project>/`, where `<parent>` holds
@@ -157,10 +166,11 @@ when `LOOP_CACHE_DIR` is unset or empty:
 
 Pass the quoted path to `xcodebuild` with `-derivedDataPath "$(DERIVED)"`.
 
-`Test minutes` in `loop.json` sets the Test command time limit at merge,
-drain and targeted checks. It defaults to 30 minutes and takes a whole number
-of at least one. At merge and drain, a timeout refusal reports the limit,
-elapsed time excluding pauses and up to 60 lines from the end of its output.
+`Test minutes` in `loop.json` sets the Test command time limit at merge
+and drain; the targeted checks above use their own budget. It defaults to
+30 minutes and takes a whole number of at least one. At merge and drain,
+a timeout refusal reports the limit, elapsed time excluding pauses and up
+to 60 lines from the end of its output.
 Prepare, Check and Smoke commands keep their 30-minute limits.
 
 The loop starts a build only for a `ready`, trusted issue whose dependencies
@@ -235,10 +245,17 @@ When a park's permission question ends with `?` and names test paths, a
 collaborator can reply "yes", whatever verb the question uses. The loop adds
 each path the stops list permits to the issue's
 `## Protected paths this issue may change` and requeues it.
-Paths named only in the recommendation and protected paths are never granted
-by a reply. A reply that does not clearly agree or contains a doubt word,
-or the loop's own comment, grants nothing. The reviewer may
-write scratch files in the system temp folder, never inside the project.
+
+If a question about a test change names no test path, the loop grants the
+recommended test path when the `Recommended:` line names exactly one. The
+grant comment says when the path came from the recommendation. An agreeing
+reply about a test change that grants no path receives one comment asking it
+to name the paths.
+
+Protected paths are never granted by a reply. A reply that does not clearly
+agree or contains a doubt word, or the loop's own comment, grants nothing.
+The reviewer may write scratch files in the system temp folder, never inside
+the project.
 
 ## The fast path
 
@@ -256,11 +273,20 @@ lock run first, so a refusal costs no test run.
 
 The merge count comes from `.loop/events.jsonl`, where each merge records
 `full_suite`, and survives restarts. A successful full merge run or drain
-resets it. If a due full Test command fails, the gate runs it once on the
-loop branch head. If that also fails, the issue parks with an explanation
-that the failure was already on the loop branch; otherwise it returns to
-the builder. Without a Test files command containing `{files}`, every merge
-runs the full suite. A merge also runs the full suite when the issue has no
+resets it. After any merge Test failure, the gate reruns the named failing
+modules present on the loop branch head with the Test files command. Without
+selectable modules or a Test files command containing `{files}`, it runs the
+full Test command there instead.
+
+An isolated failure returns to the builder with the failing lines, any
+hung-test stack, the merge log path and, when modules can be selected, a targeted
+rerun command. Shared failures are listed separately as already failing on the
+loop branch and outside the builder's work; if no new failure can be isolated,
+the issue parks. After two unsuccessful merge test fix rounds, counted apart
+from `Max rounds`, it parks with the latest diagnostics.
+
+Without a Test files command containing `{files}`, every merge runs the full
+suite. A merge also runs the full suite when the issue has no
 posted list of locked test modules, since changed files alone may omit tests
 that cover the issue.
 The drain always runs the full suite before the pass and final pull request.

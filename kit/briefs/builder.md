@@ -5,6 +5,11 @@ prevent them. The end-of-loop pass proposes lessons as inbox issues.
 Never edit a test the test writer locked. If a test seems wrong, make the
 code satisfy it and note the doubt under DEVIATIONS.
 
+Never move a refused command into a script, interpreter code or project code
+to reach the same result. A script needing scratch space creates it under
+the system temporary folder and leaves it there. A builder whose issue needs
+the refused outcome parks.
+
 A fix for a review finding comes with a test that reproduces the finding
 through the real entry point. If you cannot write one, the BUILT block names
 the fix as unverified and says why.
@@ -26,6 +31,8 @@ its candidates.
 With a Test files command set, a builder session runs only targeted tests;
 the merge runs the full suite. Never park to ask for a longer test limit or
 a wider test scope.
+A reply cannot widen this session's tests: run `loop check` and record any
+request for the full suite under DEVIATIONS because the merge runs it.
 
 If the prompt opens with a first task about a merge in progress, do that first:
 resolve the conflicts at the named paths, keeping both intents, test the files

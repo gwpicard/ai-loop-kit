@@ -210,21 +210,26 @@ def answer(st, protected=None):
                             if common.MARKER not in c["body"]
                             and common.has_write((c.get("author") or {}).get("login", ""))]
         if st["replies"][n]:
-            paths = parked_test_paths(comments[parks[-1]]["body"])
+            paths, source = parked_test_paths(comments[parks[-1]]["body"])
             last = st["replies"][n][-1].strip()
-            if paths and AGREES.search(last):
+            if source and AGREES.search(last):
                 doubt = DOUBTS.search(last)
+                added = []
                 if doubt:
-                    feedback = ("Test paths were not granted: %s. The last reply contains the doubt word `%s`. "
-                                'A plain "Yes." as the last reply grants the named test paths that the stops list permits.'
-                                % (", ".join("`%s`" % p for p in paths), doubt.group()))
+                    feedback = ("Test paths were not granted%s. The last reply contains the doubt word `%s`. "
+                                'A plain "Yes." as the last reply can grant test paths that the park names '
+                                'unambiguously and the stops list permits.'
+                                % ((": " + ", ".join("`%s`" % p for p in paths)) if paths else "", doubt.group()))
                 else:
                     added = [path for path in paths if grant_path(
                         i, path, protected if protected is not None else common.DEFAULTS["Protected paths"])]
                     feedback = ("Added to ## Protected paths this issue may change: "
-                                + ", ".join("`%s`" % p for p in added) + ".") if added else ""
-                if feedback:
-                    flow.post_once(n, feedback + "\n\n" + common.MARKER + "\n")
+                                + ", ".join("`%s`" % p for p in added) + ".") if added else "No test path was granted."
+                    if added and source == "recommendation":
+                        feedback += " The path came from the recommendation."
+                if not added:
+                    feedback += " Reply with the test paths to grant."
+                flow.post_once(n, feedback + "\n\n" + common.MARKER + "\n")
             common.remove_label(i["number"], "needs-user")
             common.add_label(i["number"], "ready")
             i["labels"] = (i["labels"] - {"needs-user"}) | {"ready"}
@@ -236,9 +241,18 @@ DOUBTS = re.compile(r"\b(no|not|don'?t|but|except|instead|only|unless|maybe|if|w
 
 
 def parked_test_paths(park):
-    """The test paths named in a park's question, never just its recommendation."""
-    text = park.split("Reply on this issue")[0].split("\nRecommended:")[0].split(common.MARKER)[0].strip()
-    return common.named_test_paths(text) if text.endswith("?") else []
+    """Test paths and their source: the question, or one recommended test path."""
+    text = park.split("Reply on this issue")[0].split(common.MARKER)[0]
+    question, _, recommendation = text.partition("\nRecommended:")
+    if not question.strip().endswith("?"):
+        return [], ""
+    paths = common.named_test_paths(question)
+    if paths:
+        return paths, "question"
+    if not re.search(r"\b(tests?|fixtures?|locks?)\b", question, re.I):
+        return [], ""
+    paths = common.named_test_paths((recommendation.splitlines() or [""])[0])
+    return paths if len(paths) == 1 else [], "recommendation"
 
 
 def grant_path(i, path, protected):
@@ -642,9 +656,9 @@ def start_pass(project, settings, st, head, since, pass_needed=True):
     """Use one extra slot so even Parallel: 1 can build beside the pass."""
     os.makedirs(os.path.join(project, ".loop", "builds"), exist_ok=True)
     os.makedirs(os.path.join(project, ".loop", "logs"), exist_ok=True)
-    path = common.build_file(project, "pass", "result")
-    with contextlib.suppress(FileNotFoundError):
-        os.remove(path)
+    for kind in ("result", "timeout"):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(common.build_file(project, "pass", kind))
     with open(os.path.join(project, ".loop", "logs", "pass-worker.log"), "a") as log:
         proc = subprocess.Popen([sys.executable, os.path.join(HERE, "pass_worker.py"), project,
                                  json.dumps(settings), head, since, json.dumps(pass_needed)], cwd=project,
@@ -679,9 +693,20 @@ def reap_pass(project, st, stopped=False):
             saved = json.load(f)
         if not isinstance(saved, dict) or not isinstance(saved.get("text"), str):
             raise ValueError("invalid pass result")
+        reason = saved.pop("reason", "")
     except (OSError, ValueError):
+        reason = "worker ended with exit code %s and no result" % proc.returncode
+        try:
+            with open(common.build_file(project, "pass", "timeout")) as f:
+                expired = json.load(f)
+            reason = "the %s command timed out (limit %g seconds, elapsed %.1f seconds): %s" % (
+                expired["name"], expired["limit"], expired["elapsed"], expired["command"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         saved = dict(head=running["since"], text="## End-of-loop pass\n\nCommit: `%s`.\n\n"
-                     "The pass failed: worker ended with exit code %s and no result.\n" % (running["head"], proc.returncode))
+                     "The pass failed: %s.\n" % (running["head"], reason))
+    count = re.search(r"^## End-of-loop pass \((\d+) sessions\)", saved["text"])
+    sessions = saved.pop("sessions", int(count[1]) if count else 0)
     with open(os.path.join(project, ".loop", "pass.json"), "w") as f:
         json.dump(saved, f)
     # Keep the result pending until GitHub accepts the refreshed body.
@@ -699,7 +724,11 @@ def reap_pass(project, st, stopped=False):
         gh(["pr", "edit", number, "--body-file", "-"], input=body + "\n\n" + saved["text"])
     st.pop("pass", None)
     st["pass_reaped"] = running["head"]
-    for kind in ("result", "pid"):
+    if reason:
+        say("end-of-loop pass failed: " + " ".join(reason.splitlines()))
+    else:
+        say("end-of-loop pass finished (%d sessions)" % sessions)
+    for kind in ("result", "pid", "timeout"):
         with contextlib.suppress(OSError):
             os.remove(common.build_file(project, "pass", kind))
     for path in groups:
@@ -709,7 +738,7 @@ def reap_pass(project, st, stopped=False):
 
 def _drain(project, settings, st):
     """Test the loop branch, then create or refresh the one pull request into the default."""
-    loop, base = settings["Loop branch"], common.default_branch(project)
+    loop = settings["Loop branch"]
     say("draining: running the Test command on " + loop)
     head, last = git(["rev-parse", "origin/" + loop], cwd=project), last_pass(project)
     log = ".loop/logs/drain.log"
@@ -723,6 +752,7 @@ def _drain(project, settings, st):
             diagnostics = "%s\nCould not read %s: %s" % (failed, log, error)
         say("drain failed: " + diagnostics.replace("\n", "; "))
         failed += "\n" + diagnostics
+    base = common.default_branch(project, refresh=True)
     landed = git(["log", "--format=- %s", "origin/%s..origin/%s" % (base, loop)], cwd=project)
     pass_needed = head != last.get("head")
     if "- Issue " in landed and not failed and not st.get("pass") and (pass_needed or cached_summary(project).get("head") != head):
@@ -753,10 +783,17 @@ def _drain(project, settings, st):
     if found:
         gh(["pr", "edit", str(found[0]["number"]), "--body-file", "-"], input=body)
     elif landed:  # a failed create is found by the next check, not repeated
-        gh(["pr", "create", "--base", base, "--head", loop, "--title", "Loop branch into " + base,
-            "--body-file", "-"], retry=False, input=body)
+        try:
+            gh(["pr", "create", "--base", base, "--head", loop, "--title", "Loop branch into " + base,
+                "--body-file", "-"], retry=False, input=body)
+        except common.GitHubError as error:
+            if "no commits between" not in str(error).lower():
+                raise
+            landed = ""
     st["pr"] = (find() or [{}])[0].get("url")
     st["last"] = "drained: " + (failed or "tests pass")
+    if not landed and not failed:
+        say("drained: nothing to merge")
     return diagnostics
 
 
@@ -893,6 +930,24 @@ def run(project):
     project = os.path.abspath(project)
     settings = common.read_settings(project)
     settings_error = None
+    settings_source = "checkout"
+
+    def reload_settings(refresh=False):
+        nonlocal settings, settings_error, settings_source
+        try:
+            selected, source, error = common.loop_settings(project, refresh=refresh)
+        except common.SettingsError as e:
+            if str(e) != settings_error:
+                say("keeping previous settings: %s" % e)
+                settings_error = str(e)
+            return
+        if error and error != settings_error:
+            say("settings: using loop.json from checkout; %s" % error)
+        elif source != settings_source:
+            say("settings: using loop.json from %s%s" % (
+                source, ", which differs from the checkout" if source != "checkout" else ""))
+        settings, settings_source, settings_error = selected, source, error
+
     moved, busy = setup.tidy(project)
     if moved:
         say("runtime folder: moved " + "; ".join(moved))
@@ -917,13 +972,7 @@ def run(project):
         common.warn_delete_branch_on_merge(project, say)
         while not os.path.exists(stop):
             try:
-                try:
-                    settings = common.read_settings(project)
-                    settings_error = None
-                except common.SettingsError as e:
-                    if str(e) != settings_error:
-                        say("keeping previous settings: %s" % e)
-                        settings_error = str(e)
+                reload_settings(refresh=True)
                 cap = (3 * settings["Session minutes"] + 30) * 60
                 common.restore_loop_branch(project, settings["Loop branch"])
                 st.update(branch=settings["Loop branch"], project=project)
@@ -953,6 +1002,7 @@ def run(project):
                     dirty = sync_default(project, settings["Loop branch"], st) or dirty
                     dirty = dirty or conflict != st["conflict"]
                     if dirty:
+                        reload_settings()
                         with common.settings_environment(settings):
                             drain(project, settings, st)
                         dirty = False
@@ -1038,19 +1088,29 @@ def check(project):
     """Run the session's targeted tests and guardrails with bounded output."""
     try:
         settings = common.build_settings(project)
+        cached = common.read_targeted_timeout(project)
+        if cached is not None:
+            print(cached["line"])
+            return 0
         path = common.check_pass_path()
         if path and os.path.exists(path):
             os.unlink(path)
         state = common.check_pass_state(project, settings) if path else None
+        files = []
         test, description = merge.targeted_command(
             settings, project, os.environ.get("LOOP_START"),
-            os.environ.get("LOOP_LOCKED", "").splitlines(), session=True)
+            os.environ.get("LOOP_LOCKED", "").splitlines(), session=True, selected=files)
         tails = [description]
         for name, command in (("Test", test), ("Check", settings["Check command"])):
             if not command:
                 continue
-            code, output = common.run_shell(command, project, merge.command_timeout(name, project),
+            targeted = name == "Test" and bool(settings["Test files command"])
+            timeout = common.targeted_budget(settings) if targeted else merge.command_timeout(name, project)
+            code, output = common.run_shell(command, project, timeout,
                                             record=os.environ.get("LOOP_GROUPS"))
+            if code is None and targeted:
+                print(common.write_targeted_timeout(project, files, timeout)["line"])
+                return 0
             if code != 0:
                 print("failed: %s%s" % (command, " (timed out)" if code is None else ""))
                 lines = output.strip().splitlines()
